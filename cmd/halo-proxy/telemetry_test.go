@@ -36,6 +36,7 @@ func TestRequestMetricsExported(t *testing.T) {
 	e := testEnv(t, up, func(c *Config, _ *policy.Org) {
 		c.Telemetry = gwmetrics.Config{OTLPEndpoint: col.URL, Protocol: gwmetrics.ProtoJSON, UnitSalt: "t", TokenFile: tokFile}
 	})
+	wait := e.awaitHandlers(t, 3) // flush only after all three handlers recorded
 	tok := e.token(t, "alice@acme.com", "ai-platform")
 	hdr := map[string]string{"x-claude-code-session-id": "sess-secret", "User-Agent": "claude-cli/2.1.300 (external, cli)"}
 	body := strings.Replace(msgBody, `"hi"`, `"prompt-canary"`, 1)
@@ -47,6 +48,7 @@ func TestRequestMetricsExported(t *testing.T) {
 		}
 	}
 	e.post(t, "/v1/messages/count_tokens", tok, body, hdr)
+	wait()
 	if err := e.p.otlp.Flush(context.Background()); err != nil {
 		t.Fatal(err)
 	}
