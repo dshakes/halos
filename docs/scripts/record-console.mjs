@@ -1,6 +1,6 @@
 // Records the console walkthrough on the landing page from a live `make demo`
-// stack: sign in as alice, open experiments, kill one, see the kill and its
-// audit entry. Drives headless Chrome over CDP (Node 22's WebSocket, no deps),
+// stack: sign in as alice, open experiments, kill one, open a feature toggle and
+// kill it too, then see the kills in the audit log. Drives headless Chrome over CDP (Node 22's WebSocket, no deps),
 // captures a screencast and encodes WebM + MP4 + GIF + a JPEG poster into
 // docs/public/media/console.*. Never hand-edit those.
 //
@@ -101,6 +101,33 @@ try {
   await until(`document.body.innerText.includes('p95 latency spike on the canary')`);
   await sleep(2600);
   posterIdx = frames.length - 1;
+  // Feature toggles: open one, read its rules, kill it with a reason (no release, no PR).
+  await click('a', 'Toggles');
+  await until(`document.body.innerText.includes('Feature toggles') && document.body.innerText.includes('github-mcp')`);
+  await sleep(1600);
+  await click('a', 'github-mcp');
+  await until(`location.hash.includes('github-mcp') && document.body.innerText.toLowerCase().includes('who gets it?')`);
+  await sleep(2200);
+  await click('aside button', 'Propose change');     // ramp it to 25%: a validated policy PR (a local branch in the demo)
+  await sleep(900);
+  await click('input', 'Rollout percent');
+  await type('25');
+  await click('input', 'Proposal reason');
+  await type('ramp the canary slice to 25 percent');
+  await sleep(400);
+  await click('button', 'Open PR');
+  await until(`document.body.innerText.includes('PR opened')`);
+  await sleep(2400);
+  await click('aside button', 'Kill');                // opens the reason dialog
+  await until(`!!document.querySelector('[role="dialog"][aria-modal="true"] input')`);
+  await sleep(600);
+  await type('GitHub MCP is returning 5xx');
+  await sleep(500);
+  await click('button', 'Kill toggle');
+  await until(`document.body.innerText.includes('Killed by')`);
+  await sleep(2600);
+  await click('aside button', 'Close');
+  await sleep(900);
   await click('a', 'Audit log');
   await until(`document.body.innerText.includes('opus-5-5-canary')`);
   await sleep(3000);

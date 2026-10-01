@@ -324,3 +324,79 @@ export function useUnkillExperiment() {
     onSettled: () => Promise.all([qc.invalidateQueries({ queryKey: ["kills"] }), qc.invalidateQueries({ queryKey: ["experiments"] })]),
   });
 }
+
+// ---- feature toggles ----
+const ToggleRule = z.object({
+  name: z.string().optional(),
+  rings: arr(z.string()),
+  groups: arr(z.string()),
+  users: arr(z.string()),
+  percent: z.number().optional(),
+  effect: z.string().optional(),
+});
+export type ToggleRule = z.infer<typeof ToggleRule>;
+const ToggleKill = z.object({ by: z.string(), reason: z.string().optional(), at: z.string() });
+const PatchSummary = z.object({ mcpServers: arr(z.string()), hooks: arr(z.string()), env: arr(z.string()), overrides: arr(z.string()) });
+const Toggle = z.object({
+  name: z.string(),
+  description: z.string().optional(),
+  owner: z.string(),
+  expires: z.string().optional(),
+  stale: z.boolean(),
+  axis: z.string(),
+  default: z.boolean(),
+  rules: arr(ToggleRule),
+  payload: z.object({ harnesses: rec(PatchSummary).optional(), routes: rec(z.string()).optional() }),
+  kill: ToggleKill.nullish(),
+});
+export type Toggle = z.infer<typeof Toggle>;
+const Toggles = z.object({ toggles: arr(Toggle), killEnabled: z.boolean() });
+export const useToggles = () => useQuery({ queryKey: ["toggles"], queryFn: () => get("/api/v1/toggles", Toggles), refetchInterval: 15_000 });
+
+const Preview = z.object({
+  subject: z.object({ id: z.string(), groups: arr(z.string()), ring: z.string().optional() }),
+  decision: z.object({ name: z.string(), on: z.boolean(), rule: z.number(), killed: z.boolean().optional(), why: z.string(), trace: arr(z.string()) }),
+});
+export type TogglePreview = z.infer<typeof Preview>;
+const ToggleDetail = z.object({ toggle: Toggle, history: arr(AuditEntry), preview: Preview.nullish() });
+/** The "who gets it?" tester: pass a user to get the evaluation and rule trace (same code as `halo toggle eval`). */
+export const useToggle = (name: string, user: string, ring: string, groups: string) =>
+  useQuery({
+    queryKey: ["toggle", name, user, ring, groups],
+    queryFn: () => get(`/api/v1/toggles/${encodeURIComponent(name)}?${new URLSearchParams({ ...(user ? { user } : {}), ...(ring ? { ring } : {}), ...(groups ? { groups } : {}) })}`, ToggleDetail),
+    refetchInterval: 15_000,
+  });
+
+const invalidateToggles = (qc: ReturnType<typeof useQueryClient>) => Promise.all([qc.invalidateQueries({ queryKey: ["toggles"] }), qc.invalidateQueries({ queryKey: ["toggle"] })]);
+/** Kill or restore a toggle fleet-wide through the signed kill list (no release, no PR). */
+export function useToggleKill() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (a: { name: string; kill: boolean; reason: string }) => {
+      const reason = a.reason.trim();
+      if (a.kill && !reason) return Promise.reject(new Error("A reason is required to kill a toggle."));
+      return call("POST", `/api/v1/toggles/${encodeURIComponent(a.name)}/${a.kill ? "kill" : "unkill"}`, z.object({ toggle: z.string(), killed: z.boolean(), changed: z.boolean() }), { reason });
+    },
+    onSettled: () => invalidateToggles(qc),
+  });
+}
+
+export interface ToggleProposal {
+  reason: string;
+  default?: boolean;
+  expires?: string;
+  rule?: string;
+  percent?: number;
+  addRings?: string[];
+  removeRings?: string[];
+  addGroups?: string[];
+  removeGroups?: string[];
+  addUsers?: string[];
+  removeUsers?: string[];
+}
+/** Opens a policy-repo PR (validated first); nothing changes until a human merges it. */
+export function useProposeToggle() {
+  return useMutation({
+    mutationFn: (a: { name: string; change: ToggleProposal }) => call("POST", `/api/v1/toggles/${encodeURIComponent(a.name)}/propose`, z.object({ prURL: z.string() }), a.change),
+  });
+}

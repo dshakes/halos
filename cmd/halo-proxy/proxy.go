@@ -181,8 +181,14 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			status = http.StatusOK
 		}
 		total := time.Since(start)
+		if a := rc.served; a != nil {
+			upstream, model = a.name, a.model // the target that answered, not the planned first
+		}
 		if gw != nil {
 			gw.Status, gw.Latency = status, total
+			if a := rc.served; a != nil { // routed call: provider kind and upstream/model are policy-bounded, never per-user
+				gw.Model, gw.Provider, gw.Target, gw.Failover = a.model, a.kind, a.key, rc.failover
+			}
 			p.otlp.Record(*gw)
 		}
 		ttfb := -1.0
@@ -201,6 +207,9 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if model != "" {
 			attrs = append(attrs, "upstream_model", model)
+		}
+		if a := rc.served; a != nil {
+			attrs = append(attrs, "provider", a.kind, "failover", rc.failover)
 		}
 		if rc.ttfb >= 0 {
 			attrs = append(attrs, "ttfb_ms", rc.ttfb.Milliseconds())
@@ -265,38 +274,17 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	target, sigRegion := p.next, ""
-	var attempts []attempt // routed model calls walk this list (failover); see failover()
+	target := p.next
+	// Every routed model call (d.Route non-empty, which is whenever the policy names an upstream for
+	// the alias) walks the attempt list: per-target URL, auth, SigV4 and failover live in route.go.
+	// Only nextHop / defaultUpstream traffic reaches the transport without attempts.
+	var attempts []attempt
 	if p.next == nil && len(d.Route) > 0 {
 		if attempts = p.buildAttempts(org, d, res.Protocol, escPath, body); len(attempts) == 0 {
 			writeErr(sw, http.StatusBadGateway, "bad_upstream", "policy upstream is misconfigured")
 			return
 		}
 		target = attempts[0].base
-	}
-	if attempts == nil && target == nil && d.Upstream != "" {
-		if target, err = parseBase(d.Upstream); err != nil {
-			p.log.Error("policy upstream url", "upstream", d.UpstreamName, "err", err)
-			writeErr(sw, http.StatusBadGateway, "bad_upstream", "policy upstream is misconfigured")
-			return
-		}
-		// Direct Bedrock: halo-proxy signs with its own AWS identity. A bedrock
-		// upstream with no region on a non-AWS host is an orchestrator/SigV4
-		// sidecar that signs itself: forwarded as before.
-		if up := org.Gateway.Upstreams[d.UpstreamName]; up.Kind == "bedrock" {
-			if sigRegion, err = upstreamauth.Region(up.Region, target.Host); err != nil && up.Region != "" {
-				p.log.Error("policy upstream region", "upstream", d.UpstreamName, "err", err)
-				writeErr(sw, http.StatusBadGateway, "bad_upstream", "policy upstream is misconfigured")
-				return
-			}
-			// Never sign for a host that is not an AWS endpoint or on the
-			// operator's signHosts allow list: creds must not reach third parties.
-			if sigRegion != "" && !upstreamauth.SignableHost(target.Host, p.cfg.SignHosts) {
-				p.log.Error("refusing to sigv4-sign for non-AWS host; add it to signHosts if intended", "upstream", d.UpstreamName, "host", target.Host)
-				writeErr(sw, http.StatusBadGateway, "bad_upstream", "policy upstream host is not allowed for signing")
-				return
-			}
-		}
 	}
 	if target == nil {
 		target = p.def
@@ -310,9 +298,6 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// headers (the subject is already derived), stamp the gateway-owned ones.
 	for _, n := range append(res.ClearHeaders, p.cfg.identityOptions().HeaderNames(org)...) {
 		r.Header.Del(n)
-	}
-	if sigRegion != "" {
-		upstreamauth.StripClientAmz(r.Header) // only gateway-set x-amz* may be signed
 	}
 	headers := p.cfg.UpstreamHeaders[d.UpstreamName]
 	if attempts != nil {
@@ -346,9 +331,6 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	p.mirrorJob(res, r.Header, escPath, body)
 
 	ctx := context.WithValue(r.Context(), ctxKey{}, rc)
-	if sigRegion != "" {
-		ctx = upstreamauth.WithBedrock(ctx, sigRegion)
-	}
 	p.rp.ServeHTTP(sw, r.WithContext(ctx))
 }
 

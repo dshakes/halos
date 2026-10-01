@@ -54,16 +54,32 @@ services:
       - ./demo/policy:/src/overlay:ro
     depends_on: [registry]
 
+  # A local bare repo as the policy remote + the clone halo-server proposes from (see init-policy-repo.sh).
+  policy-repo:
+    build: {context: ../.., dockerfile: deploy/compose/demo/Dockerfile.console}
+    image: halos-demo/halo-server
+    entrypoint: ["/bin/sh", "/init-policy-repo.sh"]
+    restart: "no"
+    volumes: ["demo:/demo:ro", "policy-repo:/repo", "./demo/init-policy-repo.sh:/init-policy-repo.sh:ro"]
+    depends_on:
+      seed: {condition: service_completed_successfully}
+
   halo-server:
     build: {context: ../.., dockerfile: deploy/compose/demo/Dockerfile.console} # with the web console embedded
     image: halos-demo/halo-server
     command: ["--listen", ":8080", "--policy-dir", "/demo/policy", "--token-file", "/demo/fleet.token",
               "--portal-config", "/demo/portal.json", "--data-dir", "/data",
               "--killswitch-key-file", "/demo/keys/killswitch.key", "--gateway-token-file", "/demo/gateway.token"]
-    volumes: ["demo:/demo:ro", "server-data:/data"]
+    volumes: ["demo:/demo:ro", "server-data:/data", "policy-repo:/repo"]
+    environment: # identity for the commits of console proposals
+      GIT_AUTHOR_NAME: Halos demo
+      GIT_AUTHOR_EMAIL: demo@halos.invalid
+      GIT_COMMITTER_NAME: Halos demo
+      GIT_COMMITTER_EMAIL: demo@halos.invalid
     ports: ["127.0.0.1:${HALO_DEMO_CONSOLE_PORT:-18080}:8080"]
     depends_on:
       seed: {condition: service_completed_successfully}
+      policy-repo: {condition: service_completed_successfully}
       mock-idp: {condition: service_started}
 
   halo-proxy:
@@ -98,4 +114,4 @@ services:
     depends_on:
       seed: {condition: service_completed_successfully}
 
-volumes: {demo: {}, server-data: {}, pairs: {}}
+volumes: {demo: {}, server-data: {}, pairs: {}, policy-repo: {}}

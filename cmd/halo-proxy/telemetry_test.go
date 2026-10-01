@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -82,5 +83,89 @@ func TestTelemetryConfigValidated(t *testing.T) {
 	cfg, err := loadConfig([]string{"--policy", "p.json"}, func(k string) string { return env[k] }, io.Discard)
 	if err != nil || cfg.Telemetry.TokenFile != "/run/otlp-token" {
 		t.Fatalf("telemetry token file from env: %q %v", cfg.Telemetry.TokenFile, err)
+	}
+}
+
+// A routed call exports the route it took: provider kind, the upstream/model that
+// answered (policy-bounded, never per-user) and whether an earlier target failed.
+func TestRouteAttributesExported(t *testing.T) {
+	var mu sync.Mutex
+	var bodies []string
+	col := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		bodies = append(bodies, string(b))
+		mu.Unlock()
+	}))
+	defer col.Close()
+
+	pSrv, _ := upstream(t, respond(503, `{"error":"overloaded"}`))
+	sSrv, _ := upstream(t, respond(200, `{"ok":true}`))
+	ups, targets := primarySecondary(pSrv, sSrv)
+	e := routeEnv(t, ups, targets, func(c *Config) {
+		c.Telemetry = gwmetrics.Config{OTLPEndpoint: col.URL, Protocol: gwmetrics.ProtoJSON, UnitSalt: "t"}
+	})
+	org, _ := e.p.snap.Get()
+	org.Gateway.Upstreams["direct"] = policy.Upstream{URL: sSrv.URL, Kind: "anthropic"}
+	org.Gateway.Models["plain"] = policy.ModelRoute{Upstream: "direct", Model: "m-plain"}
+	e.writePolicy(t, org)
+	waitPolicy(t, e, "plain")
+
+	wait := e.awaitHandlers(t, 2)
+	tok := e.token(t, "alice@acme.com")
+	if r := e.post(t, "/v1/messages", tok, opusBody, nil); r.StatusCode != 200 { // primary 503 -> secondary
+		t.Fatalf("failover request: status %d", r.StatusCode)
+	}
+	if r := e.post(t, "/v1/messages", tok, strings.Replace(opusBody, `"opus"`, `"plain"`, 1), nil); r.StatusCode != 200 {
+		t.Fatalf("plain request: status %d", r.StatusCode)
+	}
+	wait()
+	if err := e.p.otlp.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(bodies) != 1 {
+		t.Fatalf("%d exports, want 1", len(bodies))
+	}
+	var doc struct {
+		ResourceMetrics []struct {
+			ScopeMetrics []struct {
+				Metrics []struct {
+					Sum struct {
+						DataPoints []struct {
+							Attributes []struct {
+								Key   string
+								Value struct{ StringValue string }
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	if err := json.Unmarshal([]byte(bodies[0]), &doc); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, dp := range doc.ResourceMetrics[0].ScopeMetrics[0].Metrics[0].Sum.DataPoints {
+		a := map[string]string{}
+		for _, kv := range dp.Attributes {
+			a[kv.Key] = kv.Value.StringValue
+		}
+		got[a["halo.gateway.provider"]+"|"+a["halo.gateway.target"]+"|"+a["halo.gateway.failover"]+"|"+a["model"]] = true
+	}
+	for _, want := range []string{
+		"anthropic|s/m-secondary|true|m-secondary", // served by the secondary after the primary's 503
+		"anthropic|direct/m-plain|false|m-plain",   // answered by its only target
+	} {
+		if !got[want] {
+			t.Errorf("missing series %q in %v", want, got)
+		}
+	}
+	for _, leak := range []string{"alice", "acme.com"} {
+		if strings.Contains(bodies[0], leak) {
+			t.Errorf("export leaks %q", leak)
+		}
 	}
 }
