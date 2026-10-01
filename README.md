@@ -137,7 +137,7 @@ Commands: `halo rollout plan | status | simulate | advance | rollback` ([docs](h
 - **Shadow** first-turn requests to a candidate model and grade the pairs with an LLM judge. Nothing from the candidate is served.
 - **Toggles** turn one capability (an MCP server, a hook, a model route) on for a ring, an IdP group or a percentage of users. The payload ships inside the signed release. A kill needs no new release and takes effect at the next poll: about 10 s at gateways, 60 s on devices.
 
-<img src="assets/toggles.gif" alt="halo toggle eval shows which toggles are on for a developer and why; halo gateway routes shows the model route table with weights and failover" width="880">
+<img src="assets/toggles.gif" alt="halo toggle eval shows which toggles are on for a developer and why; halo gateway routes shows each model alias and the upstream it routes to" width="880">
 
 ## Measure, don't guess
 
