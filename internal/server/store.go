@@ -12,6 +12,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/dshakes/halos/internal/fsutil"
 )
 
 // HarnessStatus mirrors cmd/halod's per-harness report.
@@ -114,6 +116,9 @@ func OpenLogStore(dir string) (Store, error) {
 		}
 	}
 	if err := f.Close(); err != nil {
+		return nil, err
+	}
+	if err := fsutil.RestrictToOwner(tmp); err != nil {
 		return nil, err
 	}
 	if err := os.Rename(tmp, path); err != nil {

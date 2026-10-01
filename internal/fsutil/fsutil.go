@@ -36,6 +36,11 @@ func WriteAtomic(path string, data []byte, perm fs.FileMode) (err error) {
 	if err = tmp.Close(); err != nil {
 		return fmt.Errorf("close %s: %w", path, err)
 	}
+	if perm&0o077 == 0 { // a private file: on Windows that needs an owner-only DACL
+		if err = RestrictToOwner(tmp.Name()); err != nil {
+			return fmt.Errorf("write %s: %w", path, err)
+		}
+	}
 	if err = os.Rename(tmp.Name(), path); err != nil {
 		return fmt.Errorf("rename %s: %w", path, err)
 	}
@@ -57,6 +62,9 @@ func WriteAtomic(path string, data []byte, perm fs.FileMode) (err error) {
 // Use with WriteAtomic to keep an existing file's mode.
 func ExistingPerm(path string, def fs.FileMode) fs.FileMode {
 	if st, err := os.Stat(path); err == nil {
+		if runtime.GOOS == "windows" && VerifyPrivate(path) == nil {
+			return 0o600 // Windows reports 0666 for everything; keep an owner-only file owner-only
+		}
 		return st.Mode().Perm()
 	}
 	return def

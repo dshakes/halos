@@ -7,12 +7,13 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"testing"
 
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content/memory"
+
+	"github.com/dshakes/halos/internal/fsutil"
 )
 
 const example = "../../examples/acme-corp"
@@ -410,8 +411,8 @@ func TestKeysGenerateNeverOverwrites(t *testing.T) {
 		t.Fatalf("orphan private key left behind: %v", err)
 	}
 	// Windows has no POSIX mode bits (Perm() is always 0666); access is ACL-based.
-	if fi, err := os.Stat(filepath.Join(dir, "halo.key")); err != nil || (runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600) {
-		t.Fatalf("private key mode: %v %v", fi.Mode(), err)
+	if err := fsutil.VerifyPrivate(filepath.Join(dir, "halo.key")); err != nil {
+		t.Fatalf("private key: %v", err)
 	}
 }
 

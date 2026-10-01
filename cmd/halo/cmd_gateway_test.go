@@ -4,11 +4,11 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/dshakes/halos/internal/fsutil"
 	"github.com/dshakes/halos/internal/gateway/kong"
 	"github.com/dshakes/halos/internal/policy"
 	"github.com/dshakes/halos/internal/promote"
@@ -86,8 +86,8 @@ func TestUpsertVerdict(t *testing.T) {
 		t.Fatalf("row = %v", rows[1])
 	}
 	// Windows has no POSIX mode bits (Perm() is always 0666); access is ACL-based.
-	if st, _ := os.Stat(p); runtime.GOOS != "windows" && st.Mode().Perm() != 0o600 {
-		t.Errorf("mode = %v", st.Mode())
+	if err := fsutil.VerifyPrivate(p); err != nil {
+		t.Errorf("verdicts file not private: %v", err)
 	}
 	// not an array -> error, file untouched
 	os.WriteFile(p, []byte(`{"a":1}`), 0o644)

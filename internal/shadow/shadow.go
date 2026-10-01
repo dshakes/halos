@@ -19,6 +19,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/dshakes/halos/internal/fsutil"
 )
 
 // TokenHeader authenticates halo-kong to halo-shadow.
@@ -172,6 +174,10 @@ func (s *FileStore) open() error {
 	if err != nil {
 		return fmt.Errorf("shadow: open pair store %s: %w", s.path, err)
 	}
+	if err := fsutil.RestrictToOwner(s.path); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("shadow: %w", err)
+	}
 	s.f = f
 	return nil
 }
@@ -245,6 +251,9 @@ func (s *FileStore) Prune(now time.Time) (removed int, err error) {
 	}
 	if err := errors.Join(w.Flush(), tmp.Sync(), tmp.Close()); err != nil {
 		return 0, fmt.Errorf("shadow: prune flush: %w", err)
+	}
+	if err := fsutil.RestrictToOwner(tmp.Name()); err != nil {
+		return 0, fmt.Errorf("shadow: prune: %w", err)
 	}
 	// Windows cannot rename over a file we hold open: close first, reopen either way.
 	_ = in.Close()

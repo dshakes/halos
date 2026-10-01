@@ -21,6 +21,7 @@ import (
 	"oras.land/oras-go/v2/content/memory"
 
 	"github.com/dshakes/halos/internal/bundle"
+	"github.com/dshakes/halos/internal/fsutil"
 	"github.com/dshakes/halos/internal/harness"
 	"github.com/dshakes/halos/internal/policy"
 	"github.com/dshakes/halos/internal/release"
@@ -202,8 +203,8 @@ func TestApplyInstallDriftAndRemoval(t *testing.T) {
 	if !strings.Contains(e.read(settings), `"x":1`) {
 		t.Fatal("file not written")
 	}
-	if fi, _ := os.Stat(filepath.Join(e.root, "/etc/claude-code/old.json")); runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 { // no POSIX mode bits on Windows
-		t.Fatalf("mode %v", fi.Mode())
+	if err := fsutil.VerifyPrivate(filepath.Join(e.root, "/etc/claude-code/old.json")); err != nil {
+		t.Fatal(err)
 	}
 	if st.Harnesses["claude-code"].Installed != "2.0.0" || e.read(managedBin) != "fake-claude 2.0.0" || e.vendor.downloads.Load() != 1 {
 		t.Fatalf("verified install not done: %+v downloads=%d", st, e.vendor.downloads.Load())
