@@ -94,7 +94,9 @@ import http.server, json
 class H(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         name = self.path.lstrip('/').replace('%2f','/').replace('%2F','/').removesuffix('/latest')
-        body = json.dumps({"name": name, "version": "2.1.330" if "claude" in name else "0.101.0"}).encode()
+        versions = {"@anthropic-ai/claude-code": "2.1.330", "@openai/codex": "0.101.0", "@google/gemini-cli": "0.36.0"}
+        version = next((v for k, v in versions.items() if name.startswith(k)), "0.0.1")
+        body = json.dumps({"name": name, "version": version}).encode()
         self.send_response(200); self.send_header('content-type','application/json'); self.send_header('content-length',str(len(body))); self.end_headers(); self.wfile.write(body)
     def log_message(self,*a): pass
 http.server.HTTPServer(('127.0.0.1',8765),H).serve_forever()
