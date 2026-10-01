@@ -24,6 +24,7 @@ type killServer struct {
 	mu      sync.Mutex
 	key     ed25519.PrivateKey
 	list    []string
+	toggles []string  // killed feature toggles
 	issued  time.Time // zero: time.Now() per request
 	fail    bool
 	replay  []byte // served verbatim when set
@@ -54,7 +55,7 @@ func newKillServer(t *testing.T) *killServer {
 			if at.IsZero() {
 				at = time.Now()
 			}
-			env, err := gateway.SignKillList(k.key, gateway.KillList{Experiments: k.list, IssuedAt: at})
+			env, err := gateway.SignKillList(k.key, gateway.KillList{Experiments: k.list, Toggles: k.toggles, IssuedAt: at})
 			if err != nil {
 				t.Error(err)
 			}

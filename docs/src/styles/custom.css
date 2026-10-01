@@ -10,4 +10,12 @@
   --sl-color-accent-high: #0b4f4a;
 }
 .sl-markdown-content table { display: table; width: 100%; }
-.mermaid { margin: 1.5rem 0; text-align: center; }
+.sl-markdown-content img.diagram { display: block; max-width: 100%; height: auto; margin: 1.5rem auto; }
+/* Light/dark diagram pairs: unlayered, so restate Starlight's theme hiding at higher specificity. */
+[data-theme='light'] img.diagram.light\:sl-hidden,
+[data-theme='dark'] img.diagram.dark\:sl-hidden { display: none; }
+/* Landing page: problem → answer strip. */
+.halo-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 1rem; margin: 2rem 0; }
+.halo-strip > div { border: 1px solid var(--sl-color-gray-5); border-radius: 0.75rem; padding: 1rem 1.25rem; background: var(--sl-color-gray-7, var(--sl-color-black)); }
+.halo-strip p { margin: 0; color: var(--sl-color-gray-2); font-size: var(--sl-text-sm); }
+.halo-strip p.halo-problem { margin-bottom: 0.5rem; color: var(--sl-color-white); font-weight: 600; font-size: var(--sl-text-base); }

@@ -107,7 +107,7 @@ func newRoot(out, errw io.Writer) *cobra.Command {
 	root.PersistentFlags().StringVar(&output, "output", "text", "output format: text|json")
 	root.AddCommand(a.cmdInit(), a.cmdValidate(), a.cmdRender(), a.cmdPlan(), a.cmdRelease(),
 		a.cmdRollback(), a.cmdKeys(), a.cmdWhoami(), a.cmdHarnesses(), a.cmdExport(),
-		a.cmdExp(), a.cmdController(), a.cmdGateway(), a.cmdTelemetry(), a.cmdEval(), a.cmdMCP(), a.cmdVersion())
+		a.cmdExp(), a.cmdController(), a.cmdGateway(), a.cmdTelemetry(), a.cmdEval(), a.cmdUpgrade(), a.cmdMCP(), a.cmdToggle(), a.cmdRollout(), a.cmdVersion())
 	addPolicyDirFlags(root)
 	return root
 }

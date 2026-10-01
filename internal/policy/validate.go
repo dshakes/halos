@@ -34,12 +34,13 @@ var (
 	// Exact semver only: no ranges, no "latest", no leading "v".
 	semverRe  = regexp.MustCompile(`^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$`)
 	awsRegion = regexp.MustCompile(`^[a-z]{2}(-[a-z]+)+-[0-9]+$`)
+	gcpRegion = regexp.MustCompile(`^([a-z]+-[a-z]+[0-9]+|global)$`)
 
 	knownHarnesses   = []string{"claude-code", "codex", "gemini-cli", "copilot-cli"}
 	permissionModes  = []string{"default", "acceptEdits", "plan", "auto"}
 	sandboxModes     = []string{"off", "workspace-write", "read-only"}
 	protocolNames    = []string{"anthropic-messages", "bedrock-invoke", "openai-responses", "gemini"}
-	upstreamKinds    = []string{"orchestrator", "anthropic", "bedrock", "openai", "gemini"}
+	upstreamKinds    = []string{"orchestrator", "anthropic", "bedrock", "vertex", "openai", "azure-openai", "gemini"}
 	hookEvents       = []string{"PreToolUse", "PostToolUse", "SessionStart", "Stop", "UserPromptSubmit"}
 	otlpProtocols    = []string{"grpc", "http/protobuf"}
 	experimentStatus = []string{"draft", "running", "paused", "concluded"}
@@ -55,6 +56,7 @@ func (o *Org) Validate() []Issue {
 	v.profiles()
 	v.rings()
 	v.experiments()
+	v.rollouts()
 	for _, g := range DefaultGuardrails {
 		v.issues = append(v.issues, g(o)...)
 	}
@@ -70,6 +72,10 @@ func (v *validator) errf(path, format string, a ...any) {
 	v.issues = append(v.issues, Issue{SeverityError, path, fmt.Sprintf(format, a...)})
 }
 
+func (v *validator) warnf(path, format string, a ...any) {
+	v.issues = append(v.issues, Issue{SeverityWarning, path, fmt.Sprintf(format, a...)})
+}
+
 func (v *validator) oneOf(path, field, val string, set []string) {
 	if !slices.Contains(set, val) {
 		v.errf(path, "%s %q invalid, want one of %v", field, val, set)
@@ -81,6 +87,9 @@ func (v *validator) gateway() {
 	if g == nil {
 		v.errf("gateway", "no Gateway document defined")
 		return
+	}
+	if g.Engine != "" && g.Engine != "halo-proxy" && g.Engine != "kong" {
+		v.errf("gateway.engine", "%q must be halo-proxy or kong", g.Engine)
 	}
 	if u, err := url.Parse(g.BaseURL); err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
 		v.errf("gateway.baseURL", "%q must be an absolute http(s) URL", g.BaseURL)
@@ -94,26 +103,94 @@ func (v *validator) gateway() {
 	for _, name := range sortedKeys(g.Upstreams) {
 		up := g.Upstreams[name]
 		p := "gateway.upstreams." + name
-		if u, err := url.Parse(up.URL); err != nil || u.Host == "" {
-			v.errf(p+".url", "%q must be an absolute URL", up.URL)
+		if u, err := url.Parse(up.Endpoint()); err != nil || u.Host == "" {
+			v.errf(p+".url", "%q must be an absolute URL", up.Endpoint())
 		}
 		v.oneOf(p+".kind", "kind", up.Kind, upstreamKinds)
-		if up.Region != "" && (up.Kind != "bedrock" || !awsRegion.MatchString(up.Region)) {
-			v.errf(p+".region", "%q: region is only valid on kind bedrock and must look like us-east-1", up.Region)
+		switch {
+		case up.Region == "":
+		case up.Kind == "vertex":
+			if !gcpRegion.MatchString(up.Region) {
+				v.errf(p+".region", "%q must look like us-east5 or global", up.Region)
+			}
+		case up.Kind != "bedrock" || !awsRegion.MatchString(up.Region):
+			v.errf(p+".region", "%q: region is only valid on kinds bedrock (like us-east-1) and vertex", up.Region)
 		}
+		v.upstreamKind(p, up)
 	}
 	for _, alias := range sortedKeys(g.Models) {
 		v.route("gateway.models."+alias, g.Models[alias])
 	}
 }
 
-func (v *validator) route(path string, r ModelRoute) {
-	if r.Model == "" {
-		v.errf(path+".model", "model is required")
+// upstreamKind checks the per-kind fields: where a provider's credential lives
+// and which settings only make sense for one kind.
+func (v *validator) upstreamKind(p string, up Upstream) {
+	if up.Kind == "vertex" {
+		if up.Project == "" {
+			v.errf(p+".project", "project is required on kind vertex")
+		}
+		if up.Region == "" {
+			v.errf(p+".region", "region is required on kind vertex (e.g. us-east5 or global)")
+		}
+	} else if up.Project != "" {
+		v.errf(p+".project", "project is only valid on kind vertex")
 	}
-	if v.org.Gateway != nil {
-		if _, ok := v.org.Gateway.Upstreams[r.Upstream]; !ok {
-			v.errf(path+".upstream", "upstream %q not defined in gateway.upstreams", r.Upstream)
+	if up.APIVersion != "" && up.Kind != "azure-openai" {
+		v.errf(p+".apiVersion", "apiVersion is only valid on kind azure-openai")
+	}
+	c := up.Credential
+	if c == nil {
+		if up.Kind == "azure-openai" {
+			v.errf(p+".credential", "kind azure-openai needs credential.env or credential.file")
+		}
+		return
+	}
+	if up.Kind != "azure-openai" && up.Kind != "openai" {
+		v.errf(p+".credential", "credential is only valid on kinds openai and azure-openai")
+	}
+	if (c.Env == "") == (c.File == "") {
+		v.errf(p+".credential", "set exactly one of env or file")
+	}
+	if c.Scheme != "" && c.Scheme != "api-key" && c.Scheme != "bearer" {
+		v.errf(p+".credential.scheme", "%q must be api-key or bearer", c.Scheme)
+	}
+}
+
+func (v *validator) route(path string, r ModelRoute) {
+	g := v.org.Gateway
+	if len(r.Targets) == 0 {
+		if r.Model == "" {
+			v.errf(path+".model", "model is required")
+		}
+	} else if r.Upstream != "" || r.Model != "" {
+		v.errf(path, "set either upstream+model or targets, not both")
+	}
+	if g == nil {
+		return
+	}
+	targets := r.Candidates()
+	if len(targets) > 1 && g.Engine == "kong" {
+		v.warnf(path, "multi-target routes (weights, failover) run only in halo-proxy; halo-kong routes to the first target")
+	}
+	for i, t := range targets {
+		tp := path
+		if len(r.Targets) > 0 {
+			tp = fmt.Sprintf("%s.targets[%d]", path, i)
+		}
+		if t.Model == "" && len(r.Targets) > 0 {
+			v.errf(tp+".model", "model is required")
+		}
+		up, ok := g.Upstreams[t.Upstream]
+		if !ok {
+			v.errf(tp+".upstream", "upstream %q not defined in gateway.upstreams", t.Upstream)
+			continue
+		}
+		if t.Weight < 0 || t.Priority < 0 || t.TimeoutSeconds < 0 {
+			v.errf(tp, "weight, priority and timeoutSeconds must be >= 0")
+		}
+		if len(g.Protocols) > 0 && !slices.ContainsFunc(sortedKeys(g.Protocols), func(h string) bool { return KindServes(up.Kind, g.Protocols[h]) }) {
+			v.warnf(tp, "upstream %q (kind %s) cannot serve any configured harness protocol; this target would never be used", t.Upstream, up.Kind)
 		}
 	}
 }

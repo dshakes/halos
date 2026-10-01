@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dshakes/halos/internal/gateway"
@@ -38,6 +39,12 @@ type Proxy struct {
 	otlp   *gwmetrics.Emitter  // nil = request metrics export off
 	m      *metrics
 	log    *slog.Logger
+
+	breaker    *gateway.Breaker
+	getenv     func(string) string
+	vertexOnce sync.Once
+	vertexTS   upstreamauth.TokenSource // nil = Google ADC, resolved on first use
+	vertexErr  error
 }
 
 // routeCtx carries the per-request routing outcome into ReverseProxy.Rewrite.
@@ -46,12 +53,18 @@ type routeCtx struct {
 	escPath string // escaped request path after model rewrite
 	start   time.Time
 	ttfb    time.Duration // -1 until upstream headers arrive
+
+	// Routed model calls: the failover list and which target answered.
+	attempts []attempt
+	served   *attempt
+	failover bool // an earlier target failed or was skipped
 }
 
 type ctxKey struct{}
 
 func newProxy(cfg Config, log *slog.Logger) (*Proxy, error) {
-	p := &Proxy{cfg: cfg, snap: gateway.NewSnapshot(cfg.Policy), m: newMetrics(), log: log, sigv4: &upstreamauth.Bedrock{}}
+	p := &Proxy{cfg: cfg, snap: gateway.NewSnapshot(cfg.Policy), m: newMetrics(), log: log, sigv4: &upstreamauth.Bedrock{},
+		breaker: &gateway.Breaker{Threshold: cfg.Route.BreakerFailures, Cooldown: cfg.Route.BreakerCooldown}, getenv: os.Getenv}
 	var err error
 	if cfg.NextHop != "" {
 		if p.next, err = parseBase(cfg.NextHop); err != nil {
@@ -81,8 +94,8 @@ func newProxy(cfg Config, log *slog.Logger) (*Proxy, error) {
 	tr.MaxIdleConnsPerHost = 64
 	p.rp = &httputil.ReverseProxy{
 		Rewrite:       p.rewrite,
-		Transport:     p.sigv4.Transport(tr), // SigV4 for kind: bedrock upstreams
-		FlushInterval: -1,                    // flush every write: SSE / AWS eventstream must not be batched
+		Transport:     routeTransport{p: p, base: p.sigv4.Transport(tr)}, // SigV4 for kind: bedrock upstreams; failover for routed calls
+		FlushInterval: -1,                                                // flush every write: SSE / AWS eventstream must not be batched
 		ErrorHandler:  p.upstreamError,
 		ErrorLog:      slog.NewLogLogger(log.Handler(), slog.LevelWarn),
 		ModifyResponse: func(resp *http.Response) error {
@@ -110,6 +123,14 @@ func (p *Proxy) upstreamError(w http.ResponseWriter, r *http.Request, err error)
 	p.log.Warn("upstream error", "path", r.URL.Path, "err", err)
 	if errors.Is(err, context.Canceled) {
 		return // client went away; nothing to write
+	}
+	if errors.Is(err, errNoTarget) {
+		writeErr(w, http.StatusServiceUnavailable, "no_available_target", "every upstream target for this model is unavailable")
+		return
+	}
+	if errors.Is(err, upstreamauth.ErrNoSecret) {
+		writeErr(w, http.StatusBadGateway, "upstream_auth_error", "halo-proxy has no provider credential for the upstream")
+		return
 	}
 	if errors.Is(err, upstreamauth.ErrCredentials) {
 		writeErr(w, http.StatusBadGateway, "upstream_auth_error", "halo-proxy has no AWS credentials to sign the Bedrock request")
@@ -245,7 +266,15 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	target, sigRegion := p.next, ""
-	if target == nil && d.Upstream != "" {
+	var attempts []attempt // routed model calls walk this list (failover); see failover()
+	if p.next == nil && len(d.Route) > 0 {
+		if attempts = p.buildAttempts(org, d, res.Protocol, escPath, body); len(attempts) == 0 {
+			writeErr(sw, http.StatusBadGateway, "bad_upstream", "policy upstream is misconfigured")
+			return
+		}
+		target = attempts[0].base
+	}
+	if attempts == nil && target == nil && d.Upstream != "" {
 		if target, err = parseBase(d.Upstream); err != nil {
 			p.log.Error("policy upstream url", "upstream", d.UpstreamName, "err", err)
 			writeErr(sw, http.StatusBadGateway, "bad_upstream", "policy upstream is misconfigured")
@@ -285,6 +314,10 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if sigRegion != "" {
 		upstreamauth.StripClientAmz(r.Header) // only gateway-set x-amz* may be signed
 	}
+	headers := p.cfg.UpstreamHeaders[d.UpstreamName]
+	if attempts != nil {
+		headers = nil // applied per attempt: one target's key must not leak to the next
+	}
 	for k, v := range d.Headers {
 		r.Header.Set(k, v)
 	}
@@ -292,7 +325,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		r.Header.Del("Authorization")
 		r.Header.Del("x-api-key")
 	}
-	for k, v := range p.cfg.UpstreamHeaders[d.UpstreamName] {
+	for k, v := range headers {
 		r.Header.Set(k, os.ExpandEnv(v))
 	}
 	if body != nil {
@@ -301,7 +334,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		r.Header.Set("Content-Length", fmt.Sprint(len(res.Body)))
 		r.Header.Del("Transfer-Encoding")
 	}
-	rc.target, rc.escPath = target, res.Path
+	rc.target, rc.escPath, rc.attempts = target, res.Path, attempts
 
 	p.mirrorJob(res, r.Header, escPath, body)
 

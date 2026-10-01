@@ -21,6 +21,7 @@ import (
 
 	"github.com/dshakes/halos/internal/policy"
 	"github.com/dshakes/halos/internal/promote"
+	"github.com/dshakes/halos/internal/upgrade"
 )
 
 // Options configures New.
@@ -33,6 +34,9 @@ type Options struct {
 	// SchemaDir holds *.schema.json; auto-detected near PolicyDir when empty.
 	SchemaDir string
 	Version   string
+	// Upgrade, when set, supplies upgrade_candidates' Registry, Models and
+	// Verifier (tests); nil = npm and the vendors' release metadata.
+	Upgrade *upgrade.Watcher
 }
 
 type srv struct {

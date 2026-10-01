@@ -336,7 +336,8 @@ func (s *Server) getFleetRing(w http.ResponseWriter, r *http.Request) {
 	}
 	// subject is the device's bound user id, the same id the gateway hashes:
 	// halod needs it to pick the device's client-axis experiment variant.
-	writeJSON(w, http.StatusOK, map[string]string{"ring": ring.Name, "subject": dev.UserID})
+	// groups (from enrollment) let halod evaluate group-targeted feature toggles.
+	writeJSON(w, http.StatusOK, map[string]any{"ring": ring.Name, "subject": dev.UserID, "groups": dev.Groups})
 }
 
 func (s *Server) listDevices(w http.ResponseWriter, _ *http.Request, _ Principal) {

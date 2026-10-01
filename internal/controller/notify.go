@@ -33,6 +33,8 @@ const (
 
 // Event is what the controller tells humans about a verdict it acted on.
 type Event struct {
+	// Rollout is set for rollout events; Experiment is then its backing experiment.
+	Rollout     string          `json:"rollout,omitempty"`
 	Experiment  string          `json:"experiment"`
 	Axis        string          `json:"axis,omitempty"`
 	Verdict     promote.Verdict `json:"verdict"`
@@ -49,7 +51,11 @@ type Event struct {
 // Text is a one-paragraph human summary.
 func (e Event) Text() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Halos experiment %s: %s (%s)", e.Experiment, strings.ToUpper(string(e.Verdict)), e.Reason)
+	if e.Rollout != "" {
+		fmt.Fprintf(&b, "Halos rollout %s: %s (%s)", e.Rollout, strings.ToUpper(string(e.Verdict)), e.Reason)
+	} else {
+		fmt.Fprintf(&b, "Halos experiment %s: %s (%s)", e.Experiment, strings.ToUpper(string(e.Verdict)), e.Reason)
+	}
 	if e.Verdict == promote.Rollback {
 		switch e.KillOutcome {
 		case KillEnforced:

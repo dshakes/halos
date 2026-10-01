@@ -9,10 +9,8 @@ The `deploy/compose` demo runs Kong OSS with `halo-kong` end to end against **mo
 
 This is the topology Halos was designed for: Kong, then your auth gateway, then an orchestrator, then Bedrock.
 
-```mermaid
-flowchart LR
-  CC[Claude Code] --> K[Kong + halo-kong] --> A[auth GW] --> O[orchestrator<br/>SigV4] --> B[(Bedrock)]
-```
+<img class="diagram dark:sl-hidden" src="/halos/diagrams/bedrock-kong-light.svg" alt="Claude Code calls Kong with halo-kong, then your auth gateway, then an orchestrator that signs with SigV4 for Amazon Bedrock." width="760" />
+<img class="diagram light:sl-hidden" src="/halos/diagrams/bedrock-kong-dark.svg" alt="Claude Code calls Kong with halo-kong, then your auth gateway, then an orchestrator that signs with SigV4 for Amazon Bedrock." width="760" />
 
 Because Claude Code does not fetch server-managed settings on this path, configuration must be delivered by [file, MDM or environment](/halos/concepts/delivery/). You can equally run `halo-proxy` in place of the plugin; see [stack-agnostic](/halos/concepts/stack-agnostic/).
 

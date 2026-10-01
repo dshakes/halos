@@ -20,19 +20,8 @@ Claude Code's server-managed settings are not fetched with Bedrock or a custom `
 | MDM exports (`halo export jamf\|intune\|devcontainer`) | Jamf/Kandji `.mobileconfig` plus a `halod` postinstall; Intune PowerShell script writing the registry policy | Medium: slow, coarse | **UNVERIFIED**: no real Jamf, Kandji or Intune tenant; PowerShell not executed |
 | Self-service portal | Launchers and one-time enrollment for the above | n/a | Implemented in `halo-server`; see [portal](/halos/concepts/self-service-portal/) |
 
-```mermaid
-flowchart LR
-  REL[(signed release<br/>+ signed pointer)] --> F[Dev Container Feature]
-  REL --> C[Coder module]
-  REL --> P[Codespaces prebuild]
-  REL --> Y[halod]
-  REL --> M[MDM export]
-  F & C & P --> ENV[disposable environment<br/>firewall: gateway only]
-  Y & M --> LAP[laptop<br/>root-owned paths]
-  ENV & LAP --> V{pointer + signature valid?}
-  V -->|no| X[refuse, keep last good, report]
-  V -->|yes| A[atomic apply, report digest]
-```
+<img class="diagram dark:sl-hidden" src="/halos/diagrams/delivery-light.svg" alt="A signed release and pointer reach disposable environments (Dev Container Feature, Coder module, Codespaces prebuild) and laptops (halod, MDM export). Every path verifies pointer and signature: invalid means refuse and keep the last good release; valid means atomic apply and report the digest." width="760" />
+<img class="diagram light:sl-hidden" src="/halos/diagrams/delivery-dark.svg" alt="A signed release and pointer reach disposable environments (Dev Container Feature, Coder module, Codespaces prebuild) and laptops (halod, MDM export). Every path verifies pointer and signature: invalid means refuse and keep the last good release; valid means atomic apply and report the digest." width="760" />
 
 ## Why dev containers are primary
 

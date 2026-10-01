@@ -1,6 +1,8 @@
 ---
 title: Installation
 description: Build the Halos binaries, what each one does, and what you need around them.
+sidebar:
+  label: Components and source
 ---
 
 :::note[No tagged release yet]

@@ -25,48 +25,8 @@ There is no numbered findings register in the repository. Controls `C1` to `C16`
 
 ## Trust boundaries
 
-```mermaid
-flowchart TB
-  subgraph Z0[Z0 Internet and vendor hosts: untrusted]
-    VEND[vendor CLI download hosts / npm]
-    ATT[attacker on the network]
-  end
-  subgraph Z1[Z1 Developer machine]
-    USER[non-root user + agent process<br/>untrusted: can edit own files, send any header]
-    subgraph Z1R[Root-owned area]
-      HALOD[halod as root]
-      CFG[halod.yaml, release.pub, token, state<br/>root-owned chain]
-      MANAGED[managed config dirs]
-    end
-  end
-  subgraph Z2[Z2 Supply chain]
-    CI[CI publish + refresh job<br/>holds signing key]
-    REG[(OCI registry<br/>untrusted transport)]
-    GIT[policy repo + review gate]
-  end
-  subgraph Z3[Z3 Your infrastructure]
-    PX[halo-proxy / halo-kong]
-    SRV[halo-server portal + device store]
-    SHD[halo-shadow]
-    UP[model upstreams, IdP]
-  end
-  GIT -->|merge| CI
-  CI -->|signed release + pointer| REG
-  REG -->|pointer + release| HALOD
-  VEND -->|artifact bytes| HALOD
-  HALOD -->|allowlisted, 0644| MANAGED
-  CFG --> HALOD
-  USER -->|JWT, any headers| PX
-  USER -->|enrollment token| SRV
-  HALOD -->|device token| SRV
-  PX --> UP
-  PX -.job: experiment + variant only.-> SHD
-  SRV -->|signed kill list, bearer gateway token| PX
-  SHD -->|upstreams from own policy copy| UP
-  ATT -.-> REG
-  ATT -.-> PX
-  ATT -.-> SRV
-```
+<img class="diagram dark:sl-hidden" src="/halos/diagrams/trust-zones-light.svg" alt="Z0 internet and vendor hosts (untrusted), Z1 the developer machine with a root-owned area for halod and its config, Z2 the supply chain (policy repo, CI publish job holding the key, OCI registry), and Z3 your infrastructure (halo-proxy or halo-kong, model upstreams and IdP, halo-shadow, halo-server)." width="760" />
+<img class="diagram light:sl-hidden" src="/halos/diagrams/trust-zones-dark.svg" alt="Z0 internet and vendor hosts (untrusted), Z1 the developer machine with a root-owned area for halod and its config, Z2 the supply chain (policy repo, CI publish job holding the key, OCI registry), and Z3 your infrastructure (halo-proxy or halo-kong, model upstreams and IdP, halo-shadow, halo-server)." width="760" />
 
 ## Attacker models
 

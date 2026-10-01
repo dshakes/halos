@@ -94,6 +94,62 @@ archives:
   - <<: *arc
     id: halo-kong
     ids: [halo-kong]
+nfpms:
+  # deb/rpm/apk. halod is installed but never enabled or enrolled: the operator
+  # writes /etc/halos/halod.yaml and runs `systemctl enable --now halod`.
+  - &pkg
+    id: halo
+    ids: [halo]
+    package_name: halo
+    vendor: Halos
+    homepage: https://dshakes.github.io/halos
+    maintainer: Halos <https://github.com/dshakes/halos/issues>
+    description: Halos CLI - policy repo to signed releases for AI coding CLIs.
+    license: Apache-2.0
+    formats: [deb, rpm, apk]
+    bindir: /usr/bin
+  - <<: *pkg
+    id: halod
+    ids: [halod]
+    package_name: halod
+    description: Halos fleet agent - pulls, verifies and applies the ring's signed release.
+    contents:
+      - {src: deploy/packaging/halod.service, dst: /usr/lib/systemd/system/halod.service}
+      - {dst: /etc/halos, type: dir, file_info: {mode: 0755, owner: root, group: root}}
+    scripts:
+      postinstall: deploy/packaging/postinstall.sh
+      preremove: deploy/packaging/preremove.sh
+      postremove: deploy/packaging/postremove.sh
+# The tap/bucket repos and tokens are only needed on a real release; snapshot
+# builds skip every publisher. Prereleases build the manifests but do not push.
+brews:
+  - ids: [halo]
+    name: halo
+    homepage: https://dshakes.github.io/halos
+    description: Control plane for AI coding CLIs (Claude Code, Codex, Gemini)
+    license: Apache-2.0
+    skip_upload: auto
+    repository: {owner: dshakes, name: homebrew-tap, token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"}
+    test: system "#{bin}/halo", "version"
+scoops:
+  - ids: [halo]
+    homepage: https://dshakes.github.io/halos
+    description: Control plane for AI coding CLIs (Claude Code, Codex, Gemini)
+    license: Apache-2.0
+    skip_upload: auto
+    repository: {owner: dshakes, name: scoop-bucket, token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"}
+winget:
+  # Manifest stub: skip_upload keeps it a local artifact (dist/winget) to submit to microsoft/winget-pkgs by hand.
+  - ids: [halo]
+    name: halo
+    publisher: Halos
+    package_identifier: Halos.Halo
+    short_description: Control plane for AI coding CLIs (Claude Code, Codex, Gemini)
+    license: Apache-2.0
+    homepage: https://dshakes.github.io/halos
+    publisher_url: https://github.com/dshakes/halos
+    skip_upload: true
+    repository: {owner: dshakes, name: winget-pkgs, branch: "halo-{{ .Version }}"}
 checksum:
   name_template: checksums.txt
 sboms:

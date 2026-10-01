@@ -47,8 +47,12 @@ type Decision struct {
 	UpstreamName  string
 	Upstream      string // URL; "" = leave Kong's default service
 	UpstreamModel string // "" = leave the model untouched
-	Headers       map[string]string
-	Shadow        []ShadowTarget
+	// Route is the ordered attempt list (failover order) for the alias;
+	// UpstreamName/UpstreamModel/Upstream are its first element. halo-kong
+	// uses only those; halo-proxy walks Route.
+	Route   []policy.RouteTarget
+	Headers map[string]string
+	Shadow  []ShadowTarget
 }
 
 // Decide is pure and deterministic for a given (org, req).
@@ -67,6 +71,11 @@ func Decide(org *policy.Org, req RequestInfo) Decision {
 	}
 
 	route, routed := gwRoute(org.Gateway, req.ModelAlias)
+	if known && d.Ring != RingUnknown { // feature toggles: identity-gated like experiments
+		if r, ok := toggleRoute(org, sub, d.Ring, req.ModelAlias); ok {
+			route, routed = r, true
+		}
+	}
 	// No verified identity (or unknown ring) => default routing, no experiments.
 	// The first traffic-axis ab/canary experiment the subject is in routes and
 	// owns the x-halo-experiment/variant attribution. A client-axis experiment
@@ -108,9 +117,14 @@ func Decide(org *policy.Org, req RequestInfo) Decision {
 	}
 
 	if routed {
-		d.UpstreamName, d.UpstreamModel = route.Upstream, route.Model
-		if u, ok := upstreamURL(org.Gateway, route.Upstream); ok {
-			d.Upstream = u.URL
+		d.Route = RouteOrder(req.ModelAlias, route, StickyKey(req.UserID, req.SessionID))
+		first := route.Primary()
+		if len(d.Route) > 0 {
+			first = policy.ModelRoute{Upstream: d.Route[0].Upstream, Model: d.Route[0].Model}
+		}
+		d.UpstreamName, d.UpstreamModel = first.Upstream, first.Model
+		if u, ok := upstreamURL(org.Gateway, first.Upstream); ok {
+			d.Upstream = u.Endpoint()
 		}
 	}
 	d.Headers[HeaderRing] = d.Ring
@@ -160,6 +174,7 @@ func shadowTargets(org *policy.Org, e *policy.Experiment, ring string, req Reque
 		if v.Control || !ok {
 			continue
 		}
+		r = r.Primary() // shadow does not fail over
 		t := ShadowTarget{Experiment: e.Name, Variant: v.Name, Model: r.Model}
 		if u, ok := upstreamURL(org.Gateway, r.Upstream); ok {
 			t.Upstream = u.URL

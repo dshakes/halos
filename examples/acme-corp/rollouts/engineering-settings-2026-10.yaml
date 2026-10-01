@@ -1,0 +1,31 @@
+# yaml-language-server: $schema=../../../schemas/rollout.schema.json
+# Blue-green settings change (new permission denies + hooks in the
+# engineering profile): the new release is built, signed and published ahead
+# of time (the standby), so each step is one atomic pointer switch, and
+# rollback switches straight back to the baseline digest.
+apiVersion: halos.dev/v1alpha1
+kind: Rollout
+name: engineering-settings-2026-10
+axis: client
+status: draft
+change:
+  version: 2026.10.1
+  release: sha256:d1d14b047d6f110e107c13aa1b8e1df9448ed45b17e37f8b012d4b678d100edc
+baseline:
+  release: sha256:72ab9c781e2694d410b4a9313bec92acd02e501b03294cd23bb67191914a3bdc
+steps:
+  - name: harness-team
+    strategy: blue-green
+    ring: ring0-harness-team
+    bake: 4h
+  - name: early
+    strategy: blue-green
+    ring: ring2-early
+    bake: 1d
+    gates:
+      approval: true
+  - name: ga
+    strategy: blue-green
+    ring: ring3-ga
+    gates:
+      approval: true

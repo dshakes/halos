@@ -1,0 +1,109 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 300" width="880" height="300" role="img" aria-labelledby="t d" font-family="ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif">
+<title id="t">Experiment types</title>
+<desc id="d">A/B tests vary the client (CLI version, settings, MCP) through halod; canaries and shadow traffic vary the traffic route at halo-proxy. One hash of user and salt assigns variants on both axes.</desc>
+<style>
+.cv{fill:#0f141a;stroke:#232a33;stroke-width:1.5}
+.card{fill:#161b22;stroke:#2b3440;stroke-width:1.5}
+.soft{fill:url(#gs)}
+.ring{fill:none;stroke:url(#ga);stroke-width:1.5}
+.dcard{fill:#2a1517;stroke:#f87171;stroke-width:1.5}
+.ghost{fill:none;stroke:#56606c;stroke-width:1.5;stroke-dasharray:4 4}
+.zone{fill:#131921;stroke:#262f3a;stroke-width:1.5}
+.chip{fill:#1c232c;stroke:#2b3440;stroke-width:1}
+text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
+.t{font-size:13.5px;font-weight:600;fill:#e6edf3}
+.tm{font:600 12.5px ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;fill:#e6edf3}
+.td{fill:#f87171}
+.s{font-size:12px;fill:#9aa7b4}
+.m{font:11px ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;fill:#9aa7b4}
+.xs{font-size:10.5px;font-weight:500;fill:#7d8794}
+.xm{font-family:ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;font-weight:400}
+.xa{fill:url(#ga);font-weight:600}
+.xd{fill:#f87171;font-weight:600}
+.xw{fill:#0b1220;font-weight:600}
+.k{font-size:10.5px;font-weight:600;letter-spacing:.08em;fill:#7d8794}
+.ka{fill:url(#ga)}
+.h1{font-size:42px;font-weight:700;letter-spacing:-.02em;fill:#e6edf3}
+.ln,.la,.ld,.lm{fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.ln{stroke:#56606c}.la{stroke:url(#ga)}.ld{stroke:#f87171}.lm{stroke:#2b3440}
+.lane{stroke:#2b3440;stroke-width:1.5;stroke-dasharray:3 4}
+.dash{stroke-dasharray:5 5}
+.dl{fill:#56606c}.da{fill:url(#ga)}.dd{fill:#f87171}
+.pl{fill:#0f141a}.pa{fill:#0f141a;stroke:url(#ga);stroke-width:1}
+.pd{fill:#2a1517;stroke:#f87171;stroke-width:1}.ps{fill:url(#ga)}
+.fa{fill:url(#ga)}.fs{fill:url(#gs)}.fm{fill:#1c232c}.fd{fill:#f87171}.ft{fill:#e6edf3}
+.bdg{fill:url(#ga)}.bn{font-size:9.5px;font-weight:700;fill:#0b1220}
+.ic{fill:none;stroke:url(#ga);stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
+.pkt{fill:url(#ga)}
+.grow{transform-box:fill-box;transform-origin:left;animation:grow 4.8s cubic-bezier(.6,0,.2,1) infinite}
+@keyframes grow{0%{transform:scaleX(.08)}25%{transform:scaleX(.3)}50%{transform:scaleX(.55)}75%,100%{transform:scaleX(1)}}
+.flow{stroke-dasharray:4 6;animation:flow 1.1s linear infinite}
+@keyframes flow{to{stroke-dashoffset:-20}}
+.blink{animation:blink 3.2s ease-in-out infinite}
+@keyframes blink{0%,100%{opacity:.18}35%,65%{opacity:1}}
+.pulse{transform-box:fill-box;transform-origin:center;animation:pulse 2.8s ease-out infinite}
+@keyframes pulse{0%{opacity:.55;transform:scale(.6)}100%{opacity:0;transform:scale(1.5)}}
+@media (prefers-reduced-motion:reduce){.flow,.blink,.pulse,.grow{animation:none}.blink{opacity:1}.pulse,.pkt{display:none}}
+</style>
+<defs>
+<linearGradient id="ga" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="880" y2="0"><stop offset="0" stop-color="#2dd4bf"/><stop offset="1" stop-color="#818cf8"/></linearGradient>
+<linearGradient id="gs" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="880" y2="0"><stop offset="0" stop-color="#2dd4bf" stop-opacity="0.12"/><stop offset="1" stop-color="#818cf8" stop-opacity="0.12"/></linearGradient>
+<filter id="sh" x="-10%" y="-10%" width="120%" height="140%"><feDropShadow dx="0" dy="1" stdDeviation="1.6" flood-color="#000000" flood-opacity="0.45"/></filter>
+</defs>
+<rect class="cv" x=".75" y=".75" width="878.5" height="298.5" rx="16"/>
+<rect class="card" x="24" y="24" width="256" height="214" rx="12" filter="url(#sh)"/>
+<text class="k ka" x="40" y="48">CLIENT AXIS · HALOD</text>
+<text class="t" x="40" y="70">A/B test</text>
+<rect class="card" x="312" y="24" width="256" height="214" rx="12" filter="url(#sh)"/>
+<text class="k ka" x="328" y="48">TRAFFIC AXIS · HALO-PROXY</text>
+<text class="t" x="328" y="70">Canary</text>
+<rect class="card" x="600" y="24" width="256" height="214" rx="12" filter="url(#sh)"/>
+<text class="k ka" x="616" y="48">TRAFFIC AXIS · HALO-SHADOW</text>
+<text class="t" x="616" y="70">Shadow</text>
+<rect class="card" x="40" y="92" width="72" height="40" rx="8" filter="url(#sh)"/>
+<text class="t" x="76" y="116.5" text-anchor="middle">cohort</text>
+<rect class="card" x="162" y="84" width="102" height="36" rx="8" filter="url(#sh)"/>
+<text class="t" x="213" y="106.5" text-anchor="middle">control</text>
+<rect class="card" x="162" y="132" width="102" height="36" rx="8" filter="url(#sh)"/>
+<rect class="soft" x="162" y="132" width="102" height="36" rx="8"/>
+<rect class="ring" x="162.75" y="132.75" width="100.5" height="34.5" rx="7.25"/>
+<text class="t" x="213" y="154.5" text-anchor="middle">treatment</text>
+<path class="ln" d="M118 112L133.0 112.0Q138 112 138.0 107.0L138.0 107.0Q138 102 143.0 102.0L156 102"/>
+<path class="ln hd" d="M150.5 105.4L156 102L150.5 98.6"/>
+<path class="la" d="M118 112L133.0 112.0Q138 112 138.0 117.0L138.0 145.0Q138 150 143.0 150.0L156 150"/>
+<path class="la hd" d="M150.5 153.4L156 150L150.5 146.6"/>
+<text class="s" x="40" y="196">varies: CLI version, settings,</text>
+<text class="s" x="40" y="212">MCP servers, hooks</text>
+<rect class="card" x="328" y="92" width="82" height="40" rx="8" filter="url(#sh)"/>
+<text class="t" x="369" y="116.5" text-anchor="middle">halo-proxy</text>
+<rect class="card" x="450" y="84" width="102" height="36" rx="8" filter="url(#sh)"/>
+<text class="t" x="501" y="106.5" text-anchor="middle">current</text>
+<rect class="card" x="450" y="132" width="102" height="36" rx="8" filter="url(#sh)"/>
+<rect class="soft" x="450" y="132" width="102" height="36" rx="8"/>
+<rect class="ring" x="450.75" y="132.75" width="100.5" height="34.5" rx="7.25"/>
+<text class="t" x="501" y="154.5" text-anchor="middle">candidate</text>
+<path class="ln" d="M416 112L427.0 112.0Q432 112 432.0 107.0L432.0 107.0Q432 102 437.0 102.0L444 102"/>
+<path class="ln hd" d="M438.5 105.4L444 102L438.5 98.6"/>
+<path class="la flow" d="M416 112L427.0 112.0Q432 112 432.0 117.0L432.0 145.0Q432 150 437.0 150.0L444 150"/>
+<path class="la hd" d="M438.5 153.4L444 150L438.5 146.6"/>
+<text class="xs xm" x="534" y="79" text-anchor="end">95%</text>
+<text class="xs xa" x="534" y="182" text-anchor="end">5%</text>
+<text class="s" x="328" y="196">varies: model route, upstream,</text>
+<text class="s" x="328" y="212">user answered by either</text>
+<rect class="card" x="616" y="92" width="82" height="40" rx="8" filter="url(#sh)"/>
+<text class="t" x="657" y="116.5" text-anchor="middle">halo-proxy</text>
+<rect class="card" x="738" y="84" width="102" height="36" rx="8" filter="url(#sh)"/>
+<text class="t" x="789" y="106.5" text-anchor="middle">primary</text>
+<rect class="ghost" x="738" y="132" width="102" height="36" rx="8"/>
+<text class="t" x="789" y="154.5" text-anchor="middle">candidate</text>
+<path class="ln" d="M704 102L732 102"/>
+<path class="ln hd" d="M726.5 105.4L732 102L726.5 98.6"/>
+<path class="la dash flow" d="M657 136L657.0 145.0Q657 150 662.0 150.0L732 150"/>
+<path class="la hd" d="M726.5 153.4L732 150L726.5 146.6"/>
+<text class="xs xa" x="788" y="182" text-anchor="middle">→ judge</text>
+<text class="s" x="616" y="196">candidate never answers the user;</text>
+<text class="s" x="616" y="212">first turn copied async</text>
+<rect class="card" x="24" y="252" width="832" height="34" rx="10" filter="url(#sh)"/>
+<text class="k ka" x="40" y="273">assignment</text>
+<text class="m" x="124" y="273">hash(user, salt) % 10000 → variant, computed by internal/assign on the client and gateway alike</text>
+</svg>

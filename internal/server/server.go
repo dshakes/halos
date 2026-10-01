@@ -162,6 +162,8 @@ func (s *Server) Handler() http.Handler {
 	m.HandleFunc("POST /api/v1/experiments/{name}/status", s.admin(s.postExperimentStatus))
 	m.HandleFunc("POST /api/v1/experiments/{name}/kill", s.admin(s.postKill(true)))
 	m.HandleFunc("POST /api/v1/experiments/{name}/unkill", s.admin(s.postKill(false)))
+	m.HandleFunc("POST /api/v1/toggles/{name}/kill", s.admin(s.postToggleKill(true)))
+	m.HandleFunc("POST /api/v1/toggles/{name}/unkill", s.admin(s.postToggleKill(false)))
 	m.HandleFunc("GET /api/v1/killswitch", s.admin(s.getKills))
 	m.HandleFunc("GET /api/v1/gateway/killswitch", s.getGatewayKillswitch)
 	m.HandleFunc("POST /api/v1/devices/{id}/revoke", s.admin(s.revokeDevice))
@@ -171,6 +173,8 @@ func (s *Server) Handler() http.Handler {
 	m.HandleFunc("GET /api/v1/policy", s.admin(s.getPolicy))
 	m.HandleFunc("GET /api/v1/experiments", s.admin(s.listExperiments))
 	m.HandleFunc("GET /api/v1/experiments/{name}", s.admin(s.getExperiment))
+	m.HandleFunc("GET /api/v1/rollouts", s.admin(s.listRollouts))
+	m.HandleFunc("GET /api/v1/rollouts/{name}", s.admin(s.getRollout))
 	m.HandleFunc("GET /api/v1/harnesses", s.user(s.getHarnesses))
 	m.HandleFunc("GET /api/v1/whoami", s.user(s.whoami)) // developers: self only; admins: any user
 	// developer self-service

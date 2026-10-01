@@ -51,6 +51,10 @@ type Controller struct {
 	Log          *slog.Logger
 	TickTimeout  time.Duration // default 2m; bounds one whole tick
 
+	// RolloutStateDir holds one hash-chained state file per Rollout ("" =
+	// rollouts are not driven); PolicyDir is where step scorecards are read.
+	RolloutStateDir, PolicyDir string
+
 	ticks, errs atomic.Uint64
 	vmu         sync.Mutex
 	verdicts    map[promote.Verdict]uint64
@@ -78,8 +82,9 @@ func (c *Controller) fail(err error) error {
 	return err
 }
 
-// Tick evaluates every running experiment once and acts on the verdicts.
-// Per-experiment failures don't stop the others; all are joined in the result.
+// Tick evaluates every running experiment once and acts on the verdicts,
+// then drives active rollouts (see tickRollouts). Per-experiment failures
+// don't stop the others; all are joined in the result.
 func (c *Controller) Tick(ctx context.Context) error {
 	c.ticks.Add(1)
 	d := c.TickTimeout
@@ -108,10 +113,14 @@ func (c *Controller) Tick(ctx context.Context) error {
 			}
 			continue
 		}
+		if rolloutOwned(org, e.Name) {
+			continue // an active Rollout drives its backing experiment
+		}
 		if err := c.step(ctx, e); err != nil {
 			errs = append(errs, err)
 		}
 	}
+	errs = append(errs, c.tickRollouts(ctx, org))
 	return errors.Join(errs...)
 }
 

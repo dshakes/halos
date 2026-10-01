@@ -5,42 +5,8 @@ description: The three planes, the components, and how a change flows from git t
 
 Halos has three planes plus a policy source. Each plane can be adopted independently, but the loop closes only when all three run.
 
-```mermaid
-flowchart TB
-  subgraph Policy
-    G[policy repo<br/>profiles, rings, experiments, gateway] --> CMP[compiler<br/>harness adapters + release checks]
-    CMP --> REL[(Release<br/>OCI, ed25519-signed)]
-    REL --> PTR[(signed ring pointers<br/>seq + expiry)]
-  end
-  subgraph Client plane
-    PTR --> DC[Dev Container Feature]
-    PTR --> CD[Coder module]
-    PTR --> HALOD[halod agent]
-    REL --> MDM[MDM exports]
-    DC & CD & HALOD & MDM --> FILES[managed-settings / requirements.toml /<br/>system settings.json]
-    PORTAL[halo-server portal] -.launchers, enrollment.-> HALOD
-  end
-  subgraph Traffic plane
-    FILES -->|OIDC JWT| PX[halo-proxy or Kong + halo-kong]
-    PX --> AGW[your gateway / orchestrator] --> UP[(Bedrock / Anthropic / OpenAI-compatible)]
-    PX -.async first-turn mirror.-> SHD[halo-shadow]
-  end
-  subgraph Evidence plane
-    FILES -.OTLP.-> COL[OTEL collector<br/>normalize to halo.*]
-    COL --> CH[(ClickHouse)] --> GRA[Grafana]
-    SHD --> JDG[judge]
-    EVAL[halo eval run<br/>headless replay] --> SC[scorecards]
-    CH --> AN[halo exp analyze<br/>mSPRT, bootstrap]
-    JDG --> AN
-    SC --> AN
-    AN --> PRO[halo exp promote<br/>opens PR]
-    CH --> CTL[controller<br/>halo-server --controller]
-  end
-  PRO -->|human merges, ring pointer moves| G
-  CTL -->|pause / conclude PR| G
-  CTL -->|rollback: signed kill list| PORTAL
-  PORTAL -.kill list, polled.-> PX
-```
+<img class="diagram dark:sl-hidden" src="/halos/diagrams/architecture-light.svg" alt="Policy compiles to a signed release and ring pointers. The client plane (halod, MDM, Dev Container Feature, Coder, CI action) applies it; the traffic plane (halo-proxy or the Kong plugin) routes to Anthropic, Bedrock, Vertex or OpenAI; the evidence plane (OTEL, ClickHouse, halo eval, controller, console, MCP) proposes promotion PRs and fires the kill switch." width="880" />
+<img class="diagram light:sl-hidden" src="/halos/diagrams/architecture-dark.svg" alt="Policy compiles to a signed release and ring pointers. The client plane (halod, MDM, Dev Container Feature, Coder, CI action) applies it; the traffic plane (halo-proxy or the Kong plugin) routes to Anthropic, Bedrock, Vertex or OpenAI; the evidence plane (OTEL, ClickHouse, halo eval, controller, console, MCP) proposes promotion PRs and fires the kill switch." width="880" />
 
 ## Planes
 
@@ -60,24 +26,8 @@ flowchart TB
 
 ## Request path
 
-```mermaid
-sequenceDiagram
-  autonumber
-  participant CC as Claude Code
-  participant PX as halo-proxy (or Kong + halo-kong)
-  participant IDP as OIDC issuer (JWKS)
-  participant UP as Upstream (orchestrator, Anthropic, ...)
-  participant SD as halo-shadow
-  CC->>PX: POST /v1/messages (alias, Bearer JWT, spoofed x-halo-*)
-  PX->>PX: strip every x-halo-*
-  PX->>IDP: JWKS (cached, refetched on unknown kid)
-  PX->>PX: verify iss, aud, exp, nbf, alg
-  PX->>PX: ring, experiment, variant from user + groups
-  PX->>PX: model allowlist (fail closed), rewrite alias to variant route
-  PX->>UP: forward with x-halo-ring/release/experiment/variant
-  UP-->>CC: streamed response (no buffering)
-  PX--)SD: async job: experiment, variant, first-turn body (sampled)
-```
+<img class="diagram dark:sl-hidden" src="/halos/diagrams/request-path-light.svg" alt="Claude Code sends a request with a bearer JWT; halo-proxy strips client x-halo headers, verifies the token against the issuer JWKS, assigns ring, experiment and variant, enforces the model allowlist, forwards with x-halo stamps, streams the response and mirrors the first turn to halo-shadow asynchronously." width="760" />
+<img class="diagram light:sl-hidden" src="/halos/diagrams/request-path-dark.svg" alt="Claude Code sends a request with a bearer JWT; halo-proxy strips client x-halo headers, verifies the token against the issuer JWKS, assigns ring, experiment and variant, enforces the model allowlist, forwards with x-halo stamps, streams the response and mirrors the first turn to halo-shadow asynchronously." width="760" />
 
 The mirror is asynchronous and dropped when its queue is full. A shadow job carries only the experiment, variant, protocol, path, allowlisted headers and body; `halo-shadow` resolves both upstreams from its own copy of the policy.
 

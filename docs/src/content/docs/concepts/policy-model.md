@@ -45,18 +45,8 @@ Decoding is strict: an unknown field is an error reported with file and line.
 
 ## Documents
 
-```mermaid
-classDiagram
-  class Gateway { baseURL, protocols, auth, models, upstreams }
-  class Profile { extends, harnesses, models, permissions, mcp, hooks, telemetry, egress, instructions, env }
-  class Ring { order, profile, release, membership }
-  class Experiment { type, axis, status, rings, variants, sampleRate, metrics, stopping, salt }
-  Ring --> Profile : profile
-  Experiment --> Ring : rings
-  Experiment --> Profile : variant.profile (client axis)
-  Experiment --> Gateway : variant.routes (traffic axis)
-  Profile --> Profile : extends
-```
+<img class="diagram dark:sl-hidden" src="/halos/diagrams/policy-model-light.svg" alt="Rings point at a profile. Experiments target rings and vary either a profile (client axis) or gateway routes (traffic axis). Profiles extend other profiles." width="760" />
+<img class="diagram light:sl-hidden" src="/halos/diagrams/policy-model-dark.svg" alt="Rings point at a profile. Experiments target rings and vary either a profile (client axis) or gateway routes (traffic axis). Profiles extend other profiles." width="760" />
 
 ## Gateway
 
@@ -205,9 +195,7 @@ The release build then parses each rendered JSON/TOML file and fails if `bypassP
 
 ## Validation order
 
-```mermaid
-flowchart LR
-  Y[YAML, strict decode] --> L[loader: refs, extends, ring order] --> V[schema-level validation] --> G[Go guardrails] --> H[adapter render: warnings for unsupported fields] --> B[release backstop on rendered files]
-```
+<img class="diagram dark:sl-hidden" src="/halos/diagrams/validation-pipeline-light.svg" alt="YAML is strictly decoded, loaded (references, extends, ring order), schema-validated, checked by Go guardrails, rendered by adapters that warn on unsupported fields, and finally re-checked by the release backstop on the rendered files." width="760" />
+<img class="diagram light:sl-hidden" src="/halos/diagrams/validation-pipeline-dark.svg" alt="YAML is strictly decoded, loaded (references, extends, ring order), schema-validated, checked by Go guardrails, rendered by adapters that warn on unsupported fields, and finally re-checked by the release backstop on the rendered files." width="760" />
 
 Adapters *warn* rather than drop silently: `halo render` prints warnings such as `codex: profile field "hooks.items" is not supported and was not rendered`, and `halo release build` records them in the release manifest.

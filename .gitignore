@@ -12,3 +12,10 @@ coverage.out
 /halod
 /halo-*
 !/halo-*/
+
+# sandbox dir
+/private/
+
+# eval judge cache and upgrade watcher state
+.judge-cache/
+.halos/upgrade-state.json

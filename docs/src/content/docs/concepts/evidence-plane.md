@@ -5,26 +5,8 @@ description: Telemetry normalization, replay evals, statistics, and gated promot
 
 The evidence plane decides whether a change is safe. It has four parts, plus a consumer that acts on them: the [controller](#5-the-controller).
 
-```mermaid
-flowchart LR
-  subgraph Sources
-    CC[Claude Code OTEL]
-    CX[Codex OTEL / exec --json]
-    GM[Gemini CLI OTEL]
-    SH[halo-shadow pairs]
-    EV[halo eval runs]
-  end
-  CC & CX & GM --> COL[OTEL collector<br/>normalize]
-  COL --> CH[(ClickHouse<br/>halo.* tables)]
-  SH --> J[LLM judge] --> CH
-  EV --> SC[scorecards] --> CH
-  GWM[halo-proxy<br/>halo.gateway.* OTLP] --> COL
-  CH --> AN[halo exp analyze]
-  CH --> CTL[controller<br/>halo-server --controller]
-  AN -->|verdict| PR[halo exp promote: PR]
-  CTL -->|rollback| KS[kill switch + pause PR]
-  CTL -->|promote / expired| PR2[conclude PR]
-```
+<img class="diagram dark:sl-hidden" src="/halos/diagrams/evidence-flow-light.svg" alt="OTEL from Claude Code, Codex and Gemini CLI plus halo-proxy gateway metrics flow through the collector into ClickHouse; shadow pairs are graded by an LLM judge and eval runs become scorecards. halo exp analyze opens promotion PRs; the controller fires the kill switch with a pause PR on rollback, or opens a conclude PR on promote or expiry." width="760" />
+<img class="diagram light:sl-hidden" src="/halos/diagrams/evidence-flow-dark.svg" alt="OTEL from Claude Code, Codex and Gemini CLI plus halo-proxy gateway metrics flow through the collector into ClickHouse; shadow pairs are graded by an LLM judge and eval runs become scorecards. halo exp analyze opens promotion PRs; the controller fires the kill switch with a pause PR on rollback, or opens a conclude PR on promote or expiry." width="760" />
 
 ## 1. Telemetry normalization
 

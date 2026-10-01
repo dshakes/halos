@@ -1,0 +1,17 @@
+name: matrix-fixture
+tasks: [fix-add]
+repeats: 3
+k: 2
+seed: 42
+gate:
+  max_pass_drop: 0.10
+  max_cost_increase: 0.25
+matrix:
+  baseline: claude@2.1.312/sonnet/anthropic
+  harnesses:
+    - {harness: claude, version: "2.1.312", models: [sonnet]}
+    - {harness: codex, version: "0.60.0", models: [gpt-5]}
+    - {harness: gemini, version: "0.13.0", models: [gemini-2.5-pro]}
+  providers:
+    - {name: anthropic}
+    - {name: bedrock, aliases: {sonnet: sonnet-bedrock}}

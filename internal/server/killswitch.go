@@ -33,7 +33,19 @@ func (s *Server) KillExperiment(ctx context.Context, actor, name, reason string)
 
 // postKill (admin): POST /api/v1/experiments/{name}/kill|unkill {"reason":"..."}
 // (reason required to kill). 501 without KillKey. Takes effect on gateways at their next poll; no PR, no merge.
-func (s *Server) postKill(kill bool) authedHandler {
+func (s *Server) postKill(kill bool) authedHandler { return s.killHandler(kill, "experiment") }
+
+// toggleKillPrefix marks a feature-toggle name in the kill store (ValidName
+// forbids ':', so it cannot collide with an experiment). writeKillList splits
+// the store back into KillList.Experiments and KillList.Toggles.
+const toggleKillPrefix = "toggle:"
+
+// postToggleKill (admin): POST /api/v1/toggles/{name}/kill|unkill {"reason":"..."}.
+// Same auth, reason rule, audit trail and signed list as the experiment kill.
+func (s *Server) postToggleKill(kill bool) authedHandler { return s.killHandler(kill, "toggle") }
+
+// killHandler serves the kill/unkill of an experiment or a toggle (kind).
+func (s *Server) killHandler(kill bool, kind string) authedHandler {
 	return func(w http.ResponseWriter, r *http.Request, p Principal) {
 		// Without a signing key no kill list is served: a kill would enforce nothing.
 		if s.cfg.KillKey == nil {
@@ -59,15 +71,21 @@ func (s *Server) postKill(kill bool) authedHandler {
 			return
 		}
 		// Unkill is allowed for names no longer in policy, so stale kills can be cleared.
-		if kill && !slices.ContainsFunc(org.Experiments, func(e *policy.Experiment) bool { return e.Name == name }) {
-			apiErr(w, http.StatusNotFound, "experiment not found")
+		known := slices.ContainsFunc(org.Experiments, func(e *policy.Experiment) bool { return e.Name == name })
+		key := name
+		if kind == "toggle" {
+			known = slices.ContainsFunc(org.Toggles, func(t *policy.Toggle) bool { return t.Name == name })
+			key = toggleKillPrefix + name
+		}
+		if kill && !known {
+			apiErr(w, http.StatusNotFound, kind+" not found")
 			return
 		}
-		set, action := s.kills.Unkill, "experiment.unkill"
+		set, action := s.kills.Unkill, kind+".unkill"
 		if kill {
-			set, action = s.kills.Kill, "experiment.kill"
+			set, action = s.kills.Kill, kind+".kill"
 		}
-		changed, err := set(r.Context(), name, p.ID, in.Reason)
+		changed, err := set(r.Context(), key, p.ID, in.Reason)
 		if err != nil {
 			s.cfg.Log.Error("killswitch update failed", "experiment", name, "kill", kill, "err", err)
 			apiErr(w, http.StatusInternalServerError, "store failed")
@@ -76,7 +94,7 @@ func (s *Server) postKill(kill bool) authedHandler {
 		if changed {
 			if err := s.AuditStrict(r.Context(), p.ID, action, name, map[string]string{"reason": in.Reason}); err != nil {
 				if !kill { // an unrecorded unkill must not stay in force: re-kill (fail safe)
-					if _, rerr := s.kills.Kill(r.Context(), name, p.ID, "audit failure: unkill reverted"); rerr != nil {
+					if _, rerr := s.kills.Kill(r.Context(), key, p.ID, "audit failure: unkill reverted"); rerr != nil {
 						s.cfg.Log.Error("revert unkill after audit failure", "experiment", name, "err", rerr)
 					}
 				}
@@ -85,7 +103,7 @@ func (s *Server) postKill(kill bool) authedHandler {
 			}
 			s.cfg.Log.Warn("killswitch changed", "experiment", name, "killed", kill, "by", p.ID)
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"experiment": name, "killed": kill, "changed": changed})
+		writeJSON(w, http.StatusOK, map[string]any{kind: name, "killed": kill, "changed": changed})
 	}
 }
 
@@ -145,6 +163,10 @@ func (s *Server) writeKillList(w http.ResponseWriter) {
 	}
 	l := gateway.KillList{Version: version, Experiments: []string{}, IssuedAt: s.cfg.Now().UTC()}
 	for _, rec := range recs {
+		if t, ok := strings.CutPrefix(rec.Experiment, toggleKillPrefix); ok {
+			l.Toggles = append(l.Toggles, t)
+			continue
+		}
 		l.Experiments = append(l.Experiments, rec.Experiment)
 	}
 	env, err := gateway.SignKillList(s.cfg.KillKey, l)

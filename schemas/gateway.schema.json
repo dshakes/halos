@@ -71,7 +71,7 @@
       "description": "Stable alias (what clients request) to upstream target.",
       "additionalProperties": {
         "type": "object",
-        "description": "Upstream target for a model alias.",
+        "description": "Route for a model alias: either upstream+model, or an ordered/weighted list of targets (not both).",
         "properties": {
           "upstream": {
             "type": "string",
@@ -80,13 +80,61 @@
           "model": {
             "type": "string",
             "description": "Provider model id or Bedrock inference profile ARN."
+          },
+          "targets": {
+            "type": "array",
+            "description": "Provider targets in routing order.",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "description": "One provider target. Targets sharing a priority form a tier: weights split traffic within it (sticky per identity+session) and the rest of the tier is the failover order; later tiers are tried only after earlier ones fail (connect error, 5xx or 429, before any response byte).",
+              "properties": {
+                "upstream": {
+                  "type": "string",
+                  "description": "Name of an entry in gateway.upstreams."
+                },
+                "model": {
+                  "type": "string",
+                  "description": "Provider model id, Bedrock inference profile ARN, or Azure deployment name."
+                },
+                "weight": {
+                  "type": "number",
+                  "minimum": 0,
+                  "description": "Relative share of traffic within the priority tier."
+                },
+                "priority": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Failover tier, lowest first (default 0)."
+                },
+                "timeoutSeconds": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Connect plus response-header timeout for this target; streams are not time-limited afterwards."
+                }
+              },
+              "required": [
+                "upstream",
+                "model"
+              ],
+              "additionalProperties": false
+            }
           }
         },
-        "required": [
-          "upstream",
-          "model"
-        ],
-        "additionalProperties": false
+        "additionalProperties": false,
+        "oneOf": [
+          {
+            "required": [
+              "upstream",
+              "model"
+            ]
+          },
+          {
+            "required": [
+              "targets"
+            ]
+          }
+        ]
       }
     },
     "upstreams": {
@@ -98,32 +146,84 @@
         "properties": {
           "url": {
             "type": "string",
-            "description": "Base URL of the backend.",
+            "description": "Base URL of the backend (optional for kind vertex: derived from region).",
             "format": "uri"
           },
           "kind": {
             "type": "string",
-            "description": "Backend type.",
+            "description": "Backend type. vertex: Anthropic models on Google Vertex AI (ADC auth). azure-openai: Azure OpenAI Responses (credential required).",
             "enum": [
               "orchestrator",
               "anthropic",
               "bedrock",
+              "vertex",
               "openai",
+              "azure-openai",
               "gemini"
             ]
           },
           "region": {
             "type": "string",
-            "description": "AWS SigV4 region for kind bedrock (default: parsed from a bedrock-runtime.<region>.amazonaws.com host).",
-            "pattern": "^[a-z]{2}(-[a-z]+)+-[0-9]+$"
+            "description": "AWS SigV4 region for kind bedrock (default: parsed from a bedrock-runtime.<region>.amazonaws.com host); Google Cloud region (e.g. us-east5, or global) for kind vertex.",
+            "pattern": "^([a-z]{2}(-[a-z]+)+-[0-9]+|[a-z]+-[a-z]+[0-9]+|global)$"
+          },
+          "project": {
+            "type": "string",
+            "description": "Google Cloud project id (kind vertex)."
+          },
+          "apiVersion": {
+            "type": "string",
+            "description": "api-version query for kind azure-openai; empty uses the versionless /openai/v1 surface."
+          },
+          "credential": {
+            "type": "object",
+            "description": "Where halo-proxy reads the provider key (kinds openai, azure-openai): an environment variable name or a file path, never the secret itself.",
+            "properties": {
+              "env": {
+                "type": "string",
+                "description": "Environment variable on the halo-proxy host."
+              },
+              "file": {
+                "type": "string",
+                "description": "Secret file path on the halo-proxy host."
+              },
+              "scheme": {
+                "type": "string",
+                "enum": [
+                  "api-key",
+                  "bearer"
+                ],
+                "description": "Header style: api-key (default for azure-openai) or bearer (default for openai)."
+              }
+            },
+            "oneOf": [
+              {
+                "required": [
+                  "env"
+                ]
+              },
+              {
+                "required": [
+                  "file"
+                ]
+              }
+            ],
+            "additionalProperties": false
           }
         },
         "required": [
-          "url",
           "kind"
         ],
         "additionalProperties": false
       }
+    },
+    "engine": {
+      "type": "string",
+      "description": "Data plane enforcing this policy (default halo-proxy). Multi-target routes (weights, failover) run only in halo-proxy; halo-kong uses each route's first target.",
+      "enum": [
+        "halo-proxy",
+        "kong"
+      ]
     }
   },
   "required": [

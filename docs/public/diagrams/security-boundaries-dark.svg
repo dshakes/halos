@@ -1,0 +1,117 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 524" width="760" height="524" role="img" aria-labelledby="t d" font-family="ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif">
+<title id="t">Security boundaries</title>
+<desc id="d">Untrusted clients and networks; the gateway boundary that verifies OIDC JWTs, strips x-halo headers and fails closed on the model allowlist; a supply chain where a CI or HSM key signs releases into an OCI registry; halod as root verifying pointer and release before writing managed config; and halo-server issuing device tokens and a kill list signed with a separate key.</desc>
+<style>
+.cv{fill:#0f141a;stroke:#232a33;stroke-width:1.5}
+.card{fill:#161b22;stroke:#2b3440;stroke-width:1.5}
+.soft{fill:url(#gs)}
+.ring{fill:none;stroke:url(#ga);stroke-width:1.5}
+.dcard{fill:#2a1517;stroke:#f87171;stroke-width:1.5}
+.ghost{fill:none;stroke:#56606c;stroke-width:1.5;stroke-dasharray:4 4}
+.zone{fill:#131921;stroke:#262f3a;stroke-width:1.5}
+.chip{fill:#1c232c;stroke:#2b3440;stroke-width:1}
+text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
+.t{font-size:13.5px;font-weight:600;fill:#e6edf3}
+.tm{font:600 12.5px ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;fill:#e6edf3}
+.td{fill:#f87171}
+.s{font-size:12px;fill:#9aa7b4}
+.m{font:11px ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;fill:#9aa7b4}
+.xs{font-size:10.5px;font-weight:500;fill:#7d8794}
+.xm{font-family:ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;font-weight:400}
+.xa{fill:url(#ga);font-weight:600}
+.xd{fill:#f87171;font-weight:600}
+.xw{fill:#0b1220;font-weight:600}
+.k{font-size:10.5px;font-weight:600;letter-spacing:.08em;fill:#7d8794}
+.ka{fill:url(#ga)}
+.h1{font-size:42px;font-weight:700;letter-spacing:-.02em;fill:#e6edf3}
+.ln,.la,.ld,.lm{fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.ln{stroke:#56606c}.la{stroke:url(#ga)}.ld{stroke:#f87171}.lm{stroke:#2b3440}
+.lane{stroke:#2b3440;stroke-width:1.5;stroke-dasharray:3 4}
+.dash{stroke-dasharray:5 5}
+.dl{fill:#56606c}.da{fill:url(#ga)}.dd{fill:#f87171}
+.pl{fill:#0f141a}.pa{fill:#0f141a;stroke:url(#ga);stroke-width:1}
+.pd{fill:#2a1517;stroke:#f87171;stroke-width:1}.ps{fill:url(#ga)}
+.fa{fill:url(#ga)}.fs{fill:url(#gs)}.fm{fill:#1c232c}.fd{fill:#f87171}.ft{fill:#e6edf3}
+.bdg{fill:url(#ga)}.bn{font-size:9.5px;font-weight:700;fill:#0b1220}
+.ic{fill:none;stroke:url(#ga);stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
+.pkt{fill:url(#ga)}
+.grow{transform-box:fill-box;transform-origin:left;animation:grow 4.8s cubic-bezier(.6,0,.2,1) infinite}
+@keyframes grow{0%{transform:scaleX(.08)}25%{transform:scaleX(.3)}50%{transform:scaleX(.55)}75%,100%{transform:scaleX(1)}}
+.flow{stroke-dasharray:4 6;animation:flow 1.1s linear infinite}
+@keyframes flow{to{stroke-dashoffset:-20}}
+.blink{animation:blink 3.2s ease-in-out infinite}
+@keyframes blink{0%,100%{opacity:.18}35%,65%{opacity:1}}
+.pulse{transform-box:fill-box;transform-origin:center;animation:pulse 2.8s ease-out infinite}
+@keyframes pulse{0%{opacity:.55;transform:scale(.6)}100%{opacity:0;transform:scale(1.5)}}
+@media (prefers-reduced-motion:reduce){.flow,.blink,.pulse,.grow{animation:none}.blink{opacity:1}.pulse,.pkt{display:none}}
+</style>
+<defs>
+<linearGradient id="ga" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="760" y2="0"><stop offset="0" stop-color="#2dd4bf"/><stop offset="1" stop-color="#818cf8"/></linearGradient>
+<linearGradient id="gs" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="760" y2="0"><stop offset="0" stop-color="#2dd4bf" stop-opacity="0.12"/><stop offset="1" stop-color="#818cf8" stop-opacity="0.12"/></linearGradient>
+<filter id="sh" x="-10%" y="-10%" width="120%" height="140%"><feDropShadow dx="0" dy="1" stdDeviation="1.6" flood-color="#000000" flood-opacity="0.45"/></filter>
+</defs>
+<rect class="cv" x=".75" y=".75" width="758.5" height="522.5" rx="16"/>
+<rect class="zone" x="24" y="24" width="300" height="164" rx="16"/>
+<text class="k" x="40" y="48">UNTRUSTED</text>
+<rect class="card" x="40" y="60" width="268" height="52" rx="12" filter="url(#sh)"/>
+<text class="t" x="56" y="82.5">Client + request headers</text>
+<text class="s" x="56" y="100.5">may send any x-halo-* header</text>
+<rect class="card" x="40" y="124" width="268" height="52" rx="12" filter="url(#sh)"/>
+<text class="t" x="56" y="146.5">Network · CDN · vendor hosts</text>
+<text class="s" x="56" y="164.5">artifact bytes, hash-checked</text>
+<rect class="zone" x="436" y="24" width="300" height="164" rx="16"/>
+<text class="k ka" x="452" y="48">GATEWAY BOUNDARY</text>
+<rect class="card" x="452" y="60" width="268" height="112" rx="12" filter="url(#sh)"/>
+<rect class="soft" x="452" y="60" width="268" height="112" rx="12"/>
+<rect class="ring" x="452.75" y="60.75" width="266.5" height="110.5" rx="11.25"/>
+<text class="t" x="468" y="96.5">halo-proxy / halo-kong</text>
+<text class="s" x="468" y="114.5">verify OIDC JWT</text>
+<text class="s" x="468" y="130.5">strip every x-halo-*</text>
+<text class="s" x="468" y="146.5">model allowlist fails closed</text>
+<rect class="zone" x="24" y="212" width="300" height="164" rx="16"/>
+<text class="k ka" x="40" y="236">SUPPLY CHAIN</text>
+<rect class="card" x="40" y="248" width="268" height="48" rx="12" filter="url(#sh)"/>
+<text class="t" x="56" y="268.5">ed25519 signing key</text>
+<text class="s" x="56" y="286.5">CI or HSM / KMS</text>
+<rect class="card" x="40" y="316" width="268" height="48" rx="12" filter="url(#sh)"/>
+<text class="t" x="56" y="336.5">OCI registry</text>
+<text class="s" x="56" y="354.5">release + pointer · untrusted transport</text>
+<path class="ln" d="M174 302L174 310"/>
+<path class="ln hd" d="M170.6 304.5L174 310L177.4 304.5"/>
+<rect class="zone" x="436" y="212" width="300" height="164" rx="16"/>
+<text class="k ka" x="452" y="236">ROOT ON THE DEVICE</text>
+<rect class="card" x="452" y="248" width="268" height="64" rx="12" filter="url(#sh)"/>
+<rect class="soft" x="452" y="248" width="268" height="64" rx="12"/>
+<rect class="ring" x="452.75" y="248.75" width="266.5" height="62.5" rx="11.25"/>
+<text class="t" x="468" y="268.5">halod</text>
+<text class="s" x="468" y="286.5">verifies pointer + release</text>
+<text class="s" x="468" y="302.5">path allowlist · ownership checks</text>
+<rect class="card" x="452" y="328" width="268" height="36" rx="12" filter="url(#sh)"/>
+<text class="t" x="468" y="350.5">Managed config files</text>
+<path class="ln" d="M586 316L586 322"/>
+<path class="ln hd" d="M582.6 316.5L586 322L589.4 316.5"/>
+<rect class="zone" x="24" y="400" width="712" height="100" rx="16"/>
+<text class="k ka" x="40" y="424">HALO-SERVER</text>
+<rect class="card" x="40" y="436" width="320" height="56" rx="12" filter="url(#sh)"/>
+<text class="t" x="56" y="460.5">Portal</text>
+<text class="s" x="56" y="478.5">OIDC login · enrollment + device tokens</text>
+<rect class="card" x="452" y="436" width="268" height="56" rx="12" filter="url(#sh)"/>
+<rect class="soft" x="452" y="436" width="268" height="56" rx="12"/>
+<rect class="ring" x="452.75" y="436.75" width="266.5" height="54.5" rx="11.25"/>
+<text class="t" x="468" y="460.5">Kill list</text>
+<text class="s" x="468" y="478.5">signed with a separate ed25519 key</text>
+<path class="ln" d="M314 86L446 86"/>
+<path class="ln hd" d="M440.5 89.4L446 86L440.5 82.6"/>
+<rect class="pl" x="354.2" y="77" width="51.6" height="18" rx="9"/>
+<text class="xs" x="380" y="89.6" text-anchor="middle">request</text>
+<path class="ln" d="M314 150L364.0 150.0Q372 150 372.0 158.0L372.0 260.0Q372 268 380.0 268.0L446 268"/>
+<path class="ln hd" d="M440.5 271.4L446 268L440.5 264.6"/>
+<path class="ln" d="M314 340L392.0 340.0Q400 340 400.0 332.0L400.0 296.0Q400 288 408.0 288.0L446 288"/>
+<path class="ln hd" d="M440.5 291.4L446 288L440.5 284.6"/>
+<path class="ln" d="M366 464L410.0 464.0Q418 464 418.0 456.0L418.0 310.0Q418 302 426.0 302.0L446 302"/>
+<path class="ln hd" d="M440.5 305.4L446 302L440.5 298.6"/>
+<path class="la" d="M726 464L740.0 464.0Q748 464 748.0 456.0L748.0 124.0Q748 116 740.0 116.0L726 116"/>
+<path class="la hd" d="M731.5 112.6L726 116L731.5 119.4"/>
+<rect class="pl" x="318.2" y="191" width="107.7" height="18" rx="9"/>
+<text class="xs" x="372" y="203.6" text-anchor="middle">verified before use</text>
+</svg>

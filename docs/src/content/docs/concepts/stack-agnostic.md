@@ -7,18 +7,8 @@ The traffic plane does five things for every model call: verify the caller, assi
 
 ## Deploy modes
 
-```mermaid
-flowchart LR
-  subgraph A[a. edge]
-    A1[clients] --> A2[halo-proxy<br/>--next-hop] --> A3[existing gateway] --> A4[(provider)]
-  end
-  subgraph B[b. behind a gateway]
-    B1[clients] --> B2[existing gateway] --> B3[halo-proxy] --> B4[(provider)]
-  end
-  subgraph C[c. standalone]
-    C1[clients] --> C2[halo-proxy] --> C3[(providers)]
-  end
-```
+<img class="diagram dark:sl-hidden" src="/halos/diagrams/topologies-light.svg" alt="a. Edge: clients to halo-proxy with --next-hop to your existing gateway, then the provider. b. Behind a gateway: clients to your gateway, then halo-proxy, then the provider. c. Standalone: clients to halo-proxy to the providers." width="760" />
+<img class="diagram light:sl-hidden" src="/halos/diagrams/topologies-dark.svg" alt="a. Edge: clients to halo-proxy with --next-hop to your existing gateway, then the provider. b. Behind a gateway: clients to your gateway, then halo-proxy, then the provider. c. Standalone: clients to halo-proxy to the providers." width="760" />
 
 | | (a) edge | (b) behind a gateway | (c) standalone |
 |---|---|---|---|
@@ -100,20 +90,63 @@ Starting points in `deploy/integrations/`, not turnkey deployments. Files marked
 
 Kong specifics worth keeping if you hand-edit the generated config: exact regex routes (prefix routes would let `/v1/messages/batches` bypass the allowlist), `KONG_NGINX_HTTP_CLIENT_BODY_BUFFER_SIZE=32m` (otherwise bodies spool to disk and are answered 413), https-only routes, and the shadow token as a Kong vault reference (`{vault://env/halo-shadow-token}` plus `KONG_NGINX_MAIN_ENV=HALO_SHADOW_TOKEN`). A literal token is refused by the generator. If a Kong auth plugin hides the `Authorization` header, either forward it or use `trusted_header` with the CIDR pin. Never put Kong in front of an auth gateway and trust its `x-*-user` header: it is client-controlled there.
 
+## Model routes and failover
+
+Clients ask for a stable **alias** (`sonnet`, `opus`, `default`); the Gateway document decides where it goes. A route is one `{upstream, model}`, or a list of `targets` grouped into **priority tiers** (lower first). Within a tier, `weight` splits traffic with a pick that is sticky per user and harness session (hashed by `internal/assign`), and the rest of the tier is the failover order. Later tiers are tried only after earlier ones fail.
+
+<img class="diagram dark:sl-hidden" src="/halos/diagrams/route-failover-light.svg" alt="A model alias resolves to priority tiers. Within tier 0 a weighted pick, sticky per user and session, goes first and the rest of the tier follows. On a connect error, 5xx or 429, before any byte reaches the client, halo-proxy tries the next target, then the next tier." width="760" />
+<img class="diagram light:sl-hidden" src="/halos/diagrams/route-failover-dark.svg" alt="A model alias resolves to priority tiers. Within tier 0 a weighted pick, sticky per user and session, goes first and the rest of the tier follows. On a connect error, 5xx or 429, before any byte reaches the client, halo-proxy tries the next target, then the next tier." width="760" />
+
+```yaml
+# examples/acme-corp/gateway.yaml (excerpt)
+models:
+  opus:
+    targets:
+      - upstream: bedrock-use1        # priority 0: primary
+        model: arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/p7q2opus41bb
+        timeoutSeconds: 30            # connect + response headers; streams are not time-limited
+      - upstream: anthropic-direct    # priority 1: failover
+        model: claude-opus-4-1-20250805
+        priority: 1
+  default:
+    targets:                          # 90/10 split, sticky per user + session
+      - {upstream: anthropic-direct, model: claude-sonnet-4-5-20250929, weight: 90}
+      - {upstream: anthropic-direct, model: claude-opus-4-1-20250805, weight: 10}
+```
+
+`halo-proxy` moves to the next target on a connect error, a 5xx or a 429. Failover happens inside the round trip, before any response byte reaches the client: once a stream starts, it is never retried. Per-target circuit breakers skip a target after `route.breakerFailures` consecutive failures (default 5) and probe it again after `route.breakerCooldown` (default 30s). `route.maxAttempts` caps tries per request (default 3). These settings live in the `halo-proxy` config, not in policy. A target whose upstream kind cannot serve the client's wire is skipped for that client.
+
+See exactly what a user would hit:
+
+```console
+$ halo gateway routes --user alice@acme.com --session s-42 --policy-dir examples/acme-corp
+Routes for user "alice@acme.com" session "s-42"
+ALIAS           ORDER  UPSTREAM                KIND          MODEL                         WEIGHT  PRIORITY  TIMEOUT  NOTES
+default         1      anthropic-direct        anthropic     claude-opus-4-1-20250805      10      0         -        <- hit when healthy
+default         2      anthropic-direct        anthropic     claude-sonnet-4-5-20250929    90      0         -
+opus            1      bedrock-use1            bedrock       arn:aws:bedrock:…:p7q2opus41bb  -     0         30s      <- hit when healthy; skipped by codex,gemini-cli
+opus            2      anthropic-direct        anthropic     claude-opus-4-1-20250805      -       1         -
+```
+
+Output trimmed to two aliases, with the ARN shortened. Without `--user`, weighted tiers are shown in policy order. A model upgrade or a provider move is a one-line policy change; [toggles](/halos/concepts/toggles/) and canary experiments can switch a route for a cohort first.
+
 ## Providers
 
-A policy **upstream** is a base URL; a **model route** maps a stable alias to `{upstream, model}`. `halo-proxy` joins the upstream's path prefix with the request path and can inject credentials per upstream (`upstreamHeaders`). It does **not** translate wire protocols. The one provider it signs for is Amazon Bedrock (below).
+A policy **upstream** is a named backend with a `kind`; a **model route** maps a stable alias to one or more `{upstream, model}` targets. Same-wire kinds only get the model swapped. `halo-proxy` translates three cases (`internal/gateway/translate.go`), and skips any target whose kind cannot serve the client's wire.
 
-| Provider | Works directly? | Notes |
+| `kind` | Serves clients speaking | What `halo-proxy` does |
 |---|---|---|
-| Bedrock direct (`kind: bedrock`) | Yes, with `halo-proxy` | SigV4 signing by `halo-proxy` with its own AWS identity. Not `halo-kong` or `halo-shadow`. See below |
-| Bedrock via your orchestrator | Yes | The orchestrator does SigV4 and speaks Anthropic or Bedrock paths (`kind: orchestrator`) |
-| Anthropic API | Yes | `x-api-key` and `anthropic-version` via `upstreamHeaders` |
-| Azure AI Foundry (Claude) | Likely | Anthropic-compatible endpoint under a path prefix; confirm endpoint and header |
-| OpenAI-compatible (OpenAI, Azure OpenAI, vLLM) | Yes for `/v1/responses` | Needs the Responses API on the target |
-| Google Vertex (Claude) | **No** | Different wire format (model in the URL: `:rawPredict`, `:streamRawPredict`). The model allowlist rejects those paths, so `halo-proxy` neither routes nor signs them. Put LiteLLM or another translator in front and use it as the upstream |
+| `orchestrator` | any | Pass-through to your own LLM gateway; it handles provider auth |
+| `anthropic` | any (use with `anthropic-messages`) | Pass-through; auth via `upstreamHeaders` |
+| `bedrock` | `bedrock-invoke`, `anthropic-messages` | SigV4 with its own AWS identity (below). `anthropic-messages` is translated to `invoke` / `invoke-with-response-stream`, and the event stream is converted back to SSE |
+| `vertex` | `anthropic-messages` | Translated to `rawPredict` / `streamRawPredict` with the model in the path. Needs `project` and `region` (`us-east5` or `global`); the URL is derived. Token from Google ADC: a service-account key file or the metadata server (GKE workload identity, GCE, Cloud Run) |
+| `openai` | any (use with `openai-responses`) | Pass-through; bearer key from `credential.env` or `credential.file` |
+| `azure-openai` | `openai-responses` | Rewritten to `/openai/v1/responses`, or `/openai/responses?api-version=` when `apiVersion` is set; `model` is the deployment. `credential` is required |
+| `gemini` | any | Pass-through |
 
-All provider templates are **UNVERIFIED** (no provider accounts were available). Real Amazon Bedrock has not been exercised.
+Credentials never come from policy values or the client: client `Authorization`, `x-api-key` and `api-key` are dropped even with `forwardAuth`. Credentialed kinds must use https on the provider's own domain (`*.googleapis.com`, `api.openai.com`, `*.openai.azure.com`, ...) or an exact `upstreamHosts` entry; other hosts are never sent a credential. `count_tokens` has no Bedrock or Vertex equivalent and is skipped for them. `halo-kong` does not translate or fail over: it routes each alias to its first target.
+
+Translations are covered by fixture tests; all real providers are **UNVERIFIED** (no provider accounts were available).
 
 ### Direct Bedrock (SigV4 in halo-proxy)
 
@@ -160,4 +193,4 @@ A region on any other host gets `502 bad_upstream` ("policy upstream host is not
 
 **Check:** `halo validate` passes with the upstream, `halo-proxy` starts, and a request with a valid JWT for alias `sonnet` reaches Bedrock with an `Authorization: AWS4-HMAC-SHA256 ...` header. Verified with fixed-key tests (an AWS SigV4 test-suite vector plus a fake Bedrock that recomputes the signature). **UNVERIFIED:** real AWS Bedrock, IRSA and Pod Identity on a real cluster, and VPC endpoints.
 
-Also not included: mTLS or SPIFFE identity, per-user rate limiting, retries.
+Also not included: mTLS or SPIFFE identity, per-user rate limiting. (Failover across route targets is above; a single-target route is not retried.)

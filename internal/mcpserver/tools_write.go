@@ -67,6 +67,8 @@ func (s *srv) addWriteTools(m *mcp.Server) {
 		Description: "Open a PR pointing a ring at a release and concluding the experiment. Requires a promote verdict. dry_run (default true) returns the diff. Never merges."}, s.proposePromotion)
 	mcp.AddTool(m, &mcp.Tool{Name: "propose_rollback", Annotations: ann,
 		Description: "Pause an experiment and optionally re-point a ring at a known-good release in policy YAML. dry_run (default true) returns the patch; otherwise commits it to a new local branch. Does not retag the registry."}, s.proposeRollback)
+	s.addToggleWriteTools(m)
+	s.addRolloutWriteTools(m)
 }
 
 func boolp(b bool) *bool { return &b }

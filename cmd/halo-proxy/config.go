@@ -40,6 +40,15 @@ type Config struct {
 	// *.api.aws) for which a kind: bedrock upstream may be SigV4-signed, e.g. a
 	// private VPC endpoint DNS name. Signing for any other host is refused (502).
 	SignHosts []string `yaml:"signHosts"`
+	// UpstreamHosts are extra exact hostnames that may receive halo-proxy's
+	// provider credentials (kinds vertex, openai/azure-openai with a credential)
+	// besides the providers' own domains, e.g. a private endpoint.
+	UpstreamHosts []string `yaml:"upstreamHosts"`
+	// AllowInsecureUpstreams permits http:// for those kinds (in-cluster or test
+	// endpoints only); otherwise they must be https.
+	AllowInsecureUpstreams bool `yaml:"allowInsecureUpstreams"`
+	// Route tunes failover and circuit breaking for multi-target model routes.
+	Route RouteConfig `yaml:"route"`
 
 	Identity IdentityConfig `yaml:"identity"`
 	Shadow   ShadowConfig   `yaml:"shadow"`
@@ -98,6 +107,7 @@ func defaults() Config {
 		UpstreamHeaderTimeout: 10 * time.Minute,
 		ShutdownTimeout:       30 * time.Second,
 		Shadow:                ShadowConfig{MaxBytes: 1 << 20},
+		Route:                 RouteConfig{MaxAttempts: 3, BreakerFailures: 5, BreakerCooldown: 30 * time.Second},
 	}
 }
 
@@ -203,6 +213,9 @@ func (c Config) validate() error {
 	}
 	if c.MaxBodyBytes <= 0 {
 		return errors.New("halo-proxy: maxBodyBytes must be > 0")
+	}
+	if c.Route.MaxAttempts < 1 || c.Route.BreakerFailures < 1 || c.Route.BreakerCooldown <= 0 {
+		return errors.New("halo-proxy: route.maxAttempts, route.breakerFailures must be >= 1 and route.breakerCooldown > 0")
 	}
 	if err := c.Telemetry.Validate(); err != nil {
 		return fmt.Errorf("halo-proxy: %w", err)

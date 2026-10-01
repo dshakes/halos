@@ -7,15 +7,8 @@ description: Run a client-axis A/B of a new Claude Code (or Codex, Gemini CLI) v
 
 The example repo ships the pieces: `examples/acme-corp/experiments/claude-cli-2.1.3xx-ab.yaml` (enrolls `ring1-canary` and `ring2-early`) with profiles `engineering` (control, Claude Code 2.1.280) and `engineering-next` (treatment, 2.1.312).
 
-```mermaid
-flowchart LR
-  A[pin new version in a profile] --> B[halo validate]
-  B --> C[halo eval run]
-  C -->|pass| D["halo release publish ring1-canary<br/>ring release + 2 channels"]
-  D --> E[halod picks variant, pulls channel]
-  E -->|verdict: promote| F[PR: ring profile = treatment, conclude]
-  E -->|breach| G[pause + republish, or halo rollback]
-```
+<img class="diagram dark:sl-hidden" src="/halos/diagrams/cli-upgrade-flow-light.svg" alt="Pin a new CLI version in a profile, validate, run evals, and on pass publish ring1-canary with a ring release and two channels. halod picks the variant and pulls its channel. A promote verdict opens a PR setting the ring profile to treatment and concluding; a breach pauses and republishes or runs halo rollback." width="760" />
+<img class="diagram light:sl-hidden" src="/halos/diagrams/cli-upgrade-flow-dark.svg" alt="Pin a new CLI version in a profile, validate, run evals, and on pass publish ring1-canary with a ring release and two channels. halod picks the variant and pulls its channel. A promote verdict opens a PR setting the ring profile to treatment and concluding; a breach pauses and republishes or runs halo rollback." width="760" />
 
 The commands below were run against a local registry, `halo`, and a test build of `halod`. They were not run against a live fleet or the telemetry pipeline (**UNVERIFIED** at fleet scale).
 

@@ -181,6 +181,18 @@ func (w *GitPolicyWriter) ProposeStatus(ctx context.Context, experiment, status,
 	return gw.ProposeStatus(ctx, experiment, status, title, body)
 }
 
+// ProposeRollout implements controller.RolloutWriter on this clone (same
+// lock and sync as ProposeStatus).
+func (w *GitPolicyWriter) ProposeRollout(ctx context.Context, plan func(string) (*promote.Change, error), branch, title string, body func(string) string) (string, error) {
+	base, release, err := w.lockSynced(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer release()
+	gw := controller.GitWriter{RepoDir: w.RepoDir, Subdir: w.Subdir, Base: base, Opener: w.Opener}
+	return gw.ProposeRollout(ctx, plan, branch, title, body)
+}
+
 var htmlTag = regexp.MustCompile(`<[^>]*>`)
 
 // fenceUntrusted renders requester text inertly in a PR body: HTML tags

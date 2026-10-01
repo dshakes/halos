@@ -38,13 +38,15 @@ Commands:
   run      pull, verify and apply the ring's signed release every interval
   once     one pull/verify/apply/report cycle, then exit
   status   print the last status from the state file
+  service  install|uninstall|print the launchd/systemd unit (windows: scheduled task)
   help     show this help (halod <command> -h for a command's flags)
 `
 
 var commandHelp = map[string]string{
-	"run":    "Pull, verify and apply the ring's signed release every interval (config: interval).",
-	"once":   "Run one pull/verify/apply/report cycle and exit non-zero on failure.",
-	"status": "Print the status recorded by the last run.",
+	"run":     "Pull, verify and apply the ring's signed release every interval (config: interval).",
+	"once":    "Run one pull/verify/apply/report cycle and exit non-zero on failure.",
+	"status":  "Print the status recorded by the last run.",
+	"service": "Manage the OS service: halod service install|uninstall|print [--exe PATH] [--start].",
 }
 
 func run(args []string, stdout, stderr io.Writer) error {
@@ -61,6 +63,9 @@ func run(args []string, stdout, stderr io.Writer) error {
 	if _, ok := commandHelp[cmd]; !ok {
 		fmt.Fprint(stderr, usage)
 		return fmt.Errorf("unknown command %q", cmd)
+	}
+	if cmd == "service" {
+		return serviceCmd(args[1:], stdout)
 	}
 	fl := flag.NewFlagSet(cmd, flag.ContinueOnError)
 	fl.SetOutput(stdout)
@@ -207,4 +212,27 @@ func seat0User(out string) string {
 		}
 	}
 	return ""
+}
+
+// serviceCmd parses `halod service <action> [flags]`; it needs no halod config.
+func serviceCmd(args []string, stdout io.Writer) error {
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		return errors.New("usage: halod service install|uninstall|print [--exe PATH] [--start]")
+	}
+	fl := flag.NewFlagSet("service", flag.ContinueOnError)
+	fl.SetOutput(stdout)
+	exe := fl.String("exe", "", "halod binary path in the unit (default: the OS's packaged location)")
+	start := fl.Bool("start", false, "install: also enable and start the service")
+	if err := fl.Parse(args[1:]); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	run := func(ctx context.Context, name string, a ...string) ([]byte, error) {
+		return exec.CommandContext(ctx, name, a...).CombinedOutput()
+	}
+	return runService(ctx, runtime.GOOS, "", *exe, args[0], *start, stdout, run)
 }

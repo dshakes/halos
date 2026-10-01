@@ -126,7 +126,7 @@ func validateRequest(org *policy.Org, req *Request) error {
 	case "ring-opt-in":
 		ok = slices.ContainsFunc(org.Rings, func(r *policy.Ring) bool { return r.Name == req.Item && r.Membership.OptIn })
 	case "model":
-		ok = org.Gateway != nil && org.Gateway.Models[req.Item] != (policy.ModelRoute{})
+		ok = org.Gateway != nil && len(org.Gateway.Models[req.Item].Candidates()) > 0
 	case "harness":
 		ok = slices.Contains(requestableHarnesses(), req.Item)
 	}

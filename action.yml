@@ -1,0 +1,94 @@
+name: Setup Halos
+description: >-
+  Install a pinned, checksum-verified halo CLI (and optionally halod) on a runner and,
+  optionally, apply a ring's signed release once so headless AI CLIs get the managed config.
+branding: {icon: shield, color: blue}
+inputs:
+  version:
+    description: Release tag to install, e.g. v0.4.0. Pin it; there is no "latest".
+    required: true
+  with-agent:
+    description: Also install halod.
+    default: "false"
+  apply:
+    description: >-
+      Run `halod once` against the ring below (implies with-agent). Linux and macOS only;
+      uses sudo because halod writes root-owned managed settings.
+    default: "false"
+  registry:
+    description: OCI repository of the releases (apply only), e.g. ghcr.io/acme/halos-releases.
+    default: ""
+  org:
+    description: Org in the signed ring pointer (apply only).
+    default: ""
+  ring:
+    description: Fixed ring name to apply (apply only), e.g. ci.
+    default: ""
+  pubkey:
+    description: Release ed25519 public key, PEM contents (apply only).
+    default: ""
+runs:
+  using: composite
+  steps:
+    - name: Validate inputs
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+        APPLY: ${{ inputs.apply }}
+        REGISTRY: ${{ inputs.registry }}
+        ORG: ${{ inputs.org }}
+        RING: ${{ inputs.ring }}
+        PUBKEY: ${{ inputs.pubkey }}
+      run: |
+        [[ "$VERSION" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+([.+-][A-Za-z0-9.+-]+)?$ ]] || { echo "::error::version must be a pinned release tag"; exit 1; }
+        if [ "$APPLY" = true ]; then
+          [ "$RUNNER_OS" != Windows ] || { echo "::error::apply is not supported on Windows runners"; exit 1; }
+          [[ "$REGISTRY" =~ ^[A-Za-z0-9._:/-]+$ && "$ORG" =~ ^[A-Za-z0-9._-]+$ && "$RING" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] \
+            || { echo "::error::apply needs valid registry, org and ring"; exit 1; }
+          [ -n "$PUBKEY" ] || { echo "::error::apply needs pubkey"; exit 1; }
+        fi
+    - name: Install halo
+      if: runner.os != 'Windows'
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+        WITH_AGENT: ${{ inputs.with-agent }}
+        APPLY: ${{ inputs.apply }}
+      run: |
+        args=(--version "$VERSION")
+        if [ "$WITH_AGENT" = true ] || [ "$APPLY" = true ]; then args+=(--with-agent); fi
+        if [ "$APPLY" = true ]; then
+          # halod must be root-owned: it is run via sudo and trusts its own directory.
+          sudo sh "$GITHUB_ACTION_PATH/install/install.sh" --prefix /usr/local "${args[@]}"
+        else
+          sh "$GITHUB_ACTION_PATH/install/install.sh" --prefix "$HOME/.local" "${args[@]}"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+        fi
+    - name: Install halo (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      env:
+        VERSION: ${{ inputs.version }}
+        WITH_AGENT: ${{ inputs.with-agent }}
+      run: |
+        $p = @{ Version = $env:VERSION }
+        if ($env:WITH_AGENT -eq 'true') { $p.WithAgent = $true }
+        & "$env:GITHUB_ACTION_PATH\install\install.ps1" @p
+        Add-Content -Path $env:GITHUB_PATH -Value (Join-Path $env:ProgramFiles 'Halos')
+    - name: Apply ring release
+      if: inputs.apply == 'true'
+      shell: bash
+      env:
+        REGISTRY: ${{ inputs.registry }}
+        ORG: ${{ inputs.org }}
+        RING: ${{ inputs.ring }}
+        PUBKEY: ${{ inputs.pubkey }}
+      run: |
+        if [ "$RUNNER_OS" = macOS ]; then etc=/Library/Halos/etc var=/Library/Halos/var; else etc=/etc/halos var=/var/lib/halos; fi
+        tmp=$(mktemp -d)
+        printf '%s\n' "$PUBKEY" > "$tmp/release.pub"
+        printf 'registry: %s\norg: %s\nring: %s\npubkey: %s/release.pub\n' "$REGISTRY" "$ORG" "$RING" "$etc" > "$tmp/halod.yaml"
+        sudo install -d -m 0755 -o root "$etc" "$var"
+        sudo install -m 0644 -o root "$tmp/release.pub" "$tmp/halod.yaml" "$etc/"
+        rm -r -- "$tmp"
+        sudo /usr/local/bin/halod once --config "$etc/halod.yaml" --state "$var/state.json"

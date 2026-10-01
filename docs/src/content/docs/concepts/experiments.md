@@ -25,30 +25,15 @@ Traffic first: [ADR-0003](/halos/adr/0003-experiments-on-traffic-plane-first/).
 - The cohort comes from the identity the gateway verified (OIDC JWT), never from a client header. A request with no verified identity gets default routing and no experiments.
 - At most one A/B or canary applies to a request (the first matching running experiment); any number of running shadow experiments can sample it.
 
-```mermaid
-flowchart LR
-  I[verified identity] --> H["hash(user, salt) % 10000"]
-  H --> W{weight bucket}
-  W -->|control| C[current route]
-  W -->|candidate| N[routes override]
-  C & N --> S[stamp x-halo-variant]
-```
+<img class="diagram dark:sl-hidden" src="/halos/diagrams/variant-assignment-light.svg" alt="The verified identity is hashed with the experiment salt into 10,000 buckets; the weight bucket picks control (current route) or candidate (routes override), and the gateway stamps x-halo-variant." width="760" />
+<img class="diagram light:sl-hidden" src="/halos/diagrams/variant-assignment-dark.svg" alt="The verified identity is hashed with the experiment salt into 10,000 buckets; the weight bucket picks control (current route) or candidate (routes override), and the gateway stamps x-halo-variant." width="760" />
 
 ## Client-axis delivery
 
 A client-axis variant is a **release**, not a route, so it has to reach the machine through the same signed path as any release. `halo release publish --ring R` builds the ring release plus one release per variant of the running client-axis experiment that enrolls `R`, and serves each on its own **channel**.
 
-```mermaid
-flowchart LR
-  P[halo release publish ring1-ga] --> RR[ring release<br/>manifest.experiments: salt, weights, channels]
-  P --> CC["channel ring1-ga.x-cli-upgrade.control"]
-  P --> CT["channel ring1-ga.x-cli-upgrade.treatment"]
-  D[halod] -->|1. verified ring pointer| RR
-  D -->|2. same hash as the gateway| V{variant}
-  V -->|control| CC
-  V -->|treatment| CT
-  CT -->|3. verified channel pointer| A[apply release:<br/>version pin + OTEL attribution]
-```
+<img class="diagram dark:sl-hidden" src="/halos/diagrams/client-axis-channels-light.svg" alt="halo release publish writes the ring release (with the experiment salt, weights and channels) and one channel per variant. halod verifies the ring pointer, computes the same hash as the gateway to pick a variant, then verifies and applies that variant's channel." width="760" />
+<img class="diagram light:sl-hidden" src="/halos/diagrams/client-axis-channels-dark.svg" alt="halo release publish writes the ring release (with the experiment salt, weights and channels) and one channel per variant. halod verifies the ring pointer, computes the same hash as the gateway to pick a variant, then verifies and applies that variant's channel." width="760" />
 
 - **Channel name:** `<ring>.x-<experiment>.<variant>`. If that exceeds 100 characters, the experiment/variant part becomes the first 20 hex characters of `sha256(experiment NUL variant)` (`<ring>.x-<hash>`). A channel is published like a ring: a signed pointer at `ring-<channel>.pointer`.
 - **The ring manifest lists the experiment.** Its `experiments` section (name, salt, per-variant weight and channel) is part of the release the signature covers. `halod` recomputes each channel name and refuses a manifest that names a different one.
@@ -118,16 +103,8 @@ stopping: {method: msprt, alpha: 0.05, minSamples: 300, maxDays: 14, maxSpendUSD
 
 `halo exp start|pause|conclude <name>` edit the `status` field of the experiment YAML in place (use `--policy-dir` for the policy repo). Only `running` experiments affect traffic.
 
-```mermaid
-stateDiagram-v2
-  [*] --> draft
-  draft --> running: halo exp start
-  running --> paused: halo exp pause
-  paused --> running: halo exp start
-  running --> concluded: halo exp conclude
-  paused --> concluded: halo exp conclude
-  concluded --> [*]
-```
+<img class="diagram dark:sl-hidden" src="/halos/diagrams/experiment-lifecycle-light.svg" alt="An experiment starts as draft, runs after halo exp start, can be paused and restarted, and ends concluded from running or paused." width="760" />
+<img class="diagram light:sl-hidden" src="/halos/diagrams/experiment-lifecycle-dark.svg" alt="An experiment starts as draft, runs after halo exp start, can be paused and restarted, and ends concluded from running or paused." width="760" />
 
 `halo exp list` and `halo exp show <name>` read them. The status change is a git change like any other: commit it, review it, merge it. The gateway reloads the compiled policy (`halo gateway compile`) on its next snapshot.
 
@@ -148,14 +125,8 @@ A `promote` or `rollback` report carries `source`: `gateway` or `cli`, the evide
 
 `halo exp analyze` is one evaluation you run by hand. The **controller** runs it for every `status: running` experiment on a timer and acts on the result. It is built into `halo-server` (`--controller`) and also available as a one-shot for CI or cron (`halo controller run --once`).
 
-```mermaid
-flowchart LR
-  T[tick every 5m] --> E[evaluate each running experiment<br/>from ClickHouse evidence]
-  E -->|continue| T
-  E -->|rollback| K[1. kill switch<br/>2. PR: status paused<br/>3. notify]
-  E -->|promote| P1[PR: status concluded<br/>notify]
-  E -->|expired| P2[PR: status concluded<br/>notify]
-```
+<img class="diagram dark:sl-hidden" src="/halos/diagrams/controller-loop-light.svg" alt="Every five minutes the controller evaluates each running experiment from ClickHouse evidence: continue, roll back (kill switch, pause PR, notify), promote (conclude PR, notify) or expire (conclude PR, notify)." width="760" />
+<img class="diagram light:sl-hidden" src="/halos/diagrams/controller-loop-dark.svg" alt="Every five minutes the controller evaluates each running experiment from ClickHouse evidence: continue, roll back (kill switch, pause PR, notify), promote (conclude PR, notify) or expire (conclude PR, notify)." width="760" />
 
 | Verdict | Controller action | Notes |
 |---|---|---|
@@ -203,20 +174,8 @@ HALO_CLICKHOUSE_PASSWORD=... halo controller run --once --policy-dir . \
 
 Merging a pause PR takes a review cycle plus a policy snapshot roll-out. The kill switch is the fast path for a bad treatment: a signed list of killed experiment names that gateways poll from `halo-server`. A killed experiment is treated as **not running**: its users get control routing and its shadow mirroring stops, at the gateway's next poll (default every 10 seconds), with no PR and no merge.
 
-```mermaid
-sequenceDiagram
-  participant C as controller or admin
-  participant S as halo-server
-  participant G as halo-proxy / halo-kong
-  C->>S: kill (controller verdict, or POST /api/v1/experiments/{name}/kill)
-  S->>S: append to killswitch.jsonl, audit entry
-  loop every 10s
-    G->>S: GET /api/v1/gateway/killswitch (Bearer gateway token)
-    S-->>G: signed list {version, experiments, issuedAt}
-    G->>G: verify signature, freshness, issuedAt strictly newer
-  end
-  Note over G: killed experiments get control routing, no shadow
-```
+<img class="diagram dark:sl-hidden" src="/halos/diagrams/kill-switch-light.svg" alt="The controller or an admin kills an experiment at halo-server, which appends to killswitch.jsonl with an audit entry. Every 10 seconds each gateway fetches the signed list with its gateway token and verifies signature, freshness and that issuedAt is strictly newer; killed experiments get control routing and no shadow." width="760" />
+<img class="diagram light:sl-hidden" src="/halos/diagrams/kill-switch-dark.svg" alt="The controller or an admin kills an experiment at halo-server, which appends to killswitch.jsonl with an audit entry. Every 10 seconds each gateway fetches the signed list with its gateway token and verifies signature, freshness and that issuedAt is strictly newer; killed experiments get control routing and no shadow." width="760" />
 
 An admin can kill or unkill by hand (`POST /api/v1/experiments/{name}/kill` and `/unkill`; the console shows a Kill switch button when the server has one). Setup and the wire format: [API reference](/halos/reference/api/#kill-switch), [security model](/halos/concepts/security-model/#kill-switch), [ADR-0009](/halos/adr/0009-signed-kill-switch/).
 

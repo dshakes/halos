@@ -230,6 +230,7 @@ func (a *app) cmdEval() *cobra.Command {
 	var seed uint64
 	var passEnv []string
 	var network, memory, cpus string
+	var ro evalRunFlags
 	run := &cobra.Command{
 		Use: "run <suite.yaml>", Short: "Run an eval suite and print the scorecard", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -245,34 +246,28 @@ func (a *app) cmdEval() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			tasks, err := s.LoadTasks("")
-			if err != nil {
-				return err
+			if ro.matrix {
+				if s, err = s.WithMatrix(); err != nil {
+					return err
+				}
+			} else if len(s.Variants) == 0 {
+				return fmt.Errorf("suite %s defines only a matrix; run it with --matrix", s.Name)
+			}
+			if !cmd.Flags().Changed("seed") && s.Seed != 0 {
+				seed = s.Seed
 			}
 			var r eval.Runner = &eval.DockerRunner{PassEnv: passEnv, Network: network, Memory: memory, CPUs: cpus}
 			if local {
 				r = eval.LocalRunner{}
 			}
-			trials, err := eval.RunSuite(cmd.Context(), s, tasks, r, eval.Drivers(), parallel)
-			if err != nil {
-				return fmt.Errorf("run suite %s: %w", s.Name, err)
-			}
-			sc, err := eval.BuildScorecard(s, trials, seed)
+			sc, err := runSuite(cmd.Context(), s, r, parallel, seed)
 			if err != nil {
 				return err
 			}
-			if a.json {
-				b, err := sc.JSON()
-				if err != nil {
-					return err
-				}
-				_, err = a.out.Write(append(b, '\n'))
-				return err
-			}
-			fmt.Fprint(a.out, sc.Markdown())
-			return nil
+			return a.writeScorecard(sc, ro)
 		},
 	}
+	ro.add(run)
 	run.Flags().BoolVar(&local, "local", false, "run on the host instead of Docker (no isolation; testing only)")
 	run.Flags().IntVar(&parallel, "parallel", 2, "concurrent trials")
 	run.Flags().Uint64Var(&seed, "seed", 1, "bootstrap seed (reproducible CIs)")
@@ -280,6 +275,6 @@ func (a *app) cmdEval() *cobra.Command {
 	run.Flags().StringVar(&network, "network", "none", "docker network for trials (default none: no egress)")
 	run.Flags().StringVar(&memory, "memory", "4g", "docker memory limit per trial")
 	run.Flags().StringVar(&cpus, "cpus", "2", "docker CPU limit per trial")
-	c.AddCommand(run)
+	c.AddCommand(run, a.cmdEvalOnline())
 	return c
 }

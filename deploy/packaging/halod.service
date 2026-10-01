@@ -1,0 +1,20 @@
+[Unit]
+Description=Halos fleet agent
+After=network-online.target
+Wants=network-online.target
+# Not enrolled until the operator writes the config; do not crash-loop before that.
+ConditionPathExists=/etc/halos/halod.yaml
+[Service]
+# halod refuses to start unless its binary dir, /etc/halos and /var/lib/halos
+# (and the files in them) are root-owned and not group/other-writable.
+ExecStart=/usr/bin/halod run --config /etc/halos/halod.yaml --state /var/lib/halos/state.json
+StateDirectory=halos
+StateDirectoryMode=0700
+Restart=always
+RestartSec=30
+# halod writes root-owned managed settings, so it runs as root; keep the rest locked down.
+ProtectHome=read-only
+PrivateTmp=true
+NoNewPrivileges=true
+[Install]
+WantedBy=multi-user.target

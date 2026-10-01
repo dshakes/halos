@@ -1,0 +1,16 @@
+# GitLab CI include: pinned, checksum-verified halo on any Linux job image with curl.
+#   include:
+#     - remote: https://raw.githubusercontent.com/dshakes/halos/<TAG>/deploy/ci/gitlab/halos.gitlab-ci.yml
+#   variables: {HALOS_VERSION: v0.4.0}
+#   my-job:
+#     extends: .halos
+#     script: [halo version, claude -p "..."]
+# Set HALOS_VERSION to a release tag; install.sh verifies sha256 (and cosign when present).
+.halos:
+  variables:
+    HALOS_VERSION: ""
+  before_script:
+    - test -n "$HALOS_VERSION" || { echo "set HALOS_VERSION to a pinned release tag"; exit 1; }
+    - curl -fsSL --proto '=https' --tlsv1.2 "https://raw.githubusercontent.com/dshakes/halos/${HALOS_VERSION}/install/install.sh" -o /tmp/halos-install.sh
+    - sh /tmp/halos-install.sh --version "$HALOS_VERSION" --prefix "$HOME/.local"
+    - export PATH="$HOME/.local/bin:$PATH"

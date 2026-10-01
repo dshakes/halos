@@ -29,17 +29,8 @@ It is Tuesday morning and a CLI update reaches 300 developers. Something breaks 
 
 ## Mental model
 
-```mermaid
-flowchart LR
-  A[Edit YAML in git] --> B[halo validate / plan]
-  B --> C[halo release publish<br/>signed release + pointer]
-  C --> D[ring pointer names release]
-  D --> E[clients + gateway<br/>run it]
-  E --> F[telemetry + evals]
-  F -->|verdict: promote| G[halo exp promote opens PR]
-  F -->|guardrail breach| H[halo rollback]
-  G --> D
-```
+<img class="diagram dark:sl-hidden" src="/halos/diagrams/measure-loop-light.svg" alt="A change is evaluated offline (pass@k, LLM judge, harness by model matrix), exposed to a ring, measured through OTEL in ClickHouse, and judged by mSPRT. A pass opens a promotion PR a human merges; a guardrail breach rolls back automatically and fires the signed kill switch." width="880" />
+<img class="diagram light:sl-hidden" src="/halos/diagrams/measure-loop-dark.svg" alt="A change is evaluated offline (pass@k, LLM judge, harness by model matrix), exposed to a ring, measured through OTEL in ClickHouse, and judged by mSPRT. A pass opens a promotion PR a human merges; a guardrail breach rolls back automatically and fires the signed kill switch." width="880" />
 
 ## Where to go next
 

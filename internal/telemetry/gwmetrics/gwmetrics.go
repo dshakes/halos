@@ -4,7 +4,8 @@
 // traffic-axis experiments). Requests are aggregated in memory per interval and
 // exported as DELTA temporality over OTLP/HTTP (JSON or protobuf):
 //
-//	halo.gateway.requests   sum        {halo.ring, halo.release, halo.experiment, halo.variant, halo.harness, model, status_class, halo.unit}
+//	halo.gateway.requests   sum        {halo.ring, halo.release, halo.experiment, halo.variant, halo.harness, model, status_class, halo.unit,
+//	                                    halo.gateway.provider, halo.gateway.target, halo.gateway.failover}
 //	halo.gateway.latency_ms histogram  same attributes; total request time incl. streaming
 //
 // Privacy: no prompt content, headers, user ids or session ids are ever
@@ -87,9 +88,14 @@ func (c Config) Validate() error {
 // anonymous) is hashed into halo.unit and never exported raw.
 type Request struct {
 	Ring, Release, Experiment, Variant, Harness, Model string
-	Subject                                            string
-	Status                                             int
-	Latency                                            time.Duration
+	// Provider (upstream kind), Target (upstream/model that served it) and
+	// Failover (an earlier target failed before this one answered) describe
+	// the route taken; empty Provider = not routed through a policy route.
+	Provider, Target string
+	Failover         bool
+	Subject          string
+	Status           int
+	Latency          time.Duration
 }
 
 // LatencyBoundsMS are the histogram bucket upper bounds: ~12% apart from 10ms
@@ -109,6 +115,7 @@ const maxSeries = 20_000
 
 type key struct {
 	ring, release, experiment, variant, harness, model, class, unit string
+	provider, target, failover                                      string
 }
 
 type agg struct {
@@ -186,7 +193,11 @@ func (e *Emitter) Record(r Request) {
 	if e == nil {
 		return
 	}
-	k := key{r.Ring, r.Release, r.Experiment, r.Variant, r.Harness, r.Model, statusClass(r.Status), e.Unit(r.Subject)}
+	k := key{ring: r.Ring, release: r.Release, experiment: r.Experiment, variant: r.Variant, harness: r.Harness, model: r.Model,
+		class: statusClass(r.Status), unit: e.Unit(r.Subject), provider: r.Provider, target: r.Target}
+	if r.Provider != "" {
+		k.failover = strconv.FormatBool(r.Failover)
+	}
 	ms := float64(r.Latency) / float64(time.Millisecond)
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -284,6 +295,7 @@ func (k key) attrs() [][2]string {
 		{"halo.ring", k.ring}, {"halo.release", k.release}, {"halo.experiment", k.experiment},
 		{"halo.variant", k.variant}, {"halo.harness", k.harness}, {"model", k.model},
 		{"status_class", k.class}, {"halo.unit", k.unit},
+		{"halo.gateway.provider", k.provider}, {"halo.gateway.target", k.target}, {"halo.gateway.failover", k.failover},
 	} {
 		if kv[1] != "" {
 			out = append(out, kv)
@@ -300,7 +312,8 @@ func sortedKeys(series map[key]*agg) []key {
 	slices.SortFunc(ks, func(a, b key) int {
 		return cmp.Or(cmp.Compare(a.ring, b.ring), cmp.Compare(a.release, b.release), cmp.Compare(a.experiment, b.experiment),
 			cmp.Compare(a.variant, b.variant), cmp.Compare(a.harness, b.harness), cmp.Compare(a.model, b.model),
-			cmp.Compare(a.class, b.class), cmp.Compare(a.unit, b.unit))
+			cmp.Compare(a.class, b.class), cmp.Compare(a.unit, b.unit), cmp.Compare(a.provider, b.provider),
+			cmp.Compare(a.target, b.target), cmp.Compare(a.failover, b.failover))
 	})
 	return ks
 }

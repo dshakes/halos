@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -63,6 +64,11 @@ type Status struct {
 	// Killed: Experiment is on halo-server's signed kill list, so this device
 	// runs the ring release (control) and Variant is empty.
 	Killed bool `json:"killed,omitempty"`
+	// Toggles are the feature toggles applied on this device (on after rule
+	// evaluation and the kill list); KilledToggles is the signed kill list's
+	// toggle names as of the last apply, so a change triggers a re-apply.
+	Toggles       []string `json:"toggles,omitempty"`
+	KilledToggles []string `json:"killedToggles,omitempty"`
 }
 
 // State is persisted to state.json between runs.
@@ -71,7 +77,8 @@ type State struct {
 	Ring   string `json:"ring"`
 	// Subject is the last user id the ring endpoint returned (used when it is unreachable).
 	Subject string   `json:"subject,omitempty"`
-	Files   []string `json:"files"` // absolute target paths owned by Digest
+	Groups  []string `json:"groups,omitempty"` // IdP groups the ring endpoint last returned (toggle targeting)
+	Files   []string `json:"files"`            // absolute target paths owned by Digest
 	Status  Status   `json:"status"`
 	// Pointers is the last applied signed pointer per ring and per experiment
 	// channel (anti-rollback; a channel keeps its mark after the device leaves it).
@@ -122,6 +129,8 @@ type Agent struct {
 	// ringRel is the last verified ring release, applied on a kill without a
 	// registry round trip. Only the loop goroutine touches it.
 	ringRel *cachedRing
+	// groups are the device's IdP groups from the ring endpoint (loop goroutine only).
+	groups []string
 }
 
 type cachedRing struct {
@@ -207,7 +216,7 @@ func (a *Agent) cycle(ctx context.Context, st *Status, prev State) error {
 			return err // never fall back to "no ring"; first run has nothing to fall back to
 		}
 		a.log().Warn("ring lookup failed; using last-known ring", "err", err, "ring", prev.Ring)
-		ring, subject = prev.Ring, prev.Subject
+		ring, subject, a.groups = prev.Ring, prev.Subject, prev.Groups
 	}
 	if subject == "" {
 		subject = a.Cfg.Subject
@@ -345,7 +354,7 @@ func (a *Agent) PollKill(ctx context.Context) error {
 	prev := a.loadState()
 	exp := prev.Status.Experiment
 	if exp == "" || a.killed()[exp] == prev.Status.Killed {
-		return nil
+		return a.pollToggles(ctx, prev)
 	}
 	if c := a.ringRel; !prev.Status.Killed && c != nil && c.ring == prev.Ring && c.mark.Seq >= prev.Pointers[c.ring].Seq {
 		a.log().Warn("experiment killed; applying the ring release", "experiment", exp, "ring", c.ring)
@@ -360,9 +369,34 @@ func (a *Agent) PollKill(ctx context.Context) error {
 	return err
 }
 
+// pollToggles re-applies when the signed kill list's toggle names differ from
+// those the last apply saw, so a killed (or unkilled) toggle takes effect
+// within a kill-poll interval, not at the next release pull. A device on the
+// ring release re-evaluates the cached verified release with no registry round
+// trip; one on a variant channel runs a full cycle, so it never drops to the
+// ring release by accident.
+func (a *Agent) pollToggles(ctx context.Context, prev State) error {
+	cur := slices.Clone(a.Kill.Killed().Toggles)
+	sort.Strings(cur)
+	if slices.Equal(cur, prev.Status.KilledToggles) {
+		return nil
+	}
+	if c := a.ringRel; prev.Status.Variant == "" && c != nil && c.ring == prev.Ring && c.mark.Seq >= prev.Pointers[c.ring].Seq {
+		a.log().Warn("toggle kill list changed; re-applying the ring release", "killed", cur)
+		_, err := a.runCycle(ctx, func(ctx context.Context, st *Status, prev State) error {
+			return a.apply(ctx, st, prev, c.ring, c.subject, c.rel, map[string]PointerMark{c.ring: c.mark})
+		})
+		return err
+	}
+	a.log().Warn("toggle kill list changed; running a full cycle", "killed", cur)
+	_, err := a.runCycle(ctx, a.cycle)
+	return err
+}
+
 // resolveRing returns the device's ring and, from the ring endpoint, its
 // subject id (the enrolled user; "" if the endpoint does not say).
 func (a *Agent) resolveRing(ctx context.Context) (ring, subject string, err error) {
+	a.groups = nil
 	if a.Cfg.Ring != "" {
 		return a.Cfg.Ring, "", nil
 	}
@@ -381,8 +415,9 @@ func (a *Agent) resolveRing(ctx context.Context) (ring, subject string, err erro
 		return "", "", fmt.Errorf("ring endpoint: status %d", resp.StatusCode)
 	}
 	var r struct {
-		Ring    string `json:"ring"`
-		Subject string `json:"subject"`
+		Ring    string   `json:"ring"`
+		Subject string   `json:"subject"`
+		Groups  []string `json:"groups"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<16)).Decode(&r); err != nil {
 		return "", "", fmt.Errorf("ring endpoint: decode: %w", err)
@@ -393,6 +428,10 @@ func (a *Agent) resolveRing(ctx context.Context) (ring, subject string, err erro
 	if r.Subject != "" && !validSubject(r.Subject) {
 		return "", "", fmt.Errorf("ring endpoint returned invalid subject %q", r.Subject)
 	}
+	if len(r.Groups) > 256 {
+		r.Groups = r.Groups[:256] // a bound, not a policy: targeting only matches names it lists
+	}
+	a.groups = r.Groups
 	return r.Ring, r.Subject, nil
 }
 
@@ -400,7 +439,7 @@ func (a *Agent) resolveRing(ctx context.Context) (ring, subject string, err erro
 // marks are the verified pointers (ring, and the variant channel if any) to record.
 func (a *Agent) apply(ctx context.Context, st *Status, prev State, ring, subject string, rel *release.Release, marks map[string]PointerMark) error {
 	var errs []error
-	next := State{Digest: rel.Digest, Ring: ring, Subject: subject, Pointers: map[string]PointerMark{}, Installed: map[string]string{}, Kill: prev.Kill}
+	next := State{Digest: rel.Digest, Ring: ring, Subject: subject, Groups: a.groups, Pointers: map[string]PointerMark{}, Installed: map[string]string{}, Kill: prev.Kill}
 	if l := a.Kill.Killed(); l.IssuedAt.After(next.Kill.IssuedAt) {
 		next.Kill = l
 	}
@@ -410,7 +449,13 @@ func (a *Agent) apply(ctx context.Context, st *Status, prev State, ring, subject
 	for r, m := range marks {
 		next.Pointers[r] = m
 	}
-	sameRelease := prev.Digest == rel.Digest
+	on, killedToggles := a.activeToggles(rel, ring, subject)
+	st.Toggles, st.KilledToggles = nil, killedToggles
+	for _, t := range on {
+		st.Toggles = append(st.Toggles, t.Name)
+	}
+	// A toggle flip rewrites files without a new release: not drift.
+	sameRelease := prev.Digest == rel.Digest && slices.Equal(prev.Status.Toggles, st.Toggles)
 	owned := map[string]bool{}
 	sandboxChecked := false
 	names := make([]string, 0, len(rel.Manifest.Harnesses))
@@ -425,14 +470,17 @@ func (a *Agent) apply(ctx context.Context, st *Status, prev State, ring, subject
 			errs = append(errs, fmt.Errorf("install %s@%s: %w", name, he.Version, err))
 		}
 		st.Harnesses[name] = hs
-		for _, f := range he.Files[a.Cfg.OS] {
+		files, terrs := a.withToggles(rel, name, he, on)
+		errs = append(errs, terrs...)
+		for _, af := range files {
+			f := af.f
 			if err := a.checkTarget(name, f); err != nil {
 				errs = append(errs, fmt.Errorf("refusing %s: %w", f.Path, err))
 				continue
 			}
 			owned[f.Path] = true
-			data, ok := rel.Content(f)
-			if !ok {
+			data := af.data
+			if !af.ok {
 				errs = append(errs, fmt.Errorf("blob for %s missing", f.Path))
 				continue
 			}

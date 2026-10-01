@@ -1,12 +1,10 @@
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
-import mermaid from 'astro-mermaid';
 
 export default defineConfig({
   site: 'https://dshakes.github.io',
   base: '/halos',
   integrations: [
-    mermaid({ theme: 'default', autoTheme: true }),
     starlight({
       title: 'Halos',
       description:
@@ -24,6 +22,7 @@ export default defineConfig({
           label: 'Getting started',
           items: [
             'getting-started/introduction',
+            'getting-started/install',
             'getting-started/quickstart',
             'getting-started/installation',
           ],
@@ -34,7 +33,10 @@ export default defineConfig({
             'concepts/architecture',
             'concepts/policy-model',
             'concepts/rings-and-releases',
+            'concepts/rollouts',
             'concepts/experiments',
+            'concepts/toggles',
+            'concepts/evals',
             'concepts/shadow-traffic',
             'concepts/delivery',
             'concepts/self-service-portal',
@@ -53,6 +55,7 @@ export default defineConfig({
             'guides/laptops-mdm',
             'guides/cli-upgrade-ab',
             'guides/model-upgrade-canary',
+            'guides/reliable-upgrades',
             'guides/writing-evals',
             'guides/agentic-operations',
             'guides/production-deployment',

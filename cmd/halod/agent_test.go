@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -49,7 +50,12 @@ func (t testAdapter) Render(p *policy.Profile, c harness.Context) ([]harness.Fil
 	out := append([]harness.File(nil), t.files(c.Ring)...) // Render may run more than once; never re-wrap shared data
 	for i, f := range out {
 		if strings.HasSuffix(f.Path, "managed-settings.json") {
-			f.Data = []byte(fmt.Sprintf(`{"requiredMinimumVersion":%q,"requiredMaximumVersion":%q,"x":%s}`, v, v, f.Data))
+			env := ""
+			if len(p.Env) > 0 { // feature toggles add env; render it so fragments have something to differ by
+				b, _ := json.Marshal(p.Env)
+				env = `,"env":` + string(b)
+			}
+			f.Data = []byte(fmt.Sprintf(`{"requiredMinimumVersion":%q,"requiredMaximumVersion":%q,"x":%s%s}`, v, v, f.Data, env))
 			out[i] = f
 		}
 	}

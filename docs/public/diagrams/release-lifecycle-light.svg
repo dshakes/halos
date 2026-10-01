@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 464" width="760" height="464" role="img" aria-labelledby="t d" font-family="ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif">
+<title id="t">Release lifecycle</title>
+<desc id="d">A release moves from draft to eval-gated on publish, to ring0 when evals pass, ring1 when guardrails hold, ring2 when the canary passes and GA when the PR is merged. From any stage it can be rolled back, which re-points the ring at the last good release.</desc>
+<style>
+.cv{fill:#fbfcfd;stroke:#e6eaf0;stroke-width:1.5}
+.card{fill:#ffffff;stroke:#e2e8f0;stroke-width:1.5}
+.soft{fill:url(#gs)}
+.ring{fill:none;stroke:url(#ga);stroke-width:1.5}
+.dcard{fill:#fef2f2;stroke:#dc2626;stroke-width:1.5}
+.ghost{fill:none;stroke:#94a3b8;stroke-width:1.5;stroke-dasharray:4 4}
+.zone{fill:#f4f6f9;stroke:#dfe5ec;stroke-width:1.5}
+.chip{fill:#f1f5f9;stroke:#e2e8f0;stroke-width:1}
+text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
+.t{font-size:13.5px;font-weight:600;fill:#0b1220}
+.tm{font:600 12.5px ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;fill:#0b1220}
+.td{fill:#dc2626}
+.s{font-size:12px;fill:#475569}
+.m{font:11px ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;fill:#475569}
+.xs{font-size:10.5px;font-weight:500;fill:#64748b}
+.xm{font-family:ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;font-weight:400}
+.xa{fill:url(#ga);font-weight:600}
+.xd{fill:#dc2626;font-weight:600}
+.xw{fill:#ffffff;font-weight:600}
+.k{font-size:10.5px;font-weight:600;letter-spacing:.08em;fill:#64748b}
+.ka{fill:url(#ga)}
+.h1{font-size:42px;font-weight:700;letter-spacing:-.02em;fill:#0b1220}
+.ln,.la,.ld,.lm{fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.ln{stroke:#94a3b8}.la{stroke:url(#ga)}.ld{stroke:#dc2626}.lm{stroke:#e2e8f0}
+.lane{stroke:#e2e8f0;stroke-width:1.5;stroke-dasharray:3 4}
+.dash{stroke-dasharray:5 5}
+.dl{fill:#94a3b8}.da{fill:url(#ga)}.dd{fill:#dc2626}
+.pl{fill:#fbfcfd}.pa{fill:#fbfcfd;stroke:url(#ga);stroke-width:1}
+.pd{fill:#fef2f2;stroke:#dc2626;stroke-width:1}.ps{fill:url(#ga)}
+.fa{fill:url(#ga)}.fs{fill:url(#gs)}.fm{fill:#f1f5f9}.fd{fill:#dc2626}.ft{fill:#0b1220}
+.bdg{fill:url(#ga)}.bn{font-size:9.5px;font-weight:700;fill:#ffffff}
+.ic{fill:none;stroke:url(#ga);stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
+.pkt{fill:url(#ga)}
+.grow{transform-box:fill-box;transform-origin:left;animation:grow 4.8s cubic-bezier(.6,0,.2,1) infinite}
+@keyframes grow{0%{transform:scaleX(.08)}25%{transform:scaleX(.3)}50%{transform:scaleX(.55)}75%,100%{transform:scaleX(1)}}
+.flow{stroke-dasharray:4 6;animation:flow 1.1s linear infinite}
+@keyframes flow{to{stroke-dashoffset:-20}}
+.blink{animation:blink 3.2s ease-in-out infinite}
+@keyframes blink{0%,100%{opacity:.18}35%,65%{opacity:1}}
+.pulse{transform-box:fill-box;transform-origin:center;animation:pulse 2.8s ease-out infinite}
+@keyframes pulse{0%{opacity:.55;transform:scale(.6)}100%{opacity:0;transform:scale(1.5)}}
+@media (prefers-reduced-motion:reduce){.flow,.blink,.pulse,.grow{animation:none}.blink{opacity:1}.pulse,.pkt{display:none}}
+</style>
+<defs>
+<linearGradient id="ga" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="760" y2="0"><stop offset="0" stop-color="#0d9488"/><stop offset="1" stop-color="#4f46e5"/></linearGradient>
+<linearGradient id="gs" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="760" y2="0"><stop offset="0" stop-color="#0d9488" stop-opacity="0.07"/><stop offset="1" stop-color="#4f46e5" stop-opacity="0.07"/></linearGradient>
+<filter id="sh" x="-10%" y="-10%" width="120%" height="140%"><feDropShadow dx="0" dy="1" stdDeviation="1.6" flood-color="#0f172a" flood-opacity="0.07"/></filter>
+</defs>
+<rect class="cv" x=".75" y=".75" width="758.5" height="462.5" rx="16"/>
+<rect class="card" x="120" y="24" width="180" height="36" rx="18.0" filter="url(#sh)"/>
+<text class="tm" x="210" y="46.5" text-anchor="middle">draft</text>
+<path class="ln" d="M210 66L210 94"/>
+<path class="ln hd" d="M206.6 88.5L210 94L213.4 88.5"/>
+<text class="xs" x="222" y="84">halo release publish</text>
+<rect class="card" x="120" y="100" width="180" height="36" rx="18.0" filter="url(#sh)"/>
+<text class="tm" x="210" y="122.5" text-anchor="middle">eval_gated</text>
+<path class="ln" d="M210 142L210 170"/>
+<path class="ln hd" d="M206.6 164.5L210 170L213.4 164.5"/>
+<text class="xs" x="222" y="160">evals pass</text>
+<path class="ld dash" d="M306 118L430.0 118.0Q440 118 440.0 128.0L440.0 222.0Q440 232 450.0 232.0L500 232"/>
+<rect class="card" x="120" y="176" width="180" height="36" rx="18.0" filter="url(#sh)"/>
+<text class="tm" x="210" y="198.5" text-anchor="middle">ring0</text>
+<path class="ln" d="M210 218L210 246"/>
+<path class="ln hd" d="M206.6 240.5L210 246L213.4 240.5"/>
+<text class="xs" x="222" y="236">guardrails hold</text>
+<path class="ld dash" d="M306 194L430.0 194.0Q440 194 440.0 204.0L440.0 222.0Q440 232 450.0 232.0L500 232"/>
+<rect class="card" x="120" y="252" width="180" height="36" rx="18.0" filter="url(#sh)"/>
+<text class="tm" x="210" y="274.5" text-anchor="middle">ring1</text>
+<path class="ln" d="M210 294L210 322"/>
+<path class="ln hd" d="M206.6 316.5L210 322L213.4 316.5"/>
+<text class="xs" x="222" y="312">canary passes</text>
+<path class="ld dash" d="M306 270L430.0 270.0Q440 270 440.0 260.0L440.0 242.0Q440 232 450.0 232.0L500 232"/>
+<rect class="card" x="120" y="328" width="180" height="36" rx="18.0" filter="url(#sh)"/>
+<text class="tm" x="210" y="350.5" text-anchor="middle">ring2</text>
+<path class="ln" d="M210 370L210 398"/>
+<path class="ln hd" d="M206.6 392.5L210 398L213.4 392.5"/>
+<text class="xs" x="222" y="388">PR merged</text>
+<path class="ld dash" d="M306 346L430.0 346.0Q440 346 440.0 336.0L440.0 242.0Q440 232 450.0 232.0L500 232"/>
+<rect class="card" x="120" y="404" width="180" height="36" rx="18.0" filter="url(#sh)"/>
+<rect class="soft" x="120" y="404" width="180" height="36" rx="18.0"/>
+<rect class="ring" x="120.75" y="404.75" width="178.5" height="34.5" rx="17.25"/>
+<text class="tm" x="210" y="426.5" text-anchor="middle">GA</text>
+<path class="ld dash" d="M306 422L430.0 422.0Q440 422 440.0 412.0L440.0 242.0Q440 232 450.0 232.0L500 232"/>
+<path class="ld" d="M500 232L514 232"/>
+<path class="ld hd" d="M508.5 235.4L514 232L508.5 228.6"/>
+<rect class="pd" x="343.0" y="109" width="58.0" height="18" rx="9"/>
+<text class="xs xd" x="372" y="121.6" text-anchor="middle">evals fail</text>
+<rect class="pd" x="323.5" y="261" width="97.0" height="18" rx="9"/>
+<text class="xs xd" x="372" y="273.6" text-anchor="middle">guardrail breach</text>
+<rect class="card" x="520" y="202" width="216" height="60" rx="12" filter="url(#sh)"/>
+<rect class="dcard" x="520.75" y="202.75" width="214.5" height="58.5" rx="11.25"/>
+<text class="tm td" x="536" y="228.5">rolled_back</text>
+<text class="s" x="536" y="246.5">ring re-points to last good</text>
+</svg>

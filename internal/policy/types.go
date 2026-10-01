@@ -33,6 +33,10 @@ type Org struct {
 	Profiles    map[string]*Profile
 	Rings       []*Ring // ordered, earliest ring first
 	Experiments []*Experiment
+	Toggles     []*Toggle `json:",omitempty"` // omitted when empty: existing snapshots keep their digest
+
+	// Rollouts are omitted when empty, like Toggles.
+	Rollouts []*Rollout `json:",omitempty"`
 }
 
 // Identity is the org's OIDC provider. Any compliant IdP works (Okta, Entra ID,
@@ -76,6 +80,10 @@ type Gateway struct {
 	Models map[string]ModelRoute `yaml:"models" json:"models"`
 	// Upstreams are named backends (e.g. the orchestrator, direct Anthropic).
 	Upstreams map[string]Upstream `yaml:"upstreams" json:"upstreams"`
+	// Engine is the data plane that enforces this policy: halo-proxy (default)
+	// or kong. Multi-target routes (weights, failover) are halo-proxy-only; Kong
+	// uses each route's first target.
+	Engine string `yaml:"engine,omitempty" json:"engine,omitempty"`
 }
 
 type GatewayAuth struct {
@@ -86,22 +94,109 @@ type GatewayAuth struct {
 	IdentityHeader string `yaml:"identityHeader,omitempty" json:"identityHeader,omitempty"`
 }
 
+// ModelRoute is one alias's routing: either a single upstream+model, or an
+// ordered/weighted list of Targets (mutually exclusive).
 type ModelRoute struct {
-	Upstream string `yaml:"upstream" json:"upstream"`
+	Upstream string `yaml:"upstream,omitempty" json:"upstream,omitempty"`
 	// Model is the provider model id / Bedrock inference profile ARN.
-	Model string `yaml:"model" json:"model"`
+	Model   string        `yaml:"model,omitempty" json:"model,omitempty"`
+	Targets []RouteTarget `yaml:"targets,omitempty" json:"targets,omitempty"`
+}
+
+// RouteTarget is one provider target of a route. Targets sharing a Priority
+// (lower first; default 0) form a tier: within a tier Weight splits traffic
+// (sticky per identity+session) and the rest of the tier is the failover order;
+// later tiers are tried only after earlier ones fail.
+type RouteTarget struct {
+	Upstream string  `yaml:"upstream" json:"upstream"`
+	Model    string  `yaml:"model" json:"model"`
+	Weight   float64 `yaml:"weight,omitempty" json:"weight,omitempty"`
+	Priority int     `yaml:"priority,omitempty" json:"priority,omitempty"`
+	// TimeoutSeconds bounds connect + wait for response headers (default: the
+	// proxy's upstreamHeaderTimeout). Streams are not time-limited afterwards.
+	TimeoutSeconds int `yaml:"timeoutSeconds,omitempty" json:"timeoutSeconds,omitempty"`
+}
+
+// Candidates returns the route's targets (a single-target route is one).
+func (r ModelRoute) Candidates() []RouteTarget {
+	if len(r.Targets) > 0 {
+		return r.Targets
+	}
+	if r.Upstream == "" && r.Model == "" {
+		return nil
+	}
+	return []RouteTarget{{Upstream: r.Upstream, Model: r.Model}}
+}
+
+// Primary is the route reduced to its first-priority target, for consumers
+// that cannot fail over (halo-kong, halo-shadow).
+func (r ModelRoute) Primary() ModelRoute {
+	best, ok := RouteTarget{}, false
+	for _, t := range r.Candidates() {
+		if !ok || t.Priority < best.Priority {
+			best, ok = t, true
+		}
+	}
+	return ModelRoute{Upstream: best.Upstream, Model: best.Model}
 }
 
 type Upstream struct {
-	URL string `yaml:"url" json:"url"`
-	// Kind: orchestrator | anthropic | bedrock | openai | gemini
+	// URL is the base URL. Optional for kind vertex (derived from region).
+	URL string `yaml:"url,omitempty" json:"url,omitempty"`
+	// Kind: orchestrator | anthropic | bedrock | vertex | openai | azure-openai | gemini
 	Kind string `yaml:"kind" json:"kind"`
+	// Project is the Google Cloud project id for kind vertex.
+	Project string `yaml:"project,omitempty" json:"project,omitempty"`
+	// APIVersion is the api-version query for kind azure-openai; empty uses the
+	// versionless /openai/v1 surface.
+	APIVersion string `yaml:"apiVersion,omitempty" json:"apiVersion,omitempty"`
+	// Credential names where halo-proxy reads the provider key (kinds openai,
+	// azure-openai). Policy never holds the secret itself.
+	Credential *Credential `yaml:"credential,omitempty" json:"credential,omitempty"`
 	// Region is the AWS SigV4 region for kind bedrock. halo-proxy signs a
 	// bedrock upstream only if its host ends in an AWS suffix (.amazonaws.com,
 	// .amazonaws.com.cn, .api.aws) or is listed in the proxy's signHosts; it
 	// never signs for other hosts. The region is this value when set, else
 	// parsed from the host (e.g. bedrock-runtime.<region>.amazonaws.com).
 	Region string `yaml:"region,omitempty" json:"region,omitempty"`
+}
+
+// Credential locates a secret on the halo-proxy host: an environment variable
+// name or a file path (exactly one). Scheme is api-key (default for
+// azure-openai) or bearer (default for openai).
+type Credential struct {
+	Env    string `yaml:"env,omitempty" json:"env,omitempty"`
+	File   string `yaml:"file,omitempty" json:"file,omitempty"`
+	Scheme string `yaml:"scheme,omitempty" json:"scheme,omitempty"`
+}
+
+// Endpoint is the upstream base URL, deriving the Vertex AI host from Region
+// when URL is unset ("global" has no region prefix).
+func (u Upstream) Endpoint() string {
+	if u.URL == "" && u.Kind == "vertex" && u.Region != "" {
+		if u.Region == "global" {
+			return "https://aiplatform.googleapis.com"
+		}
+		return "https://" + u.Region + "-aiplatform.googleapis.com"
+	}
+	return u.URL
+}
+
+// KindServes reports whether an upstream of kind can serve a client speaking
+// proto. Pass-through kinds (orchestrator, anthropic, openai, gemini) keep the
+// client's wire as-is. bedrock additionally serves anthropic-messages clients
+// (the request is translated and the event stream converted back); vertex
+// serves only anthropic-messages; azure-openai only openai-responses.
+func KindServes(kind, proto string) bool {
+	switch kind {
+	case "vertex":
+		return proto == "anthropic-messages"
+	case "bedrock":
+		return proto == "bedrock-invoke" || proto == "anthropic-messages"
+	case "azure-openai":
+		return proto == "openai-responses"
+	}
+	return true
 }
 
 // Profile is desired harness behaviour, independent of any one CLI.

@@ -1,0 +1,7 @@
+id: code-quality
+version: "1"
+instructions: Grade the agent's change for the task below.
+pass_threshold: 0.7
+criteria:
+  - {name: correctness, weight: 2, description: The change fixes the bug without editing tests.}
+  - {name: minimality, description: The change is minimal and idiomatic.}

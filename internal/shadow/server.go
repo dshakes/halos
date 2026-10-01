@@ -278,6 +278,7 @@ func (s *Server) resolve(j Job) (task, int, error) {
 }
 
 func (s *Server) side(org *policy.Org, variant string, r policy.ModelRoute) (side, error) {
+	r = r.Primary() // shadow does not fail over
 	up, ok := org.Gateway.Upstreams[r.Upstream]
 	if !ok {
 		return side{}, fmt.Errorf("shadow: policy upstream %q not defined", r.Upstream)

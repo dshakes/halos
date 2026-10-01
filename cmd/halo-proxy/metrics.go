@@ -43,9 +43,19 @@ type metrics struct {
 	reqs         map[reqKey]uint64
 	ttfb, total  hist
 	authFailures uint64
+	attempts     map[[2]string]uint64 // {provider kind, outcome}
 }
 
-func newMetrics() *metrics { return &metrics{reqs: map[reqKey]uint64{}} }
+func newMetrics() *metrics {
+	return &metrics{reqs: map[reqKey]uint64{}, attempts: map[[2]string]uint64{}}
+}
+
+// attempt counts one upstream target try; outcome is ok | failed | circuit_open | skipped.
+func (m *metrics) attempt(provider, outcome string) {
+	m.mu.Lock()
+	m.attempts[[2]string{provider, outcome}]++
+	m.mu.Unlock()
+}
 
 // observe records one finished request. ttfb < 0 means no upstream response
 // headers were ever received (rejected locally or upstream error).
@@ -94,6 +104,16 @@ func (m *metrics) write(w io.Writer, shadowDropped, shadowFailed int64) {
 	}
 	writeHist(w, "halo_proxy_upstream_ttfb_seconds", "Time from request start to upstream response headers.", &m.ttfb)
 	writeHist(w, "halo_proxy_request_duration_seconds", "Total request time including the full response stream.", &m.total)
+	fmt.Fprintln(w, "# HELP halo_proxy_upstream_attempts_total Upstream target tries, by provider kind and outcome (ok, failed, circuit_open, skipped).")
+	fmt.Fprintln(w, "# TYPE halo_proxy_upstream_attempts_total counter")
+	ak := make([][2]string, 0, len(m.attempts))
+	for k := range m.attempts {
+		ak = append(ak, k)
+	}
+	sort.Slice(ak, func(i, j int) bool { return ak[i][0]+"\x00"+ak[i][1] < ak[j][0]+"\x00"+ak[j][1] })
+	for _, k := range ak {
+		fmt.Fprintf(w, "halo_proxy_upstream_attempts_total{provider=\"%s\",outcome=\"%s\"} %d\n", esc(k[0]), esc(k[1]), m.attempts[k])
+	}
 	fmt.Fprintf(w, "# HELP halo_proxy_auth_failures_total Requests whose caller identity could not be verified.\n# TYPE halo_proxy_auth_failures_total counter\nhalo_proxy_auth_failures_total %d\n", m.authFailures)
 	fmt.Fprintf(w, "# HELP halo_proxy_shadow_dropped_total Shadow jobs dropped because the mirror queue was full.\n# TYPE halo_proxy_shadow_dropped_total counter\nhalo_proxy_shadow_dropped_total %d\n", shadowDropped)
 	fmt.Fprintf(w, "# HELP halo_proxy_shadow_failed_total Shadow jobs halo-shadow rejected or that failed to send.\n# TYPE halo_proxy_shadow_failed_total counter\nhalo_proxy_shadow_failed_total %d\n", shadowFailed)

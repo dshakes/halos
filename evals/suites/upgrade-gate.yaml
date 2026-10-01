@@ -1,0 +1,48 @@
+# The gate `halo upgrade check` runs for each upstream candidate, and a matrix
+# for `halo eval run --matrix`. Statistically honest by construction:
+#  - repeats: N trials per task -> pass@1, pass@k and pass^k (all-k reliability)
+#  - a task whose BASELINE flips across trials is flagged flaky and left out of
+#    the gate, with the reason in the scorecard
+#  - candidate vs baseline is paired per task, with bootstrap CIs on the delta
+#    of pass rate, cost, tokens, wall time and tool calls
+#  - verdict ship | hold | block from the thresholds below
+name: upgrade-gate
+tasks: [fix-failing-go-test, add-cli-flag, refactor-rename]
+control: current
+repeats: 5
+k: 3
+seed: 20260930
+gate:
+  max_pass_drop: 0.05          # ship needs the pass-rate CI lower bound >= -5 pp
+  task_regression: 0.5         # a task losing >= 50 pp of pass rate has regressed...
+  max_regressed_tasks: 0       # ...and any regressed task blocks
+  max_cost_increase: 0.20      # relative to baseline mean; only gated when set
+  max_wall_increase: 0.30
+  max_tool_calls_increase: 0.50
+  min_tasks: 2                 # fewer non-flaky tasks than this -> hold
+# Judge: a pinned model through the gateway. Its reply must be strict JSON;
+# anything else is a grader error (never a pass) and forces the gate to hold.
+judge:
+  url: https://ai.acme.example
+  wire: anthropic-messages
+  model: claude-sonnet-5-5
+  api_key_env: HALO_EVAL_GATEWAY_TOKEN
+  cache: .judge-cache
+# Applied to every task on top of its own check.
+graders:
+  - {type: diff, must_not_change: ["*_test.go"], max_files_changed: 4}
+  - {type: judge, rubric: ../rubrics/code-change-quality.yaml}
+variants:
+  - {name: current, harness: claude, version: "2.1.312", model: sonnet}
+  - {name: candidate, harness: claude, version: "2.1.330", model: sonnet}
+# `halo eval run --matrix`: harness x model x provider. Providers are gateway
+# model aliases; `sonnet-direct` must route to the anthropic-direct upstream.
+matrix:
+  baseline: claude@2.1.312/sonnet/orchestrator
+  harnesses:
+    - {harness: claude, version: "2.1.312", models: [sonnet]}
+    - {harness: codex, version: "0.60.0", models: [codex-default]}
+    - {harness: gemini, version: "0.13.0", models: [gemini-default]}
+  providers:
+    - {name: orchestrator}
+    - {name: anthropic-direct, aliases: {sonnet: sonnet-direct}}

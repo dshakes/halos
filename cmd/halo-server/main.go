@@ -345,6 +345,10 @@ func newController(o options, portal server.Portal, portalWriter server.PolicyWr
 		Notifier:     notifiers,
 		State:        state,
 		VerdictsPath: o.verdicts,
+		PolicyDir:    o.policyDir,
+	}
+	if o.dataDir != "" { // rollouts need persistent state; GET /api/v1/rollouts reads it here
+		c.RolloutStateDir = filepath.Join(o.dataDir, "rollouts")
 	}
 	if kills != nil {
 		c.Kill, c.Kills = controller.KillFunc(srv.KillExperiment), kills

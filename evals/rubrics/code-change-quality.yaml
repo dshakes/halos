@@ -1,0 +1,16 @@
+# LLM-as-judge rubric. Bump `version` whenever the meaning changes: scorecards
+# record id@version and cached verdicts are keyed by it (and the file hash).
+id: code-change-quality
+version: "1"
+instructions: >-
+  You are reviewing a change a coding agent made to a small repository for the
+  task shown. Judge only what is in front of you; do not reward length.
+pass_threshold: 0.7
+criteria:
+  - name: correctness
+    weight: 2
+    description: The change does what the task asks and nothing it forbids (for example, editing tests).
+  - name: minimality
+    description: The change is focused; no unrelated edits, debug leftovers or churn.
+  - name: idiom
+    description: The code reads like the surrounding code (naming, error handling, formatting).

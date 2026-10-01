@@ -24,7 +24,8 @@ func (a *app) cmdController() *cobra.Command {
 	var interval time.Duration
 	run := &cobra.Command{
 		Use: "run", Short: "Evaluate running experiments and act on verdicts (never merges)", Args: cobra.NoArgs, Annotations: policyDirAnno,
-		Long: "Evaluates every running experiment from ClickHouse evidence. rollback: trips the kill switch in\n" +
+		Long: "Evaluates every running experiment from ClickHouse evidence, then drives active rollouts (state in\n" +
+			"<data-dir>/rollouts/; rollback/pause automatic, advance only opens a PR). rollback: trips the kill switch in\n" +
 			"<data-dir>/killswitch.jsonl (served to gateways when <data-dir> is halo-server's --data-dir), opens a\n" +
 			"PR pausing the experiment, notifies. Without --killswitch-served, messages say the kill is only recorded. promote/expired: opens a PR concluding it, notifies. Each action\n" +
 			"happens once per experiment run (<data-dir>/controller-state.jsonl). PRs are opened from the git\n" +
@@ -75,6 +76,9 @@ func (a *app) cmdController() *cobra.Command {
 				State:        state,
 				VerdictsPath: verdicts,
 				Log:          slog.New(slog.NewTextHandler(a.errw, nil)),
+				// Rollouts: state in <data-dir>/rollouts, scorecards under the policy dir.
+				RolloutStateDir: filepath.Join(dataDir, "rollouts"),
+				PolicyDir:       dir,
 			}
 			if !killServed {
 				// Only the operator knows whether a halo-server with a kill key serves this file.

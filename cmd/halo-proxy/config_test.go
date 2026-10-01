@@ -54,3 +54,26 @@ func TestTelemetryFlagsAndEnv(t *testing.T) {
 		})
 	}
 }
+
+func TestRouteConfig(t *testing.T) {
+	write := func(y string) string {
+		p := filepath.Join(t.TempDir(), "c.yaml")
+		if err := os.WriteFile(p, []byte(y), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	cfg, err := loadConfig([]string{"--config", write("policy: p.json\nupstreamHosts: [pe.corp]\nallowInsecureUpstreams: true\nroute: {maxAttempts: 2, breakerFailures: 3, breakerCooldown: 5s}\n")}, func(string) string { return "" }, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Route.MaxAttempts != 2 || cfg.Route.BreakerFailures != 3 || cfg.Route.BreakerCooldown != 5*time.Second || !cfg.AllowInsecureUpstreams || cfg.UpstreamHosts[0] != "pe.corp" {
+		t.Fatalf("%+v", cfg)
+	}
+	if cfg, err = loadConfig([]string{"--policy", "p.json"}, func(string) string { return "" }, io.Discard); err != nil || cfg.Route.MaxAttempts != 3 || cfg.Route.BreakerCooldown != 30*time.Second {
+		t.Fatalf("defaults: %+v %v", cfg.Route, err)
+	}
+	if _, err := loadConfig([]string{"--config", write("policy: p.json\nroute: {maxAttempts: 0, breakerFailures: 1, breakerCooldown: 1s}\n")}, func(string) string { return "" }, io.Discard); err == nil {
+		t.Fatal("maxAttempts 0 must be rejected")
+	}
+}

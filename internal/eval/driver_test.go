@@ -15,11 +15,12 @@ func TestClaudeDriver(t *testing.T) {
 	}
 	out := `banner noise
 {"type":"system","subtype":"init","future_field":1}
+{"type":"assistant","message":{"content":[{"type":"text","text":"hi"},{"type":"tool_use","name":"Bash"},{"type":"tool_use","name":"Edit"}]}}
 {"type":"user","message":{"content":[{"type":"tool_result","is_error":true},{"type":"tool_result"}]}}
 {"type":"result","subtype":"success","is_error":false,"total_cost_usd":0.42,"num_turns":7,"duration_ms":9000,"usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":100,"new_thing":9}}
 `
 	u, err := ClaudeDriver{}.Parse([]byte(out))
-	if err != nil || u.CostUSD != 0.42 || u.Turns != 7 || u.DurationMs != 9000 || u.Tokens != 115 || u.ToolErrors != 1 || u.Failed {
+	if err != nil || u.CostUSD != 0.42 || u.Turns != 7 || u.DurationMs != 9000 || u.Tokens != 115 || u.ToolErrors != 1 || u.ToolCalls != 2 || u.Failed {
 		t.Fatalf("got %+v err %v", u, err)
 	}
 	u, _ = ClaudeDriver{}.Parse([]byte(`{"type":"result","subtype":"error_max_turns","total_cost_usd":1}`))
@@ -38,11 +39,13 @@ func TestCodexDriver(t *testing.T) {
 	}
 	out := `{"type":"thread.started","thread_id":"x"}
 {"type":"item.completed","item":{"type":"command_execution","exit_code":1}}
+{"type":"item.completed","item":{"type":"file_change"}}
+{"type":"item.completed","item":{"type":"agent_message"}}
 {"type":"turn.completed","usage":{"input_tokens":10,"cached_input_tokens":5,"output_tokens":2}}
 {"type":"turn.failed","error":{"message":"boom"}}
 `
 	u, err := CodexDriver{}.Parse([]byte(out))
-	if err != nil || u.Turns != 1 || u.Tokens != 12 || u.ToolErrors != 1 || !u.Failed || u.Error != "boom" {
+	if err != nil || u.Turns != 1 || u.Tokens != 12 || u.ToolErrors != 1 || u.ToolCalls != 2 || !u.Failed || u.Error != "boom" {
 		t.Fatalf("got %+v err %v", u, err)
 	}
 	if _, err := (CodexDriver{}).Parse([]byte("{}")); err == nil {
@@ -54,7 +57,7 @@ func TestGeminiDriver(t *testing.T) {
 	out := `log noise
 {"response":"ok","stats":{"models":{"m":{"tokens":{"total":50}}},"tools":{"totalCalls":3,"totalFail":1}}}`
 	u, err := GeminiDriver{}.Parse([]byte(out))
-	if err != nil || u.Tokens != 50 || u.ToolErrors != 1 || u.Failed {
+	if err != nil || u.Tokens != 50 || u.ToolErrors != 1 || u.ToolCalls != 3 || u.Failed {
 		t.Fatalf("got %+v err %v", u, err)
 	}
 	if _, err := (GeminiDriver{}).Parse([]byte("nope")); err == nil {

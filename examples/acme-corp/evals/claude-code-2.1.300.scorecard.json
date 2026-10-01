@@ -1,0 +1,12 @@
+{
+  "suite": "acme-refactor-suite",
+  "control": "control",
+  "variants": [
+    {"name": "control", "trials": 90, "pass1": 0.744, "pass1CILo": 0.656, "pass1CIHi": 0.833, "costPerTaskUSD": 0.351, "wallP50Ms": 58000, "wallP95Ms": 133000, "tokens": 6210000, "toolErrors": 11, "errors": 0},
+    {"name": "cli-next", "trials": 90, "pass1": 0.767, "pass1CILo": 0.678, "pass1CIHi": 0.856, "costPerTaskUSD": 0.344, "wallP50Ms": 56000, "wallP95Ms": 129000, "tokens": 6050000, "toolErrors": 8, "errors": 0}
+  ],
+  "comparisons": [
+    {"variant": "cli-next", "control": "control", "tasks": 30, "delta": 0.022, "ciLo": -0.033, "ciHi": 0.078, "verdict": "no_significant_difference"}
+  ],
+  "trials": []
+}

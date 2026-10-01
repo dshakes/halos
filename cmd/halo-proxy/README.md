@@ -231,9 +231,55 @@ leak via `ps`). The collector accepts these only on its authenticated gateway re
 without `tokenFile` the collector answers 401. Only this gateway-sourced evidence may trip the controller's kill
 switch. Generate the collector with `halo telemetry collector-config` ([evidence plane](https://dshakes.github.io/halos/concepts/evidence-plane/#evidence-trust)).
 
+## Provider-agnostic routing (halo-proxy only)
+
+A model alias maps to an ordered or weighted list of provider targets, so a model upgrade or provider move is a
+policy change (`gateway.yaml`):
+
+```yaml
+upstreams:
+  bedrock-use1:     {kind: bedrock, url: https://bedrock-runtime.us-east-1.amazonaws.com, region: us-east-1}
+  anthropic-direct: {kind: anthropic, url: https://api.anthropic.com}
+  vertex-east5:     {kind: vertex, project: acme-ai, region: us-east5}   # url derived: us-east5-aiplatform.googleapis.com
+  azure:            {kind: azure-openai, url: https://acme.openai.azure.com, credential: {env: AZURE_OPENAI_KEY}}
+models:
+  opus:                                  # primary + failover
+    targets:
+      - {upstream: bedrock-use1, model: "arn:aws:bedrock:...", timeoutSeconds: 30}
+      - {upstream: anthropic-direct, model: claude-opus-4-1-20250805, priority: 1}
+  default:                               # 90/10, sticky per user+session
+    targets:
+      - {upstream: anthropic-direct, model: claude-sonnet-4-5-20250929, weight: 90}
+      - {upstream: anthropic-direct, model: claude-opus-4-1-20250805, weight: 10}
+```
+
+- **Order.** Targets group into priority tiers (lowest first). In a tier the weighted pick (`internal/assign`, keyed on
+  verified identity + session) goes first and the rest follow in policy order. Anonymous callers with no session use
+  policy order. `halo gateway routes [--user U] [--session S] [--output json]` prints the effective table.
+- **Failover.** Connect errors, header timeouts, 5xx and 429 move to the next target, up to `route.maxAttempts`
+  (default 3). Only before the first response byte: once a response is returned its stream is never retried (a retried
+  LLM call is a duplicated bill, so keep `timeoutSeconds` tight). If every target fails the last failure is returned.
+- **Circuit breaker** per `upstream/model`: `route.breakerFailures` consecutive failures (default 5) open it for
+  `route.breakerCooldown` (default 30s), then one half-open probe. All circuits open answers 503 `no_available_target`.
+  Single-target routes have no breaker.
+- **Wire translation.** anthropic-messages clients can target `anthropic`, `bedrock` (request translated to
+  `invoke`; the Bedrock event stream is converted back to SSE) and `vertex` (`rawPredict`/`streamRawPredict`, model in
+  the path). bedrock-invoke clients only reach `bedrock`. openai-responses clients reach `openai` and `azure-openai`
+  (`/openai/v1/responses`, or `/openai/responses?api-version=` when `apiVersion` is set). A target that cannot serve
+  the caller's protocol is skipped. `count_tokens` has no Bedrock/Vertex equivalent here and is skipped for them.
+- **Credentials never come from policy or the client.** `vertex` uses Google ADC reduced to what the stdlib covers:
+  `GOOGLE_APPLICATION_CREDENTIALS` service-account key, else the metadata server (GKE workload identity, GCE, Cloud
+  Run); external-account and `gcloud` user credentials are not supported. `openai`/`azure-openai` read
+  `credential.env` / `credential.file` per request. Client `Authorization`, `x-api-key` and `api-key` are dropped,
+  even with `forwardAuth`.
+- **Host allowlist.** Credentialed kinds must be https (except `allowInsecureUpstreams: true`, for in-cluster or test
+  endpoints) and on the provider's own domain (`*.googleapis.com`, `api.openai.com`, `*.openai.azure.com`, ...) or an
+  exact `upstreamHosts` entry. Others are skipped, never sent a credential.
+- **Telemetry.** OTLP `halo.gateway.requests`/`latency_ms` gain `halo.gateway.provider`, `halo.gateway.target`,
+  `halo.gateway.failover`; `/metrics` adds `halo_proxy_upstream_attempts_total{provider,outcome}`.
+- **halo-kong** cannot run this: it routes to each alias's first target (priority-first). Set `engine: kong` on the
+  Gateway and `halo validate` warns for every multi-target route.
+
 ## Not included
 
-**Google Vertex AI.** halo-proxy does not route Vertex `:rawPredict` / `:streamRawPredict` paths
-(the model allowlist rejects them), so it neither routes nor signs them; use LiteLLM or another translator
-as the upstream. Also not included: mTLS/SPIFFE identity, per-user rate limiting, retries (a retried LLM
-call is a duplicated bill).
+mTLS/SPIFFE identity, per-user rate limiting, and retries after the response has started.

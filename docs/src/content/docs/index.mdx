@@ -1,41 +1,88 @@
 ---
 title: Halos
-description: Ship AI coding tools like you ship software, versioned, signed, ring-deployed, and proven by evals.
+description: Ship AI coding tools like software. Versioned, signed, ring-deployed, proven by evals.
 template: splash
 hero:
-  tagline: Ship AI coding tools like you ship software. Versioned, signed, ring-deployed, and proven by evals.
+  title: Ship AI coding tools like software.
+  tagline: Versioned, signed, ring-deployed, proven by evals. One control plane for Claude Code, Codex, Gemini CLI and Copilot CLI.
   actions:
-    - text: Quickstart
-      link: /halos/getting-started/quickstart/
+    - text: 60-second start
+      link: '#60-second-start'
       icon: right-arrow
     - text: Architecture
       link: /halos/concepts/architecture/
+      variant: minimal
+    - text: GitHub
+      link: https://github.com/dshakes/halos
+      icon: external
       variant: minimal
 ---
 
 import { Card, CardGrid } from '@astrojs/starlight/components';
 
-<CardGrid stagger>
-  <Card title="One policy, every harness" icon="puzzle">
-    Describe Claude Code, Codex, Gemini CLI and Copilot CLI behavior once as YAML in git. Per-harness adapters compile it and warn where a CLI cannot enforce a setting.
+<img class="diagram dark:sl-hidden" src="/halos/diagrams/hero-light.svg" alt="Policy repo to signed release to rollout rings to every environment, with evals and telemetry looping back to promote or roll back." width="880" />
+<img class="diagram light:sl-hidden" src="/halos/diagrams/hero-dark.svg" alt="Policy repo to signed release to rollout rings to every environment, with evals and telemetry looping back to promote or roll back." width="880" />
+
+<div class="halo-strip">
+  <div>
+    <p class="halo-problem">Every laptop runs a different agent.</p>
+    <p>One policy in git, compiled per harness, signed, delivered everywhere.</p>
+  </div>
+  <div>
+    <p class="halo-problem">Upgrades ship on vibes.</p>
+    <p>Evals and sequential stats gate every change. Promotion is a PR a human merges.</p>
+  </div>
+  <div>
+    <p class="halo-problem">You find out last.</p>
+    <p>A guardrail breach rolls back on its own, and a signed kill switch reaches every gateway in seconds.</p>
+  </div>
+</div>
+
+## What you get
+
+<CardGrid>
+  <Card title="Rollouts" icon="rocket">
+    Progressive rings, canary ramps, blue-green, dark launch, holdout. Rings point at immutable releases; rollback is a re-point. [Rollouts →](/halos/concepts/rollouts/)
   </Card>
-  <Card title="Signed releases, signed pointers" icon="approve-check">
-    Policy compiles to a content-addressed OCI release signed with ed25519. Each ring is a signed pointer with a sequence number and expiry, so a compromised registry cannot replay an old release.
+  <Card title="Experiments" icon="seti:graph">
+    A/B on the client, canary and shadow on the traffic path, all assigned by one hash of verified identity. [Experiments →](/halos/concepts/experiments/)
   </Card>
-  <Card title="Rings and rollback" icon="rocket">
-    Rings point at releases. Promote with a PR, roll back by re-signing a pointer. Automatic rollback is allowed; automatic promotion never is.
+  <Card title="Feature toggles" icon="setting">
+    Target by ring, group or percentage, resolved per developer, killable with one signed flip. [Feature toggles →](/halos/concepts/toggles/)
   </Card>
-  <Card title="Evidence, not vibes" icon="seti:graph">
-    A/B, canary and single-turn shadow experiments, plus containerized replay evals, gate every change on real metrics. A controller evaluates running experiments on a timer and, on a bad verdict, trips an instant signed kill switch and opens the pause PR.
+  <Card title="Evals and the measure loop" icon="approve-check">
+    pass@k, LLM judge, a harness × model × provider matrix, and an upgrade watch, feeding mSPRT verdicts. [Evals →](/halos/concepts/evals/)
   </Card>
-  <Card title="Any gateway, any IdP" icon="setting">
-    `halo-proxy` runs in front of, behind or instead of Kong, LiteLLM, Envoy, nginx or AWS API Gateway, and verifies OIDC JWTs from any provider. Bedrock (signed directly by `halo-proxy`, or through your orchestrator) and custom gateways work where vendor-managed settings do not.
+  <Card title="Any provider" icon="puzzle">
+    Anthropic, Bedrock, Vertex, OpenAI and Azure behind `halo-proxy` or Kong, with model routes and failover. [Stack-agnostic →](/halos/concepts/stack-agnostic/)
   </Card>
-  <Card title="Self-hosted, Apache-2.0" icon="github">
-    Proxy, agent, CLI, portal and docs are all open. Your prompts stay in your network.
+  <Card title="Everywhere" icon="laptop">
+    macOS, Linux and Windows, dev containers, Codespaces and Coder, CI runners, Kubernetes. [Install →](/halos/getting-started/install/)
   </Card>
 </CardGrid>
 
-## Status
+## Every way to roll out
 
-Pre-release (`v1alpha1`). The components are built and unit-tested. Pages label anything that has not run against the real third-party system as **UNVERIFIED**; the [README](https://github.com/dshakes/halos#what-is-not-verified) keeps the consolidated list.
+<img class="diagram dark:sl-hidden" src="/halos/diagrams/rollout-strategies-light.svg" alt="Progressive rings, canary ramp from 1 to 100 percent, blue-green cutover, dark launch through shadow traffic, and a holdout cohort." width="880" />
+<img class="diagram light:sl-hidden" src="/halos/diagrams/rollout-strategies-dark.svg" alt="Progressive rings, canary ramp from 1 to 100 percent, blue-green cutover, dark launch through shadow traffic, and a holdout cohort." width="880" />
+
+## Evidence over opinion
+
+<img class="diagram dark:sl-hidden" src="/halos/diagrams/measure-loop-light.svg" alt="Change, offline evals, ring exposure, telemetry, sequential verdict, then a promotion PR a human merges; a breach rolls back automatically and fires the kill switch." width="880" />
+<img class="diagram light:sl-hidden" src="/halos/diagrams/measure-loop-dark.svg" alt="Change, offline evals, ring exposure, telemetry, sequential verdict, then a promotion PR a human merges; a breach rolls back automatically and fires the kill switch." width="880" />
+
+## One release, every environment
+
+<img class="diagram dark:sl-hidden" src="/halos/diagrams/everywhere-light.svg" alt="macOS, Linux, Windows, Dev Containers, Codespaces and Coder workspaces, CI runners and Kubernetes." width="880" />
+<img class="diagram light:sl-hidden" src="/halos/diagrams/everywhere-dark.svg" alt="macOS, Linux, Windows, Dev Containers, Codespaces and Coder workspaces, CI runners and Kubernetes." width="880" />
+
+## 60-second start
+
+```sh
+brew install dshakes/tap/halo
+halo init            # scaffold a policy repo
+halo validate        # schema + guardrails
+halo rollout plan    # what changes, for whom, ring by ring
+```
+
+Then follow the [quickstart](/halos/getting-started/quickstart/). Pre-release (`v1alpha1`), Apache-2.0, self-hosted; anything not yet run against a real third-party system is marked **UNVERIFIED** in the docs.

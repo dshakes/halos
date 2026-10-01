@@ -63,10 +63,8 @@ Design: [ADR-0008](/halos/adr/0008-signed-ring-pointers-and-verified-artifacts/#
 
 A **ring** is an ordered cohort that points at a profile (`Ring.profile`) and, once published, at a release.
 
-```mermaid
-flowchart LR
-  R0[ring0<br/>harness team<br/>IdP group] --> R1[ring1<br/>5% hash] --> R2[ring2<br/>25% hash] --> R3[ring3<br/>GA default]
-```
+<img class="diagram dark:sl-hidden" src="/halos/diagrams/rings-light.svg" alt="ring0 is the harness team by IdP group, ring1 a 5 percent hash, ring2 25 percent, ring3 the GA default; the bar under each ring shows its share of the fleet." width="760" />
+<img class="diagram light:sl-hidden" src="/halos/diagrams/rings-dark.svg" alt="ring0 is the harness team by IdP group, ring1 a 5 percent hash, ring2 25 percent, ring3 the GA default; the bar under each ring shows its share of the fleet." width="760" />
 
 ### Membership
 
@@ -93,22 +91,8 @@ Variants are pushed first and the ring last, so no device sees a ring manifest t
 
 ## Lifecycle
 
-```mermaid
-stateDiagram-v2
-  [*] --> draft
-  draft --> eval_gated: halo release publish
-  eval_gated --> ring0: evals pass
-  ring0 --> ring1: guardrails hold
-  ring1 --> ring2: canary passes
-  ring2 --> GA: PR merged
-  eval_gated --> rolled_back: evals fail
-  ring0 --> rolled_back
-  ring1 --> rolled_back: guardrail breach
-  ring2 --> rolled_back
-  GA --> rolled_back
-  rolled_back --> [*]
-  GA --> [*]
-```
+<img class="diagram dark:sl-hidden" src="/halos/diagrams/release-lifecycle-light.svg" alt="A release moves from draft to eval-gated on publish, to ring0 when evals pass, ring1 when guardrails hold, ring2 when the canary passes and GA when the PR is merged. From any stage it can be rolled back, which re-points the ring at the last good release." width="760" />
+<img class="diagram light:sl-hidden" src="/halos/diagrams/release-lifecycle-dark.svg" alt="A release moves from draft to eval-gated on publish, to ring0 when evals pass, ring1 when guardrails hold, ring2 when the canary passes and GA when the PR is merged. From any stage it can be rolled back, which re-points the ring at the last good release." width="760" />
 
 | Transition | Who decides |
 |---|---|
@@ -134,16 +118,5 @@ halo rollback --ring ring1-canary --to sha256:...            # or OCI manifest d
 
 ## Sample timeline
 
-```mermaid
-gantt
-  title CLI upgrade rollout (example)
-  dateFormat YYYY-MM-DD
-  axisFormat %m-%d
-  section Gates
-  Eval scorecard          :done, e1, 2026-10-05, 2d
-  section Rings
-  ring0 harness team      :active, r0, after e1, 3d
-  ring1 canary 5%         :r1, after r0, 5d
-  ring2 25%               :r2, after r1, 5d
-  GA PR merged            :milestone, ga, after r2, 0d
-```
+<img class="diagram dark:sl-hidden" src="/halos/diagrams/cli-rollout-timeline-light.svg" alt="Example CLI upgrade: eval scorecard for 2 days, ring0 harness team for 3 days, ring1 canary 5 percent for 5 days, ring2 25 percent for 5 days, then the GA PR is merged." width="760" />
+<img class="diagram light:sl-hidden" src="/halos/diagrams/cli-rollout-timeline-dark.svg" alt="Example CLI upgrade: eval scorecard for 2 days, ring0 harness team for 3 days, ring1 canary 5 percent for 5 days, ring2 25 percent for 5 days, then the GA PR is merged." width="760" />

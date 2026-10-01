@@ -2,6 +2,8 @@
 Description=Halos fleet agent
 After=network-online.target
 Wants=network-online.target
+# Not enrolled until the operator writes the config; do not crash-loop before that.
+ConditionPathExists=/etc/halos/halod.yaml
 [Service]
 # halod refuses to start unless its binary dir, /etc/halos and /var/lib/halos
 # (and the files in them) are root-owned and not group/other-writable.

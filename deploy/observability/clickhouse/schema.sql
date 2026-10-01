@@ -214,3 +214,22 @@ ENGINE = MergeTree
 PARTITION BY toYYYYMM(ts)
 ORDER BY (experiment, ts)
 TTL toDateTime(ts) + INTERVAL 30 DAY;
+
+-- Online eval quality (`halo eval online`): LLM-judge rubric scores of
+-- halo-shadow pairs, emitted as halo.eval.judge.score gauges (one per arm) and
+-- landed in halo_metrics by the gauge view above. Trust: only rows with
+-- source = 'gateway' came through the authenticated receiver; the CLI receiver
+-- is client-reachable, so a 'cli' row is not evidence.
+CREATE VIEW IF NOT EXISTS halo.halo_eval_quality AS
+SELECT
+    toStartOfHour(ts)            AS hour,
+    experiment,
+    variant,
+    attrs['halo.eval.rubric']    AS rubric,
+    attrs['halo.eval.judge']     AS judge,
+    attrs['halo.source']         AS source,
+    avg(value)                   AS judge_score,
+    count()                      AS readings
+FROM halo.halo_metrics
+WHERE metric = 'halo.eval.judge.score'
+GROUP BY hour, experiment, variant, rubric, judge, source;

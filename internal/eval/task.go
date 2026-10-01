@@ -10,6 +10,7 @@
 //	setup       -> environment build/setup steps
 //	prompt      -> instruction.md
 //	check       -> tests/test.sh  (exit 0 = pass; we do not read a reward file)
+//	graders     -> extra pluggable graders (command, file, diff, judge); see grade.go
 //	timeout     -> [agent] timeout
 //	budget_usd  -> no Harbor equivalent; passed to the CLI's spend cap
 //	tags        -> metadata tags
@@ -39,6 +40,8 @@ type Task struct {
 	BudgetUSD float64       `yaml:"budget_usd,omitempty" json:"budgetUSD,omitempty"`
 	MaxTurns  int           `yaml:"max_turns,omitempty" json:"maxTurns,omitempty"`
 	Tags      []string      `yaml:"tags,omitempty" json:"tags,omitempty"`
+	// Graders all have to pass too; check may be empty when graders are set.
+	Graders []GraderSpec `yaml:"graders,omitempty" json:"graders,omitempty"`
 
 	// Dir is the directory holding task.yaml; set by LoadTask.
 	Dir string `yaml:"-" json:"-"`
@@ -53,8 +56,8 @@ func (t *Task) Validate() error {
 		return fmt.Errorf("task %s: repo is required", t.ID)
 	case strings.TrimSpace(t.Prompt) == "":
 		return fmt.Errorf("task %s: prompt is required", t.ID)
-	case strings.TrimSpace(t.Check) == "":
-		return fmt.Errorf("task %s: check is required", t.ID)
+	case strings.TrimSpace(t.Check) == "" && len(t.Graders) == 0:
+		return fmt.Errorf("task %s: check or graders is required", t.ID)
 	case t.Timeout < 0 || t.BudgetUSD < 0 || t.MaxTurns < 0:
 		return fmt.Errorf("task %s: timeout, budget_usd and max_turns must be >= 0", t.ID)
 	}
@@ -84,6 +87,9 @@ func LoadTask(dir string) (*Task, error) {
 		return nil, fmt.Errorf("%s: task %s: %w", p, t.ID, err)
 	}
 	t.Dir = dir
+	if err := t.loadGraders(); err != nil {
+		return nil, fmt.Errorf("%s: task %s: %w", p, t.ID, err)
+	}
 	return &t, nil
 }
 

@@ -223,6 +223,43 @@
         "overrides": []
       },
       "options": {}
+    },
+    {
+      "id": 7,
+      "title": "Quality: online judge score by variant ($experiment)",
+      "description": "halo eval online: LLM-judge rubric score (0..1) of halo-shadow pairs, gateway-sourced readings only.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "${DS_CLICKHOUSE}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "${DS_CLICKHOUSE}"
+          },
+          "editorType": "sql",
+          "format": 0,
+          "rawSql": "SELECT $__timeInterval(ts) AS time, variant, avg(value) AS judge_score FROM halo.halo_metrics WHERE $__timeFilter(ts) AND metric = 'halo.eval.judge.score' AND attrs['halo.source'] = 'gateway' AND experiment = '${experiment}' GROUP BY time, variant ORDER BY time"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {}
     }
   ],
   "templating": {

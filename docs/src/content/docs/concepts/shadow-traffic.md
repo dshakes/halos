@@ -17,21 +17,8 @@ So `halo-shadow`:
 - grades pairs with an LLM judge and compares latency, tokens, refusal and format errors,
 - does not tell you whether the candidate finishes multi-step tasks. Use [replay evals](/halos/guides/writing-evals/) for that.
 
-```mermaid
-sequenceDiagram
-  participant K as halo-proxy / halo-kong
-  participant P as primary route
-  participant S as halo-shadow
-  participant C as candidate route
-  participant J as judge
-  K->>P: request (user waits on this)
-  P-->>K: response
-  K--)S: async copy if first turn and sampled
-  S->>C: replay (non-streaming)
-  C-->>S: candidate response
-  S->>S: store pair
-  S--)J: batch grading
-```
+<img class="diagram dark:sl-hidden" src="/halos/diagrams/shadow-sequence-light.svg" alt="The gateway forwards the request to the primary route, which answers the user. If it is a first turn and sampled, an async copy goes to halo-shadow, which replays it non-streaming against the candidate route, stores the pair and sends it to the judge in batches." width="760" />
+<img class="diagram light:sl-hidden" src="/halos/diagrams/shadow-sequence-dark.svg" alt="The gateway forwards the request to the primary route, which answers the user. If it is a first turn and sampled, an async copy goes to halo-shadow, which replays it non-streaming against the candidate route, stores the pair and sends it to the judge in batches." width="760" />
 
 ## Config
 

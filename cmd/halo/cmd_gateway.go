@@ -2,10 +2,13 @@ package main
 
 import (
 	"fmt"
+	"strings"
+	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 
 	"github.com/dshakes/halos/internal/fsutil"
+	"github.com/dshakes/halos/internal/gateway"
 	"github.com/dshakes/halos/internal/gateway/kong"
 	"github.com/dshakes/halos/internal/policy"
 )
@@ -21,6 +24,13 @@ func (a *app) emitBytes(out string, b []byte) error {
 	}
 	fmt.Fprintf(a.errw, "wrote %s (%d bytes)\n", out, len(b))
 	return nil
+}
+
+func dash(ok bool, s string) string {
+	if ok {
+		return s
+	}
+	return "-"
 }
 
 func (a *app) cmdGateway() *cobra.Command {
@@ -76,6 +86,53 @@ func (a *app) cmdGateway() *cobra.Command {
 	f.StringVar(&opts.GroupsHeader, "groups-header", "", "header carrying IdP groups")
 	f.StringVar(&opts.IdentityHeader, "identity-header", "", "identity header (default: org gateway.auth.identityHeader)")
 
-	gw.AddCommand(compile, deck)
+	var user, session string
+	var groups []string
+	routes := &cobra.Command{
+		Use: "routes", Annotations: policyDirAnno, Short: "Print the effective model route table and the target a user/session would hit", Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			dir, err := policyDir(cmd, nil)
+			if err != nil {
+				return err
+			}
+			org, err := a.loadValid(dir)
+			if err != nil {
+				return err
+			}
+			rows := gateway.RouteTable(org, gateway.RequestInfo{UserID: user, Groups: groups, SessionID: session})
+			return a.emit(rows, func() {
+				who := "anonymous (policy order; weights need --user or --session)"
+				if user != "" || session != "" {
+					who = fmt.Sprintf("user %q session %q", user, session)
+				}
+				fmt.Fprintf(a.out, "Routes for %s\n", who)
+				tw := tabwriter.NewWriter(a.out, 0, 4, 2, ' ', 0)
+				fmt.Fprintln(tw, "ALIAS\tORDER\tUPSTREAM\tKIND\tMODEL\tWEIGHT\tPRIORITY\tTIMEOUT\tNOTES")
+				for _, r := range rows {
+					for _, t := range r.Targets {
+						var notes []string
+						if t.Selected {
+							notes = append(notes, "<- hit when healthy")
+						}
+						if r.Experiment != "" {
+							notes = append(notes, fmt.Sprintf("experiment %s/%s", r.Experiment, r.Variant))
+						}
+						if len(t.SkippedBy) > 0 {
+							notes = append(notes, "skipped by "+strings.Join(t.SkippedBy, ","))
+						}
+						fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\t%s\t%d\t%s\t%s\n", r.Alias, t.Order, t.Upstream, t.Kind, t.Model,
+							dash(t.Weight > 0, fmt.Sprint(t.Weight)), t.Priority, dash(t.TimeoutSeconds > 0, fmt.Sprintf("%ds", t.TimeoutSeconds)), strings.Join(notes, "; "))
+					}
+				}
+				_ = tw.Flush()
+			})
+		},
+	}
+	rf := routes.Flags()
+	rf.StringVar(&user, "user", "", "verified user id (e.g. alice@acme.com): selects ring, experiment variant and the sticky weighted pick")
+	rf.StringVar(&session, "session", "", "harness session id (weighted picks are sticky per user+session)")
+	rf.StringSliceVar(&groups, "group", nil, "IdP group of the user (repeatable); ring membership may depend on it")
+
+	gw.AddCommand(compile, deck, routes)
 	return gw
 }

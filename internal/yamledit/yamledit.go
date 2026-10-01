@@ -227,6 +227,72 @@ func (d *Doc) SetField(key, val string) ([]byte, error) {
 	return []byte(strings.Join(lines, "\n")), nil
 }
 
+// SetRaw replaces the plain inline scalar v (a node of d.Mapping, at any
+// depth) with raw, spliced byte for byte like SetField, but unquoted: for
+// numbers and booleans.
+func (d *Doc) SetRaw(v *yaml.Node, raw string) ([]byte, error) {
+	if v == nil || v.Kind != yaml.ScalarNode || v.Style != 0 {
+		return nil, fmt.Errorf("%s: value is not a plain inline scalar", d.Path)
+	}
+	start, end, ok := d.scalarSpan(v)
+	if !ok {
+		return nil, fmt.Errorf("%s:%d: cannot locate the value for editing", d.Path, v.Line)
+	}
+	return slices.Concat(d.Data[:start], []byte(raw), d.Data[end:]), nil
+}
+
+// SetPath sets the inline scalar at path to raw, spliced in verbatim like
+// SetRaw (raw must already be valid YAML: quote strings with Quote). Path
+// elements are mapping keys, or "name=<v>" to pick the sequence item whose
+// name is v. Only a missing top-level key is inserted (after name); deeper
+// keys must exist.
+func (d *Doc) SetPath(path []string, raw string) ([]byte, error) {
+	var n yaml.Node
+	if len(path) == 0 || strings.ContainsAny(raw, "\n\r") || yaml.Unmarshal([]byte(raw), &n) != nil || len(n.Content) != 1 || n.Content[0].Kind != yaml.ScalarNode {
+		return nil, fmt.Errorf("yamledit: %q is not an inline scalar for %v", raw, path)
+	}
+	v := d.Mapping
+	for _, k := range path {
+		switch {
+		case v == nil:
+		case v.Kind == yaml.SequenceNode && strings.HasPrefix(k, "name="):
+			i := slices.IndexFunc(v.Content, func(it *yaml.Node) bool {
+				_, nv := Scalar(it, "name")
+				return it.Kind == yaml.MappingNode && nv != nil && nv.Value == k[len("name="):]
+			})
+			if i < 0 {
+				v = nil
+			} else {
+				v = v.Content[i]
+			}
+		case v.Kind == yaml.MappingNode:
+			_, v = Scalar(v, k)
+		default:
+			v = nil
+		}
+	}
+	if v == nil {
+		if len(path) != 1 {
+			return nil, fmt.Errorf("%s: %s not found", d.Path, strings.Join(path, "."))
+		}
+		nk, _ := Scalar(d.Mapping, "name")
+		if nk == nil {
+			return nil, fmt.Errorf("%s: document has no name", d.Path)
+		}
+		lines := strings.Split(string(d.Data), "\n")
+		lines = slices.Insert(lines, nk.Line, pad(nk.Column-1)+path[0]+": "+raw)
+		return []byte(strings.Join(lines, "\n")), nil
+	}
+	if v.Kind != yaml.ScalarNode || v.Style&(yaml.LiteralStyle|yaml.FoldedStyle) != 0 {
+		return nil, fmt.Errorf("%s: %s is not an inline scalar", d.Path, strings.Join(path, "."))
+	}
+	start, end, ok := d.scalarSpan(v)
+	if !ok {
+		return nil, fmt.Errorf("%s:%d: cannot locate value of %s for editing", d.Path, v.Line, strings.Join(path, "."))
+	}
+	return slices.Concat(d.Data[:start], []byte(raw), d.Data[end:]), nil
+}
+
 // AppendSeq appends item to the sequence at path (mapping keys from the
 // document root), creating missing keys, by splicing lines: everything
 // outside the edited sequence keeps its bytes. A block sequence gets a new

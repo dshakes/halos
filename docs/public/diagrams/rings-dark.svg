@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 164" width="760" height="164" role="img" aria-labelledby="t d" font-family="ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif">
+<title id="t">Rings</title>
+<desc id="d">ring0 is the harness team by IdP group, ring1 a 5 percent hash, ring2 25 percent, ring3 the GA default; the bar under each ring shows its share of the fleet.</desc>
+<style>
+.cv{fill:#0f141a;stroke:#232a33;stroke-width:1.5}
+.card{fill:#161b22;stroke:#2b3440;stroke-width:1.5}
+.soft{fill:url(#gs)}
+.ring{fill:none;stroke:url(#ga);stroke-width:1.5}
+.dcard{fill:#2a1517;stroke:#f87171;stroke-width:1.5}
+.ghost{fill:none;stroke:#56606c;stroke-width:1.5;stroke-dasharray:4 4}
+.zone{fill:#131921;stroke:#262f3a;stroke-width:1.5}
+.chip{fill:#1c232c;stroke:#2b3440;stroke-width:1}
+text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
+.t{font-size:13.5px;font-weight:600;fill:#e6edf3}
+.tm{font:600 12.5px ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;fill:#e6edf3}
+.td{fill:#f87171}
+.s{font-size:12px;fill:#9aa7b4}
+.m{font:11px ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;fill:#9aa7b4}
+.xs{font-size:10.5px;font-weight:500;fill:#7d8794}
+.xm{font-family:ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;font-weight:400}
+.xa{fill:url(#ga);font-weight:600}
+.xd{fill:#f87171;font-weight:600}
+.xw{fill:#0b1220;font-weight:600}
+.k{font-size:10.5px;font-weight:600;letter-spacing:.08em;fill:#7d8794}
+.ka{fill:url(#ga)}
+.h1{font-size:42px;font-weight:700;letter-spacing:-.02em;fill:#e6edf3}
+.ln,.la,.ld,.lm{fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.ln{stroke:#56606c}.la{stroke:url(#ga)}.ld{stroke:#f87171}.lm{stroke:#2b3440}
+.lane{stroke:#2b3440;stroke-width:1.5;stroke-dasharray:3 4}
+.dash{stroke-dasharray:5 5}
+.dl{fill:#56606c}.da{fill:url(#ga)}.dd{fill:#f87171}
+.pl{fill:#0f141a}.pa{fill:#0f141a;stroke:url(#ga);stroke-width:1}
+.pd{fill:#2a1517;stroke:#f87171;stroke-width:1}.ps{fill:url(#ga)}
+.fa{fill:url(#ga)}.fs{fill:url(#gs)}.fm{fill:#1c232c}.fd{fill:#f87171}.ft{fill:#e6edf3}
+.bdg{fill:url(#ga)}.bn{font-size:9.5px;font-weight:700;fill:#0b1220}
+.ic{fill:none;stroke:url(#ga);stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
+.pkt{fill:url(#ga)}
+.grow{transform-box:fill-box;transform-origin:left;animation:grow 4.8s cubic-bezier(.6,0,.2,1) infinite}
+@keyframes grow{0%{transform:scaleX(.08)}25%{transform:scaleX(.3)}50%{transform:scaleX(.55)}75%,100%{transform:scaleX(1)}}
+.flow{stroke-dasharray:4 6;animation:flow 1.1s linear infinite}
+@keyframes flow{to{stroke-dashoffset:-20}}
+.blink{animation:blink 3.2s ease-in-out infinite}
+@keyframes blink{0%,100%{opacity:.18}35%,65%{opacity:1}}
+.pulse{transform-box:fill-box;transform-origin:center;animation:pulse 2.8s ease-out infinite}
+@keyframes pulse{0%{opacity:.55;transform:scale(.6)}100%{opacity:0;transform:scale(1.5)}}
+@media (prefers-reduced-motion:reduce){.flow,.blink,.pulse,.grow{animation:none}.blink{opacity:1}.pulse,.pkt{display:none}}
+</style>
+<defs>
+<linearGradient id="ga" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="760" y2="0"><stop offset="0" stop-color="#2dd4bf"/><stop offset="1" stop-color="#818cf8"/></linearGradient>
+<linearGradient id="gs" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="760" y2="0"><stop offset="0" stop-color="#2dd4bf" stop-opacity="0.12"/><stop offset="1" stop-color="#818cf8" stop-opacity="0.12"/></linearGradient>
+<filter id="sh" x="-10%" y="-10%" width="120%" height="140%"><feDropShadow dx="0" dy="1" stdDeviation="1.6" flood-color="#000000" flood-opacity="0.45"/></filter>
+</defs>
+<rect class="cv" x=".75" y=".75" width="758.5" height="162.5" rx="16"/>
+<rect class="card" x="24.0" y="24" width="151.0" height="96" rx="12" filter="url(#sh)"/>
+<text class="tm" x="40" y="60.5">ring0</text>
+<text class="s" x="40" y="78.5">harness team</text>
+<text class="s" x="40" y="94.5"></text>
+<rect class="card" x="211.0" y="24" width="151.0" height="96" rx="12" filter="url(#sh)"/>
+<text class="tm" x="227" y="60.5">ring1</text>
+<text class="s" x="227" y="78.5">5% by hash</text>
+<text class="s" x="227" y="94.5"></text>
+<rect class="card" x="398.0" y="24" width="151.0" height="96" rx="12" filter="url(#sh)"/>
+<text class="tm" x="414" y="60.5">ring2</text>
+<text class="s" x="414" y="78.5">25% by hash</text>
+<text class="s" x="414" y="94.5"></text>
+<rect class="card" x="585.0" y="24" width="151.0" height="96" rx="12" filter="url(#sh)"/>
+<rect class="soft" x="585.0" y="24" width="151.0" height="96" rx="12"/>
+<rect class="ring" x="585.75" y="24.75" width="149.5" height="94.5" rx="11.25"/>
+<text class="tm" x="601" y="60.5">ring3</text>
+<text class="s" x="601" y="78.5">GA · default</text>
+<text class="s" x="601" y="94.5"></text>
+<path class="la" d="M181 72L205 72"/>
+<path class="la hd" d="M199.5 75.4L205 72L199.5 68.6"/>
+<path class="la" d="M368 72L392 72"/>
+<path class="la hd" d="M386.5 75.4L392 72L386.5 68.6"/>
+<path class="la" d="M555 72L579 72"/>
+<path class="la hd" d="M573.5 75.4L579 72L573.5 68.6"/>
+<rect class="fm" x="40.0" y="94" width="119.0" height="4" rx="2"/>
+<rect class="fa" x="40.0" y="94" width="4.0" height="4" rx="2"/>
+<rect class="fm" x="227.0" y="94" width="119.0" height="4" rx="2"/>
+<rect class="fa" x="227.0" y="94" width="6.0" height="4" rx="2"/>
+<rect class="fm" x="414.0" y="94" width="119.0" height="4" rx="2"/>
+<rect class="fa" x="414.0" y="94" width="29.8" height="4" rx="2"/>
+<rect class="fm" x="601.0" y="94" width="119.0" height="4" rx="2"/>
+<rect class="fa" x="601.0" y="94" width="119.0" height="4" rx="2"/>
+<text class="xs" x="380" y="146" text-anchor="middle">membership: explicit groups first, then a deterministic hash of the user (internal/assign)</text>
+</svg>

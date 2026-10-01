@@ -112,3 +112,59 @@ func TestGatewayDeckKillswitchFlag(t *testing.T) {
 		t.Error("http killswitch URL must fail")
 	}
 }
+
+func TestGatewayRoutes(t *testing.T) {
+	type table []struct {
+		Alias      string `json:"alias"`
+		Experiment string `json:"experiment"`
+		Targets    []struct {
+			Order    int    `json:"order"`
+			Selected bool   `json:"selected"`
+			Upstream string `json:"upstream"`
+			Kind     string `json:"kind"`
+		} `json:"targets"`
+	}
+	run := func(args ...string) table {
+		t.Helper()
+		code, out, errs := halo(t, append([]string{"gateway", "routes", "--policy-dir", example, "--output", "json"}, args...)...)
+		if code != 0 {
+			t.Fatalf("code %d\n%s%s", code, out, errs)
+		}
+		var tb table
+		if err := json.Unmarshal([]byte(out), &tb); err != nil {
+			t.Fatalf("%v\n%s", err, out)
+		}
+		return tb
+	}
+	pick := func(tb table, alias string) (ups []string, selected string) {
+		for _, r := range tb {
+			if r.Alias != alias {
+				continue
+			}
+			for _, tg := range r.Targets {
+				ups = append(ups, tg.Upstream)
+				if tg.Selected {
+					selected = tg.Upstream
+				}
+			}
+		}
+		return
+	}
+
+	tb := run("--user", "alice@acme.com", "--session", "s1")
+	if ups, sel := pick(tb, "opus"); strings.Join(ups, ",") != "bedrock-use1,anthropic-direct" || sel != "bedrock-use1" {
+		t.Errorf("opus targets %v selected %q", ups, sel)
+	}
+	// Both weighted targets of `default` are listed, in the order for this user/session.
+	if ups, _ := pick(tb, "default"); len(ups) != 2 {
+		t.Errorf("default targets %v", ups)
+	}
+	if _, sel := pick(tb, "sonnet"); sel != "orchestrator" {
+		t.Errorf("single-target alias selected %q", sel)
+	}
+
+	code, out, errs := halo(t, "gateway", "routes", "--policy-dir", example, "--user", "alice@acme.com")
+	if code != 0 || !strings.Contains(out, "bedrock-use1") || !strings.Contains(out, "<- hit when healthy") {
+		t.Errorf("text output: code %d\n%s%s", code, out, errs)
+	}
+}

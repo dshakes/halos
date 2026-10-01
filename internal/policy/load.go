@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -127,6 +128,10 @@ func loadFile(org *Org, path string) error {
 			target = new(Experiment)
 		case KindGateway:
 			target = new(Gateway)
+		case KindToggle:
+			target = new(Toggle)
+		case KindRollout:
+			target = new(Rollout)
 		default:
 			return fmt.Errorf("policy: %s: document %d: unknown kind %q", path, i+1, k)
 		}
@@ -188,6 +193,19 @@ func (o *Org) add(v any) error {
 			return err
 		}
 		o.Experiments = append(o.Experiments, t)
+	case *Toggle:
+		if err := check(t.Meta); err != nil {
+			return err
+		}
+		if slices.ContainsFunc(o.Toggles, func(e *Toggle) bool { return e.Name == t.Name }) {
+			return fmt.Errorf("duplicate toggle %q", t.Name)
+		}
+		o.Toggles = append(o.Toggles, t)
+	case *Rollout:
+		if err := check(t.Meta); err != nil {
+			return err
+		}
+		o.Rollouts = append(o.Rollouts, t)
 	case *Gateway:
 		if err := check(t.Meta); err != nil {
 			return err

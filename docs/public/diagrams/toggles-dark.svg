@@ -1,0 +1,126 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 330" width="880" height="330" role="img" aria-labelledby="t d" font-family="ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif">
+<title id="t">Feature toggles</title>
+<desc id="d">A feature toggle with ordered targeting rules (ring, group, percentage) resolves to on or off per developer from verified identity, and a signed kill switch turns it off everywhere.</desc>
+<style>
+.cv{fill:#0f141a;stroke:#232a33;stroke-width:1.5}
+.card{fill:#161b22;stroke:#2b3440;stroke-width:1.5}
+.soft{fill:url(#gs)}
+.ring{fill:none;stroke:url(#ga);stroke-width:1.5}
+.dcard{fill:#2a1517;stroke:#f87171;stroke-width:1.5}
+.ghost{fill:none;stroke:#56606c;stroke-width:1.5;stroke-dasharray:4 4}
+.zone{fill:#131921;stroke:#262f3a;stroke-width:1.5}
+.chip{fill:#1c232c;stroke:#2b3440;stroke-width:1}
+text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
+.t{font-size:13.5px;font-weight:600;fill:#e6edf3}
+.tm{font:600 12.5px ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;fill:#e6edf3}
+.td{fill:#f87171}
+.s{font-size:12px;fill:#9aa7b4}
+.m{font:11px ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;fill:#9aa7b4}
+.xs{font-size:10.5px;font-weight:500;fill:#7d8794}
+.xm{font-family:ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;font-weight:400}
+.xa{fill:url(#ga);font-weight:600}
+.xd{fill:#f87171;font-weight:600}
+.xw{fill:#0b1220;font-weight:600}
+.k{font-size:10.5px;font-weight:600;letter-spacing:.08em;fill:#7d8794}
+.ka{fill:url(#ga)}
+.h1{font-size:42px;font-weight:700;letter-spacing:-.02em;fill:#e6edf3}
+.ln,.la,.ld,.lm{fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.ln{stroke:#56606c}.la{stroke:url(#ga)}.ld{stroke:#f87171}.lm{stroke:#2b3440}
+.lane{stroke:#2b3440;stroke-width:1.5;stroke-dasharray:3 4}
+.dash{stroke-dasharray:5 5}
+.dl{fill:#56606c}.da{fill:url(#ga)}.dd{fill:#f87171}
+.pl{fill:#0f141a}.pa{fill:#0f141a;stroke:url(#ga);stroke-width:1}
+.pd{fill:#2a1517;stroke:#f87171;stroke-width:1}.ps{fill:url(#ga)}
+.fa{fill:url(#ga)}.fs{fill:url(#gs)}.fm{fill:#1c232c}.fd{fill:#f87171}.ft{fill:#e6edf3}
+.bdg{fill:url(#ga)}.bn{font-size:9.5px;font-weight:700;fill:#0b1220}
+.ic{fill:none;stroke:url(#ga);stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
+.pkt{fill:url(#ga)}
+.grow{transform-box:fill-box;transform-origin:left;animation:grow 4.8s cubic-bezier(.6,0,.2,1) infinite}
+@keyframes grow{0%{transform:scaleX(.08)}25%{transform:scaleX(.3)}50%{transform:scaleX(.55)}75%,100%{transform:scaleX(1)}}
+.flow{stroke-dasharray:4 6;animation:flow 1.1s linear infinite}
+@keyframes flow{to{stroke-dashoffset:-20}}
+.blink{animation:blink 3.2s ease-in-out infinite}
+@keyframes blink{0%,100%{opacity:.18}35%,65%{opacity:1}}
+.pulse{transform-box:fill-box;transform-origin:center;animation:pulse 2.8s ease-out infinite}
+@keyframes pulse{0%{opacity:.55;transform:scale(.6)}100%{opacity:0;transform:scale(1.5)}}
+@media (prefers-reduced-motion:reduce){.flow,.blink,.pulse,.grow{animation:none}.blink{opacity:1}.pulse,.pkt{display:none}}
+</style>
+<defs>
+<linearGradient id="ga" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="880" y2="0"><stop offset="0" stop-color="#2dd4bf"/><stop offset="1" stop-color="#818cf8"/></linearGradient>
+<linearGradient id="gs" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="880" y2="0"><stop offset="0" stop-color="#2dd4bf" stop-opacity="0.12"/><stop offset="1" stop-color="#818cf8" stop-opacity="0.12"/></linearGradient>
+<filter id="sh" x="-10%" y="-10%" width="120%" height="140%"><feDropShadow dx="0" dy="1" stdDeviation="1.6" flood-color="#000000" flood-opacity="0.45"/></filter>
+</defs>
+<rect class="cv" x=".75" y=".75" width="878.5" height="328.5" rx="16"/>
+<rect class="card" x="24" y="24" width="360" height="282" rx="12" filter="url(#sh)"/>
+<text class="k ka" x="40" y="48">TOGGLE</text>
+<text class="tm" x="40" y="70">mcp.linear</text>
+<rect class="fa" x="322" y="40" width="44" height="24" rx="12"/>
+<circle cx="354" cy="52" r="9" fill="#fff"/>
+<rect class="chip" x="40" y="92" width="328" height="34" rx="8"/>
+<circle class="bdg" cx="56" cy="109" r="8"/>
+<text class="bn" x="56" y="112.4" text-anchor="middle">1</text>
+<text class="m" x="74" y="113.5">ring = ring0</text>
+<rect class="pa" x="326.0" y="100" width="28.1" height="18" rx="9"/>
+<text class="xs xa" x="340" y="112.6" text-anchor="middle">ON</text>
+<rect class="chip" x="40" y="136" width="328" height="34" rx="8"/>
+<circle class="bdg" cx="56" cy="153" r="8"/>
+<text class="bn" x="56" y="156.4" text-anchor="middle">2</text>
+<text class="m" x="74" y="157.5">group = platform-eng</text>
+<rect class="pa" x="326.0" y="144" width="28.1" height="18" rx="9"/>
+<text class="xs xa" x="340" y="156.6" text-anchor="middle">ON</text>
+<rect class="chip" x="40" y="180" width="328" height="34" rx="8"/>
+<circle class="bdg" cx="56" cy="197" r="8"/>
+<text class="bn" x="56" y="200.4" text-anchor="middle">3</text>
+<text class="m" x="74" y="201.5">10% of everyone else</text>
+<rect class="pa" x="326.0" y="188" width="28.1" height="18" rx="9"/>
+<text class="xs xa" x="340" y="200.6" text-anchor="middle">ON</text>
+<rect class="chip" x="40" y="224" width="328" height="34" rx="8"/>
+<text class="xs" x="56" y="245.5" text-anchor="middle">else</text>
+<text class="m" x="74" y="245.5">default</text>
+<rect class="pl" x="322.4" y="232" width="35.1" height="18" rx="9"/>
+<text class="xs" x="340" y="244.6" text-anchor="middle">OFF</text>
+<rect class="dcard" x="40" y="270" width="328" height="24" rx="8"/>
+<text class="xs xd" x="54" y="286">kill switch: one signed flip → OFF everywhere</text>
+<text class="k ka" x="480" y="48">RESOLVED PER DEVELOPER · FROM VERIFIED IDENTITY</text>
+<rect class="card" x="480" y="66" width="376" height="48" rx="12" filter="url(#sh)"/>
+<circle class="fa" cx="504" cy="90" r="12"/>
+<text class="xs xw" x="504" y="94" text-anchor="middle">A</text>
+<text class="t" x="526" y="87">ana</text>
+<text class="m" x="526" y="103">ring0</text>
+<text class="xs" x="760" y="94" text-anchor="end">rule 1</text>
+<rect class="pa" x="798.0" y="81" width="28.1" height="18" rx="9"/>
+<text class="xs xa" x="812" y="93.6" text-anchor="middle">ON</text>
+<path class="la" d="M390 109L422.0 109.0Q430 109 430.0 101.0L430.0 98.0Q430 90 438.0 90.0L474 90"/>
+<path class="la hd" d="M468.5 93.4L474 90L468.5 86.6"/>
+<rect class="card" x="480" y="124" width="376" height="48" rx="12" filter="url(#sh)"/>
+<circle class="fa" cx="504" cy="148" r="12"/>
+<text class="xs xw" x="504" y="152" text-anchor="middle">B</text>
+<text class="t" x="526" y="145">ben</text>
+<text class="m" x="526" y="161">platform-eng</text>
+<text class="xs" x="760" y="152" text-anchor="end">rule 2</text>
+<rect class="pa" x="798.0" y="139" width="28.1" height="18" rx="9"/>
+<text class="xs xa" x="812" y="151.6" text-anchor="middle">ON</text>
+<path class="la" d="M390 153L427.5 153.0Q430 153 430.0 150.5L430.0 150.5Q430 148 432.5 148.0L474 148"/>
+<path class="la hd" d="M468.5 151.4L474 148L468.5 144.6"/>
+<rect class="card" x="480" y="182" width="376" height="48" rx="12" filter="url(#sh)"/>
+<circle class="fa" cx="504" cy="206" r="12"/>
+<text class="xs xw" x="504" y="210" text-anchor="middle">C</text>
+<text class="t" x="526" y="203">chen</text>
+<text class="m" x="526" y="219">bucket 0412 &lt; 1000</text>
+<text class="xs" x="760" y="210" text-anchor="end">rule 3</text>
+<rect class="pa" x="798.0" y="197" width="28.1" height="18" rx="9"/>
+<text class="xs xa" x="812" y="209.6" text-anchor="middle">ON</text>
+<path class="la" d="M390 197L425.5 197.0Q430 197 430.0 201.5L430.0 201.5Q430 206 434.5 206.0L474 206"/>
+<path class="la hd" d="M468.5 209.4L474 206L468.5 202.6"/>
+<rect class="card" x="480" y="240" width="376" height="48" rx="12" filter="url(#sh)"/>
+<circle class="fm" cx="504" cy="264" r="12"/>
+<text class="xs" x="504" y="268" text-anchor="middle">D</text>
+<text class="t" x="526" y="261">dee</text>
+<text class="m" x="526" y="277">bucket 7311</text>
+<text class="xs" x="760" y="268" text-anchor="end">default</text>
+<rect class="pl" x="794.4" y="255" width="35.1" height="18" rx="9"/>
+<text class="xs" x="812" y="267.6" text-anchor="middle">OFF</text>
+<path class="ln" d="M390 241L422.0 241.0Q430 241 430.0 249.0L430.0 256.0Q430 264 438.0 264.0L474 264"/>
+<path class="ln hd" d="M468.5 267.4L474 264L468.5 260.6"/>
+<text class="xs" x="480" y="306">same hash as experiments: internal/assign, salted per toggle</text>
+</svg>

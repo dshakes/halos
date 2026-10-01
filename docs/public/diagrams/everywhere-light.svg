@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 148" width="880" height="148" role="img" aria-labelledby="t d" font-family="ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif">
+<title id="t">Runs everywhere</title>
+<desc id="d">One signed release delivered to macOS, Linux and Windows laptops, Dev Containers, Codespaces and Coder workspaces, CI runners, and Kubernetes.</desc>
+<style>
+.cv{fill:#fbfcfd;stroke:#e6eaf0;stroke-width:1.5}
+.card{fill:#ffffff;stroke:#e2e8f0;stroke-width:1.5}
+.soft{fill:url(#gs)}
+.ring{fill:none;stroke:url(#ga);stroke-width:1.5}
+.dcard{fill:#fef2f2;stroke:#dc2626;stroke-width:1.5}
+.ghost{fill:none;stroke:#94a3b8;stroke-width:1.5;stroke-dasharray:4 4}
+.zone{fill:#f4f6f9;stroke:#dfe5ec;stroke-width:1.5}
+.chip{fill:#f1f5f9;stroke:#e2e8f0;stroke-width:1}
+text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
+.t{font-size:13.5px;font-weight:600;fill:#0b1220}
+.tm{font:600 12.5px ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;fill:#0b1220}
+.td{fill:#dc2626}
+.s{font-size:12px;fill:#475569}
+.m{font:11px ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;fill:#475569}
+.xs{font-size:10.5px;font-weight:500;fill:#64748b}
+.xm{font-family:ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;font-weight:400}
+.xa{fill:url(#ga);font-weight:600}
+.xd{fill:#dc2626;font-weight:600}
+.xw{fill:#ffffff;font-weight:600}
+.k{font-size:10.5px;font-weight:600;letter-spacing:.08em;fill:#64748b}
+.ka{fill:url(#ga)}
+.h1{font-size:42px;font-weight:700;letter-spacing:-.02em;fill:#0b1220}
+.ln,.la,.ld,.lm{fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.ln{stroke:#94a3b8}.la{stroke:url(#ga)}.ld{stroke:#dc2626}.lm{stroke:#e2e8f0}
+.lane{stroke:#e2e8f0;stroke-width:1.5;stroke-dasharray:3 4}
+.dash{stroke-dasharray:5 5}
+.dl{fill:#94a3b8}.da{fill:url(#ga)}.dd{fill:#dc2626}
+.pl{fill:#fbfcfd}.pa{fill:#fbfcfd;stroke:url(#ga);stroke-width:1}
+.pd{fill:#fef2f2;stroke:#dc2626;stroke-width:1}.ps{fill:url(#ga)}
+.fa{fill:url(#ga)}.fs{fill:url(#gs)}.fm{fill:#f1f5f9}.fd{fill:#dc2626}.ft{fill:#0b1220}
+.bdg{fill:url(#ga)}.bn{font-size:9.5px;font-weight:700;fill:#ffffff}
+.ic{fill:none;stroke:url(#ga);stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
+.pkt{fill:url(#ga)}
+.grow{transform-box:fill-box;transform-origin:left;animation:grow 4.8s cubic-bezier(.6,0,.2,1) infinite}
+@keyframes grow{0%{transform:scaleX(.08)}25%{transform:scaleX(.3)}50%{transform:scaleX(.55)}75%,100%{transform:scaleX(1)}}
+.flow{stroke-dasharray:4 6;animation:flow 1.1s linear infinite}
+@keyframes flow{to{stroke-dashoffset:-20}}
+.blink{animation:blink 3.2s ease-in-out infinite}
+@keyframes blink{0%,100%{opacity:.18}35%,65%{opacity:1}}
+.pulse{transform-box:fill-box;transform-origin:center;animation:pulse 2.8s ease-out infinite}
+@keyframes pulse{0%{opacity:.55;transform:scale(.6)}100%{opacity:0;transform:scale(1.5)}}
+@media (prefers-reduced-motion:reduce){.flow,.blink,.pulse,.grow{animation:none}.blink{opacity:1}.pulse,.pkt{display:none}}
+</style>
+<defs>
+<linearGradient id="ga" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="880" y2="0"><stop offset="0" stop-color="#0d9488"/><stop offset="1" stop-color="#4f46e5"/></linearGradient>
+<linearGradient id="gs" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="880" y2="0"><stop offset="0" stop-color="#0d9488" stop-opacity="0.07"/><stop offset="1" stop-color="#4f46e5" stop-opacity="0.07"/></linearGradient>
+<filter id="sh" x="-10%" y="-10%" width="120%" height="140%"><feDropShadow dx="0" dy="1" stdDeviation="1.6" flood-color="#0f172a" flood-opacity="0.07"/></filter>
+</defs>
+
+<rect class="card" x="4" y="8" width="116" height="128" rx="12" filter="url(#sh)"/>
+<g class="ic"><rect x="44.0" y="36" width="36" height="24" rx="3"/><path d="M38.0 66H86.0L82.0 60H42.0Z"/></g>
+<text class="t" x="62" y="102" text-anchor="middle">macOS</text>
+<text class="xs" x="62" y="120" text-anchor="middle">halod · MDM</text>
+<rect class="card" x="130" y="8" width="116" height="128" rx="12" filter="url(#sh)"/>
+<g class="ic"><rect x="168.0" y="36" width="40" height="32" rx="5"/><path d="M177.0 48l6 5-6 5M189.0 60h9"/></g>
+<text class="t" x="188" y="102" text-anchor="middle">Linux</text>
+<text class="xs" x="188" y="120" text-anchor="middle">halod</text>
+<rect class="card" x="256" y="8" width="116" height="128" rx="12" filter="url(#sh)"/>
+<g class="ic"><rect x="294.0" y="34" width="40" height="27" rx="3"/><path d="M314.0 61v7M305.0 69h18"/></g>
+<text class="t" x="314" y="102" text-anchor="middle">Windows</text>
+<text class="xs" x="314" y="120" text-anchor="middle">halod · Intune</text>
+<rect class="card" x="382" y="8" width="116" height="128" rx="12" filter="url(#sh)"/>
+<g class="ic"><path d="M440.0 34l17 9v19l-17 9-17-9v-19z"/><path d="M423.0 43l17 9 17-9M440.0 52v19"/></g>
+<text class="t" x="440" y="102" text-anchor="middle">Dev Containers</text>
+<text class="xs" x="440" y="120" text-anchor="middle">Feature</text>
+<rect class="card" x="508" y="8" width="116" height="128" rx="12" filter="url(#sh)"/>
+<g class="ic"><path d="M554.0 64h25a9 9 0 0 0 1-18 13 13 0 0 0-25-3 8 8 0 0 0-1 21z"/><path d="M562.0 51l-4 4 4 4M571.0 51l4 4-4 4"/></g>
+<text class="t" x="566" y="102" text-anchor="middle">Workspaces</text>
+<text class="xs" x="566" y="120" text-anchor="middle">Codespaces · Coder</text>
+<rect class="card" x="634" y="8" width="116" height="128" rx="12" filter="url(#sh)"/>
+<g class="ic"><circle cx="676.0" cy="52" r="5"/><circle cx="692.0" cy="52" r="5"/><circle cx="708.0" cy="52" r="5"/><path d="M681.0 52h6M697.0 52h6M672.0 67h40"/></g>
+<text class="t" x="692" y="102" text-anchor="middle">CI runners</text>
+<text class="xs" x="692" y="120" text-anchor="middle">action</text>
+<rect class="card" x="760" y="8" width="116" height="128" rx="12" filter="url(#sh)"/>
+<g class="ic"><circle cx="818.0" cy="39" r="6"/><circle cx="804.0" cy="63" r="6"/><circle cx="832.0" cy="63" r="6"/><path d="M815.0 44l-8 13M821.0 44l8 13M810.0 63h16"/></g>
+<text class="t" x="818" y="102" text-anchor="middle">Kubernetes</text>
+<text class="xs" x="818" y="120" text-anchor="middle">Helm chart</text>
+<style>.everywhere .t{font-size:12.5px}</style>
+</svg>

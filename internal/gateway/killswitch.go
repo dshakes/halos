@@ -21,9 +21,13 @@ import (
 // them as not running (control routing, no shadow) without waiting for a
 // policy PR to merge and a snapshot to ship.
 type KillList struct {
-	Version     uint64    `json:"version"` // grows with every kill/unkill; informational
-	Experiments []string  `json:"experiments"`
-	IssuedAt    time.Time `json:"issuedAt"`
+	Version     uint64   `json:"version"` // grows with every kill/unkill; informational
+	Experiments []string `json:"experiments"`
+	// Toggles are killed feature-toggle names: treated as off everywhere, whatever
+	// their rules say. Part of the signed payload, so covered by the same
+	// signature, freshness and monotonicity checks as Experiments.
+	Toggles  []string  `json:"toggles,omitempty"`
+	IssuedAt time.Time `json:"issuedAt"`
 }
 
 // KillEnvelope is GET /api/v1/gateway/killswitch: Payload is the JSON
@@ -98,6 +102,7 @@ type KillSwitch struct {
 	mu      sync.RWMutex
 	list    KillList
 	killed  map[string]bool
+	toggles map[string]bool
 	failing bool
 }
 
@@ -204,12 +209,21 @@ func (k *KillSwitch) refresh(ctx context.Context) error {
 	if l.Version != k.list.Version {
 		k.log().Info("killswitch updated", "version", l.Version, "experiments", l.Experiments)
 	}
+	k.set(l)
+	return nil
+}
+
+// set installs l as the current list; callers hold k.mu.
+func (k *KillSwitch) set(l KillList) {
 	k.list = l
 	k.killed = make(map[string]bool, len(l.Experiments))
 	for _, e := range l.Experiments {
 		k.killed[e] = true
 	}
-	return nil
+	k.toggles = make(map[string]bool, len(l.Toggles))
+	for _, t := range l.Toggles {
+		k.toggles[t] = true
+	}
 }
 
 // Run refreshes immediately and then every Interval until ctx ends.
@@ -240,12 +254,9 @@ func (k *KillSwitch) Restore(l KillList) {
 	if !l.IssuedAt.After(k.list.IssuedAt) {
 		return
 	}
-	k.list = l
-	k.list.Experiments = slices.Clone(l.Experiments)
-	k.killed = make(map[string]bool, len(l.Experiments))
-	for _, e := range l.Experiments {
-		k.killed[e] = true
-	}
+	l.Experiments = slices.Clone(l.Experiments)
+	l.Toggles = slices.Clone(l.Toggles)
+	k.set(l)
 }
 
 // Killed returns the current list (a copy).
@@ -257,6 +268,7 @@ func (k *KillSwitch) Killed() KillList {
 	defer k.mu.RUnlock()
 	l := k.list
 	l.Experiments = slices.Clone(l.Experiments)
+	l.Toggles = slices.Clone(l.Toggles)
 	return l
 }
 
@@ -271,10 +283,15 @@ func (k *KillSwitch) Apply(org *policy.Org) *policy.Org {
 	}
 	k.mu.RLock()
 	defer k.mu.RUnlock()
-	if len(k.killed) == 0 || !slices.ContainsFunc(org.Experiments, func(e *policy.Experiment) bool { return k.killed[e.Name] }) {
+	expKilled := slices.ContainsFunc(org.Experiments, func(e *policy.Experiment) bool { return k.killed[e.Name] })
+	togKilled := slices.ContainsFunc(org.Toggles, func(t *policy.Toggle) bool { return k.toggles[t.Name] })
+	if !expKilled && !togKilled {
 		return org
 	}
 	out := *org
+	if togKilled { // a killed toggle is off: dropping it is the same as it never matching
+		out.Toggles = slices.DeleteFunc(slices.Clone(org.Toggles), func(t *policy.Toggle) bool { return k.toggles[t.Name] })
+	}
 	out.Experiments = make([]*policy.Experiment, len(org.Experiments))
 	for i, e := range org.Experiments {
 		if k.killed[e.Name] {

@@ -19,7 +19,8 @@ const schemaDir = "../../schemas"
 
 var kindSchema = map[string]string{
 	"Profile": "profile.schema.json", "Ring": "ring.schema.json", "Experiment": "experiment.schema.json",
-	"Gateway": "gateway.schema.json", "Halos": "halos.schema.json",
+	"Gateway": "gateway.schema.json", "Halos": "halos.schema.json", "Toggle": "toggle.schema.json",
+	"Rollout": "rollout.schema.json",
 }
 
 func compileSchemas(t *testing.T) map[string]*jsonschema.Schema {
@@ -67,8 +68,14 @@ func TestExamplesMatchSchemas(t *testing.T) {
 	schemas := compileSchemas(t)
 	n := 0
 	err := filepath.WalkDir(exampleDir, func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || (filepath.Ext(p) != ".yaml" && filepath.Ext(p) != ".yml") {
+		if err != nil {
 			return err
+		}
+		if d.IsDir() && p != exampleDir && strings.HasPrefix(d.Name(), ".") {
+			return filepath.SkipDir // the loader skips dot-dirs (.halos holds tool state)
+		}
+		if d.IsDir() || (filepath.Ext(p) != ".yaml" && filepath.Ext(p) != ".yml") {
+			return nil
 		}
 		b, err := os.ReadFile(p)
 		if err != nil {

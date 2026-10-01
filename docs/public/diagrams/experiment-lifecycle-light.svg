@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 214" width="760" height="214" role="img" aria-labelledby="t d" font-family="ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif">
+<title id="t">Experiment lifecycle</title>
+<desc id="d">An experiment starts as draft, runs after halo exp start, can be paused and restarted, and ends concluded from running or paused.</desc>
+<style>
+.cv{fill:#fbfcfd;stroke:#e6eaf0;stroke-width:1.5}
+.card{fill:#ffffff;stroke:#e2e8f0;stroke-width:1.5}
+.soft{fill:url(#gs)}
+.ring{fill:none;stroke:url(#ga);stroke-width:1.5}
+.dcard{fill:#fef2f2;stroke:#dc2626;stroke-width:1.5}
+.ghost{fill:none;stroke:#94a3b8;stroke-width:1.5;stroke-dasharray:4 4}
+.zone{fill:#f4f6f9;stroke:#dfe5ec;stroke-width:1.5}
+.chip{fill:#f1f5f9;stroke:#e2e8f0;stroke-width:1}
+text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
+.t{font-size:13.5px;font-weight:600;fill:#0b1220}
+.tm{font:600 12.5px ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;fill:#0b1220}
+.td{fill:#dc2626}
+.s{font-size:12px;fill:#475569}
+.m{font:11px ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;fill:#475569}
+.xs{font-size:10.5px;font-weight:500;fill:#64748b}
+.xm{font-family:ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;font-weight:400}
+.xa{fill:url(#ga);font-weight:600}
+.xd{fill:#dc2626;font-weight:600}
+.xw{fill:#ffffff;font-weight:600}
+.k{font-size:10.5px;font-weight:600;letter-spacing:.08em;fill:#64748b}
+.ka{fill:url(#ga)}
+.h1{font-size:42px;font-weight:700;letter-spacing:-.02em;fill:#0b1220}
+.ln,.la,.ld,.lm{fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.ln{stroke:#94a3b8}.la{stroke:url(#ga)}.ld{stroke:#dc2626}.lm{stroke:#e2e8f0}
+.lane{stroke:#e2e8f0;stroke-width:1.5;stroke-dasharray:3 4}
+.dash{stroke-dasharray:5 5}
+.dl{fill:#94a3b8}.da{fill:url(#ga)}.dd{fill:#dc2626}
+.pl{fill:#fbfcfd}.pa{fill:#fbfcfd;stroke:url(#ga);stroke-width:1}
+.pd{fill:#fef2f2;stroke:#dc2626;stroke-width:1}.ps{fill:url(#ga)}
+.fa{fill:url(#ga)}.fs{fill:url(#gs)}.fm{fill:#f1f5f9}.fd{fill:#dc2626}.ft{fill:#0b1220}
+.bdg{fill:url(#ga)}.bn{font-size:9.5px;font-weight:700;fill:#ffffff}
+.ic{fill:none;stroke:url(#ga);stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
+.pkt{fill:url(#ga)}
+.grow{transform-box:fill-box;transform-origin:left;animation:grow 4.8s cubic-bezier(.6,0,.2,1) infinite}
+@keyframes grow{0%{transform:scaleX(.08)}25%{transform:scaleX(.3)}50%{transform:scaleX(.55)}75%,100%{transform:scaleX(1)}}
+.flow{stroke-dasharray:4 6;animation:flow 1.1s linear infinite}
+@keyframes flow{to{stroke-dashoffset:-20}}
+.blink{animation:blink 3.2s ease-in-out infinite}
+@keyframes blink{0%,100%{opacity:.18}35%,65%{opacity:1}}
+.pulse{transform-box:fill-box;transform-origin:center;animation:pulse 2.8s ease-out infinite}
+@keyframes pulse{0%{opacity:.55;transform:scale(.6)}100%{opacity:0;transform:scale(1.5)}}
+@media (prefers-reduced-motion:reduce){.flow,.blink,.pulse,.grow{animation:none}.blink{opacity:1}.pulse,.pkt{display:none}}
+</style>
+<defs>
+<linearGradient id="ga" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="760" y2="0"><stop offset="0" stop-color="#0d9488"/><stop offset="1" stop-color="#4f46e5"/></linearGradient>
+<linearGradient id="gs" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="760" y2="0"><stop offset="0" stop-color="#0d9488" stop-opacity="0.07"/><stop offset="1" stop-color="#4f46e5" stop-opacity="0.07"/></linearGradient>
+<filter id="sh" x="-10%" y="-10%" width="120%" height="140%"><feDropShadow dx="0" dy="1" stdDeviation="1.6" flood-color="#0f172a" flood-opacity="0.07"/></filter>
+</defs>
+<rect class="cv" x=".75" y=".75" width="758.5" height="212.5" rx="16"/>
+<circle class="dl" cx="32" cy="58" r="5"/>
+<path class="ln" d="M38 58L50 58"/>
+<rect class="card" x="52" y="40" width="108" height="36" rx="18.0" filter="url(#sh)"/>
+<text class="tm" x="106" y="62.5" text-anchor="middle">draft</text>
+<rect class="card" x="300" y="40" width="140" height="36" rx="18.0" filter="url(#sh)"/>
+<rect class="soft" x="300" y="40" width="140" height="36" rx="18.0"/>
+<rect class="ring" x="300.75" y="40.75" width="138.5" height="34.5" rx="17.25"/>
+<text class="tm" x="370" y="62.5" text-anchor="middle">running</text>
+<rect class="card" x="596" y="40" width="140" height="36" rx="18.0" filter="url(#sh)"/>
+<text class="tm" x="666" y="62.5" text-anchor="middle">concluded</text>
+<rect class="card" x="300" y="152" width="140" height="36" rx="18.0" filter="url(#sh)"/>
+<text class="tm" x="370" y="174.5" text-anchor="middle">paused</text>
+<path class="ln" d="M166 58L294 58"/>
+<path class="ln hd" d="M288.5 61.4L294 58L288.5 54.6"/>
+<rect class="pl" x="178.2" y="49" width="103.7" height="18" rx="9"/>
+<text class="xs xm" x="230" y="61.6" text-anchor="middle">halo exp start</text>
+<path class="ln" d="M446 58L590 58"/>
+<path class="ln hd" d="M584.5 61.4L590 58L584.5 54.6"/>
+<rect class="pl" x="456.6" y="49" width="122.9" height="18" rx="9"/>
+<text class="xs xm" x="518" y="61.6" text-anchor="middle">halo exp conclude</text>
+<path class="ln" d="M336 82L336 146"/>
+<path class="ln hd" d="M332.6 140.5L336 146L339.4 140.5"/>
+<rect class="pl" x="313.0" y="105" width="46.0" height="18" rx="9"/>
+<text class="xs xm" x="336" y="117.6" text-anchor="middle">pause</text>
+<path class="ln" d="M404 146L404 82"/>
+<path class="ln hd" d="M407.4 87.5L404 82L400.6 87.5"/>
+<rect class="pl" x="381.0" y="105" width="46.0" height="18" rx="9"/>
+<text class="xs xm" x="404" y="117.6" text-anchor="middle">start</text>
+<path class="ln" d="M446 170L656.0 170.0Q666 170 666.0 160.0L666 82"/>
+<path class="ln hd" d="M669.4 87.5L666 82L662.6 87.5"/>
+<rect class="pl" x="494.6" y="161" width="122.9" height="18" rx="9"/>
+<text class="xs xm" x="556" y="173.6" text-anchor="middle">halo exp conclude</text>
+</svg>

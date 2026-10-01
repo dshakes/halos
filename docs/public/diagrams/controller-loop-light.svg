@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 252" width="760" height="252" role="img" aria-labelledby="t d" font-family="ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif">
+<title id="t">Controller loop</title>
+<desc id="d">Every five minutes the controller evaluates each running experiment from ClickHouse evidence: continue, roll back (kill switch, pause PR, notify), promote (conclude PR, notify) or expire (conclude PR, notify).</desc>
+<style>
+.cv{fill:#fbfcfd;stroke:#e6eaf0;stroke-width:1.5}
+.card{fill:#ffffff;stroke:#e2e8f0;stroke-width:1.5}
+.soft{fill:url(#gs)}
+.ring{fill:none;stroke:url(#ga);stroke-width:1.5}
+.dcard{fill:#fef2f2;stroke:#dc2626;stroke-width:1.5}
+.ghost{fill:none;stroke:#94a3b8;stroke-width:1.5;stroke-dasharray:4 4}
+.zone{fill:#f4f6f9;stroke:#dfe5ec;stroke-width:1.5}
+.chip{fill:#f1f5f9;stroke:#e2e8f0;stroke-width:1}
+text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
+.t{font-size:13.5px;font-weight:600;fill:#0b1220}
+.tm{font:600 12.5px ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;fill:#0b1220}
+.td{fill:#dc2626}
+.s{font-size:12px;fill:#475569}
+.m{font:11px ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;fill:#475569}
+.xs{font-size:10.5px;font-weight:500;fill:#64748b}
+.xm{font-family:ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;font-weight:400}
+.xa{fill:url(#ga);font-weight:600}
+.xd{fill:#dc2626;font-weight:600}
+.xw{fill:#ffffff;font-weight:600}
+.k{font-size:10.5px;font-weight:600;letter-spacing:.08em;fill:#64748b}
+.ka{fill:url(#ga)}
+.h1{font-size:42px;font-weight:700;letter-spacing:-.02em;fill:#0b1220}
+.ln,.la,.ld,.lm{fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.ln{stroke:#94a3b8}.la{stroke:url(#ga)}.ld{stroke:#dc2626}.lm{stroke:#e2e8f0}
+.lane{stroke:#e2e8f0;stroke-width:1.5;stroke-dasharray:3 4}
+.dash{stroke-dasharray:5 5}
+.dl{fill:#94a3b8}.da{fill:url(#ga)}.dd{fill:#dc2626}
+.pl{fill:#fbfcfd}.pa{fill:#fbfcfd;stroke:url(#ga);stroke-width:1}
+.pd{fill:#fef2f2;stroke:#dc2626;stroke-width:1}.ps{fill:url(#ga)}
+.fa{fill:url(#ga)}.fs{fill:url(#gs)}.fm{fill:#f1f5f9}.fd{fill:#dc2626}.ft{fill:#0b1220}
+.bdg{fill:url(#ga)}.bn{font-size:9.5px;font-weight:700;fill:#ffffff}
+.ic{fill:none;stroke:url(#ga);stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
+.pkt{fill:url(#ga)}
+.grow{transform-box:fill-box;transform-origin:left;animation:grow 4.8s cubic-bezier(.6,0,.2,1) infinite}
+@keyframes grow{0%{transform:scaleX(.08)}25%{transform:scaleX(.3)}50%{transform:scaleX(.55)}75%,100%{transform:scaleX(1)}}
+.flow{stroke-dasharray:4 6;animation:flow 1.1s linear infinite}
+@keyframes flow{to{stroke-dashoffset:-20}}
+.blink{animation:blink 3.2s ease-in-out infinite}
+@keyframes blink{0%,100%{opacity:.18}35%,65%{opacity:1}}
+.pulse{transform-box:fill-box;transform-origin:center;animation:pulse 2.8s ease-out infinite}
+@keyframes pulse{0%{opacity:.55;transform:scale(.6)}100%{opacity:0;transform:scale(1.5)}}
+@media (prefers-reduced-motion:reduce){.flow,.blink,.pulse,.grow{animation:none}.blink{opacity:1}.pulse,.pkt{display:none}}
+</style>
+<defs>
+<linearGradient id="ga" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="760" y2="0"><stop offset="0" stop-color="#0d9488"/><stop offset="1" stop-color="#4f46e5"/></linearGradient>
+<linearGradient id="gs" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="760" y2="0"><stop offset="0" stop-color="#0d9488" stop-opacity="0.07"/><stop offset="1" stop-color="#4f46e5" stop-opacity="0.07"/></linearGradient>
+<filter id="sh" x="-10%" y="-10%" width="120%" height="140%"><feDropShadow dx="0" dy="1" stdDeviation="1.6" flood-color="#0f172a" flood-opacity="0.07"/></filter>
+</defs>
+<rect class="cv" x=".75" y=".75" width="758.5" height="250.5" rx="16"/>
+<rect class="card" x="24" y="92" width="140" height="56" rx="12" filter="url(#sh)"/>
+<text class="t" x="40" y="116.5">Tick</text>
+<text class="s" x="40" y="134.5">every 5 minutes</text>
+<rect class="card" x="204" y="84" width="200" height="72" rx="12" filter="url(#sh)"/>
+<rect class="soft" x="204" y="84" width="200" height="72" rx="12"/>
+<rect class="ring" x="204.75" y="84.75" width="198.5" height="70.5" rx="11.25"/>
+<text class="t" x="220" y="108.5">Evaluate</text>
+<text class="s" x="220" y="126.5">each running experiment</text>
+<text class="s" x="220" y="142.5">from ClickHouse evidence</text>
+<rect class="card" x="470" y="24" width="266" height="64" rx="12" filter="url(#sh)"/>
+<rect class="dcard" x="470.75" y="24.75" width="264.5" height="62.5" rx="11.25"/>
+<text class="t td" x="486" y="52.5">Rollback</text>
+<text class="s" x="486" y="70.5">kill switch → pause PR → notify</text>
+<rect class="card" x="470" y="104" width="266" height="56" rx="12" filter="url(#sh)"/>
+<text class="t" x="486" y="128.5">Promote</text>
+<text class="s" x="486" y="146.5">conclude PR · notify</text>
+<rect class="card" x="470" y="176" width="266" height="56" rx="12" filter="url(#sh)"/>
+<text class="t" x="486" y="200.5">Expired</text>
+<text class="s" x="486" y="218.5">conclude PR · notify</text>
+<path class="ln" d="M170 120L198 120"/>
+<path class="ln hd" d="M192.5 123.4L198 120L192.5 116.6"/>
+<path class="ld" d="M410 120L428.0 120.0Q436 120 436.0 112.0L436.0 64.0Q436 56 444.0 56.0L464 56"/>
+<path class="ld hd" d="M458.5 59.4L464 56L458.5 52.6"/>
+<path class="ln" d="M410 120L430.0 120.0Q436 120 436.0 126.0L436.0 126.0Q436 132 442.0 132.0L464 132"/>
+<path class="ln hd" d="M458.5 135.4L464 132L458.5 128.6"/>
+<path class="ln" d="M410 120L428.0 120.0Q436 120 436.0 128.0L436.0 196.0Q436 204 444.0 204.0L464 204"/>
+<path class="ln hd" d="M458.5 207.4L464 204L458.5 200.6"/>
+<path class="ln dash" d="M304 162L304.0 196.0Q304 206 294.0 206.0L104.0 206.0Q94 206 94.0 196.0L94 154"/>
+<path class="ln hd" d="M97.4 159.5L94 154L90.6 159.5"/>
+<rect class="pl" x="172.8" y="197" width="54.4" height="18" rx="9"/>
+<text class="xs" x="200" y="209.6" text-anchor="middle">continue</text>
+</svg>

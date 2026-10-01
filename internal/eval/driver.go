@@ -21,6 +21,7 @@ type Usage struct {
 	DurationMs int64
 	Tokens     int64 // input + output (+ cache) tokens
 	ToolErrors int
+	ToolCalls  int
 	Failed     bool   // harness reported the run as failed/errored
 	Error      string // message when Failed
 }
@@ -97,6 +98,13 @@ func (ClaudeDriver) Parse(out []byte) (Usage, error) {
 	found := false
 	jsonLines(out, func(m map[string]any) {
 		switch str(m, "type") {
+		case "assistant": // each tool_use block is one tool call
+			content, _ := obj(m, "message")["content"].([]any)
+			for _, c := range content {
+				if cm, ok := c.(map[string]any); ok && str(cm, "type") == "tool_use" {
+					u.ToolCalls++
+				}
+			}
 		case "user": // tool results flagged is_error
 			content, _ := obj(m, "message")["content"].([]any)
 			for _, c := range content {
@@ -163,6 +171,10 @@ func (CodexDriver) Parse(out []byte) (Usage, error) {
 			}
 		case "item.completed":
 			it := obj(m, "item")
+			switch str(it, "type") {
+			case "command_execution", "file_change", "mcp_tool_call", "web_search":
+				u.ToolCalls++
+			}
 			if str(it, "type") == "command_execution" && num(it, "exit_code") != 0 {
 				u.ToolErrors++
 			}
@@ -209,6 +221,7 @@ func (GeminiDriver) Parse(out []byte) (Usage, error) {
 	}
 	tools := obj(stats, "tools")
 	u.ToolErrors = int(num(tools, "totalFail"))
+	u.ToolCalls = int(num(tools, "totalCalls"))
 	if e := obj(doc, "error"); e != nil {
 		u.Failed, u.Error = true, str(e, "message")
 	}

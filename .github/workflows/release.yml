@@ -48,4 +48,5 @@ jobs:
         with: {version: "~> v2", args: release --clean}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}   # PAT with contents:write on dshakes/homebrew-tap and dshakes/scoop-bucket
           HALO_WEB_PREBUILT: "1"   # skip the .goreleaser.yaml npm hooks; web/dist came from the web job

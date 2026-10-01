@@ -1,0 +1,8 @@
+id: fix-add-graded
+repo: repo
+prompt: Fix Add so the tests pass. Do not edit the tests.
+graders:
+  - {type: command, run: go test ./...}
+  - {type: file, path: add.go, contains: ["a + b"], not_contains: ["a - b"]}
+  - {type: diff, max_files_changed: 2, must_change: ["add.go"], must_not_change: ["*_test.go"]}
+  - {type: judge, rubric: ../../rubrics/quality.yaml}

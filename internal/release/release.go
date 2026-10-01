@@ -73,6 +73,9 @@ type Manifest struct {
 	// experiments enrolling Ring. Signed with the release, it is what halod
 	// uses to pick a device's variant channel.
 	Experiments []Experiment `json:"experiments,omitempty"`
+	// Toggles are the client-axis feature toggles: targeting rules plus the
+	// per-harness fragments halod merges for the toggles that are on for it.
+	Toggles []ToggleEntry `json:"toggles,omitempty"`
 }
 
 // Experiment is one client-axis experiment in a ring release manifest: just
@@ -121,6 +124,10 @@ func Build(org ProfileResolver, profileName, ringName string, opts Options) (*Re
 	if len(oses) == 0 {
 		oses = allOSes
 	}
+	var org0 *policy.Org
+	if o, ok := org.(*policy.Org); ok {
+		org0 = o
+	}
 	m := Manifest{
 		SchemaVersion: 1, Org: opts.Org, Version: opts.Version, Profile: profileName, Ring: ringName,
 		CreatedAt: opts.CreatedAt.UTC(), Harnesses: map[string]HarnessEntry{},
@@ -130,6 +137,7 @@ func Build(org ProfileResolver, profileName, ringName string, opts Options) (*Re
 		m.CreatedAt = time.Unix(0, 0).UTC()
 	}
 	blobs := map[string][]byte{}
+	toggles := newToggleBuild(org0, &m)
 	names := make([]string, 0, len(prof.Harnesses))
 	for n := range prof.Harnesses {
 		names = append(names, n)
@@ -158,6 +166,11 @@ func Build(org ProfileResolver, profileName, ringName string, opts Options) (*Re
 			if spec.Version != "" {
 				he.InstallCommand[string(os)] = ad.InstallCommand(spec.Version, os)
 			}
+			if org0 != nil {
+				if err := toggles.add(org0, ad, prof, os, files, warns, opts, blobs); err != nil {
+					return nil, fmt.Errorf("release: profile %q: %w", profileName, err)
+				}
+			}
 			entries := make([]FileEntry, 0, len(files))
 			for _, f := range files {
 				sum := sha256.Sum256(f.Data)
@@ -170,6 +183,7 @@ func Build(org ProfileResolver, profileName, ringName string, opts Options) (*Re
 		}
 		m.Harnesses[name] = he
 	}
+	toggles.finish()
 	sort.Strings(m.Warnings)
 	return pack(m, blobs)
 }
@@ -257,6 +271,17 @@ func Open(tarData []byte) (*Release, error) {
 			for _, f := range fs {
 				if _, ok := blobs[f.SHA256]; !ok {
 					return nil, fmt.Errorf("release: manifest %s/%s file %s references missing blob %s", hn, os, f.Path, f.SHA256)
+				}
+			}
+		}
+	}
+	for _, t := range m.Toggles {
+		for hn, byOS := range t.Fragments {
+			for os, fs := range byOS {
+				for _, f := range fs {
+					if _, ok := blobs[f.SHA256]; !ok {
+						return nil, fmt.Errorf("release: manifest toggle %s/%s/%s file %s references missing blob %s", t.Name, hn, os, f.Path, f.SHA256)
+					}
 				}
 			}
 		}

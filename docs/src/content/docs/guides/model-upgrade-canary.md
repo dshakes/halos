@@ -5,14 +5,8 @@ description: Shadow then canary a new model route at the gateway, with cost and 
 
 **Axis:** traffic. **Types:** `shadow`, then `canary`. No client change; clients keep requesting the alias. The example repo ships `sonnet-next-shadow.yaml` and `opus-5-5-canary.yaml` under `examples/acme-corp/experiments/`.
 
-```mermaid
-flowchart LR
-  A[add candidate route] --> B[shadow 5% first turn]
-  B -->|judge OK| C[replay evals]
-  C -->|pass| D[canary 5-10% ring1]
-  D -->|mSPRT + guardrails| E[PR: swap alias route]
-  D -->|breach| F[pause experiment, recompile policy: seconds]
-```
+<img class="diagram dark:sl-hidden" src="/halos/diagrams/model-canary-flow-light.svg" alt="Add a candidate route, shadow 5 percent of first turns, and when the judge is happy run replay evals; on pass canary 5 to 10 percent of ring1. mSPRT plus guardrails lead to a PR swapping the alias route; a breach pauses the experiment and recompiles policy in seconds." width="760" />
+<img class="diagram light:sl-hidden" src="/halos/diagrams/model-canary-flow-dark.svg" alt="Add a candidate route, shadow 5 percent of first turns, and when the judge is happy run replay evals; on pass canary 5 to 10 percent of ring1. mSPRT plus guardrails lead to a PR swapping the alias route; a breach pauses the experiment and recompiles policy in seconds." width="760" />
 
 ## 1. Shadow
 
@@ -69,14 +63,5 @@ Rollback at any point, without touching a client: `halo exp pause opus-5-5-canar
 
 ## Timeline
 
-```mermaid
-gantt
-  title Model upgrade rollout (example)
-  dateFormat YYYY-MM-DD
-  axisFormat %m-%d
-  Shadow 5% ring0        :s, 2026-10-05, 3d
-  Replay evals           :e, after s, 2d
-  Canary 5% ring1        :c, after e, 7d
-  Ramp 50% ring1+ring2   :r, after c, 4d
-  Swap alias (PR)        :milestone, m, after r, 0d
-```
+<img class="diagram dark:sl-hidden" src="/halos/diagrams/model-rollout-timeline-light.svg" alt="Example model upgrade: shadow 5 percent on ring0 for 3 days, replay evals for 2 days, canary 5 percent on ring1 for 7 days, ramp to 50 percent across ring1 and ring2 for 4 days, then swap the alias by PR." width="760" />
+<img class="diagram light:sl-hidden" src="/halos/diagrams/model-rollout-timeline-dark.svg" alt="Example model upgrade: shadow 5 percent on ring0 for 3 days, replay evals for 2 days, canary 5 percent on ring1 for 7 days, ramp to 50 percent across ring1 and ring2 for 4 days, then swap the alias by PR." width="760" />

@@ -20,13 +20,8 @@ Headers owned by the gateway (from `internal/gateway/decision.go`):
 3. The configured identity and groups headers are removed from the forwarded request once the subject is derived. In `trusted_header` mode a request carrying either header twice is a 400. The identity header may not be an `x-halo-*` name.
 4. Upstream services (auth gateway, orchestrator) may trust `x-halo-*` only if they are unreachable except through the gateway.
 
-```mermaid
-flowchart LR
-  C[client sends x-halo-ring: ring3-ga] --> S[gateway: delete every x-halo-*]
-  S --> V[verify JWT: user + groups]
-  V --> D[Decide: ring, release, experiment, variant]
-  D --> H[set x-halo-* stamps on the upstream request]
-```
+<img class="diagram dark:sl-hidden" src="/halos/diagrams/header-stripping-light.svg" alt="The client sends a forged x-halo-ring header; the gateway deletes every x-halo header, verifies the JWT for user and groups, decides ring, release, experiment and variant, then sets x-halo stamps on the upstream request." width="760" />
+<img class="diagram light:sl-hidden" src="/halos/diagrams/header-stripping-dark.svg" alt="The client sends a forged x-halo-ring header; the gateway deletes every x-halo header, verifies the JWT for user and groups, decides ring, release, experiment and variant, then sets x-halo stamps on the upstream request." width="760" />
 
 The stamps go on the **upstream request**. They are not added to the response the client receives.
 

@@ -7,35 +7,8 @@ The full asset list, attacker models and per-control mapping are in the [threat 
 
 ## Trust boundaries
 
-```mermaid
-flowchart LR
-  subgraph UNTRUSTED[Untrusted]
-    CL[client + request headers]
-    NET[network, CDN, vendor download hosts]
-  end
-  subgraph GW[Gateway boundary]
-    PX["halo-proxy / halo-kong<br/>verify OIDC JWT<br/>strip x-halo-*<br/>model allowlist fails closed"]
-  end
-  subgraph SUPPLY[Supply chain]
-    KEY[ed25519 signing key<br/>CI or HSM/KMS]
-    REG[(OCI registry<br/>release + signed pointer)]
-    KEY -->|sign| REG
-  end
-  subgraph HOST[Root on the device]
-    HALOD["halod: verify pointer + release<br/>path allowlist, ownership preflight<br/>verified artifacts only"]
-    FILES[managed config files]
-  end
-  subgraph SERVER[halo-server]
-    PORTAL[portal: OIDC login<br/>enrollment tokens, device tokens]
-    KILL[kill list signed with<br/>a separate ed25519 key]
-  end
-  CL --> PX
-  REG -->|pointer + release, untrusted transport| HALOD
-  NET -->|artifact bytes, hash-checked| HALOD
-  HALOD --> FILES
-  PORTAL -->|one-time token -> device token| HALOD
-  KILL -->|gateway token; signature, freshness, replay checks| PX
-```
+<img class="diagram dark:sl-hidden" src="/halos/diagrams/security-boundaries-light.svg" alt="Untrusted clients and networks; the gateway boundary that verifies OIDC JWTs, strips x-halo headers and fails closed on the model allowlist; a supply chain where a CI or HSM key signs releases into an OCI registry; halod as root verifying pointer and release before writing managed config; and halo-server issuing device tokens and a kill list signed with a separate key." width="760" />
+<img class="diagram light:sl-hidden" src="/halos/diagrams/security-boundaries-dark.svg" alt="Untrusted clients and networks; the gateway boundary that verifies OIDC JWTs, strips x-halo headers and fails closed on the model allowlist; a supply chain where a CI or HSM key signs releases into an OCI registry; halod as root verifying pointer and release before writing managed config; and halo-server issuing device tokens and a kill list signed with a separate key." width="760" />
 
 | Boundary | Threat | Control |
 |---|---|---|

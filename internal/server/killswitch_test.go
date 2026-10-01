@@ -266,7 +266,7 @@ func TestKillSwitchEndToEnd(t *testing.T) {
 	if d.Experiment != "" || d.Variant != "" || d.Headers[gateway.HeaderExperiment] != "" {
 		t.Fatalf("killed experiment still routed: %+v", d)
 	}
-	if want := org.Gateway.Models["opus"]; d.UpstreamName != want.Upstream || d.UpstreamModel != want.Model {
+	if want := org.Gateway.Models["opus"].Primary(); d.UpstreamName != want.Upstream || d.UpstreamModel != want.Model {
 		t.Fatalf("not on control route: %+v want %+v", d, want)
 	}
 	// halo-server down: the kill stays in force.
@@ -363,5 +363,52 @@ func TestFleetKillswitchEndpoint(t *testing.T) {
 	}
 	if c := do(bare.h, "GET", "/enroll/killswitch.pub", "", "").Code; c != 404 {
 		t.Fatalf("unconfigured pub: %d", c)
+	}
+}
+
+// Toggle kills share the experiment kill store, auth, audit and signed list,
+// but surface in KillList.Toggles, never in Experiments.
+func TestToggleKillEndpoints(t *testing.T) {
+	_, dev, _ := newKillServer(t, false)
+	if w := do(dev, "POST", "/api/v1/toggles/github-mcp/kill", "", `{"reason":"x"}`); w.Code != http.StatusForbidden {
+		t.Fatalf("non-admin toggle kill: %d", w.Code)
+	}
+
+	_, h, pub := newKillServer(t, true)
+	for _, tc := range []struct {
+		name, path, body string
+		code             int
+	}{
+		{"unknown toggle", "/api/v1/toggles/nope/kill", `{"reason":"x"}`, 404},
+		{"experiment name is not a toggle", "/api/v1/toggles/opus-5-5-canary/kill", `{"reason":"x"}`, 404},
+		{"no reason", "/api/v1/toggles/github-mcp/kill", ``, 422},
+		{"kill", "/api/v1/toggles/github-mcp/kill", `{"reason":"bad MCP"}`, 200},
+		{"kill again is a no-op", "/api/v1/toggles/github-mcp/kill", `{"reason":"bad MCP"}`, 200},
+	} {
+		if w := do(h, "POST", tc.path, "", tc.body); w.Code != tc.code {
+			t.Fatalf("%s: %d %s", tc.name, w.Code, w.Body)
+		}
+	}
+	fetch := func() gateway.KillList {
+		t.Helper()
+		w := do(h, "GET", "/api/v1/gateway/killswitch", "Bearer "+gwTok, "")
+		var env gateway.KillEnvelope
+		if err := json.Unmarshal(w.Body.Bytes(), &env); err != nil {
+			t.Fatal(err)
+		}
+		l, err := gateway.VerifyKillList(pub, env, ksNow, time.Minute)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return l
+	}
+	if l := fetch(); !slices.Equal(l.Toggles, []string{"github-mcp"}) || len(l.Experiments) != 0 {
+		t.Fatalf("after kill: %+v", l)
+	}
+	if w := do(h, "POST", "/api/v1/toggles/github-mcp/unkill", "", ``); w.Code != 200 {
+		t.Fatalf("unkill: %d %s", w.Code, w.Body)
+	}
+	if l := fetch(); len(l.Toggles) != 0 {
+		t.Fatalf("after unkill: %+v", l)
 	}
 }

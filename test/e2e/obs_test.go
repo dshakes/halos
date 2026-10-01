@@ -16,6 +16,7 @@ import (
 	"math"
 	"math/rand"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -190,6 +191,7 @@ func TestObsEvidencePlane(t *testing.T) {
 		t.Fatal(err)
 	}
 	sendGatewayMetrics(ctx, t, gwOTLP, tokFile, expGW, 1.4, 529, 0.02)
+	runEvalOnline(t, halo, root, gwOTLP, tokFile)
 
 	// 0. Evidence trust. The gateway receiver rejects missing and wrong tokens.
 	for _, tok := range []string{"", "wrong"} {
@@ -221,6 +223,21 @@ func TestObsEvidencePlane(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("CLI receiver must accept unauthenticated exports: HTTP %d", resp.StatusCode)
+	}
+
+	// Online eval quality: judge-score gauges for both arms, via the gateway receiver.
+	waitFor(t, 90*time.Second, "online eval judge scores", func() bool {
+		return ch.num(t, "SELECT count() FROM halo_metrics WHERE metric='halo.eval.judge.score' AND experiment='"+expCost+"'") == 2
+	})
+	judged := map[string]float64{}
+	for _, r := range ch.rows(t, "SELECT variant, source, judge_score, readings FROM halo_eval_quality WHERE experiment='"+expCost+"' AND rubric='code-change-quality@1' AND judge='judge-pinned-1'") {
+		if r["source"] != "gateway" {
+			t.Errorf("judge score row with source %v, want gateway", r["source"])
+		}
+		judged[r["variant"].(string)] = r["judge_score"].(float64)
+	}
+	if math.Abs(judged["control"]-0.6) > 1e-6 || math.Abs(judged["treatment"]-0.8) > 1e-6 {
+		t.Errorf("halo_eval_quality averages %v, want control 0.6 / treatment 0.8", judged)
 	}
 
 	// 1. Rows land (collector batches for 5s) and were normalised.
@@ -386,7 +403,7 @@ func TestObsEvidencePlane(t *testing.T) {
 			}
 		}
 	}
-	if err := json.Unmarshal(gget("/api/dashboards/uid/halo-fleet"), &dash); err != nil || len(dash.Dashboard.Panels) != 6 {
+	if err := json.Unmarshal(gget("/api/dashboards/uid/halo-fleet"), &dash); err != nil || len(dash.Dashboard.Panels) != 7 {
 		t.Fatalf("dashboard: %v %+v", err, dash.Dashboard)
 	}
 	now := time.Now()
@@ -414,6 +431,44 @@ func TestObsEvidencePlane(t *testing.T) {
 			t.Errorf("panel %q: error=%q frames=%d (want data)", p.Title, r.Error, len(r.Frames))
 		}
 	}
+}
+
+// runEvalOnline drives the real `halo eval online` for expCost: a plaintext
+// pair store of 4 pairs, a fake gateway judge (Anthropic Messages wire) that
+// scores "terse" 0.6 and "thorough" 0.8, and the collector's authenticated
+// gateway receiver, so the readings carry halo.source=gateway.
+func runEvalOnline(t *testing.T, halo, root, gwOTLP, tokFile string) {
+	t.Helper()
+	judge := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		score := "0.6"
+		if strings.Contains(string(b), "thorough") {
+			score = "0.8"
+		}
+		reply := `{"scores": {"correctness": ` + score + `, "minimality": ` + score + `, "idiom": ` + score + `}, "rationale": "synthetic"}`
+		out, _ := json.Marshal(map[string]any{"content": []map[string]string{{"type": "text", "text": reply}}})
+		_, _ = w.Write(out)
+	}))
+	defer judge.Close()
+	var pairs bytes.Buffer
+	for i := range 4 {
+		p := map[string]any{"id": fmt.Sprintf("obs-pair-%d", i), "time": time.Now().UTC(), "experiment": expCost, "protocol": "anthropic-messages",
+			"request":   map[string]any{"messages": []any{}},
+			"control":   map[string]any{"target": map[string]any{"variant": "control"}, "status": 200, "response": "terse"},
+			"candidate": map[string]any{"target": map[string]any{"variant": "treatment"}, "status": 200, "response": "thorough"}}
+		b, _ := json.Marshal(p)
+		pairs.Write(append(b, '\n'))
+	}
+	pf := filepath.Join(t.TempDir(), "pairs.jsonl")
+	if err := os.WriteFile(pf, pairs.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command(halo, "eval", "online", "--pairs", pf, "--rubric", filepath.Join(root, "evals/rubrics/code-change-quality.yaml"),
+		"--judge-url", judge.URL, "--judge-model", "judge-pinned-1", "--otlp", gwOTLP, "--otlp-token-file", tokFile).CombinedOutput()
+	if err != nil {
+		t.Fatalf("halo eval online: %v\n%s", err, out)
+	}
+	t.Logf("halo eval online:\n%s", out)
 }
 
 // sendGatewayMetrics drives halo-proxy's real emitter (OTLP/protobuf) for exp:

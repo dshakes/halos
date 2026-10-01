@@ -415,3 +415,54 @@ func TestRunExportsAndStops(t *testing.T) {
 		t.Fatal("Run never exported")
 	}
 }
+
+func TestRouteAttributes(t *testing.T) {
+	srv, _, bodies := collector(t, 200)
+	e, err := New(Config{OTLPEndpoint: srv.URL, Protocol: ProtoJSON, UnitSalt: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := Request{Ring: "ga", Model: "claude-opus", Status: 200, Latency: time.Millisecond}
+	failedOver := base
+	failedOver.Provider, failedOver.Target, failedOver.Failover = "anthropic", "anthropic-direct/claude-opus", true
+	served := base
+	served.Provider, served.Target = "bedrock", "bedrock-use1/arn"
+	for _, r := range []Request{base, failedOver, served} {
+		e.Record(r)
+	}
+	if err := e.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		ResourceMetrics []struct {
+			ScopeMetrics []struct {
+				Metrics []struct {
+					Sum struct {
+						DataPoints []struct {
+							Attributes []struct {
+								Key   string
+								Value struct{ StringValue string }
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	if err := json.Unmarshal((*bodies)[0], &doc); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, dp := range doc.ResourceMetrics[0].ScopeMetrics[0].Metrics[0].Sum.DataPoints {
+		a := map[string]string{}
+		for _, kv := range dp.Attributes {
+			a[kv.Key] = kv.Value.StringValue
+		}
+		got[a["halo.gateway.provider"]+"|"+a["halo.gateway.target"]+"|"+a["halo.gateway.failover"]] = true
+	}
+	for _, want := range []string{"||", "anthropic|anthropic-direct/claude-opus|true", "bedrock|bedrock-use1/arn|false"} {
+		if !got[want] {
+			t.Errorf("missing series %q in %v", want, got)
+		}
+	}
+}

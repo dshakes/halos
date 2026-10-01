@@ -111,7 +111,7 @@ func Generate(org *policy.Org, o Options) ([]byte, error) {
 		names = append(names, n)
 	}
 	for _, m := range g.Models {
-		uses[m.Upstream]++
+		uses[m.Primary().Upstream]++
 	}
 	sort.Strings(names)
 	primary := names[0]

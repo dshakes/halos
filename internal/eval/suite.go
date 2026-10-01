@@ -16,6 +16,8 @@ type Variant struct {
 	Harness string `yaml:"harness" json:"harness"` // claude | codex | gemini
 	Version string `yaml:"version" json:"version"`
 	Model   string `yaml:"model" json:"model"` // gateway model alias
+	// Provider labels the upstream the alias routes to (matrix runs); recorded only.
+	Provider string `yaml:"provider,omitempty" json:"provider,omitempty"`
 	// Settings is a path (relative to the suite file) to the rendered managed
 	// settings for this variant, e.g. the output of `halo render`.
 	Settings string `yaml:"settings,omitempty" json:"settings,omitempty"`
@@ -32,6 +34,22 @@ type Suite struct {
 	Control  string    `yaml:"control,omitempty" json:"control"`
 	Repeats  int       `yaml:"repeats,omitempty" json:"repeats"`
 	Variants []Variant `yaml:"variants" json:"variants"`
+	// Seed is the base seed for per-trial seeds and bootstrap CIs. No pinned
+	// CLI exposes a sampling seed, so it makes the run order and statistics
+	// reproducible, not the agent itself.
+	Seed uint64 `yaml:"seed,omitempty" json:"seed,omitempty"`
+	// K is the k of pass@k and pass^k; default Repeats.
+	K int `yaml:"k,omitempty" json:"k,omitempty"`
+	// Gate holds the ship/hold/block thresholds.
+	Gate Thresholds `yaml:"gate,omitempty" json:"gate"`
+	// Judge configures the LLM-as-judge grader used by tasks' judge graders.
+	Judge *JudgeConfig `yaml:"judge,omitempty" json:"judge,omitempty"`
+	// Matrix, used by `halo eval run --matrix`, replaces Variants with the
+	// harness x model x provider cross product.
+	Matrix *Matrix `yaml:"matrix,omitempty" json:"matrix,omitempty"`
+	// Graders apply to every task in addition to its own (e.g. a judge
+	// rubric for the whole suite, so shared tasks stay judge-free).
+	Graders []GraderSpec `yaml:"graders,omitempty" json:"graders,omitempty"`
 
 	// Dir is the directory of the suite file; set by LoadSuite.
 	Dir string `yaml:"-" json:"-"`
@@ -41,8 +59,8 @@ var knownHarness = map[string]bool{"claude": true, "codex": true, "gemini": true
 
 // Validate checks the suite and applies defaults.
 func (s *Suite) Validate() error {
-	if s.Name == "" || len(s.Tasks) == 0 || len(s.Variants) == 0 {
-		return fmt.Errorf("suite: name, tasks and variants are required")
+	if s.Name == "" || len(s.Tasks) == 0 || (len(s.Variants) == 0 && s.Matrix == nil) {
+		return fmt.Errorf("suite: name, tasks and variants (or matrix) are required")
 	}
 	if s.Repeats == 0 {
 		s.Repeats = 1
@@ -59,6 +77,24 @@ func (s *Suite) Validate() error {
 			return fmt.Errorf("suite %s: variant %s: unknown harness %q", s.Name, v.Name, v.Harness)
 		}
 		seen[v.Name] = true
+	}
+	if s.K == 0 {
+		s.K = s.Repeats
+	}
+	if s.K < 1 || s.K > s.Repeats {
+		return fmt.Errorf("suite %s: k must be between 1 and repeats (%d)", s.Name, s.Repeats)
+	}
+	if err := s.Gate.validate(); err != nil {
+		return fmt.Errorf("suite %s: gate: %w", s.Name, err)
+	}
+	if err := s.Judge.validate(); err != nil {
+		return fmt.Errorf("suite %s: judge: %w", s.Name, err)
+	}
+	if err := s.Matrix.validate(); err != nil {
+		return fmt.Errorf("suite %s: matrix: %w", s.Name, err)
+	}
+	if len(s.Variants) == 0 {
+		return nil // matrix-only suite
 	}
 	if s.Control == "" {
 		s.Control = s.Variants[0].Name
@@ -97,6 +133,22 @@ func LoadSuite(path string) (*Suite, error) {
 		}
 		v.Settings = p
 	}
+	if err := loadGraders(s.Graders, filepath.Dir(s.Dir), filepath.Base(s.Dir)); err != nil {
+		return nil, fmt.Errorf("%s: graders: %w", path, err)
+	}
+	if s.Matrix != nil {
+		for i := range s.Matrix.Harnesses {
+			h := &s.Matrix.Harnesses[i]
+			if h.Settings == "" {
+				continue
+			}
+			p, err := resolveWithin(s.Dir, h.Settings)
+			if err != nil {
+				return nil, fmt.Errorf("%s: matrix harness %s: settings: %w", path, h.Harness, err)
+			}
+			h.Settings = p
+		}
+	}
 	return &s, nil
 }
 
@@ -111,6 +163,7 @@ func (s *Suite) LoadTasks(tasksRoot string) ([]*Task, error) {
 		if err != nil {
 			return nil, fmt.Errorf("suite %s: %w", s.Name, err)
 		}
+		t.Graders = append(t.Graders, s.Graders...)
 		out = append(out, t)
 	}
 	return out, nil

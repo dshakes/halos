@@ -28,6 +28,7 @@ var DefaultGuardrails = []Guardrail{
 	guardClientVariants,
 	guardSecrets,
 	guardEnvKeys,
+	guardToggles,
 }
 
 func gi(sev Severity, path, format string, a ...any) Issue {
