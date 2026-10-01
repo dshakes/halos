@@ -2818,7 +2818,7 @@ def deep_dive():
         f'<rect class="ghost" x="{gx}" y="{gy}" width="{n * cell}" height="{n * cell}" rx="2"/>'
     )
     for p in order:
-        for q in deps[p]:
+        for q in sorted(deps[p]):  # sets iterate in hash order; sort so the SVG is reproducible
             if q in idx:
                 r, c = idx[p], idx[q]
                 assert c < r, (p, q)
