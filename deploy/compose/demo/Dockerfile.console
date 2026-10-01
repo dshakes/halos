@@ -20,5 +20,8 @@ COPY --from=web /web/dist ./web/dist
 RUN CGO_ENABLED=0 go build -tags webdist -o /out/app ./cmd/halo-server
 
 FROM alpine:3.20
+# git + a gh stub: the demo's "Propose change" pushes a branch to a local policy remote.
+RUN apk add --no-cache git
+COPY deploy/compose/demo/gh-stub.sh /usr/local/bin/gh
 COPY --from=build /out/app /usr/local/bin/app
 ENTRYPOINT ["/usr/local/bin/app"]

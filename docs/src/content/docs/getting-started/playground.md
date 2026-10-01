@@ -91,6 +91,8 @@ The seeded repo has three running experiments, the `opus-5-5-upgrade` rollout ac
 
 5. **See the evidence.** halo-proxy exports `halo.gateway.*` metrics to the collector every 5s. Grafana's **Halos: fleet and experiments** dashboard reads them from ClickHouse.
 
+6. **Manage a feature toggle.** Open **Toggles** in the console, pick `github-mcp`, and try **Who gets it?** with a user and groups. **Kill** needs a reason and reaches `halo-proxy` at its next poll (every 2 s in the playground). **Propose change** (for example, ramp the rule to 25%) validates the edit and opens a "PR". In the playground that PR is only a **local branch**: the stack has no GitHub, so `halo-server` pushes `halos/toggle-...` to a bare repo on the `policy-repo` volume and a stub `gh` prints where it landed. Nothing merges, and the served policy does not change. Inspect it with `docker run --rm -v halos-demo_policy-repo:/repo --entrypoint git halos-demo/halo-server -C /repo/remote.git branch`.
+
 ## Tear down
 
 ```sh

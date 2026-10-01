@@ -3,7 +3,7 @@ title: Feature toggles
 description: Turn a capability on for a targeted cohort, and kill it fleet-wide, without a new release.
 ---
 
-A **Toggle** is a named switch with ordered targeting rules. It turns one capability on for a cohort (an MCP server, a hook, an env var, a model route) and can be killed everywhere in seconds without cutting a release.
+A **Toggle** is a named switch with ordered targeting rules. It turns one capability on for a cohort (an MCP server, a hook, an env var, a model route) and can be killed everywhere within one poll interval (about 10 s at gateways, 60 s on devices by default) without cutting a release.
 
 <img class="diagram dark:sl-hidden" src="/halos/diagrams/toggles-light.svg" alt="A feature toggle with ordered targeting rules (ring, group, percentage) resolves to on or off per developer from verified identity, and a signed kill switch turns it off everywhere." width="880" />
 <img class="diagram light:sl-hidden" src="/halos/diagrams/toggles-dark.svg" alt="A feature toggle with ordered targeting rules (ring, group, percentage) resolves to on or off per developer from verified identity, and a signed kill switch turns it off everywhere." width="880" />
@@ -77,6 +77,13 @@ $ halo toggle kill github-mcp --server https://halos.acme.example --reason "MCP 
 3. **Client toggles**: `halod` polls `/api/v1/fleet/killswitch` with its device token (`killSwitch.interval`, default 60s). A killed toggle is off whatever its rules say, and its files revert to the release's toggle-off content.
 
 No release, no ring move, no PR. `--unkill` clears it. The kill call requires https, or http to a loopback host, because it carries a session cookie.
+
+## In the console
+
+Admins get a **Toggles** page in the [operator console](/halos/concepts/self-service-portal/#operator-console): a searchable list with axis and status filters (on by default, killed, stale), and a detail drawer per toggle. The drawer shows the rules as sentences, what the toggle delivers (names only; header and env values are never sent to the browser), who killed it and why, the history from the audit log, and a **Who gets it?** tester that runs the same evaluator as `halo toggle eval`.
+
+- **Kill / Restore** asks for a reason and takes effect at the next poll, exactly like `halo toggle kill`.
+- **Propose change** opens a validated policy PR: default, a rule's percent (`0` matches nobody), rings, groups or users to add or remove, expiry. Nothing changes until a human merges it.
 
 ## Commands
 
