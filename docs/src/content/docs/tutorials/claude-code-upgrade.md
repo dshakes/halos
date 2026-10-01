@@ -13,11 +13,13 @@ This is the **client axis**: the upgrade changes what runs on developers' machin
 $ cp -r examples/acme-corp policy && cd policy && cp -r /tmp/acme-policy/keys keys
 $ halo release publish --ring ring1-canary --release-version 2.1.300 \
     --registry localhost:5055/acme/halos --key keys/dev.key --plain-http --no-artifacts
-…
-Signing ring ring1-canary → version 2.1.300 (digest sha256:af9c3526…, seq …)
-published localhost:5055/acme/halos tags v2.1.300, ring-ring1-canary (sha256:af9c3526…)
-  channel experiment claude-cli-2.1.3xx-ab variant control: …
-  channel experiment claude-cli-2.1.3xx-ab variant cli-next: …
+warning: --no-artifacts: halod will not install CLIs from this release unless allowShellInstall is set
+Signing ring ring1-canary.x-claude-cli-2.1.3xx-ab.control → version 2.1.300-x-claude-cli-2.1.3xx-ab.control (digest sha256:8766b326d6238c8bf228962ceb38aea684c88e0310a4f3a142c36a1a4947b848, seq 1790894947)
+Signing ring ring1-canary.x-claude-cli-2.1.3xx-ab.cli-next → version 2.1.300-x-claude-cli-2.1.3xx-ab.cli-next (digest sha256:738ab3cb43880a2ab87f5afc7f53f1f44541b565e0cb2b5b18280bb326ed16f2, seq 1790894947)
+Signing ring ring1-canary → version 2.1.300 (digest sha256:955ffc34cfdaf04599703675a912326beb196fb5e9059a556e050a66501146e1, seq 1790894947)
+published localhost:5055/acme/halos tags v2.1.300, ring-ring1-canary (sha256:955ffc34cfdaf04599703675a912326beb196fb5e9059a556e050a66501146e1)
+  channel experiment claude-cli-2.1.3xx-ab variant control: tags v2.1.300-x-claude-cli-2.1.3xx-ab.control, ring-ring1-canary.x-claude-cli-2.1.3xx-ab.control (sha256:8766b326d6238c8bf228962ceb38aea684c88e0310a4f3a142c36a1a4947b848)
+  channel experiment claude-cli-2.1.3xx-ab variant cli-next: tags v2.1.300-x-claude-cli-2.1.3xx-ab.cli-next, ring-ring1-canary.x-claude-cli-2.1.3xx-ab.cli-next (sha256:738ab3cb43880a2ab87f5afc7f53f1f44541b565e0cb2b5b18280bb326ed16f2)
 ```
 
 `ring1-canary` runs the `engineering` profile (Claude Code 2.1.280). The running experiment `claude-cli-2.1.3xx-ab` adds two signed channels, one per variant.
@@ -29,8 +31,8 @@ Edit `profiles/engineering-next.yaml` and change the Claude Code pin from `2.1.3
 ```console
 $ grep -n version profiles/engineering-next.yaml
 8:    version: 2.1.313
-10:    version: 0.60.0
-12:    version: 0.13.0
+10:    version: 0.100.0
+12:    version: 0.35.0
 $ halo validate
 OK: policy valid (0 warnings)
 ```
@@ -46,8 +48,8 @@ release version: 2.1.300 -> 2.1.301
 …
 version changes:
   claude-code: 2.1.280 (unchanged)
-  codex: 0.58.0 (unchanged)
-  gemini-cli: 0.12.0 (unchanged)
+  codex: 0.99.0 (unchanged)
+  gemini-cli: 0.34.0 (unchanged)
 ```
 
 Control is untouched: only the release label changes. The new pin lives in the `cli-next` channel. To preview **promoting**, set `profile: engineering-next` in `rings/ring1-canary.yaml` and plan again:
@@ -59,8 +61,8 @@ $ halo plan --ring ring1-canary --against localhost:5055/acme/halos:v2.1.300 \
   "changed": true,
   "versions": [
     "claude-code: 2.1.280 -> 2.1.313",
-    "codex: 0.58.0 -> 0.60.0",
-    "gemini-cli: 0.12.0 -> 0.13.0"
+    "codex: 0.99.0 -> 0.100.0",
+    "gemini-cli: 0.34.0 -> 0.35.0"
   ],
   …
 ```

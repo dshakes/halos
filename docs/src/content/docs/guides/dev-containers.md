@@ -4,7 +4,7 @@ description: Apply a Halos release inside a Dev Container with the Halos Feature
 ---
 
 :::caution[UNVERIFIED end to end]
-The Feature lives in `features/halos/` and its options below are read from `devcontainer-feature.json`. It has not been built into a real dev container image and started against a live registry in this repository's checks.
+The Feature lives in `features/halos/` and its options below are read from `devcontainer-feature.json`. `make uat-clis` runs the Feature's `install.sh` in a `node:22` container against a local TLS registry; it has not been built with the devcontainer CLI or run in Codespaces (**UNVERIFIED**).
 :::
 
 ## What the Feature does

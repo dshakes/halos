@@ -56,8 +56,8 @@ func TestCandidateSuite(t *testing.T) {
 		t.Fatalf("%+v %v", cs, err)
 	}
 	// codex has no variant: falls back to its matrix harness.
-	cs, err = candidateSuite(s, upgrade.Candidate{Kind: upgrade.KindCLI, Harness: "codex", From: "0.60.0", To: "0.61.0"})
-	if err != nil || cs.Variants[1].Harness != "codex" || cs.Variants[1].Model != "codex-default" || cs.Variants[1].Version != "0.61.0" {
+	cs, err = candidateSuite(s, upgrade.Candidate{Kind: upgrade.KindCLI, Harness: "codex", From: "0.100.0", To: "0.101.0"})
+	if err != nil || cs.Variants[1].Harness != "codex" || cs.Variants[1].Model != "codex-default" || cs.Variants[1].Version != "0.101.0" {
 		t.Fatalf("%+v %v", cs, err)
 	}
 	cs, err = candidateSuite(s, upgrade.Candidate{Kind: upgrade.KindModel, Provider: "p", From: "gpt-5-codex", To: "gpt-5.1-codex"})

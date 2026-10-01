@@ -53,7 +53,7 @@ Rules enforced in code, not just in the prompt:
 1. **`dry_run` defaults to true.** The tool returns the diff and changes nothing until called again with `dry_run: false`.
 2. **`reason` is required** and is recorded in the commit message (and PR body).
 3. **Local branch or PR only.** A real call commits to a new local branch or opens a PR. Nothing pushes to a default branch.
-4. **No tool publishes a release, retags a registry ring, signs a pointer, merges, or pushes.** These are `halo release publish`, `promote`, `refresh`, `halo rollback` and a human clicking merge, and they are deliberately absent. Do not add one ([AGENTS.md](https://github.com/dshakes/halos/blob/main/AGENTS.md)).
+4. **No tool publishes a release, retags a registry ring, signs a pointer, merges, or pushes to a default branch** (`propose_promotion` pushes only its own review branch to open the PR). These are `halo release publish`, `promote`, `refresh`, `halo rollback` and a human clicking merge, and they are deliberately absent. Do not add one ([AGENTS.md](https://github.com/dshakes/halos/blob/main/AGENTS.md)).
 5. **Status transitions are constrained:** `start` from draft, paused or unset; `pause` from running; `conclude` from running or paused.
 
 Because promotion is a PR and rollback in policy is a PR-or-branch, the agent's worst case is a reviewable diff that a human rejects. Note the asymmetry: `propose_rollback` edits policy, which is not the same as the instant rollback the human performs with `halo rollback` (new signed pointer) or by pausing a traffic-axis experiment.

@@ -31,7 +31,7 @@ func TestMatrixCells(t *testing.T) {
 	for _, v := range m.Variants {
 		names, models = append(names, v.Name), append(models, v.Model)
 	}
-	want := "claude@2.1.312/sonnet/anthropic claude@2.1.312/sonnet/bedrock codex@0.60.0/gpt-5/anthropic gemini@0.13.0/gemini-2.5-pro/anthropic"
+	want := "claude@2.1.312/sonnet/anthropic claude@2.1.312/sonnet/bedrock codex@0.100.0/gpt-5/anthropic gemini@0.35.0/gemini-2.5-pro/anthropic"
 	if strings.Join(names, " ") != want {
 		t.Fatalf("cells:\n%s\nwant\n%s", strings.Join(names, " "), want)
 	}
@@ -56,10 +56,10 @@ func matrixTrials(m *Suite) []Trial {
 	outcome := map[string]map[string][]bool{
 		"claude@2.1.312/sonnet/anthropic":        {"fix": {true, true, true}, "flag": {true, true, true}, "rename": {true, false, true}},
 		"claude@2.1.312/sonnet/bedrock":          {"fix": {true, true, true}, "flag": {true, true, true}, "rename": {true, true, false}},
-		"codex@0.60.0/gpt-5/anthropic":           {"fix": {true, true, true}, "flag": {false, false, false}, "rename": {true, true, true}},
-		"gemini@0.13.0/gemini-2.5-pro/anthropic": {"fix": {true, true, true}, "flag": {true, true, true}, "rename": {true, true, true}},
+		"codex@0.100.0/gpt-5/anthropic":          {"fix": {true, true, true}, "flag": {false, false, false}, "rename": {true, true, true}},
+		"gemini@0.35.0/gemini-2.5-pro/anthropic": {"fix": {true, true, true}, "flag": {true, true, true}, "rename": {true, true, true}},
 	}
-	cost := map[string]float64{"claude@2.1.312/sonnet/anthropic": 0.20, "claude@2.1.312/sonnet/bedrock": 0.21, "codex@0.60.0/gpt-5/anthropic": 0.35, "gemini@0.13.0/gemini-2.5-pro/anthropic": 0.12}
+	cost := map[string]float64{"claude@2.1.312/sonnet/anthropic": 0.20, "claude@2.1.312/sonnet/bedrock": 0.21, "codex@0.100.0/gpt-5/anthropic": 0.35, "gemini@0.35.0/gemini-2.5-pro/anthropic": 0.12}
 	var out []Trial
 	for _, v := range m.Variants {
 		for ti, task := range []string{"fix", "flag", "rename"} {

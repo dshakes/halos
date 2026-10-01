@@ -82,7 +82,7 @@ Starting points in `deploy/integrations/`, not turnkey deployments. Files marked
 
 | Stack | What is provided | Checked | UNVERIFIED |
 |---|---|---|---|
-| **Kong** (OSS, Enterprise, Konnect) | Route to `halo-proxy` (`kong.yml`, no plugin server), or the `halo-kong` plugin (`halo gateway deck`) | `kong config parse` (3.8, db-less) OK; the `deploy/compose` demo runs Kong OSS + `halo-kong` end to end | Live traffic through the route-to-`halo-proxy` template; **Kong Enterprise and Konnect** |
+| **Kong** (OSS, Enterprise, Konnect) | Route to `halo-proxy` (`kong.yml`, no plugin server), or the `halo-kong` plugin (`halo gateway deck`) | `kong config parse` (3.8, db-less) OK; the `deploy/compose` demo runs Kong OSS + `halo-kong` end to end; `make uat-kong` runs Kong OSS 3.9.3 + `halo-kong` in CI (31 checks, `test/uat/KONG-REPORT.md`) | Live traffic through the route-to-`halo-proxy` template; **Kong Enterprise and Konnect** |
 | **Envoy / Istio** | Static bootstrap with route `timeout: 0s` and `stream_idle_timeout` | `envoy --mode validate` (v1.32) OK | Live traffic |
 | **nginx** | `location` with `proxy_buffering off`, HTTP/1.1, long timeouts; `proxy_pass` without a URI so encoded Bedrock paths survive | `nginx -t` OK | Live traffic |
 | **AWS API Gateway** | HTTP API to VPC link to internal ALB to `halo-proxy` (`openapi.yaml`) | nothing | Everything: not imported into AWS. HTTP APIs cap integration time and do not stream; verify quotas before routing agent traffic through it |

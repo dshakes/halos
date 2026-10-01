@@ -29,8 +29,8 @@ AI coding CLIs have become production infrastructure, but they are still managed
 
 ## Mental model
 
-<img class="diagram dark:sl-hidden" src="/halos/diagrams/measure-loop-light.svg" alt="A change is evaluated offline (pass@k, LLM judge, harness by model matrix), exposed to a ring, measured through OTEL in ClickHouse, and judged by mSPRT. A pass opens a promotion PR a human merges; a guardrail breach rolls back automatically and fires the signed kill switch." width="880" />
-<img class="diagram light:sl-hidden" src="/halos/diagrams/measure-loop-dark.svg" alt="A change is evaluated offline (pass@k, LLM judge, harness by model matrix), exposed to a ring, measured through OTEL in ClickHouse, and judged by mSPRT. A pass opens a promotion PR a human merges; a guardrail breach rolls back automatically and fires the signed kill switch." width="880" />
+<img class="diagram dark:sl-hidden" src="/halos/diagrams/measure-loop-light.svg" alt="A change is evaluated offline (pass@k, LLM judge, harness by model matrix), exposed to a ring, measured through OTEL in ClickHouse, and judged by mSPRT. A pass opens a promotion PR a human merges; a gateway-measured guardrail breach fires the signed kill switch; any other breach opens a rollback PR." width="880" />
+<img class="diagram light:sl-hidden" src="/halos/diagrams/measure-loop-dark.svg" alt="A change is evaluated offline (pass@k, LLM judge, harness by model matrix), exposed to a ring, measured through OTEL in ClickHouse, and judged by mSPRT. A pass opens a promotion PR a human merges; a gateway-measured guardrail breach fires the signed kill switch; any other breach opens a rollback PR." width="880" />
 
 ## Where to go next
 

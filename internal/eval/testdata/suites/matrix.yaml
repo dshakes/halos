@@ -10,8 +10,8 @@ matrix:
   baseline: claude@2.1.312/sonnet/anthropic
   harnesses:
     - {harness: claude, version: "2.1.312", models: [sonnet]}
-    - {harness: codex, version: "0.60.0", models: [gpt-5]}
-    - {harness: gemini, version: "0.13.0", models: [gemini-2.5-pro]}
+    - {harness: codex, version: "0.100.0", models: [gpt-5]}
+    - {harness: gemini, version: "0.35.0", models: [gemini-2.5-pro]}
   providers:
     - {name: anthropic}
     - {name: bedrock, aliases: {sonnet: sonnet-bedrock}}
