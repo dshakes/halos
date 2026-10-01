@@ -30,7 +30,7 @@
 - One policy repo becomes a signed release.
 - Releases roll out ring by ring, behind A/B tests, canaries, shadows and feature toggles.
 - Each step can be gated on evals and live telemetry.
-- A human-merged PR promotes. A regression measured at the gateway is killed automatically; any other regression opens a rollback PR.
+- A human-merged PR promotes. A regression measured at the gateway is killed automatically when halo-server serves a signed kill list; any other regression opens a rollback PR.
 
 | Today | With Halos |
 |---|---|
@@ -48,16 +48,16 @@ Your platform team keeps a **policy repo**: a Git repo that `halo init` creates.
 ```yaml
 # halos.yaml: the whole policy, in simple mode
 org: acme
-tools: {claude-code: 2.1.280, codex: 0.99.0}
+tools: {claude-code: 2.1.280, codex: {version: 0.99.0, model: codex}}
 provider: anthropic                    # bedrock | vertex | openai | gemini | multi
-models: {default: claude-sonnet-4-5, strong: claude-opus-4-1}
+models: {default: claude-sonnet-4-5, strong: claude-opus-4-1, codex: openai/gpt-5-codex}
 gateway: https://ai.acme.example
 identity: {issuer: https://login.acme.example, audience: halos, adminGroups: [ai-platform]}
 safety: standard                       # strict | standard | relaxed: never bypasses permissions
 rollout: standard                      # fast | standard | careful: rings, canary steps, bake times, gates
 ```
 
-Presets expand into profiles, rings and gateway routes. Intent commands write the rest for you, and every one supports `--dry-run`, validates its output and lists the files it changes:
+Presets expand into profiles, rings and gateway routes. Intent commands write the rest for you. The ones that write policy (`upgrade start`, `model switch`, `enable`, `eject`) support `--dry-run`, validate their output and list the files they change; `halo kill` acts on halo-server immediately:
 
 ```sh
 halo upgrade start claude-code 2.1.300        # A/B + gated rollout for a CLI upgrade
@@ -78,7 +78,7 @@ A change is a pull request:
   <img src="assets/how-it-works-light.svg" alt="Platform team: policy repo, pull request, CI checks, human merge, signed release. Fleet: rings point at releases; halod applies them on every machine and the gateway routes models; developers keep running their CLI as usual." width="880">
 </picture>
 
-[`examples/simple`](examples/simple) is the one-file version and [`examples/acme-corp`](examples/acme-corp) the full one; `make demo` runs it locally, or open the repo in Codespaces. More: [how Halos works](https://dshakes.github.io/halos/concepts/how-it-works/).
+[`examples/simple`](examples/simple) is the one-file version and [`examples/acme-corp`](examples/acme-corp) the full one; `make demo` runs it locally, or open the repo in Codespaces (UNVERIFIED: not yet run in a real Codespace). More: [how Halos works](https://dshakes.github.io/halos/concepts/how-it-works/).
 
 ## Every rollout technique, as code
 
@@ -93,6 +93,7 @@ A `Rollout` is an ordered list of steps. Each step sets:
 - gates: metric guardrails, an eval scorecard, a human approval
 
 ```yaml
+apiVersion: halos.dev/v1alpha1
 kind: Rollout
 name: opus-5-5-upgrade
 axis: traffic                    # client: a CLI/config release · traffic: a model route
@@ -120,7 +121,7 @@ steps:
 ```
 
 The controller evaluates every step continuously:
-- **A guardrail breach measured at the gateway trips the signed kill switch on its own** (traffic axis). Any other breach opens a rollback PR and notifies.
+- **A guardrail breach measured at the gateway trips the signed kill switch on its own** (traffic axis, when halo-server serves a kill list). Any other breach opens a rollback PR and notifies.
 - **Progress always opens a PR that a human merges.** Nothing auto-promotes.
 
 Commands: `halo rollout plan | status | simulate | advance | rollback` ([docs](https://dshakes.github.io/halos/concepts/rollouts/)).
@@ -166,7 +167,7 @@ Commands: `halo rollout plan | status | simulate | advance | rollback` ([docs](h
 
 A setting a CLI can't enforce produces a warning in the release manifest; it is never silently dropped. The full matrix and its sources are in the [harness reference](https://dshakes.github.io/halos/reference/harness-matrix/).
 
-Traffic goes through `halo-proxy` to Anthropic, Bedrock (SigV4), Vertex, OpenAI or Azure OpenAI:
+Traffic goes through `halo-proxy` to Anthropic, Bedrock (SigV4), Vertex, OpenAI, Azure OpenAI or the Gemini API:
 - Model aliases map to weighted splits and priority failover, with a circuit breaker per target.
 - Moving a model to another provider is a one-line policy change.
 - If you already run Kong, the `halo-kong` plugin applies the same identity, cohort and experiment decisions. It routes each alias to its first target, with no translation or failover.
@@ -207,7 +208,7 @@ The installers verify sha256 checksums, and verify the cosign signature on `chec
 
 `halo mcp serve` exposes these to any MCP client: validate, plan, rollout status, experiment analysis, toggle evaluation and eval scorecards.
 
-The write tools (propose a rollout step, a rollback or a toggle change) are opt-in and dry-run by default. They commit to a new local branch (promotion and rollback proposals can open a PR) and never push, merge or publish. The [Claude Code plugin](plugins/claude-code) and the [Codex config](.codex) drive the same flow: edit → validate → eval → experiment → propose.
+The write tools (propose a rollout step, a rollback or a toggle change) are opt-in and dry-run by default. They commit to a new local branch. Only `propose_promotion` opens a PR, which pushes its own review branch; none pushes to the base branch, merges or publishes. The [Claude Code plugin](plugins/claude-code) and the [Codex config](.codex) drive the same flow: edit → validate → eval → experiment → propose.
 
 ## Architecture
 
@@ -221,7 +222,7 @@ The write tools (propose a rollout step, a rollback or a toggle change) are opt-
 - **Signed everything.** Releases, ring pointers and the kill list are ed25519-signed; releases and pointers can also be co-signed with cosign. Ring pointers carry sequence numbers and an expiry, so a registry can't replay an old one.
 - **Identity, never headers.** The gateway verifies OIDC JWTs (or, in `trusted_header` mode, accepts identity only from pinned proxy CIDRs), strips client `x-halo-*` headers and fails closed on unknown models.
 - **Guardrails twice.** `bypassPermissions` and `danger-full-access` are rejected at validate time and again on the rendered output.
-- **Humans own the irreversible step.** There is no auto-merge, no auto-promote and no tool that publishes. Privileged actions land in a hash-chained audit log.
+- **Humans own the irreversible step.** There is no auto-merge, no auto-promote and no agent (MCP) tool that publishes. Privileged actions land in a hash-chained audit log.
 
 [Threat model](https://dshakes.github.io/halos/reference/threat-model/) · [SECURITY.md](SECURITY.md)
 
@@ -238,10 +239,12 @@ Every component is implemented and covered by unit, race, e2e (`make e2e`) and e
 Unit tests also run on Windows and macOS in CI.
 
 Not yet exercised against the real systems:
-- AWS Bedrock, Vertex, Azure OpenAI and OpenAI accounts (fixture-tested only)
+- AWS Bedrock, Vertex, Azure OpenAI, OpenAI and Gemini API accounts (fixture-tested only)
 - Kong Enterprise
-- `halod` as a service on a real Windows machine
+- `halod` as a service on a real Windows machine, and the PowerShell installer and enroll scripts
 - MDM-managed devices
+- Codespaces and Coder workspaces
+- the GitHub Action and GitLab CI template
 - the Helm chart on a managed cloud cluster
 
 ## Contributing
