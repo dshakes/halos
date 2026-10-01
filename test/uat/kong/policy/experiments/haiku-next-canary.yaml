@@ -1,0 +1,37 @@
+# Overlay: a second concurrent 50/50 traffic canary, on the haiku alias (per-alias experiment selection).
+apiVersion: halos.dev/v1alpha1
+kind: Experiment
+name: haiku-next-canary
+type: canary
+axis: traffic
+status: running
+rings: [ring1-canary, ring2-early, ring3-ga]
+variants:
+  - name: control
+    weight: 50
+    control: true
+  - name: haiku-next
+    weight: 50
+    routes:
+      haiku:
+        upstream: mock-b
+        model: claude-haiku-next
+# Traffic axis: only gateway-sourced metrics (halo-proxy telemetry) carry the
+# gateway-assigned variant. Task success is judged offline by `halo eval`.
+metrics:
+  primary:
+    metric: halo.api.error_rate
+    direction: decrease
+  guardrails:
+    - metric: halo.latency.p50_ms
+      direction: decrease
+      maxRegression: 0.10
+    - metric: halo.latency.p95_ms
+      direction: decrease
+      maxRegression: 0.15
+stopping:
+  method: msprt
+  alpha: 0.05
+  minSamples: 500
+  maxDays: 14
+  maxSpendUSD: 2000

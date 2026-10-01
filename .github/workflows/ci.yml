@@ -152,3 +152,17 @@ jobs:
       - if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with: {name: uat-clis-report, path: "test/uat/CLI-REPORT.md\ntest/uat/cli-results.md", if-no-files-found: ignore}
+  uat-kong:
+    # halo-kong inside a real Kong OSS (digest-pinned image, db-less) against mock upstreams
+    # (scripts/uat-kong.sh, docker compose). No secrets; the image is pulled from Docker Hub.
+    runs-on: ubuntu-latest
+    needs: [test]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with: {go-version-file: go.mod}
+      - run: make uat-kong
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with: {name: uat-kong-report, path: test/uat/KONG-REPORT.md, if-no-files-found: ignore}

@@ -26,6 +26,10 @@ var ErrNoCredentials = errors.New("identity: no credentials")
 // than once; adapters answer 400 rather than guess which value is real.
 var ErrAmbiguous = errors.New("identity: identity header sent more than once")
 
+// ClientCredentialHeaders are the headers a caller can use to present a
+// credential to the gateway. None is ever a gateway-to-provider credential.
+var ClientCredentialHeaders = []string{"Authorization", "X-Api-Key", "Api-Key", "X-Goog-Api-Key", "Proxy-Authorization"}
+
 // BearerToken returns the caller's token from "Authorization: Bearer" or,
 // for Anthropic SDKs, "x-api-key".
 func BearerToken(h http.Header) string {

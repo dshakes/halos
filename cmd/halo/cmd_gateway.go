@@ -83,6 +83,9 @@ func (a *app) cmdGateway() *cobra.Command {
 	f.StringVar(&opts.ShadowURL, "halo-shadow-url", "", "halo-shadow URL for shadow traffic")
 	f.StringVar(&opts.ShadowToken, "halo-shadow-token", "", "halo-shadow auth token")
 	f.StringVar(&opts.KillswitchURL, "killswitch-url", "", "halo-server kill-switch URL; token and pubkey are emitted as {vault://env/halo-killswitch-*} refs")
+	f.BoolVar(&opts.RejectUnverified, "reject-unverified", false, "answer model calls without a verified identity with 401 (default: anonymous default routing; for when Kong is the only thing in front of the upstreams)")
+	f.BoolVar(&opts.StripClientCredentials, "strip-client-credentials", false, "drop the caller's Authorization/x-api-key/api-key/x-goog-api-key before the upstream (default: forwarded, for an auth gateway behind Kong)")
+	f.BoolVar(&opts.KillswitchAllowInsecure, "killswitch-allow-insecure-in-cluster", false, "allow a plain-http --killswitch-url on a trusted pod network (in-cluster halo-server Service)")
 	f.StringVar(&opts.GroupsHeader, "groups-header", "", "header carrying IdP groups")
 	f.StringVar(&opts.IdentityHeader, "identity-header", "", "identity header (default: org gateway.auth.identityHeader)")
 

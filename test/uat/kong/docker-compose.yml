@@ -1,0 +1,51 @@
+# Real Kong OSS (db-less, pinned by digest) + halo-kong as a Go plugin server, in front of two
+# mock model upstreams and a halo-server (signed kill list). Driven by scripts/uat-kong.sh, which
+# builds the static Go binaries into ${UAT_WORK}/bin and renders ${UAT_WORK}/kong.yml with
+# `halo gateway deck`. Every container reuses the Kong image as a plain Linux userland.
+name: ${UAT_PROJECT:-halos-uat-kong}
+x-user: &user "${UAT_UID:-1000}:${UAT_GID:-1000}"
+services:
+  mock-a: &mock
+    image: ${UAT_KONG_IMAGE}
+    user: *user
+    entrypoint: ["/uat/bin/uatmock", "-http-listen", ":8080", "-tls-listen", ":8443", "-cert", "/uat/tls.crt", "-key", "/uat/tls.key", "-issuer", "http://mock-a:8080"]
+    volumes: ["${UAT_WORK}:/uat:ro"]
+    ports: ["127.0.0.1:${UAT_MOCK_A_PORT:-18081}:8080"]
+  mock-b:
+    <<: *mock
+    entrypoint: ["/uat/bin/uatmock", "-http-listen", ":8080", "-tls-listen", ":8443", "-cert", "/uat/tls.crt", "-key", "/uat/tls.key", "-issuer", "http://mock-b:8080"]
+    ports: ["127.0.0.1:${UAT_MOCK_B_PORT:-18082}:8080"]
+
+  halo-server:
+    image: ${UAT_KONG_IMAGE}
+    user: *user
+    entrypoint: ["/uat/bin/halo-server", "--listen", "0.0.0.0:8080", "--policy-dir", "/uat/policy", "--token-file", "/uat/keys/report.token",
+                 "--data-dir", "/data", "--killswitch-key-file", "/uat/keys/killswitch.key", "--gateway-token-file", "/uat/keys/gateway.token",
+                 "--dev-insecure-user", "admin@acme.example", "--dev-insecure-admin"]
+    volumes: ["${UAT_WORK}:/uat:ro", "${UAT_WORK}/data:/data"]
+    ports: ["127.0.0.1:${UAT_SERVER_PORT:-18090}:8080"]
+
+  kong:
+    image: ${UAT_KONG_IMAGE}
+    depends_on: [mock-a, mock-b, halo-server]
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /uat/kong.yml
+      KONG_PROXY_LISTEN: 0.0.0.0:8443 ssl
+      KONG_ADMIN_LISTEN: "off"
+      KONG_STATUS_LISTEN: 0.0.0.0:8100
+      KONG_PLUGINS: bundled,halo-kong
+      KONG_PLUGINSERVER_NAMES: halo-kong
+      KONG_PLUGINSERVER_HALO_KONG_START_CMD: /uat/bin/halo-kong
+      KONG_PLUGINSERVER_HALO_KONG_QUERY_CMD: /uat/bin/halo-kong -dump
+      KONG_NGINX_HTTP_CLIENT_BODY_BUFFER_SIZE: 32m
+      KONG_NGINX_MAIN_ENV: "HALO_KILLSWITCH_TOKEN; env HALO_KILLSWITCH_PUBKEY"
+      HALO_KILLSWITCH_TOKEN: ${UAT_KILL_TOKEN}
+      HALO_KILLSWITCH_PUBKEY: ${UAT_KILL_PUBKEY}
+      KONG_LOG_LEVEL: notice
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+    volumes: ["${UAT_WORK}:/uat:ro"]
+    ports:
+      - "127.0.0.1:${UAT_KONG_PORT:-18443}:8443"
+      - "127.0.0.1:${UAT_STATUS_PORT:-18100}:8100"

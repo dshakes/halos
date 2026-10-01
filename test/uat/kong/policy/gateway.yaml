@@ -1,0 +1,34 @@
+# yaml-language-server: $schema=../../../../schemas/gateway.schema.json
+# UAT overlay for the real-Kong run: acme-corp's gateway with the two mock upstreams.
+apiVersion: halos.dev/v1alpha1
+kind: Gateway
+name: acme-gateway
+baseURL: https://ai.acme.example
+protocols:
+  claude-code: anthropic-messages
+auth:
+  identityHeader: x-acme-user
+upstreams:
+  mock-a: {url: "http://mock-a:8080", kind: anthropic}
+  mock-b: {url: "http://mock-b:8080", kind: anthropic}
+  mock-down: {url: "http://mock-down.invalid:9000", kind: anthropic} # never resolves
+  mock-bedrock: {url: "http://mock-a:8080", kind: bedrock, region: us-east-1}
+models:
+  sonnet: {upstream: mock-a, model: claude-sonnet-4-5}
+  opus: {upstream: mock-a, model: claude-opus-4-1}
+  haiku: {upstream: mock-a, model: claude-haiku-4-5}
+  # The example profiles name these; they only need to exist.
+  codex-default: {upstream: mock-a, model: gpt-5-codex}
+  gemini-default: {upstream: mock-a, model: gemini-2.5-pro}
+  # Documented halo-kong limits: only the first target is used (no failover, no wire translation).
+  multi:
+    targets:
+      - {upstream: mock-b, model: multi-primary}
+      - {upstream: mock-a, model: multi-secondary, priority: 1}
+  multi-down:
+    targets:
+      - {upstream: mock-down, model: down-primary}
+      - {upstream: mock-a, model: down-secondary, priority: 1}
+  bedrock-alias:
+    upstream: mock-bedrock
+    model: us.anthropic.claude-opus-4-1:0

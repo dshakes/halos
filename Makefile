@@ -66,6 +66,11 @@ uat-clis:
 
 # Helm chart UAT on a throwaway kind cluster (halos-uat): user stories end to end,
 # report in test/uat/REPORT.md (Docker, kind, kubectl, helm). UAT_KEEP=1 keeps the cluster.
+# Real Kong OSS (pinned) + halo-kong plugin server, db-less, against mock upstreams (Docker compose).
+.PHONY: uat-kong
+uat-kong:
+	./scripts/uat-kong.sh
+
 .PHONY: uat-k8s
 uat-k8s:
 	./scripts/uat-k8s.sh

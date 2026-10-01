@@ -47,6 +47,26 @@ func TestKillswitchURLMustBeHTTPS(t *testing.T) {
 	}
 }
 
+func TestRejectUnverifiedAndInsecureKillswitchOptions(t *testing.T) {
+	b, err := Generate(org(), Options{PolicyPath: "/p.json", RejectUnverified: true, StripClientCredentials: true,
+		KillswitchURL: "http://halo-server:8080/api/v1/gateway/killswitch", KillswitchAllowInsecure: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"reject_unverified: true", "strip_client_credentials: true", "killswitch_allow_insecure_in_cluster: true", "killswitch_url: http://halo-server:8080/"} {
+		if !strings.Contains(string(b), want) {
+			t.Errorf("missing %q in:\n%s", want, b)
+		}
+	}
+	// The insecure allowance never admits other schemes, and is off by default.
+	if _, err := Generate(org(), Options{KillswitchURL: "ftp://halo/ks", KillswitchAllowInsecure: true}); err == nil {
+		t.Error("ftp must be refused")
+	}
+	if b, _ := Generate(org(), Options{PolicyPath: "/p.json"}); strings.Contains(string(b), "reject_unverified") || strings.Contains(string(b), "strip_client") || strings.Contains(string(b), "insecure") {
+		t.Error("options must default off")
+	}
+}
+
 func checkGolden(t *testing.T, golden string, o Options) {
 	t.Helper()
 	got, err := Generate(org(), o)

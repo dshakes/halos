@@ -108,7 +108,7 @@ Kong: KongPlugin "{{ .Values.kong.pluginName }}" rendered (UNVERIFIED). This cha
 release MUST set (kong/kong or kong/ingress `env:`), or the plugin cannot read the halo-shadow token / big bodies get 413:
   HALO_SHADOW_TOKEN                        from Secret {{ .Values.shadow.token.existingSecret }}/{{ .Values.shadow.token.key }}
 {{- if .Values.kong.killSwitch.enabled }}
-  HALO_KILLSWITCH_TOKEN / HALO_KILLSWITCH_PUBKEY  gateway token / PEM public key (vault://env/halo-killswitch-token, -pubkey); add both to KONG_NGINX_MAIN_ENV
+  HALO_KILLSWITCH_TOKEN / HALO_KILLSWITCH_PUBKEY  gateway token / PEM public key (vault://env/halo-killswitch-token, -pubkey); add both to KONG_NGINX_MAIN_ENV, chained as "HALO_KILLSWITCH_TOKEN; env HALO_KILLSWITCH_PUBKEY" (a single setting; verified on Kong OSS 3.9.3)
 {{- end }}
   KONG_NGINX_MAIN_ENV=HALO_SHADOW_TOKEN
   KONG_NGINX_HTTP_CLIENT_BODY_BUFFER_SIZE=32m

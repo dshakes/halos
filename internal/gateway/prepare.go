@@ -46,18 +46,18 @@ func (r *Rejection) JSON() []byte {
 	var v any
 	switch r.Protocol {
 	case ProtoResponses:
-		code := map[int]string{400: "model_not_allowed", 403: "model_not_allowed", 404: "unknown_url", 413: "request_too_large"}[r.Status]
+		code := map[int]string{400: "model_not_allowed", 401: "invalid_api_key", 403: "model_not_allowed", 404: "unknown_url", 413: "request_too_large"}[r.Status]
 		v = map[string]any{"error": map[string]any{"message": r.Message, "type": "invalid_request_error", "param": nil, "code": code}}
 	case ProtoBedrock:
 		v = map[string]any{"message": r.Message}
 	case ProtoGemini:
-		status := map[int]string{400: "INVALID_ARGUMENT", 403: "PERMISSION_DENIED", 404: "NOT_FOUND", 413: "INVALID_ARGUMENT", 503: "UNAVAILABLE"}[r.Status]
+		status := map[int]string{400: "INVALID_ARGUMENT", 401: "UNAUTHENTICATED", 403: "PERMISSION_DENIED", 404: "NOT_FOUND", 413: "INVALID_ARGUMENT", 503: "UNAVAILABLE"}[r.Status]
 		if status == "" {
 			status = "UNKNOWN"
 		}
 		v = map[string]any{"error": map[string]any{"code": r.Status, "message": r.Message, "status": status}}
 	default:
-		typ := map[int]string{400: "invalid_request_error", 403: "permission_error", 404: "not_found_error", 413: "request_too_large", 503: "api_error"}[r.Status]
+		typ := map[int]string{400: "invalid_request_error", 401: "authentication_error", 403: "permission_error", 404: "not_found_error", 413: "request_too_large", 503: "api_error"}[r.Status]
 		if typ == "" {
 			typ = "api_error"
 		}

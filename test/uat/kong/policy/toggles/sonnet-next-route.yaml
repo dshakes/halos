@@ -1,0 +1,19 @@
+# Overlay: the example toggle with its target pointed at mock-b.
+# Traffic toggle: the gateway routes alias "sonnet" for ring0 straight to the
+# newer model. Clients keep asking for "sonnet"; nothing is rendered on devices.
+apiVersion: halos.dev/v1alpha1
+kind: Toggle
+name: sonnet-next-route
+description: Route the sonnet alias to the next Sonnet for the harness team
+owner: ai-platform
+expires: "2026-12-15"
+default: false
+axis: traffic
+rules:
+  - name: harness-team
+    rings: [ring0-harness-team]
+traffic:
+  routes:
+    sonnet:
+      upstream: mock-b
+      model: claude-sonnet-5-5

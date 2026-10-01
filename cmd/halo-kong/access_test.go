@@ -237,3 +237,73 @@ func TestAccessMirrors(t *testing.T) {
 		t.Fatalf("bad shadow_url not logged: %v", bk.logs)
 	}
 }
+
+// reject_unverified: a model call without a verified identity is a 401 (in the
+// caller's wire format), never anonymous routing; verified callers and
+// non-model paths are unaffected. Without it the default stays anonymous routing.
+func TestAccessRejectUnverified(t *testing.T) {
+	pol := testPolicy(t)
+	hdr := func(kv ...string) map[string][]string {
+		m := map[string][]string{}
+		for i := 0; i < len(kv); i += 2 {
+			m[kv[i]] = append(m[kv[i]], kv[i+1])
+		}
+		return m
+	}
+	strict := trustedCfg(pol)
+	strict.RejectUnverified = true
+	for _, tc := range []struct {
+		name     string
+		cfg      Config
+		k        *fakeKong
+		wantExit int
+		wantBody string
+	}{
+		{"untrusted peer", strict, &fakeKong{peer: "192.0.2.1", path: "/v1/messages", body: []byte(firstTurn), hdrs: hdr("x-acme-user", "alice")}, 401, "authentication_error"},
+		{"no identity header", strict, &fakeKong{peer: "10.1.2.3", path: "/v1/messages", body: []byte(firstTurn), hdrs: hdr()}, 401, "authentication_error"},
+		{"responses wire", strict, &fakeKong{peer: "192.0.2.1", path: "/v1/responses", body: []byte(`{"model":"sonnet","input":"hi"}`), hdrs: hdr()}, 401, "invalid_api_key"},
+		{"verified caller", strict, &fakeKong{peer: "10.1.2.3", path: "/v1/messages", body: []byte(firstTurn), hdrs: hdr("x-acme-user", "alice")}, 0, ""},
+		{"non-model path is not gated", strict, &fakeKong{peer: "192.0.2.1", path: "/v1/models", hdrs: hdr()}, 0, ""},
+		{"default stays anonymous routing", trustedCfg(pol), &fakeKong{peer: "192.0.2.1", path: "/v1/messages", body: []byte(firstTurn), hdrs: hdr()}, 0, ""},
+		{"broken identity config fails closed", Config{PolicyPath: pol, IdentityMode: "trusted_header", RejectUnverified: true}, &fakeKong{peer: "10.1.2.3", path: "/v1/messages", body: []byte(firstTurn), hdrs: hdr("x-acme-user", "alice")}, 401, "authentication_error"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.cfg.access(tc.k)
+			if tc.k.exitStatus != tc.wantExit || (tc.wantBody != "" && !strings.Contains(string(tc.k.exitBody), tc.wantBody)) {
+				t.Fatalf("exit %d %s, want %d %q", tc.k.exitStatus, tc.k.exitBody, tc.wantExit, tc.wantBody)
+			}
+			if tc.wantExit != 0 && (tc.k.set != nil || tc.k.newPath != "") {
+				t.Fatal("rejected request was still mutated")
+			}
+		})
+	}
+}
+
+func TestAccessStripClientCredentials(t *testing.T) {
+	pol := testPolicy(t)
+	run := func(strip bool) *fakeKong {
+		c := trustedCfg(pol)
+		c.StripClientCredentials = strip
+		k := &fakeKong{peer: "10.1.2.3", path: "/v1/messages", body: []byte(firstTurn), hdrs: map[string][]string{
+			"x-acme-user": {"alice"}, "Authorization": {"Bearer idp"}, "x-api-key": {"k"}, "Api-Key": {"k"}, "x-goog-api-key": {"k"}, "Proxy-Authorization": {"p"}}}
+		c.access(k)
+		return k
+	}
+	creds := []string{"authorization", "x-api-key", "api-key", "x-goog-api-key", "proxy-authorization"}
+	if k := run(false); k.exitStatus != 0 || func() bool {
+		for _, n := range creds {
+			if contains(k.cleared, n) {
+				return true
+			}
+		}
+		return false
+	}() {
+		t.Fatalf("default must forward credentials: exit %d cleared %v", k.exitStatus, k.cleared)
+	}
+	k := run(true)
+	for _, n := range creds {
+		if !contains(k.cleared, n) {
+			t.Errorf("%s not cleared: %v", n, k.cleared)
+		}
+	}
+}
