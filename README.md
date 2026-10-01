@@ -227,15 +227,22 @@ The write tools (propose a rollout step, a rollback or a toggle change) are opt-
 
 ## Status
 
-Every component is implemented and covered by unit, race, e2e (`make e2e`) and evidence-plane (`make obs-e2e`) tests.
+Every component is implemented and covered by unit, race, e2e (`make e2e`) and evidence-plane (`make obs-e2e`) tests. Every pull request also runs three acceptance suites against real software:
+
+| Suite | Runs against | Report |
+|---|---|---|
+| `make uat-clis` | the real Claude Code, Codex, Gemini and Copilot CLIs, including the eval runner | [CLI-REPORT.md](test/uat/CLI-REPORT.md) |
+| `make uat-k8s` | a kind cluster with the Helm chart installed | [REPORT.md](test/uat/REPORT.md) |
+| `make uat-kong` | open-source Kong 3.9.3 with the `halo-kong` plugin | [KONG-REPORT.md](test/uat/KONG-REPORT.md) |
+
+Unit tests also run on Windows and macOS in CI.
 
 Not yet exercised against the real systems:
-- AWS Bedrock, Vertex, Azure OpenAI and OpenAI
+- AWS Bedrock, Vertex, Azure OpenAI and OpenAI accounts (fixture-tested only)
 - Kong Enterprise
-- Windows at runtime
+- `halod` as a service on a real Windows machine
 - MDM-managed devices
-- the Helm chart on a live cluster
-- real CLIs inside the eval runner
+- the Helm chart on a managed cloud cluster
 
 ## Contributing
 
