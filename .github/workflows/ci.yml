@@ -2,7 +2,7 @@ name: ci
 on:
   pull_request:
   push:
-    branches: [main, ci/windows] # temporary: drop before merge
+    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
@@ -29,9 +29,7 @@ jobs:
         with: {name: coverage, path: coverage.out}
   cross:
     # build + unit tests on the other OSes halod/halo ship for (ubuntu is `test`).
-    # ponytail: windows is advisory until its first green run; unix-only tests there still need skips.
     runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ matrix.os == 'windows-latest' }}
     strategy:
       fail-fast: false
       matrix:
