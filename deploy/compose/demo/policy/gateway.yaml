@@ -16,6 +16,7 @@ upstreams:
   orchestrator:
     url: http://orch-mock:9000
     kind: orchestrator
+    serves: [anthropic-messages]
   orchestrator-responses:
     url: http://orch-mock:9000/v1/responses
     kind: openai

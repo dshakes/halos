@@ -35,7 +35,7 @@ func TestSimpleExpandGolden(t *testing.T) {
 			"models:\n  default: [eu.anthropic.claude-sonnet-4-5-20250929-v1:0, anthropic/claude-sonnet-4-5]\n  strong: eu.anthropic.claude-opus-4-1-20250805-v1:0\n" +
 			"gateway: https://ai.bank.example\ntelemetry: https://otel.bank.example:4318\nteam: [ai-platform, alice@bank.example]\n" +
 			"safety: strict\nrollout: careful\n",
-		"relaxed-fast-multi": hdr + "kind: Halos\norg: startup\ntools: {claude-code: 2.1.280, codex: 0.58.0, gemini-cli: 0.12.0}\n" +
+		"relaxed-fast-multi": hdr + "kind: Halos\norg: startup\ntools: {claude-code: 2.1.280, codex: {version: 0.58.0, model: codex}, gemini-cli: {version: 0.12.0, model: gemini}}\n" +
 			"provider: multi\nmodels: {default: anthropic/claude-sonnet-4-5, codex: openai/gpt-5-codex, gemini: gemini/gemini-2.5-pro}\n" +
 			"gateway: https://ai.startup.example\nsafety: relaxed\nrollout: fast\n",
 		"vertex": hdr + "kind: Halos\norg: gco\ntools: {claude-code: 2.1.280}\n" +

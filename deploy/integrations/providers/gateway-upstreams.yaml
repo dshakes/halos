@@ -1,6 +1,6 @@
 # Fragment for the Gateway document (policy repo gateway.yaml). Replace hosts/models.
 upstreams:
-  orch:            {url: "https://orchestrator.internal.example.com", kind: orchestrator}   # Bedrock behind your orchestrator
+  orch:            {url: "https://orchestrator.internal.example.com", kind: orchestrator, serves: [anthropic-messages]}   # Bedrock behind your orchestrator
   anthropic:       {url: "https://api.anthropic.com", kind: anthropic}
   azure-foundry:   {url: "https://YOUR-RESOURCE.services.ai.azure.com/anthropic", kind: anthropic}  # confirm path in Azure docs
   openai:          {url: "https://api.openai.com", kind: openai}

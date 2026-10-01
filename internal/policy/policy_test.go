@@ -201,7 +201,7 @@ func validOrg() *Org {
 		Name: "t",
 		Gateway: &Gateway{
 			BaseURL:   "https://gw.example.com",
-			Upstreams: map[string]Upstream{"up": {URL: "https://up.example.com", Kind: "orchestrator"}},
+			Upstreams: map[string]Upstream{"up": {URL: "https://up.example.com", Kind: "orchestrator", Serves: []string{"anthropic-messages", "openai-responses", "gemini"}}},
 			Models:    map[string]ModelRoute{"sonnet": {Upstream: "up", Model: "m1"}},
 		},
 		Profiles: map[string]*Profile{

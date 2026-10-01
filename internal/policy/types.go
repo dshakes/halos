@@ -159,6 +159,11 @@ type Upstream struct {
 	// never signs for other hosts. The region is this value when set, else
 	// parsed from the host (e.g. bedrock-runtime.<region>.amazonaws.com).
 	Region string `yaml:"region,omitempty" json:"region,omitempty"`
+	// Serves lists the client wires an orchestrator upstream answers
+	// (anthropic-messages | bedrock-invoke | openai-responses | gemini). An
+	// orchestrator may translate, so validate only trusts what is declared here;
+	// other kinds' wires are known.
+	Serves []string `yaml:"serves,omitempty" json:"serves,omitempty"`
 }
 
 // Credential locates a secret on the halo-proxy host (kinds openai,

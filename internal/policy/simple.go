@@ -147,11 +147,12 @@ var toolProtocols = map[string]string{"claude-code": "anthropic-messages", "code
 // KindServes is what halo-proxy can forward, and a pass-through upstream
 // forwards any wire, but e.g. api.anthropic.com cannot answer OpenAI Responses.
 var providerWires = map[string][]string{
-	"anthropic": {"anthropic-messages"},
-	"bedrock":   {"anthropic-messages", "bedrock-invoke"},
-	"vertex":    {"anthropic-messages"},
-	"openai":    {"openai-responses"},
-	"gemini":    {"gemini"},
+	"anthropic":    {"anthropic-messages"},
+	"bedrock":      {"anthropic-messages", "bedrock-invoke"},
+	"vertex":       {"anthropic-messages"},
+	"openai":       {"openai-responses"},
+	"azure-openai": {"openai-responses"},
+	"gemini":       {"gemini"},
 }
 
 // ponytail: one table of vendor defaults for `halo init`; bump the ids here

@@ -19,6 +19,7 @@ upstreams:
   orchestrator:
     url: https://orchestrator.internal.acme.example
     kind: orchestrator
+    serves: [anthropic-messages] # Claude Code's wire; it translates to Bedrock
   orchestrator-responses:
     url: https://orchestrator.internal.acme.example # base URL: halo-proxy appends /v1/responses
     kind: openai

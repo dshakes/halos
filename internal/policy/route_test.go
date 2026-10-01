@@ -119,14 +119,17 @@ func TestModelRoutePrimaryAndCandidates(t *testing.T) {
 }
 
 func TestVertexEndpoint(t *testing.T) {
-	for in, want := range map[Upstream]string{
-		{Kind: "vertex", Region: "us-east5"}:                       "https://us-east5-aiplatform.googleapis.com",
-		{Kind: "vertex", Region: "global"}:                         "https://aiplatform.googleapis.com",
-		{Kind: "vertex", Region: "global", URL: "https://pe.corp"}: "https://pe.corp",
-		{Kind: "anthropic", URL: "https://api.anthropic.com"}:      "https://api.anthropic.com",
+	for _, tt := range []struct { // a slice: Upstream is not comparable (Serves)
+		in   Upstream
+		want string
+	}{
+		{Upstream{Kind: "vertex", Region: "us-east5"}, "https://us-east5-aiplatform.googleapis.com"},
+		{Upstream{Kind: "vertex", Region: "global"}, "https://aiplatform.googleapis.com"},
+		{Upstream{Kind: "vertex", Region: "global", URL: "https://pe.corp"}, "https://pe.corp"},
+		{Upstream{Kind: "anthropic", URL: "https://api.anthropic.com"}, "https://api.anthropic.com"},
 	} {
-		if got := in.Endpoint(); got != want {
-			t.Errorf("%+v: %q, want %q", in, got, want)
+		if got := tt.in.Endpoint(); got != tt.want {
+			t.Errorf("%+v: %q, want %q", tt.in, got, tt.want)
 		}
 	}
 }

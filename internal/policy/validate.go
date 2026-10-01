@@ -117,6 +117,12 @@ func (v *validator) gateway() {
 			v.errf(p+".region", "%q: region is only valid on kinds bedrock (like us-east-1) and vertex", up.Region)
 		}
 		v.upstreamKind(p, up)
+		for i, w := range up.Serves {
+			v.oneOf(fmt.Sprintf("%s.serves[%d]", p, i), "wire", w, protocolNames)
+		}
+		if len(up.Serves) > 0 && up.Kind != "orchestrator" {
+			v.errf(p+".serves", "serves is only for kind orchestrator; kind %s answers a known wire", up.Kind)
+		}
 	}
 	for _, alias := range sortedKeys(g.Models) {
 		v.route("gateway.models."+alias, g.Models[alias])

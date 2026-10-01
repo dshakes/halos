@@ -209,6 +209,19 @@
               }
             ],
             "additionalProperties": false
+          },
+          "serves": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "anthropic-messages",
+                "bedrock-invoke",
+                "openai-responses",
+                "gemini"
+              ]
+            },
+            "uniqueItems": true,
+            "description": "Kind orchestrator only: the client wires this upstream answers. Validate warns about a harness routed to an orchestrator that does not declare its wire."
           }
         },
         "required": [
