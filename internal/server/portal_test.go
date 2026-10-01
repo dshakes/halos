@@ -91,6 +91,7 @@ func newEnv(t *testing.T, mutate func(*Config)) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = s.Close() }) // an open data-dir file cannot be deleted on Windows
 	e.s, e.h = s, s.Handler()
 	return e
 }
@@ -476,11 +477,15 @@ func TestRequestLogPersists(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = l.close() })
 	r := &Request{ID: "a", Status: StatusPending}
 	_ = l.save(r)
 	r.Status = StatusApproved
 	_ = l.save(r)
 	l2, err := openRequestLog(dir)
+	if err == nil {
+		t.Cleanup(func() { _ = l2.close() })
+	}
 	if err != nil || l2.byID["a"].Status != StatusApproved {
 		t.Fatalf("replay: %v %+v", err, l2.byID["a"])
 	}

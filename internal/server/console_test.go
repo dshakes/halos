@@ -111,6 +111,7 @@ func TestAuditPersistsAcrossRestartAndTornLine(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = l.close() }) // Windows cannot delete an open file
 	for _, a := range []string{"a", "b"} {
 		if err := l.append(AuditEntry{Actor: "u", Action: a}); err != nil {
 			t.Fatal(err)
@@ -123,6 +124,7 @@ func TestAuditPersistsAcrossRestartAndTornLine(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = l2.close() }) // Windows cannot delete an open file
 	if err := l2.append(AuditEntry{Actor: "u", Action: "c"}); err != nil {
 		t.Fatal(err)
 	}
@@ -365,6 +367,7 @@ func TestAppendAuditOffline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = l.close() }) // Windows cannot delete an open file
 	if err := l.append(AuditEntry{Actor: "u", Action: "a"}); err != nil {
 		t.Fatal(err)
 	}
@@ -379,6 +382,7 @@ func TestAppendAuditOffline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = l2.close() }) // Windows cannot delete an open file
 	all, _ := l2.all()
 	if len(all) != 3 || VerifyAuditChain(all) != nil || all[2].Action != "experiment.kill" {
 		t.Fatalf("chain: %+v, %v", all, VerifyAuditChain(all))

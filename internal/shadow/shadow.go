@@ -246,10 +246,12 @@ func (s *FileStore) Prune(now time.Time) (removed int, err error) {
 	if err := errors.Join(w.Flush(), tmp.Sync(), tmp.Close()); err != nil {
 		return 0, fmt.Errorf("shadow: prune flush: %w", err)
 	}
-	if err := os.Rename(tmp.Name(), s.path); err != nil {
-		return 0, fmt.Errorf("shadow: prune replace %s: %w", s.path, err)
-	}
+	// Windows cannot rename over a file we hold open: close first, reopen either way.
+	_ = in.Close()
 	_ = s.f.Close()
+	if err := os.Rename(tmp.Name(), s.path); err != nil {
+		return 0, errors.Join(fmt.Errorf("shadow: prune replace %s: %w", s.path, err), s.open())
+	}
 	return removed, s.open()
 }
 

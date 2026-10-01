@@ -52,6 +52,8 @@ const lastSeenPersist = 10 * time.Minute
 
 // deviceStore is an in-memory index over an append-only JSONL log (last line per id wins).
 // ponytail: never compacted beyond open; rotate if devices x lastSeen writes grow.
+func (d *deviceStore) close() error { return closeFile(&d.mu, d.f) }
+
 type deviceStore struct {
 	mu     sync.Mutex
 	byHash map[string]*Device

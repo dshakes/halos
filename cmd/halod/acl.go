@@ -51,8 +51,13 @@ const writeMask = fileWriteData | fileAppendData | fileWriteEA | fileDeleteChild
 // entries, like a sticky /tmp, but every entry halod uses is checked itself.
 const createOnlyMask = fileWriteData | fileAppendData | fileWriteEA | fileWriteAttributes
 
+// testTrustedSID is one more trusted SID. Only the windows tests set it (the
+// analogue of trustedUID: their temp dirs belong to the runner's user); no flag
+// or environment variable reaches it.
+var testTrustedSID string
+
 func trustedSID(sid string) bool {
-	return sid == sidSystem || sid == sidAdministrators || sid == trustedInstallerID
+	return sid == sidSystem || sid == sidAdministrators || sid == trustedInstallerID || (testTrustedSID != "" && sid == testTrustedSID)
 }
 
 // checkACEs rejects a DACL that lets anyone but SYSTEM, Administrators or

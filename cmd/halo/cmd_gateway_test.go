@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -84,7 +85,8 @@ func TestUpsertVerdict(t *testing.T) {
 	if rows[1]["experiment"] != "e1" || rows[1]["verdict"] != "promote" || rows[1]["nControl"] != float64(3) || rows[1]["evaluatedAt"] == nil {
 		t.Fatalf("row = %v", rows[1])
 	}
-	if st, _ := os.Stat(p); st.Mode().Perm() != 0o600 {
+	// Windows has no POSIX mode bits (Perm() is always 0666); access is ACL-based.
+	if st, _ := os.Stat(p); runtime.GOOS != "windows" && st.Mode().Perm() != 0o600 {
 		t.Errorf("mode = %v", st.Mode())
 	}
 	// not an array -> error, file untouched

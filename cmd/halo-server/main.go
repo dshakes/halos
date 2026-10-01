@@ -9,6 +9,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/netip"
@@ -232,6 +233,10 @@ func run(ctx context.Context, args []string) error {
 	})
 	if err != nil {
 		return err
+	}
+	defer func() { _ = srv.Close() }() // also unlocks the data dir on Windows
+	if c, ok := store.(io.Closer); ok {
+		defer func() { _ = c.Close() }()
 	}
 	hup := make(chan os.Signal, 1)
 	signal.Notify(hup, syscall.SIGHUP)

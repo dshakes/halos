@@ -3,6 +3,7 @@ package yamledit
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -171,7 +172,8 @@ func TestSave(t *testing.T) {
 	}
 	b, _ := os.ReadFile(d.Path)
 	st, _ := os.Stat(d.Path)
-	if string(b) != "x: 1\n" || st.Mode().Perm() != 0o644 {
+	// Windows has no POSIX mode bits (Perm() is always 0666); access is ACL-based.
+	if string(b) != "x: 1\n" || (runtime.GOOS != "windows" && st.Mode().Perm() != 0o644) {
 		t.Fatalf("%q %v", b, st.Mode())
 	}
 }

@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -183,6 +184,7 @@ func mustOpen(t *testing.T, dir string) Store {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = s.(io.Closer).Close() }) // Windows cannot delete an open file
 	return s
 }
 

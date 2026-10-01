@@ -1,0 +1,2 @@
+# Goldens and fixtures are byte-compared; keep LF on Windows checkouts.
+* text=auto eol=lf

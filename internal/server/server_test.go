@@ -112,6 +112,7 @@ func TestLogStoreReplay(t *testing.T) {
 	}
 	_ = st.Put(Host{Report: Report{Hostname: "a", Ring: "r1"}})
 	_ = st.Put(Host{Report: Report{Hostname: "a", Ring: "r2"}})
+	_ = st.(io.Closer).Close() // the crashed process's handle is gone; Windows cannot rename over an open file
 	f, _ := os.OpenFile(filepath.Join(dir, "reports.jsonl"), os.O_APPEND|os.O_WRONLY, 0)
 	f.WriteString("{torn") // simulated crash mid-write
 	f.Close()
@@ -119,6 +120,7 @@ func TestLogStoreReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st2.(io.Closer).Close() })
 	if all := st2.All(); len(all) != 1 || all[0].Ring != "r2" {
 		t.Fatalf("replay: %+v", all)
 	}

@@ -3,6 +3,7 @@ package fsutil
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -17,7 +18,8 @@ func TestWriteAtomic(t *testing.T) {
 	}
 	b, _ := os.ReadFile(p)
 	st, _ := os.Stat(p)
-	if string(b) != "bb" || st.Mode().Perm() != 0o600 {
+	// Windows has no POSIX mode bits (Perm() is always 0666); access is ACL-based.
+	if string(b) != "bb" || (runtime.GOOS != "windows" && st.Mode().Perm() != 0o600) {
 		t.Fatalf("got %q %v", b, st.Mode())
 	}
 	if ents, _ := os.ReadDir(dir); len(ents) != 1 {

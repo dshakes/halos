@@ -62,6 +62,8 @@ type requestLog struct {
 	f    *os.File
 }
 
+func (l *requestLog) close() error { return closeFile(&l.mu, l.f) }
+
 func openRequestLog(dir string) (*requestLog, error) {
 	l := &requestLog{byID: map[string]*Request{}}
 	if dir == "" {

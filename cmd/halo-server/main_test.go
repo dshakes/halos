@@ -8,6 +8,7 @@ import (
 	"encoding/pem"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -182,6 +183,10 @@ func TestRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	keyFile := write("kill.pem", string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})))
+	notExist := "no such file" // the OS's wording of ErrNotExist
+	if runtime.GOOS == "windows" {
+		notExist = "cannot find the file"
+	}
 	common := []string{"--policy-dir", "../../examples/acme-corp", "--token-file", tokFile, "--listen", "127.0.0.1:0", "--dev-insecure-user", "dev"}
 	for _, tc := range []struct {
 		name string
@@ -189,8 +194,8 @@ func TestRun(t *testing.T) {
 		err  string
 	}{
 		{"bad flags", []string{"--nope"}, "not defined"},
-		{"missing token file", []string{"--policy-dir", "p", "--token-file", filepath.Join(dir, "missing")}, "no such file"},
-		{"missing portal config", append(common, "--portal-config", filepath.Join(dir, "missing")), "no such file"},
+		{"missing token file", []string{"--policy-dir", "p", "--token-file", filepath.Join(dir, "missing")}, notExist},
+		{"missing portal config", append(common, "--portal-config", filepath.Join(dir, "missing")), notExist},
 		{"unknown portal key", append(common, "--portal-config", write("portal.json", `{"nope":1}`)), "portal config"},
 		{"bad kill key", append(common, "--data-dir", t.TempDir(), "--killswitch-key-file", tokFile, "--gateway-token-file", gwFile), "--killswitch-key-file"},
 		{"short gateway token", append(common, "--data-dir", t.TempDir(), "--killswitch-key-file", keyFile, "--gateway-token-file", tokFile), "at least 16"},

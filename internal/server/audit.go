@@ -92,6 +92,8 @@ func openAuditLog(dir string) (*auditLog, error) {
 	return l, nil
 }
 
+func (l *auditLog) close() error { return closeFile(&l.mu, l.f) }
+
 func (l *auditLog) append(e AuditEntry) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()

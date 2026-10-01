@@ -137,6 +137,16 @@ func New(cfg Config) (*Server, error) {
 	return s, nil
 }
 
+// Close releases the files New opened under Config.DataDir. A Store or
+// KillStore passed in via Config stays the caller's to close.
+func (s *Server) Close() error {
+	errs := []error{s.reqs.close(), s.devices.close(), s.revoked.close(), s.auditLog.close()}
+	if s.cfg.KillStore == nil && s.kills != nil {
+		errs = append(errs, s.kills.Close())
+	}
+	return errors.Join(errs...)
+}
+
 func orDefault(l *slog.Logger) *slog.Logger {
 	if l == nil {
 		return slog.Default()
