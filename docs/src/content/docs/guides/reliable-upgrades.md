@@ -44,12 +44,13 @@ Point `profile` at the **-next** profile your canary ring uses. An upgrade then 
 $ halo upgrade check --dry-run --policy-dir examples/acme-corp \
     --config stub-upgrade.yaml --npm-registry http://127.0.0.1:8765
 KIND   TARGET                  FROM            TO              ARTIFACTS   GATE   PR / NOTE
-cli    claude-code             2.1.312         2.1.330         UNVERIFIED  -      artifacts not verified: …
-cli    codex                   0.100.0         0.101.0         UNVERIFIED  -      artifacts not verified: …
+cli    claude-code             2.1.312         2.1.330         UNVERIFIED  -      artifacts not verified: release: resolve claude-code@2.1.330 artifacts: GET https://downloads.claude.ai/claude-code-releases/2.1.330/manifest.json: status 404
+cli    codex                   0.100.0         0.101.0         UNVERIFIED  -      artifacts not verified: release: resolve codex@0.101.0 artifacts: npm returned @openai/codex/0.101.0@0.101.0, want @openai/codex@0.101.0
+cli    gemini-cli              0.35.0          0.101.0         UNVERIFIED  -      artifacts not verified: release: resolve gemini-cli@0.101.0 artifacts: npm returned @google/gemini-cli/0.101.0@0.101.0, want @google/gemini-cli@0.101.0
 model  orchestrator-openai/codex-default  gpt-5-codex     gpt-5.5-codex   -           -      dry run
 ```
 
-This output came from the example repo run against a local stub npm registry and model list (`stub-upgrade.yaml` is the example config with the model URL pointed at the stub). The versions are the stub's, and the artifacts are unverified because the stub serves no tarballs. In a real run, a CLI row shows its verified artifact count, and without `--dry-run` the GATE column fills in with the PR URL or `blocked by the eval gate; no PR`.
+This output came from the example repo run against a local stub npm registry and model list (`stub-upgrade.yaml` is the example config with the model URL pointed at the stub). The stub npm registry answers `2.1.330` for claude-code and `0.101.0` for every other CLI, and the stub model list returns `gpt-5-codex`, `gpt-5.5-codex` and `gpt-4o`, so only `gpt-5.5-codex` passes `match`. The output is pasted unedited. The artifacts are unverified because the stub serves no tarballs. In a real run, a CLI row shows its verified artifact count, and without `--dry-run` the GATE column fills in with the PR URL or `blocked by the eval gate; no PR`.
 
 ## Run it continuously
 
