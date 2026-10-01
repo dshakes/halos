@@ -13,14 +13,8 @@ import (
 // (and prints Landlock's failure), everything else succeeds like a stub daemon.
 func fakeDocker(t *testing.T, probeExit string) (bin, log string) {
 	t.Helper()
-	dir := t.TempDir()
-	bin, log = filepath.Join(dir, "docker"), filepath.Join(dir, "docker.log")
-	script := "#!/bin/sh\necho \"$@\" >> " + log + "\n" +
-		"case \"$*\" in *' sandbox linux '*) echo 'error applying legacy Linux sandbox restrictions: Sandbox(LandlockRestrict)' >&2; exit " + probeExit + ";; esac\n" +
-		"case \"$2\" in *:*) mkdir -p \"$3\";; esac\n"
-	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	bin, log = fakeDockerCLI(t)
+	t.Setenv("FAKE_DOCKER_PROBE_EXIT", probeExit)
 	return bin, log
 }
 
@@ -147,10 +141,10 @@ func TestSandboxProbeMatchesRecordedRun(t *testing.T) {
 		t.Fatal("codex sandbox linux --help no longer documents the probe")
 	}
 	dir := t.TempDir()
-	bin, log := filepath.Join(dir, "docker"), filepath.Join(dir, "docker.log")
+	bin, log := fakeDockerCLI(t)
 	errf := filepath.Join(dir, "stderr")
 	_ = os.WriteFile(errf, []byte(stderr+"\n"), 0o644)
-	_ = os.WriteFile(bin, []byte("#!/bin/sh\necho \"$@\" >> "+log+"\ncat "+errf+" >&2\nexit 101\n"), 0o755)
+	t.Setenv("FAKE_DOCKER_STDERR_FILE", errf) // replayed on every call, exit 101
 	r := &DockerRunner{Bin: bin}
 	err = r.preflight(context.Background(), Variant{Harness: "codex", Version: "0.99.0"})
 	if !errors.Is(err, ErrSandboxUnavailable) || !strings.Contains(err.Error(), "Sandbox(LandlockRestrict)") {
