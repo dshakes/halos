@@ -10,6 +10,7 @@ import { Kiosk } from "./pages/Kiosk";
 import { Overview } from "./pages/Overview";
 import { Policy } from "./pages/Policy";
 import { Releases } from "./pages/Releases";
+import { Toggles } from "./pages/Toggles";
 import { ErrorBox } from "./ui";
 
 const subscribe = (cb: () => void) => {
@@ -52,7 +53,7 @@ export function App() {
 
   const pending = (reqs.data ?? []).filter((r) => r.status === "pending").length;
   const nav: [string, string][] = admin
-    ? [["", "Overview"], ["kiosk", "Kiosk"], ["fleet", "Fleet"], ["releases", "Releases"], ["experiments", "Experiments"], ["policy", "Policy"], ["debug", "Assignment"], ["approvals", "Approvals"], ["audit", "Audit log"]]
+    ? [["", "Overview"], ["kiosk", "Kiosk"], ["fleet", "Fleet"], ["releases", "Releases"], ["experiments", "Experiments"], ["toggles", "Toggles"], ["policy", "Policy"], ["debug", "Assignment"], ["approvals", "Approvals"], ["audit", "Audit log"]]
     : [["", "Home"], ["debug", "Assignment"]];
 
   let view: ReactNode;
@@ -64,6 +65,7 @@ export function App() {
     case "audit": view = admin ? <Audit /> : <Kiosk />; break;
     case "devices": view = admin && arg ? <Device id={decodeURIComponent(arg)} /> : <Kiosk />; break;
     case "experiments": view = admin ? <Experiments name={arg ? decodeURIComponent(arg) : undefined} /> : <Kiosk />; break;
+    case "toggles": view = admin ? <Toggles name={arg ? decodeURIComponent(arg) : undefined} /> : <Kiosk />; break;
     case "policy": view = admin ? <Policy /> : <Kiosk />; break;
     case "approvals": view = admin ? <Approvals /> : <Kiosk />; break;
     default: view = admin ? <Overview /> : <Kiosk />;

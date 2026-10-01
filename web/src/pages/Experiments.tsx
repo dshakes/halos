@@ -46,7 +46,7 @@ function Actions({ e }: { e: Experiment }) {
               <button
                 className="rounded-md bg-rose-600 px-3 py-1.5 font-medium text-white disabled:opacity-50"
                 disabled={kill.isPending || reason.trim() === ""}
-                onClick={() => { if (window.confirm(`Kill ${e.name} immediately? Users fall back to control.`)) kill.mutate({ name: e.name, reason: reason.trim() }); }}
+                onClick={() => { if (window.confirm(`Kill ${e.name}? Users fall back to control at the next poll (~10 s gateways, ~60 s devices).`)) kill.mutate({ name: e.name, reason: reason.trim() }); }}
               >
                 Kill switch
               </button>

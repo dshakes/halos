@@ -41,7 +41,8 @@ $halo gateway compile --policy-dir /demo/policy -o /demo/policy.json
 
 cat >/demo/portal.json <<EOF
 {"baseURL": "${CONSOLE_URL}", "registry": "$repo", "registryPlainHTTP": true,
- "pubKeyFile": "/demo/keys/halo.pub", "sessionKeyFile": "/demo/session.key"}
+ "pubKeyFile": "/demo/keys/halo.pub", "sessionKeyFile": "/demo/session.key",
+ "policyRepoDir": "/repo/writer", "policyBase": "main"}
 EOF
 chmod -R a+rX /demo
 touch /demo/.seeded
