@@ -83,6 +83,15 @@ export default defineConfig({
           ],
         },
         {
+          label: 'Architecture',
+          items: [
+            {
+              label: 'Deep dive',
+              items: ['architecture/tech-stack', 'architecture/components', 'architecture/low-level-design'],
+            },
+          ],
+        },
+        {
           label: 'Tutorials',
           items: [
             { slug: 'tutorials', label: 'All tutorials' },

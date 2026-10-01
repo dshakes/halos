@@ -216,6 +216,8 @@ The write tools (propose a rollout step, a rollback or a toggle change) are opt-
   <img src="assets/architecture-light.svg" alt="Client plane, traffic plane and evidence plane with their components" width="880">
 </picture>
 
+Deep dive, traced to the code: [tech stack](https://dshakes.github.io/halos/architecture/tech-stack/), [components](https://dshakes.github.io/halos/architecture/components/) and [low-level design](https://dshakes.github.io/halos/architecture/low-level-design/).
+
 ## Security by construction
 
 - **Signed everything.** Releases, ring pointers and the kill list are ed25519-signed; releases and pointers can also be co-signed with cosign. Ring pointers carry sequence numbers and an expiry, so a registry can't replay an old one.

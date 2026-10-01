@@ -2339,10 +2339,514 @@ def how_it_works():
     d.write()
 
 
+# =============================================================== deep dive (docs/architecture)
+def stage_list(name, title, desc, head, stages, loop=None):
+    """Numbered top-to-bottom pipeline. stages: (title, sub, outcome, kind) where
+    outcome (or None) is a pill on the right; kind: danger | accent | label.
+    loop: a label for a return arrow from the last stage to the first."""
+    x0, w, h, gap, top = 56, 452, 46, 12, 64
+    H = top + len(stages) * (h + gap) - gap + 28
+    d = D(name, W, H, title, desc)
+    d.kicker(24, 38, head)
+    for i, (t, sub, out, kind) in enumerate(stages):
+        y = top + i * (h + gap)
+        d.card(
+            x0,
+            y,
+            w,
+            h,
+            t,
+            [sub],
+            mono_sub=True,
+            pad=40,
+            kind="accent" if kind == "accent" and not out else "card",
+        )
+        d.badge(x0 + 20, y + h / 2, i + 1)
+        if i:
+            d.path([(x0 + 20, y - gap + 1), (x0 + 20, y - 9)], "line", head=False)
+        if out:
+            pw = tw(out, 10.5, 500) + 14
+            cx = x0 + w + 40 + pw / 2
+            assert cx + pw / 2 <= W - 24, (name, out)
+            d.path(
+                [(x0 + w + 6, y + h / 2), (cx - pw / 2 - 4, y + h / 2)],
+                "danger" if kind == "danger" else "accent",
+            )
+            d.pill(cx, y + h / 2, out, kind)
+    if loop:
+        ya, yb = top + h / 2, top + (len(stages) - 1) * (h + gap) + h / 2
+        d.path(
+            [(x0 - 2, yb), (34, yb), (34, ya), (x0 - 6, ya)], "accent", r=8, dashed=True
+        )
+        d.pill(34, (ya + yb) / 2, loop, "accent")
+    d.write()
+
+
+def chip(d, x, y, w, s, kind="chip"):
+    fits(s, 11, w - 16, mono=True, what=d.name)
+    cls = "dcard" if kind == "danger" else "chip"
+    d.add(f'<rect class="{cls}" x="{x}" y="{y}" width="{w}" height="22" rx="6"/>')
+    d.text(x + 8, y + 15, s, "m")
+
+
+def deep_dive():
+    # ---------------------------------------------------------- request path (halo-proxy)
+    stage_list(
+        "lld-request-path",
+        "Request path inside halo-proxy",
+        "Order of operations in cmd/halo-proxy ServeHTTP: snapshot, identity, body bound, kill list, "
+        "decision per alias, route order, attempts with translation, header hygiene, shadow mirror, "
+        "failover with breaker and upstream auth, streaming, and deferred metrics in a defer.",
+        "cmd/halo-proxy · Proxy.ServeHTTP",
+        [
+            (
+                "Load the policy snapshot",
+                "gateway.Snapshot.Get (hot reload)",
+                "503 policy_unavailable",
+                "danger",
+            ),
+            (
+                "Verify the caller",
+                "identity: jwt | trusted_header | none",
+                "401 unauthorized",
+                "danger",
+            ),
+            (
+                "Bound the body",
+                "MaxBytesReader, 32 MiB default",
+                "413 request_too_large",
+                "danger",
+            ),
+            (
+                "Apply the signed kill list",
+                "KillSwitch.Apply: killed exp = paused",
+                None,
+                None,
+            ),
+            (
+                "Decide ring, toggle, experiment",
+                "PrepareVerified -> Decide, per alias",
+                "400 / 404 not served",
+                "danger",
+            ),
+            (
+                "Order the route targets",
+                "RouteOrder: tiers, assign.Pick(user, session)",
+                None,
+                None,
+            ),
+            (
+                "Build attempts, translate",
+                "BuildOutbound, CheckURL, signHosts",
+                "502 bad_upstream",
+                "danger",
+            ),
+            (
+                "Header hygiene",
+                "drop x-halo-* + identity, stamp, strip creds",
+                None,
+                None,
+            ),
+            (
+                "Mirror the first turn",
+                "shadow.Jobs -> bounded async queue",
+                "halo-shadow",
+                "label",
+            ),
+            (
+                "Failover over attempts",
+                "Breaker.Allow, auth, RoundTrip, 5xx/429 next",
+                "503 no_available_target",
+                "danger",
+            ),
+            ("Stream the response", "FlushInterval -1, eventstream -> SSE", None, None),
+            (
+                "Deferred metrics and log",
+                "OTLP halo.gateway.*, /metrics, access log",
+                "collector :4319",
+                "accent",
+            ),
+        ],
+    )
+
+    # ---------------------------------------------------------- release pipeline
+    d = D(
+        "lld-release-pipeline",
+        W,
+        512,
+        "Release pipeline",
+        "halo release publish: load and validate the policy, build the ring release and one release per "
+        "client-axis variant, render every harness for every OS, run the CheckRendered backstop, pack a "
+        "content-addressed tar, sign its digest with ed25519 (cosign optional co-signer), push it and tag "
+        "v<version> immutably, then sign and push the ring pointer with org, ring, digest, seq and expiry.",
+    )
+    rows = [
+        (
+            "1 · policy",
+            [
+                ("Load", ["policy.Load", "strict YAML"]),
+                ("Validate", ["Org.Validate", "+ 13 guardrails"]),
+                ("Build ring", ["release.BuildRing", "+1 release per variant"]),
+            ],
+        ),
+        (
+            "2 · render",
+            [
+                ("Render", ["adapter.Render", "each harness x OS"]),
+                ("Backstop", ["CheckRendered", "no bypassPermissions"]),
+                ("Pack", ["deterministic tar", "digest = sha256(tar)"]),
+            ],
+        ),
+        (
+            "3 · sign and push",
+            [
+                ("Sign", ["ed25519(digest)", "cosign co-sign (opt.)"]),
+                ("Push", ["config + layer blobs", "sig in annotations"]),
+                ("Tag", ["v<version>", "immutable: refuse move"]),
+            ],
+        ),
+        (
+            "4 · ring pointer",
+            [
+                ("Pointer", ["{org, ring, digest,", "seq, issuedAt, exp}"]),
+                ("Sign pointer", ["ed25519(domain +", "sha256(payload))"]),
+                ("Tag", ["ring-<r>.pointer", "+ ring-<r> (info)"]),
+            ],
+        ),
+    ]
+    for i, (lab, items) in enumerate(rows):
+        y = 48 + i * 116
+        d.kicker(24, y - 12, lab)
+        boxes = hrow(
+            d, y, 66, items, mono_sub=True, gap=44, akind="accent" if i >= 2 else "line"
+        )
+        if i < len(rows) - 1:
+            last, first = boxes[-1], boxes[0]
+            yb = y + 66 + 22
+            d.path(
+                [
+                    (last[0] + last[2] / 2, y + 72),
+                    (last[0] + last[2] / 2, yb),
+                    (first[0] + first[2] / 2, yb),
+                    (first[0] + first[2] / 2, y + 116 - 6),
+                ],
+                "line",
+                r=8,
+            )
+    d.write()
+
+    # ---------------------------------------------------------- halod apply loop
+    stage_list(
+        "lld-halod-loop",
+        "halod apply loop",
+        "One halod cycle: restore and refresh the signed kill list, resolve the ring, verify the signed "
+        "pointer then the release before downloading it, pick a client-axis variant, merge toggles, "
+        "check every target path, write atomically, remove stale files, save state and report. Any "
+        "verification failure keeps the last-good release. Between pulls the kill list is polled.",
+        "cmd/halod · Agent.Once (every 15m) + PollKill (every 60s)",
+        [
+            (
+                "Restore + refresh the kill list",
+                "persisted list, then GET fleet/killswitch",
+                None,
+                None,
+            ),
+            (
+                "Resolve the ring",
+                "fixed ring, or ringEndpoint + device token",
+                "last-known ring",
+                "label",
+            ),
+            (
+                "Verify the ring pointer",
+                "signature, org, seq >= last, expiry",
+                "keep last-good",
+                "danger",
+            ),
+            (
+                "Verify, then fetch the release",
+                "sig over layer digest before download",
+                "keep last-good",
+                "danger",
+            ),
+            (
+                "Pick the variant channel",
+                "ResolveVariant (gateway hash), kill list",
+                "keep last-good",
+                "danger",
+            ),
+            ("Merge toggles", "activeToggles -> withToggles", None, None),
+            (
+                "Check every target",
+                "allowlist, mode <= 0644, root-owned chain",
+                "refuse that file",
+                "danger",
+            ),
+            ("Write atomically", "temp file, fsync, rename", None, None),
+            ("Remove stale files", "only inside managed locations", None, None),
+            (
+                "Save state, report",
+                "state.json, POST reportURL",
+                "halo-server",
+                "label",
+            ),
+        ],
+        loop="next cycle",
+    )
+
+    # ---------------------------------------------------------- controller loop
+    stage_list(
+        "lld-controller-loop",
+        "Controller loop",
+        "Each tick halo-server's controller loads policy, holds killed experiments, evaluates running "
+        "experiments from ClickHouse (guardrails by mSPRT confidence sequence, budgets, sample floor, "
+        "primary metric) and acts: rollback trips the kill switch only on gateway-sourced evidence, then "
+        "opens a pause PR and notifies; promote and expiry open a conclude PR. Rollouts are evaluated "
+        "from hash-chained state; rollback and pause halt, advance and complete only open PRs.",
+        "internal/controller · Controller.Tick (every 5m, 2m budget)",
+        [
+            ("Load policy", "Org() = policy.Load(served dir)", None, None),
+            ("Skip what a rollout owns", "rolloutOwned(org, exp)", None, None),
+            (
+                "Killed? hold, do not evaluate",
+                "KillStore.Killed -> hold + notify",
+                "hold",
+                "label",
+            ),
+            ("Read evidence", "ClickHouse halo_metrics, per unit", None, None),
+            ("Guardrails", "SeqGuardrail (mSPRT CS), alpha / n", "rollback", "danger"),
+            ("Budgets", "maxDays, maxSpendUSD", "expired", "label"),
+            ("Sample floor", "minSamples per arm", "continue", "label"),
+            (
+                "Primary metric",
+                "msprt | fixed, direction",
+                "promote | rollback",
+                "accent",
+            ),
+            (
+                "Rollback",
+                "gateway evidence ? kill : no kill",
+                "pause PR + notify",
+                "danger",
+            ),
+            ("Promote or expired", "conclude PR (never merged)", "notify", "accent"),
+            (
+                "Rollouts",
+                "LoadState (hash chain), Gather, Evaluate",
+                "halt | PR | hold",
+                "accent",
+            ),
+        ],
+        loop="next tick",
+    )
+
+    # ---------------------------------------------------------- data model
+    d = D(
+        "lld-data-model",
+        W,
+        452,
+        "Policy data model",
+        "The policy kinds and their references: a Rollout names its backing Experiment and, per step, a "
+        "Ring; an Experiment draws users from Rings and its variants override Gateway alias routes "
+        "(traffic axis) or name a Profile (client axis); a Ring points at a Profile and optionally pins a "
+        "release; a traffic Toggle overrides Gateway alias routes and its rules target rings, groups, "
+        "users and a percent; halos.yaml holds the org and identity. policy.Load joins all into one Org.",
+    )
+    xs, wbox, hbox = (24, 282, 540), 196, 104
+    ys = (56, 196, 336)
+    d.kicker(24, 34, "kinds · apiVersion halos.dev/v1alpha1")
+
+    def kind(col, row, k, subs, style="card"):
+        d.card(xs[col], ys[row], wbox, hbox, k, subs, kind=style, mono_sub=True, title_mono=True)
+
+    kind(0, 0, "halos.yaml", ["org, identity (OIDC)", "selfService, simple mode"])
+    kind(0, 1, "Gateway", ["models{alias: route}", "upstreams{name}, engine"])
+    kind(0, 2, "Toggle", ["rules[rings, groups,", "users, percent]", "client | traffic.routes"])
+    kind(1, 0, "Rollout", ["axis, experiment", "change, baseline", "steps[strategy, gates]"])
+    kind(1, 1, "Experiment", ["type, axis, rings[]", "variants[routes|profile]", "metrics, stopping"], "accent")
+    kind(2, 0, "Ring", ["order, profile", "release (pin)", "membership"])
+    kind(2, 1, "Profile", ["extends", "harnesses{version}", "models, permissions, mcp"])
+    kind(2, 2, "Org", ["policy.Load joins every", "document into one Org"], "ghost")
+    m = hbox / 2
+    g0, g1 = xs[0] + wbox, xs[1] + wbox  # right edges of columns 0 and 1
+    # Rollout -> Experiment, Rollout -> Ring
+    d.path([(xs[1] + wbox / 2, ys[0] + hbox + 6), (xs[1] + wbox / 2, ys[1] - 6)], "accent")
+    d.pill(xs[1] + wbox / 2, ys[0] + hbox + 18, "experiment", "accent", mono=True)
+    d.path([(g1 + 6, ys[0] + m - 14), (xs[2] - 6, ys[0] + m - 14)], "line")
+    d.pill((g1 + xs[2]) / 2, ys[0] + m - 28, "ring", mono=True)
+    # Experiment -> Ring, Profile, Gateway
+    d.path([(g1 + 6, ys[1] + 24), (g1 + 28, ys[1] + 24), (g1 + 28, ys[0] + m + 22), (xs[2] - 6, ys[0] + m + 22)], "line", r=6)
+    d.pill(g1 + 28, ys[1] - 14, "rings[]", mono=True)
+    d.path([(g1 + 6, ys[1] + m + 16), (xs[2] - 6, ys[1] + m + 16)], "line")
+    d.pill((g1 + xs[2]) / 2, ys[1] + m + 2, "profile", mono=True)
+    d.path([(xs[1] - 6, ys[1] + m), (g0 + 6, ys[1] + m)], "accent")
+    d.pill((g0 + xs[1]) / 2, ys[1] + m - 14, "routes", "accent", mono=True)
+    # Ring -> Profile, Toggle -> Gateway
+    d.path([(xs[2] + wbox / 2, ys[0] + hbox + 6), (xs[2] + wbox / 2, ys[1] - 6)], "line")
+    d.pill(xs[2] + wbox / 2, ys[0] + hbox + 18, "profile", mono=True)
+    d.path([(xs[0] + wbox / 2, ys[2] - 6), (xs[0] + wbox / 2, ys[1] + hbox + 6)], "line")
+    d.pill(xs[0] + wbox / 2, ys[1] + hbox + 18, "traffic.routes", mono=True)
+    d.write()
+
+    # ---------------------------------------------------------- trust zones and keys
+    d = D(
+        "lld-trust-zones",
+        W,
+        620,
+        "Trust zones and keys",
+        "Who holds which key or token. The publisher holds the release ed25519 private key; the registry is "
+        "untrusted storage and halod verifies with the release public keys. halo-server holds the kill-list "
+        "private key, the gateway and fleet tokens, hashed device tokens and the OIDC secrets. Gateways hold "
+        "the kill public key, the gateway token, provider credentials and the OTLP gateway token. The "
+        "collector separates gateway, eval and CLI receivers by token; only gateway evidence may auto-kill.",
+    )
+    zw = 220
+    zx = (24, 270, 516)
+
+    def zone(x, y, label, chips):
+        h = 40 + len(chips) * 28 + 4
+        d.zone(x, y, zw, h, label)
+        for i, (s, k) in enumerate(chips):
+            chip(d, x + 12, y + 40 + i * 28, zw - 24, s, k)
+        return h
+
+    hp = zone(zx[0], 24, "Publisher (CI)", [("release key: ed25519", "danger"), ("cosign key (optional)", "chip"),
+                                              ("pointer state file", "chip")])
+    hs = zone(zx[1], 24, "halo-server", [("kill key: ed25519", "danger"), ("gateway token (sha256)", "chip"),
+                                          ("fleet token", "chip"), ("device tokens (hashed)", "chip"),
+                                          ("release pubkey (enroll)", "chip"), ("OIDC client secret", "chip"),
+                                          ("session key", "chip")])
+    hg = zone(zx[2], 24, "Gateways", [("kill pubkey", "chip"), ("gateway token", "chip"),
+                                       ("provider creds (env)", "chip"), ("OTLP gateway token", "chip"),
+                                       ("shadow token", "chip")])
+    yr = 24 + hp + 30
+    d.card(zx[0], yr, zw, 52, "OCI registry", ["untrusted storage"], kind="ghost")
+    yd = yr + 52 + 44
+    hd = zone(zx[0], yd, "Devices (halod)", [("release pubkeys", "chip"), ("revokedKeys", "chip"),
+                                              ("kill pubkey", "chip"), ("device token (0600)", "chip")])
+    yc = 24 + hg + 52
+    zone(zx[2], yc, "OTel collector", [(":4319 gateway token", "chip"), (":4320 eval token", "chip"),
+                                         (":4317/8 CLI (opt. token)", "chip"), ("-> ClickHouse", "chip")])
+    yi = 24 + hs + 96
+    d.card(zx[1], yi, zw, 56, "OIDC IdP", ["signs developer JWTs"], kind="ghost")
+    cx0 = zx[0] + zw / 2
+    # 1 publisher -> registry, 2 registry -> devices
+    d.path([(cx0, 24 + hp + 6), (cx0, yr - 6)], "accent")
+    d.badge(cx0 + 18, (24 + hp + yr) / 2, 1)
+    d.path([(cx0, yr + 58), (cx0, yd - 6)], "accent")
+    d.badge(cx0 + 18, (yr + 52 + yd) / 2, 2)
+    # 3 devices -> halo-server
+    ya = yd + 40
+    d.path([(zx[0] + zw + 6, ya), (zx[1] + 60, ya), (zx[1] + 60, 24 + hs + 6)], "line", r=8)
+    d.badge(zx[1] + 60, (ya + 24 + hs) / 2, 3)
+    # 4 gateways -> halo-server
+    d.path([(zx[2] - 6, 92), (zx[1] + zw + 6, 92)], "line")
+    d.badge((zx[1] + zw + zx[2]) / 2, 78, 4)
+    # 5 gateways -> collector
+    d.path([(zx[2] + zw / 2, 24 + hg + 6), (zx[2] + zw / 2, yc - 6)], "accent")
+    d.badge(zx[2] + zw / 2 + 18, (24 + hg + yc) / 2, 5)
+    # 6 IdP -> gateways (JWKS)
+    gx6 = (zx[1] + zw + zx[2]) / 2
+    d.path([(zx[1] + zw + 6, yi + 28), (gx6, yi + 28), (gx6, 160), (zx[2] - 6, 160)], "line", r=6, dashed=True)
+    d.badge(gx6, (yi + 28 + 160) / 2, 6)
+    notes = [
+        "release + signed ring pointer pushed, signed with the release key",
+        "halod verifies with its release pubkeys: signature, org, ring, seq, expiry",
+        "device token: GET fleet/ring, POST fleet/report, GET fleet/killswitch",
+        "gateway token: GET gateway/killswitch; the list is ed25519-signed, <= 10 min old",
+        "OTLP bearer on :4319 -> halo.source=gateway, the only source that may auto-kill",
+        "gateways verify developer JWTs against the IdP's JWKS (OIDC discovery)",
+    ]
+    y0 = max(yd + hd, yi + 56, yc + 156) + 36
+    for i, s in enumerate(notes):
+        d.badge(32, y0 + i * 22 - 4, i + 1)
+        d.text(48, y0 + i * 22, s, "s", maxw=W - 72, size=12)
+    assert y0 + 5 * 22 + 16 <= d.h, (y0, d.h)
+    d.write()
+
+    # ---------------------------------------------------------- package dependency matrix
+    import json
+
+    g = json.loads((ROOT / "assets" / "src" / "pkgdeps.json").read_text())
+    deps = {p["path"]: set(p["imports"]) for p in g["packages"]}
+    depth = {}
+
+    def dep(p):
+        if p not in depth:
+            depth[p] = 1 + max((dep(q) for q in deps[p] if q in deps), default=-1)
+        return depth[p]
+
+    order = sorted(deps, key=lambda p: (dep(p), p))
+    idx = {p: i for i, p in enumerate(order)}
+    n = len(order)
+    cell = 11
+    lab = 196
+    gx, gy = 24 + lab, 70
+    H = gy + n * cell + 64
+    d = D(
+        "package-deps",
+        W,
+        H,
+        "Package dependency map",
+        f"Dependency structure matrix of the {n} packages under cmd/ and internal/, ordered by layer "
+        "(leaves first). A dot in row r, column c means package r imports package c; every dot is below "
+        "the diagonal because Go forbids import cycles. Generated from go list (assets/src/pkgdeps.json).",
+    )
+    d.kicker(24, 34, "cmd/ + internal/ · go list, direct non-test imports")
+    d.text(W - 24, 34, "row imports column", "xs", "end")
+    for i, p in enumerate(order):
+        y = gy + i * cell
+        if dep(p) % 2:
+            d.add(
+                f'<rect class="fs" x="{gx}" y="{y}" width="{n * cell}" height="{cell}"/>'
+            )
+        d.text(
+            gx - 26,
+            y + 8.6,
+            p.replace("internal/", ""),
+            "m",
+            "end",
+            maxw=lab - 30,
+            size=11,
+            mono=True,
+        )
+        d.text(gx - 6, y + 8.6, str(i + 1), "xs", "end")
+    for j in range(0, n, 5):
+        d.text(gx + j * cell + cell / 2, gy - 8, str(j + 1), "xs", "middle")
+    d.add(f'<path class="lm" d="M{gx} {gy}L{gx + n * cell} {gy + n * cell}"/>')
+    d.add(
+        f'<rect class="ghost" x="{gx}" y="{gy}" width="{n * cell}" height="{n * cell}" rx="2"/>'
+    )
+    for p in order:
+        for q in deps[p]:
+            if q in idx:
+                r, c = idx[p], idx[q]
+                assert c < r, (p, q)
+                cls = "fa" if p.startswith("cmd/") else "ft"
+                d.add(
+                    f'<circle class="{cls}" cx="{gx + c * cell + cell / 2}" cy="{gy + r * cell + cell / 2}" r="3"/>'
+                )
+    edges = sum(len(deps[p] & set(order)) for p in order)
+    d.text(
+        24,
+        H - 30,
+        f"{n} packages, {edges} import edges, {max(depth.values()) + 1} layers (shaded bands alternate by layer).",
+        "s",
+    )
+    d.text(
+        24,
+        H - 12,
+        "Gold dots: a binary under cmd/ importing an internal package.",
+        "xs",
+    )
+    d.write()
+
+
 def eclipse(cx: float, cy: float, r: float, uid: str, ink: str, rays: int = 90) -> str:
     """Static eclipse: corona glow, ray field, dark disc, rim and diamond-ring bead.
     Geometry matches the animated hero (docs/src/components/landing/Eclipse.astro)."""
     import random
+
     rnd = random.Random(7)
     k = r / 134
     lines = []
@@ -2373,6 +2877,7 @@ def eclipse(cx: float, cy: float, r: float, uid: str, ink: str, rays: int = 90) 
 
 def identity():
     """Logo mark (docs header, light + dark) and favicon: a ring of corona around a dark disc."""
+
     def mark(ink: str, bg: str | None) -> str:
         back = f'<rect width="32" height="32" rx="8" fill="{bg}"/>' if bg else ""
         return (
@@ -2385,6 +2890,7 @@ def identity():
             f'<circle cx="16" cy="16" r="8.4" fill="{ink}"/>'
             '<circle cx="22.4" cy="9.4" r="2.3" fill="#fff4d6"/></svg>\n'
         )
+
     site = ROOT / "docs"
     (site / "src" / "assets" / "logo-dark.svg").write_text(mark("#07070a", None))
     (site / "src" / "assets" / "logo-light.svg").write_text(mark("#16130f", None))
@@ -2428,6 +2934,7 @@ def main():
     everywhere()
     docs_diagrams()
     more_diagrams()
+    deep_dive()
 
 
 if __name__ == "__main__":
