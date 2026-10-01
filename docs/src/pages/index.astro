@@ -1,0 +1,282 @@
+---
+import '@fontsource-variable/inter/wght.css';
+import '@fontsource-variable/jetbrains-mono/wght.css';
+import '../styles/tokens.css';
+import '../styles/landing.css';
+import Terminal from '../components/landing/Terminal.astro';
+import Simulator from '../components/landing/Simulator.astro';
+import Bento from '../components/landing/Bento.astro';
+import { proof } from '../data/proof';
+
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const u = (p: string) => base + p;
+const gh = 'https://github.com/dshakes/halos';
+const site = 'https://dshakes.github.io/halos/';
+const title = 'Halos: ship AI coding tools like software';
+const desc =
+  'Open-source control plane for Claude Code, Codex, Gemini CLI and Copilot CLI. One policy repo becomes signed releases, rolled out ring by ring, gated by evals and live telemetry.';
+const p = proof();
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={desc} />
+    <link rel="icon" href={u('/favicon.svg')} type="image/svg+xml" />
+    <link rel="canonical" href={site} />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={desc} />
+    <meta property="og:url" content={site} />
+    <meta property="og:image" content={site + 'og.png'} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={desc} />
+    <meta name="twitter:image" content={site + 'og.png'} />
+    <meta name="theme-color" content="#08090c" />
+    <script is:inline>
+      // Same storage key as the Starlight docs, so the theme follows you across the site.
+      (() => {
+        let t = '';
+        try { t = localStorage.getItem('starlight-theme') || ''; } catch {}
+        if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        document.documentElement.dataset.theme = t;
+      })();
+    </script>
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="nav">
+      <div class="wrap nav-in">
+        <a class="brand" href={u('/')} aria-label="Halos home">
+          <svg viewBox="0 0 32 32" width="26" height="26" aria-hidden="true">
+            <defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="var(--h-a0)" /><stop offset="1" stop-color="var(--h-a1)" /></linearGradient></defs>
+            <circle cx="16" cy="16" r="13.5" fill="none" stroke="url(#lg)" stroke-width="2.4" opacity=".45" />
+            <circle cx="16" cy="16" r="8.5" fill="none" stroke="url(#lg)" stroke-width="2.4" opacity=".85" />
+            <circle cx="16" cy="16" r="3.8" fill="url(#lg)" />
+          </svg>
+          Halos
+        </a>
+        <nav aria-label="Main">
+          <a href={u('/getting-started/introduction/')}>Docs</a>
+          <a href={u('/concepts/how-it-works/')}>How it works</a>
+          <a href={u('/tutorials/')}>Tutorials</a>
+          <a href={u('/examples/')}>Examples</a>
+          <a href={gh}>GitHub</a>
+        </nav>
+        <div class="nav-r">
+          <button type="button" class="theme" data-theme-toggle aria-label="Toggle light and dark theme">
+            <svg class="sun" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="4.5" /><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8" /></svg>
+            <svg class="moon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z" /></svg>
+          </button>
+          <a class="btn sm primary" href={u('/getting-started/playground/')}>Try it</a>
+        </div>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="hero">
+        <div class="glow" aria-hidden="true"></div>
+        <div class="wrap hero-in">
+          <div class="hero-copy">
+            <a class="eyebrow" href={gh}><span class="pulse-dot" aria-hidden="true"></span>Open source · Apache-2.0 · pre-release</a>
+            <h1>Ship AI coding tools<br /> <span class="grad">like software.</span></h1>
+            <p class="lede">
+              One policy repo becomes signed releases, rolled out ring by ring, gated by evals and live telemetry,
+              and rolled back on its own when a gateway guardrail breaks.
+            </p>
+            <div class="ctas">
+              <a class="btn primary" href={u('/getting-started/playground/')}>Try it in 60 seconds <span aria-hidden="true">→</span></a>
+              <a class="btn ghost" href={u('/getting-started/introduction/')}>Read the docs</a>
+            </div>
+            <p class="works">Works with Claude Code · Codex · Gemini CLI · Copilot CLI</p>
+          </div>
+          <div class="hero-term">
+            <Terminal />
+          </div>
+        </div>
+      </section>
+
+      <section class="sec" aria-labelledby="problem">
+        <div class="wrap">
+          <p class="kicker">The problem</p>
+          <h2 id="problem">AI coding tools change weekly. Your org finds out last.</h2>
+          <div class="cards3">
+            <article class="card">
+              <span class="num">01</span>
+              <h3>Every laptop runs a different agent.</h3>
+              <p>CLI versions, models, permissions and MCP servers drift per machine, per team, per week.</p>
+            </article>
+            <article class="card">
+              <span class="num">02</span>
+              <h3>Upgrades hit everyone at once.</h3>
+              <p>A new CLI or model reaches 100% of engineers on day one, with no canary and no numbers.</p>
+            </article>
+            <article class="card">
+              <span class="num">03</span>
+              <h3>Rollback is a Slack message.</h3>
+              <p>When it regresses, someone notices days later and asks everyone to downgrade by hand.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="sec alt" aria-labelledby="how">
+        <div class="wrap">
+          <p class="kicker">How it works</p>
+          <h2 id="how">Your platform team owns one repo. Developers change nothing.</h2>
+          <ol class="steps3">
+            <li>
+              <span class="badge">1</span>
+              <h3>Write policy</h3>
+              <p>A git repo of Halos YAML: CLI versions, models, permissions, MCP servers, rings. <code>halo init</code> scaffolds it.</p>
+            </li>
+            <li>
+              <span class="badge">2</span>
+              <h3>Ship a signed release</h3>
+              <p>CI validates, plans and evals each PR. A human merges; <code>halo release publish</code> signs an immutable release.</p>
+            </li>
+            <li>
+              <span class="badge">3</span>
+              <h3>Rings and gateway deliver</h3>
+              <p><code>halod</code> applies the ring's release on every machine; the gateway routes models by verified identity.</p>
+            </li>
+          </ol>
+          <figure class="diagram-fig">
+            <img class="light-only" src={u('/diagrams/how-it-works-light.svg')} width="880" height="368" loading="lazy" decoding="async" alt="The platform team owns a git policy repo. A pull request is validated, planned and evaluated in CI, a human merges, and halo publishes a signed immutable release. Rings point at releases; halod applies them on every machine and the gateway routes model traffic. Developers keep running their CLI as usual." />
+            <img class="dark-only" src={u('/diagrams/how-it-works-dark.svg')} width="880" height="368" loading="lazy" decoding="async" alt="" />
+          </figure>
+        </div>
+      </section>
+
+      <section class="sec" aria-labelledby="features">
+        <div class="wrap">
+          <p class="kicker">What you get</p>
+          <h2 id="features">Everything between "new version out" and "everyone's on it".</h2>
+          <Bento />
+        </div>
+      </section>
+
+      <section class="sec alt" aria-labelledby="simulate">
+        <div class="wrap">
+          <p class="kicker">See it decide</p>
+          <h2 id="simulate">Watch a model rollout advance, or roll itself back.</h2>
+          <p class="sec-lede">Six steps: a dark launch, a canary ramp and a 14-day holdout. Flip the scenario to inject a latency regression.</p>
+          <Simulator />
+        </div>
+      </section>
+
+      <section class="sec" aria-labelledby="proof">
+        <div class="wrap">
+          <p class="kicker">Proof, not promises</p>
+          <h2 id="proof">Tested end to end. Every number links to its source.</h2>
+          <div class="stats">
+            <a class="stat" href={`${gh}/blob/main/test/uat/REPORT.md`}>
+              <span class="big">{p.k8s.pass}/{p.k8s.total}</span>
+              <span class="lbl">Kubernetes UAT checks passed</span>
+              <span class="src">kind + Helm chart, {p.k8s.date} · test/uat/REPORT.md</span>
+            </a>
+            <a class="stat" href={`${gh}/blob/main/test/uat/REPORT.md`}>
+              <span class="big">{p.helm.ok.toLocaleString('en-US')} / {p.helm.failed}</span>
+              <span class="lbl">requests served / failed during a Helm upgrade of both proxy replicas</span>
+              <span class="src">{p.k8s.date} · test/uat/REPORT.md</span>
+            </a>
+            <a class="stat" href={`${gh}/blob/main/test/uat/CLI-REPORT.md`}>
+              <span class="big">{p.clis.pass} pass</span>
+              <span class="lbl">checks on the real CLIs: {p.clis.versions}</span>
+              <span class="src">{p.clis.fail} known environmental fails, {p.clis.unverified} UNVERIFIED · {p.clis.date} · test/uat/CLI-REPORT.md</span>
+            </a>
+            <a class="stat" href={`${gh}/blob/main/docs/src/content/docs/tutorials/kill-a-bad-change.md`}>
+              <span class="big">{p.kill}</span>
+              <span class="lbl">from <code>halo toggle kill</code> to changed routing at the gateway</span>
+              <span class="src">measured on the demo stack · tutorials/kill-a-bad-change.md</span>
+            </a>
+            <a class="stat" href={`${gh}/tree/main/test/e2e`}>
+              <span class="big">{p.e2e}</span>
+              <span class="lbl">cross-component end-to-end tests on real binaries and a real registry</span>
+              <span class="src">test/e2e (counted at build)</span>
+            </a>
+          </div>
+          <p class="badges">
+            <a href={`${gh}/actions/workflows/ci.yml`}><img src={`${gh}/actions/workflows/ci.yml/badge.svg`} alt="CI status" height="20" loading="lazy" /></a>
+            <a href={`${gh}/actions/workflows/docs.yml`}><img src={`${gh}/actions/workflows/docs.yml/badge.svg`} alt="Docs build status" height="20" loading="lazy" /></a>
+            <span class="note">Not yet run against real Vertex, OpenAI, Azure, Windows, Codespaces or Coder: those paths are <strong>UNVERIFIED</strong>.</span>
+          </p>
+        </div>
+      </section>
+
+      <section class="sec alt" aria-labelledby="security">
+        <div class="wrap">
+          <p class="kicker">Security</p>
+          <h2 id="security">Built for the people who say no.</h2>
+          <div class="sec4">
+            <div><h3>Signed, immutable releases</h3><p>ed25519-signed bundles and ring pointers in your OCI registry. <code>halod</code> refuses a foreign key and keeps the last good release.</p></div>
+            <div><h3>Identity, not headers</h3><p>Cohorts come from a verified JWT. Client <code>x-halo-*</code> headers are stripped at the gateway.</p></div>
+            <div><h3>Guardrails that can't ship off</h3><p><code>bypassPermissions</code> and <code>danger-full-access</code> never render, in any ring or profile.</p></div>
+            <div><h3>Humans own the irreversible</h3><p>No auto-merge, no auto-promote. Rollback is the only automatic direction.</p></div>
+          </div>
+          <a class="textlink" href={u('/concepts/security-model/')}>Security model and threat model →</a>
+        </div>
+      </section>
+
+      <section class="sec" aria-labelledby="start">
+        <div class="wrap start">
+          <div>
+            <p class="kicker">Quickstart</p>
+            <h2 id="start">The whole stack, one command.</h2>
+            <p class="sec-lede">Console with a mock login, gateway, shadow, mock models, Grafana, and a seeded repo with a running experiment, rollout and toggle.</p>
+            <div class="ctas">
+              <a class="btn primary" href="https://codespaces.new/dshakes/halos">Open in Codespaces</a>
+              <a class="btn ghost" href={u('/tutorials/first-10-minutes/')}>Your first 10 minutes</a>
+            </div>
+          </div>
+          <div class="code" data-copy-wrap>
+            <div class="code-bar"><span>terminal</span><button type="button" data-copy aria-label="Copy commands">Copy</button></div>
+            <pre data-copy-src><code><span class="c"># needs Go and Docker</span>
+git clone https://github.com/dshakes/halos && cd halos
+make demo        <span class="c"># prints the URLs; make demo-down removes it</span>
+
+<span class="c"># or start your own policy repo</span>
+make build && export PATH=$PWD/bin:$PATH
+mkdir acme && cd acme && halo init --org acme && halo validate</code></pre>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <div class="wrap foot-in">
+        <div>
+          <p class="brand-f">Halos</p>
+          <p class="muted">The open-source control plane for AI coding CLIs. Pre-release (<code>v1alpha1</code>), Apache-2.0, self-hosted.</p>
+        </div>
+        <nav aria-label="Footer">
+          <div><p>Docs</p><a href={u('/getting-started/introduction/')}>Introduction</a><a href={u('/getting-started/playground/')}>Playground</a><a href={u('/reference/cli/')}>CLI reference</a></div>
+          <div><p>Learn</p><a href={u('/tutorials/')}>Tutorials</a><a href={u('/examples/')}>Examples</a><a href={u('/reference/comparison/')}>Comparison</a></div>
+          <div><p>Project</p><a href={gh}>GitHub</a><a href={`${gh}/blob/main/SECURITY.md`}>Security</a><a href={`${gh}/blob/main/LICENSE`}>License</a></div>
+        </nav>
+      </div>
+    </footer>
+
+    <script>
+      document.querySelector('[data-theme-toggle]')?.addEventListener('click', () => {
+        const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+        document.documentElement.dataset.theme = next;
+        try { localStorage.setItem('starlight-theme', next); } catch {}
+      });
+      for (const w of document.querySelectorAll<HTMLElement>('[data-copy-wrap]')) {
+        const b = w.querySelector<HTMLButtonElement>('[data-copy]')!;
+        b.addEventListener('click', async () => {
+          const txt = w.querySelector('[data-copy-src]')!.textContent!.split('\n').filter((l) => l.trim() && !l.trim().startsWith('#')).map((l) => l.replace(/\s+#.*$/, '')).join('\n');
+          try { await navigator.clipboard.writeText(txt); b.textContent = 'Copied'; } catch { b.textContent = 'Select and copy'; }
+          setTimeout(() => (b.textContent = 'Copy'), 1600);
+        });
+      }
+    </script>
+  </body>
+</html>

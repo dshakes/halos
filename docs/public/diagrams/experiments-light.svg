@@ -2,7 +2,7 @@
 <title id="t">Experiment types</title>
 <desc id="d">A/B tests vary the client (CLI version, settings, MCP) through halod; canaries and shadow traffic vary the traffic route at halo-proxy. One hash of user and salt assigns variants on both axes.</desc>
 <style>
-.cv{fill:#fbfcfd;stroke:#e6eaf0;stroke-width:1.5}
+.cv{fill:#f7f8fa;stroke:#e4e7ed;stroke-width:1.5}
 .card{fill:#ffffff;stroke:#e2e8f0;stroke-width:1.5}
 .soft{fill:url(#gs)}
 .ring{fill:none;stroke:url(#ga);stroke-width:1.5}
@@ -11,27 +11,27 @@
 .zone{fill:#f4f6f9;stroke:#dfe5ec;stroke-width:1.5}
 .chip{fill:#f1f5f9;stroke:#e2e8f0;stroke-width:1}
 text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
-.t{font-size:13.5px;font-weight:600;fill:#0b1220}
-.tm{font:600 12.5px ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;fill:#0b1220}
+.t{font-size:13.5px;font-weight:600;fill:#0b0d12}
+.tm{font:600 12.5px ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;fill:#0b0d12}
 .td{fill:#dc2626}
-.s{font-size:12px;fill:#475569}
-.m{font:11px ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;fill:#475569}
-.xs{font-size:10.5px;font-weight:500;fill:#64748b}
+.s{font-size:12px;fill:#475063}
+.m{font:11px ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;fill:#475063}
+.xs{font-size:10.5px;font-weight:500;fill:#667085}
 .xm{font-family:ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;font-weight:400}
 .xa{fill:url(#ga);font-weight:600}
 .xd{fill:#dc2626;font-weight:600}
 .xw{fill:#ffffff;font-weight:600}
-.k{font-size:10.5px;font-weight:600;letter-spacing:.08em;fill:#64748b}
+.k{font-size:10.5px;font-weight:600;letter-spacing:.08em;fill:#667085}
 .ka{fill:url(#ga)}
-.h1{font-size:42px;font-weight:700;letter-spacing:-.02em;fill:#0b1220}
+.h1{font-size:42px;font-weight:700;letter-spacing:-.02em;fill:#0b0d12}
 .ln,.la,.ld,.lm{fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
 .ln{stroke:#94a3b8}.la{stroke:url(#ga)}.ld{stroke:#dc2626}.lm{stroke:#e2e8f0}
 .lane{stroke:#e2e8f0;stroke-width:1.5;stroke-dasharray:3 4}
 .dash{stroke-dasharray:5 5}
 .dl{fill:#94a3b8}.da{fill:url(#ga)}.dd{fill:#dc2626}
-.pl{fill:#fbfcfd}.pa{fill:#fbfcfd;stroke:url(#ga);stroke-width:1}
+.pl{fill:#f7f8fa}.pa{fill:#f7f8fa;stroke:url(#ga);stroke-width:1}
 .pd{fill:#fef2f2;stroke:#dc2626;stroke-width:1}.ps{fill:url(#ga)}
-.fa{fill:url(#ga)}.fs{fill:url(#gs)}.fm{fill:#f1f5f9}.fd{fill:#dc2626}.ft{fill:#0b1220}
+.fa{fill:url(#ga)}.fs{fill:url(#gs)}.fm{fill:#f1f5f9}.fd{fill:#dc2626}.ft{fill:#0b0d12}
 .bdg{fill:url(#ga)}.bn{font-size:9.5px;font-weight:700;fill:#ffffff}
 .ic{fill:none;stroke:url(#ga);stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
 .pkt{fill:url(#ga)}

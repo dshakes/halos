@@ -368,29 +368,35 @@ func TestShadowMirrorFiredForFirstTurn(t *testing.T) {
 
 func mustJSON(v any) string { b, _ := json.Marshal(v); return string(b) }
 
-func TestHealthAndMetrics(t *testing.T) {
-	up, _ := recordingServer(t)
-	e := testEnv(t, up, nil)
-	// Metrics are recorded when ServeHTTP returns, which is after a streamed
-	// response has already reached the client. Serve through a wrapper that
-	// counts finished handlers so the scrape waits for exactly that, not a sleep.
-	var inflight sync.WaitGroup
-	var counting atomic.Bool
-	counting.Store(true)
-	wrapped := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if counting.Load() {
-			defer inflight.Done()
+// awaitHandlers serves e through a wrapper and returns a func that blocks until the
+// next n requests have fully returned from ServeHTTP. Metrics are recorded in a
+// deferred block that runs after a streamed response has reached the client, so
+// tests that read metrics wait on this instead of racing it (or sleeping).
+func (e *env) awaitHandlers(t *testing.T, n int) (wait func()) {
+	t.Helper()
+	var wg sync.WaitGroup
+	var left atomic.Int64
+	left.Store(int64(n))
+	wg.Add(n)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if left.Add(-1) >= 0 {
+			defer wg.Done()
 		}
 		e.p.ServeHTTP(w, r)
 	}))
-	defer wrapped.Close()
-	e.proxy = wrapped
+	t.Cleanup(srv.Close)
+	e.proxy = srv
+	return wg.Wait
+}
+
+func TestHealthAndMetrics(t *testing.T) {
+	up, _ := recordingServer(t)
+	e := testEnv(t, up, nil)
+	wait := e.awaitHandlers(t, 2)
 	tok := e.token(t, "alice@acme.com", "ai-platform")
-	inflight.Add(2)
 	e.post(t, "/v1/messages", tok, msgBody, nil)
 	e.post(t, "/v1/messages", "", msgBody, nil) // 401
-	inflight.Wait()
-	counting.Store(false)
+	wait()
 
 	admin := httptest.NewServer(e.p.AdminHandler())
 	defer admin.Close()
