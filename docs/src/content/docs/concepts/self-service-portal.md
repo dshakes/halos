@@ -108,6 +108,7 @@ Admins (members of `identity.adminGroups`) get more of the same web app. Develop
 | **Device** (from Fleet) | One machine: user, groups, enrollment and token expiry, last report (ring, release, per-harness want versus installed, drift, error code), and up to 50 recent reports, newest first. History is in memory and resets when the server restarts. Device token hashes are never shown | `GET /api/v1/devices/{id}` |
 | **Audit** | Privileged actions, newest first, filterable by exact actor and by action. A badge shows whether the whole hash chain verifies and the head hash | `GET /api/v1/audit` |
 | **Experiments** | Each experiment with its latest verdict, plus actions (below) | `GET /api/v1/experiments` |
+| **Toggles** | Every [feature toggle](/halos/concepts/toggles/): search, axis filter, and status chips (on by default, killed, stale). A detail drawer shows the rules as sentences ("10% of ring1-canary"), the payload (names only, never header or env values), the kill state and history from the audit log, and a "Who gets it?" tester. Actions below | `GET /api/v1/toggles`, `GET /api/v1/toggles/{name}` |
 
 The Audit page proves edits and removals in the middle of the log, not truncation of the newest entries: record the head hash elsewhere if that matters ([security model](/halos/concepts/security-model/#audit-log)).
 
@@ -117,6 +118,12 @@ Two kinds of action, with different consequences:
 
 - **Start, pause and conclude** open a **pull request** against the policy repo (`POST /api/v1/experiments/{name}/status`). Nothing changes until a human merges it. The PR is opened from the dedicated `policyRepoDir` clone, like access-request PRs. With no writer configured the API answers 501.
 - **Kill switch** takes effect at the gateways at their next poll (about 10 seconds) with no PR. The button appears only when the server exposes the kill switch (`GET /api/v1/capabilities`), asks for a reason, and confirms before acting. See [experiments](/halos/concepts/experiments/#kill-switch).
+
+### Toggle actions
+
+- **Kill and restore** use the signed kill list, like the experiment kill switch: both gateways and devices turn the toggle off at their next poll, with no release and no PR. The dialog requires a reason for a kill and the action is audit-logged (`POST /api/v1/toggles/{name}/kill`, `/unkill`). The buttons appear only when the server exposes the kill switch.
+- **Propose change** opens a **pull request** (`POST /api/v1/toggles/{name}/propose`) from the dedicated `policyRepoDir` clone, like the status PRs: set the default, change a rule's rollout percent (`0` matches nobody, a ramp-down), add or remove rings, groups or users of a rule, or move the expiry. The change is validated against the full policy guardrails first; one that would introduce an error (an unknown ring, a forbidden value) or widen a rule by emptying a list is refused with a 422 and opens nothing. The PR carries the diff and your reason, and a human merges it. With no writer configured the API answers 501.
+- **Who gets it?** (`GET /api/v1/toggles/{name}?user=&ring=&groups=`) evaluates the toggle with the same code as `halo toggle eval` and the gateway, and returns the rule trace. A killed toggle previews as off.
 
 Every action above is recorded in the audit log with the admin's identity.
 
@@ -132,8 +139,9 @@ The complete list with auth levels is the [API reference](/halos/reference/api/)
 | `POST`/`GET /api/v1/requests` | Signed-in developer |
 | `POST /api/v1/requests/{id}/approve`, `/deny` | Admin |
 | `POST /api/v1/users/{id}/revoke-sessions`, `POST /api/v1/devices/{id}/revoke` | Admin |
-| `GET /api/v1/fleet`, `/policy`, `/experiments`, `/experiments/{name}`, `/devices`, `/devices/{id}`, `/releases`, `/audit`, `/killswitch` | Admin |
+| `GET /api/v1/fleet`, `/policy`, `/experiments`, `/experiments/{name}`, `/toggles`, `/toggles/{name}`, `/devices`, `/devices/{id}`, `/releases`, `/audit`, `/killswitch` | Admin |
 | `POST /api/v1/experiments/{name}/status`, `/kill`, `/unkill` | Admin |
+| `POST /api/v1/toggles/{name}/propose`, `/kill`, `/unkill` | Admin |
 | `GET /api/v1/capabilities` | Signed-in developer |
 | `GET /api/v1/gateway/killswitch` | Gateway token |
 | `POST /api/v1/fleet/report` | Fleet token or device token |

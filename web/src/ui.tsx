@@ -106,3 +106,15 @@ export function Forest({ row }: { row: ForestRowData }) {
     </svg>
   );
 }
+
+/** Modal dialog: Esc and the backdrop cancel; focus starts in the first field. */
+export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }} onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}>
+      <div role="dialog" aria-modal="true" aria-label={title} className="w-full max-w-md rounded-xl border border-line bg-panel p-5 shadow-xl">
+        <h2 className="mb-3 text-base font-semibold">{title}</h2>
+        {children}
+      </div>
+    </div>
+  );
+}
