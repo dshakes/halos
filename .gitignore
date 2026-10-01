@@ -22,3 +22,8 @@ coverage.out
 
 # make demo: generated collector config
 deploy/compose/demo/.otelcol.yaml
+
+# local secrets — never commit
+.env
+.env.*
+!.env.example
