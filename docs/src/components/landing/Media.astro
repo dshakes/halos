@@ -35,11 +35,11 @@ const c0 = clips[0];
 
   <figure class="mv mv-console">
     <div class="pbar"><span class="dots"><i></i><i></i><i></i></span><span class="url">localhost:18080 · Halos console (make demo)</span></div>
-    <video data-mv controls muted loop playsinline preload="none" poster={m('console.jpg')} width="1280" height="800" aria-label="Console walkthrough: sign in, open experiments, kill an experiment, see the kill and its audit entry">
+    <video data-mv controls muted loop playsinline preload="none" poster={m('console.jpg')} width="1280" height="800" aria-label="Console walkthrough: sign in, kill an experiment, open a feature toggle, propose a ramp as a PR, kill the toggle, then see both kills in the audit log">
       <source src={m('console.webm')} type="video/webm" />
       <source src={m('console.mp4')} type="video/mp4" />
     </video>
-    <figcaption>Recorded on <code>make demo</code>: sign in as alice, kill the <code>opus-5-5-canary</code> experiment, and see the kill and its audit entry. Killed experiments fall back to control at the next gateway poll.</figcaption>
+    <figcaption>Recorded on <code>make demo</code>: sign in as alice and kill the <code>opus-5-5-canary</code> experiment. Then open the <code>github-mcp</code> toggle, propose a ramp to 25% (a policy PR; a local branch in the demo), kill the toggle with a reason, and find both kills in the audit log. Kills take effect at the next kill-list poll: gateways every 10 s, halod every 60 s by default.</figcaption>
   </figure>
   <p class="media-src">Recorded from the real binaries; the orange cursor ring is the only overlay. Scripts: <a href="https://github.com/dshakes/halos/blob/main/docs/scripts/record-media.sh">record-media.sh</a> · <a href="https://github.com/dshakes/halos/blob/main/docs/scripts/record-console.mjs">record-console.mjs</a></p>
 </div>
