@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/halos-dev/halos/internal/policy"
+	"github.com/dshakes/halos/internal/policy"
 )
 
 var update = flag.Bool("update", false, "rewrite golden files")

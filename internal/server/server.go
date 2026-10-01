@@ -16,11 +16,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/halos-dev/halos/internal/controller"
-	"github.com/halos-dev/halos/internal/harness"
-	_ "github.com/halos-dev/halos/internal/harness/all" // register adapters for the capability matrix
-	"github.com/halos-dev/halos/internal/policy"
-	"github.com/halos-dev/halos/web"
+	"github.com/dshakes/halos/internal/controller"
+	"github.com/dshakes/halos/internal/harness"
+	_ "github.com/dshakes/halos/internal/harness/all" // register adapters for the capability matrix
+	"github.com/dshakes/halos/internal/policy"
+	"github.com/dshakes/halos/web"
 )
 
 // MaxReportBytes caps a POST /fleet/report body.

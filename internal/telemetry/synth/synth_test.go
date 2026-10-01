@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/halos-dev/halos/internal/telemetry"
+	"github.com/dshakes/halos/internal/telemetry"
 )
 
 var testCfg = Config{Seed: 7, Now: time.Unix(1_800_000_000, 0), UsersPerArm: 2, SessionsPerUser: 2, BaseCostUSD: 1}

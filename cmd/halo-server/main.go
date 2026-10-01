@@ -19,11 +19,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/halos-dev/halos/internal/bundle"
-	"github.com/halos-dev/halos/internal/controller"
-	"github.com/halos-dev/halos/internal/policy"
-	"github.com/halos-dev/halos/internal/promote"
-	"github.com/halos-dev/halos/internal/server"
+	"github.com/dshakes/halos/internal/bundle"
+	"github.com/dshakes/halos/internal/controller"
+	"github.com/dshakes/halos/internal/policy"
+	"github.com/dshakes/halos/internal/promote"
+	"github.com/dshakes/halos/internal/server"
 )
 
 func main() {

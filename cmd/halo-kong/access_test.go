@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/halos-dev/halos/internal/policy"
-	"github.com/halos-dev/halos/internal/shadow"
+	"github.com/dshakes/halos/internal/policy"
+	"github.com/dshakes/halos/internal/shadow"
 )
 
 // fakeKong records what the plugin asked Kong to do.

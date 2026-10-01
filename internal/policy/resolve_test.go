@@ -2,7 +2,7 @@ package policy
 
 import (
 	"fmt"
-	"github.com/halos-dev/halos/internal/assign"
+	"github.com/dshakes/halos/internal/assign"
 	"math"
 	"testing"
 )

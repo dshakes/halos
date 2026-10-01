@@ -13,11 +13,11 @@ import (
 	"github.com/spf13/cobra"
 	"oras.land/oras-go/v2"
 
-	"github.com/halos-dev/halos/internal/bundle"
-	"github.com/halos-dev/halos/internal/delivery/devcontainer"
-	"github.com/halos-dev/halos/internal/delivery/mdm"
-	"github.com/halos-dev/halos/internal/policy"
-	"github.com/halos-dev/halos/internal/release"
+	"github.com/dshakes/halos/internal/bundle"
+	"github.com/dshakes/halos/internal/delivery/devcontainer"
+	"github.com/dshakes/halos/internal/delivery/mdm"
+	"github.com/dshakes/halos/internal/policy"
+	"github.com/dshakes/halos/internal/release"
 )
 
 // dialRegistry opens a registry repo ("host/org/name"); tests replace it.

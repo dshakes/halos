@@ -3,7 +3,7 @@ import starlight from '@astrojs/starlight';
 import mermaid from 'astro-mermaid';
 
 export default defineConfig({
-  site: 'https://halos-dev.github.io',
+  site: 'https://dshakes.github.io',
   base: '/halos',
   integrations: [
     mermaid({ theme: 'default', autoTheme: true }),
@@ -13,10 +13,10 @@ export default defineConfig({
         'Ship AI coding tools like you ship software: versioned, signed, ring-deployed, and proven by evals.',
       logo: { src: './src/assets/logo.svg' },
       social: [
-        { icon: 'github', label: 'GitHub', href: 'https://github.com/halos-dev/halos' },
+        { icon: 'github', label: 'GitHub', href: 'https://github.com/dshakes/halos' },
       ],
       editLink: {
-        baseUrl: 'https://github.com/halos-dev/halos/edit/main/docs/',
+        baseUrl: 'https://github.com/dshakes/halos/edit/main/docs/',
       },
       customCss: ['./src/styles/custom.css'],
       sidebar: [

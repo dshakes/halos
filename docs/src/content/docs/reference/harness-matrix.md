@@ -3,7 +3,7 @@ title: Harness matrix
 description: What each harness adapter renders, what Halos enforces instead, and where the files land. Generated from halo harnesses and internal/harness/FACTS.md.
 ---
 
-The capability sets below are what `halo harnesses` prints (from each adapter's `Capabilities()`); the mechanisms and paths come from [`internal/harness/FACTS.md`](https://github.com/halos-dev/halos/blob/main/internal/harness/FACTS.md), which cites the vendor page for every claim. Facts were last verified against vendor documentation on 2026-09-30.
+The capability sets below are what `halo harnesses` prints (from each adapter's `Capabilities()`); the mechanisms and paths come from [`internal/harness/FACTS.md`](https://github.com/dshakes/halos/blob/main/internal/harness/FACTS.md), which cites the vendor page for every claim. Facts were last verified against vendor documentation on 2026-09-30.
 
 :::caution[Nothing here was executed against a real CLI]
 Every cell was read from vendor documentation or schemas. No adapter output has been loaded by the real Claude Code, Codex, Gemini CLI or Copilot CLI. Golden tests check the *rendered bytes*, not the CLI's behavior.

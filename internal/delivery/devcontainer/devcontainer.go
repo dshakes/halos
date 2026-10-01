@@ -12,9 +12,9 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/halos-dev/halos/features"
-	"github.com/halos-dev/halos/internal/delivery/mdm"
-	"github.com/halos-dev/halos/internal/release"
+	"github.com/dshakes/halos/features"
+	"github.com/dshakes/halos/internal/delivery/mdm"
+	"github.com/dshakes/halos/internal/release"
 )
 
 // Options override the feature's option defaults. Empty fields keep the default.

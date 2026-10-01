@@ -13,7 +13,7 @@ import (
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content/memory"
 
-	"github.com/halos-dev/halos/internal/bundle"
+	"github.com/dshakes/halos/internal/bundle"
 )
 
 // Every in-process halo run defaults its signer state under XDG_STATE_HOME:

@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/halos-dev/halos/internal/policy"
-	"github.com/halos-dev/halos/internal/promote"
-	"github.com/halos-dev/halos/internal/yamledit"
+	"github.com/dshakes/halos/internal/policy"
+	"github.com/dshakes/halos/internal/promote"
+	"github.com/dshakes/halos/internal/yamledit"
 )
 
 // Writer opens a policy-repo PR setting an experiment's status. It must never merge.

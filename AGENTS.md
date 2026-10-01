@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Halos: OSS Go control plane for AI coding CLIs (Claude Code, Codex, Gemini). Policy repo -> signed releases -> rollout rings -> experiments -> eval-gated promotion. CLI is `halo`. Module `github.com/halos-dev/halos`. This file is the source of truth for contributors' agents; `CLAUDE.md` points here.
+Halos: OSS Go control plane for AI coding CLIs (Claude Code, Codex, Gemini). Policy repo -> signed releases -> rollout rings -> experiments -> eval-gated promotion. CLI is `halo`. Module `github.com/dshakes/halos`. This file is the source of truth for contributors' agents; `CLAUDE.md` points here.
 
 ## Commands
 

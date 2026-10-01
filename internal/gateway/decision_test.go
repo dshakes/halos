@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/halos-dev/halos/internal/policy"
+	"github.com/dshakes/halos/internal/policy"
 )
 
 func testOrg() *policy.Org {

@@ -50,7 +50,7 @@ OIDC issuer/audience live in the policy repo (halo-server) and `proxy.config.ide
 - Security: non-root (65532), read-only rootfs, drop ALL, RuntimeDefault seccomp, no SA token. The otel-collector image
   must tolerate uid 65532 (override `podSecurityContext` if not).
 - Images: `image.registry` + `<component>.image.repository`; `tag` defaults to appVersion; `digest` (sha256) overrides tag.
-  The default repositories (`ghcr.io/halos-dev/...`) are placeholders until images are published.
+  The default repositories (`ghcr.io/dshakes/...`) are placeholders until images are published.
 - halo-shadow: requires `--policy` = the same compiled snapshot as halo-proxy, produced by `halo gateway compile` in CI (inherits
   `proxy.policy.*`: the proxy ConfigMap or git-sync; override with `halo-shadow.policy.*`). Upstreams are resolved from it.
   Listens on `0.0.0.0:8090` (binary default is loopback; NetworkPolicy limits ingress to halo-proxy and

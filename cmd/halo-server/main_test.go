@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/halos-dev/halos/internal/controller"
-	"github.com/halos-dev/halos/internal/server"
+	"github.com/dshakes/halos/internal/controller"
+	"github.com/dshakes/halos/internal/server"
 )
 
 func TestParseFlags(t *testing.T) {

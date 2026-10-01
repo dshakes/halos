@@ -23,7 +23,7 @@ Build from source. `.goreleaser.yaml` is configured for checksummed, SBOM-carryi
 Requires Go 1.25+.
 
 ```bash
-git clone https://github.com/halos-dev/halos && cd halos
+git clone https://github.com/dshakes/halos && cd halos
 make build                     # halo halod halo-shadow halo-server halo-proxy halo-kong into bin/
 export PATH="$PWD/bin:$PATH"
 halo --help

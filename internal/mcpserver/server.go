@@ -19,8 +19,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/halos-dev/halos/internal/policy"
-	"github.com/halos-dev/halos/internal/promote"
+	"github.com/dshakes/halos/internal/policy"
+	"github.com/dshakes/halos/internal/promote"
 )
 
 // Options configures New.

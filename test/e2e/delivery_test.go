@@ -12,7 +12,7 @@ import (
 
 	"oras.land/oras-go/v2"
 
-	"github.com/halos-dev/halos/internal/bundle"
+	"github.com/dshakes/halos/internal/bundle"
 )
 
 const pin = "2.1.280" // claude-code version pinned by the test policy

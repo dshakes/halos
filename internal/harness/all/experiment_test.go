@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/halos-dev/halos/internal/harness"
-	_ "github.com/halos-dev/halos/internal/harness/all"
-	"github.com/halos-dev/halos/internal/harness/hutil/hutiltest"
+	"github.com/dshakes/halos/internal/harness"
+	_ "github.com/dshakes/halos/internal/harness/all"
+	"github.com/dshakes/halos/internal/harness/hutil/hutiltest"
 )
 
 // A client-axis variant release carries halo.experiment/halo.variant in the

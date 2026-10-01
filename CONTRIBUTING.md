@@ -4,7 +4,7 @@ Thanks for helping. This page covers the loop for code, docs and ADRs.
 
 ## Ground rules
 
-- Read [AGENTS.md](AGENTS.md) (invariants and package map), the [architecture](https://halos-dev.github.io/halos/concepts/architecture/) and the policy model (`internal/policy/types.go`) first. The Go types are the source of truth for YAML field names.
+- Read [AGENTS.md](AGENTS.md) (invariants and package map), the [architecture](https://dshakes.github.io/halos/concepts/architecture/) and the policy model (`internal/policy/types.go`) first. The Go types are the source of truth for YAML field names.
 - Any claim about Claude Code, Codex or Gemini CLI behavior in code or docs must cite a source, or be marked unverified.
 - Load-bearing changes (new language, broken invariant, new trust boundary, schema break) need an ADR first: copy an existing file in `docs/adr/` (MADR format), number it, open a PR. `docs/adr/` is canonical; `npm run build` copies it into the site.
 - Be kind: see the [Code of Conduct](CODE_OF_CONDUCT.md).
@@ -12,7 +12,7 @@ Thanks for helping. This page covers the loop for code, docs and ADRs.
 ## Development setup
 
 ```bash
-git clone https://github.com/halos-dev/halos && cd halos
+git clone https://github.com/dshakes/halos && cd halos
 make build            # halo halod halo-shadow halo-server halo-proxy halo-kong into bin/
 make test             # go test -race ./...
 make lint             # golangci-lint run ./...
@@ -37,7 +37,7 @@ npm run build                               # must pass before you open a PR
 
 ## Adding a harness adapter
 
-Follow the [new harness adapter guide](https://halos-dev.github.io/halos/guides/new-harness-adapter/). Every capability cell you claim must cite a vendor source in `internal/harness/FACTS.md`, and anything not run against the real CLI stays listed as unverified.
+Follow the [new harness adapter guide](https://dshakes.github.io/halos/guides/new-harness-adapter/). Every capability cell you claim must cite a vendor source in `internal/harness/FACTS.md`, and anything not run against the real CLI stays listed as unverified.
 
 ## Security issues
 

@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/halos-dev/halos/internal/harness"
-	"github.com/halos-dev/halos/internal/harness/hutil/hutiltest"
-	"github.com/halos-dev/halos/internal/policy"
-	"github.com/halos-dev/halos/internal/release"
+	"github.com/dshakes/halos/internal/harness"
+	"github.com/dshakes/halos/internal/harness/hutil/hutiltest"
+	"github.com/dshakes/halos/internal/policy"
+	"github.com/dshakes/halos/internal/release"
 )
 
 func render(mut func(*policy.Profile, *policy.Gateway), os harness.OS) ([]harness.File, []string, error) {

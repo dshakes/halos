@@ -12,8 +12,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/halos-dev/halos/internal/harness"
-	_ "github.com/halos-dev/halos/internal/harness/all" // UA prefixes come from the adapters
+	"github.com/dshakes/halos/internal/harness"
+	_ "github.com/dshakes/halos/internal/harness/all" // UA prefixes come from the adapters
 )
 
 // Wire protocols (match policy.Gateway.Protocols values).

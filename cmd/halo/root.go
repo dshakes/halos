@@ -13,8 +13,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/halos-dev/halos/internal/policy"
-	"github.com/halos-dev/halos/internal/release"
+	"github.com/dshakes/halos/internal/policy"
+	"github.com/dshakes/halos/internal/release"
 )
 
 // Set via -ldflags by goreleaser.

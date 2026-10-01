@@ -8,8 +8,8 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2"
 
-	"github.com/halos-dev/halos/internal/policy"
-	"github.com/halos-dev/halos/internal/release"
+	"github.com/dshakes/halos/internal/policy"
+	"github.com/dshakes/halos/internal/release"
 )
 
 // Client-axis experiment channels. A ring release whose manifest lists

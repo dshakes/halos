@@ -4,9 +4,9 @@ package gemini
 import (
 	"fmt"
 
-	"github.com/halos-dev/halos/internal/harness"
-	"github.com/halos-dev/halos/internal/harness/hutil"
-	"github.com/halos-dev/halos/internal/policy"
+	"github.com/dshakes/halos/internal/harness"
+	"github.com/dshakes/halos/internal/harness/hutil"
+	"github.com/dshakes/halos/internal/policy"
 )
 
 const name = "gemini-cli"

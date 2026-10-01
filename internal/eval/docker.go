@@ -43,7 +43,7 @@ import (
 type DockerRunner struct {
 	Bin string // default "docker"
 	// Image returns the image for a variant; default
-	// ghcr.io/halos-dev/eval-<harness>:<version>.
+	// ghcr.io/dshakes/eval-<harness>:<version>.
 	Image func(Variant) string
 	// PassEnv names host env vars forwarded into the agent step only.
 	PassEnv []string
@@ -85,7 +85,7 @@ func (d *DockerRunner) image(v Variant) string {
 	if tag == "" {
 		tag = "latest"
 	}
-	return fmt.Sprintf("ghcr.io/halos-dev/eval-%s:%s", v.Harness, tag)
+	return fmt.Sprintf("ghcr.io/dshakes/eval-%s:%s", v.Harness, tag)
 }
 
 func or(v, def string) string {

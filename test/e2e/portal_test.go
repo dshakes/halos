@@ -14,8 +14,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/halos-dev/halos/internal/identity/identitytest"
-	"github.com/halos-dev/halos/internal/policy"
+	"github.com/dshakes/halos/internal/identity/identitytest"
+	"github.com/dshakes/halos/internal/policy"
 )
 
 // TestPortalEnrollment: OIDC auth-code+PKCE login against the mock issuer ->

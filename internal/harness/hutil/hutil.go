@@ -9,8 +9,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/halos-dev/halos/internal/harness"
-	"github.com/halos-dev/halos/internal/policy"
+	"github.com/dshakes/halos/internal/harness"
+	"github.com/dshakes/halos/internal/policy"
 )
 
 // Join joins path parts with the separator of the target OS.

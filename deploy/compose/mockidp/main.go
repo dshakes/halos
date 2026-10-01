@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/halos-dev/halos/internal/identity/identitytest"
+	"github.com/dshakes/halos/internal/identity/identitytest"
 )
 
 func main() {

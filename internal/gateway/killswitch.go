@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/halos-dev/halos/internal/policy"
+	"github.com/dshakes/halos/internal/policy"
 )
 
 // KillList is the set of experiments halo-server has killed: gateways treat

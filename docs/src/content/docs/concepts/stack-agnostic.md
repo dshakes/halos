@@ -80,7 +80,7 @@ Each YAML key has a flag of the same intent (`--listen`, `--policy`, `--next-hop
 
 ### Kill switch
 
-`halo-proxy` (and `halo-kong`) poll `halo-server`'s signed kill list and treat killed experiments as not running: control routing, no mirroring, no experiment headers. Configure it with `killSwitch.url`, `tokenFile` and `pubkeyFile` (flags `--killswitch-*`); all three are required together. A failed fetch keeps the last list, and a gateway that never fetched one kills nothing. Full behavior: [experiments](/halos/concepts/experiments/#kill-switch) and the [halo-proxy README](https://github.com/halos-dev/halos/blob/main/cmd/halo-proxy/README.md#kill-switch).
+`halo-proxy` (and `halo-kong`) poll `halo-server`'s signed kill list and treat killed experiments as not running: control routing, no mirroring, no experiment headers. Configure it with `killSwitch.url`, `tokenFile` and `pubkeyFile` (flags `--killswitch-*`); all three are required together. A failed fetch keeps the last list, and a gateway that never fetched one kills nothing. Full behavior: [experiments](/halos/concepts/experiments/#kill-switch) and the [halo-proxy README](https://github.com/dshakes/halos/blob/main/cmd/halo-proxy/README.md#kill-switch).
 
 ### Per-request telemetry
 

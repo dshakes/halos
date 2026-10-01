@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/halos-dev/halos/internal/policy"
+	"github.com/dshakes/halos/internal/policy"
 )
 
 // Registry metrics the experiment YAML may name must not be read as literal

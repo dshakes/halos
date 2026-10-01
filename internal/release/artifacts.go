@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/halos-dev/halos/internal/harness"
+	"github.com/dshakes/halos/internal/harness"
 )
 
 // Verified install artifacts (replaces running installCommand via a root shell).

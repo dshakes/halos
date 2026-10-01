@@ -18,7 +18,7 @@ import (
 
 	"howett.net/plist"
 
-	"github.com/halos-dev/halos/internal/release"
+	"github.com/dshakes/halos/internal/release"
 )
 
 const (

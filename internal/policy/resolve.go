@@ -3,7 +3,7 @@ package policy
 import (
 	"slices"
 
-	"github.com/halos-dev/halos/internal/assign"
+	"github.com/dshakes/halos/internal/assign"
 )
 
 // Subject is a user as seen by the control plane (from the IdP / auth gateway).

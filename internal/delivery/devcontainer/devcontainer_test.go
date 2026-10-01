@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/halos-dev/halos/internal/release"
+	"github.com/dshakes/halos/internal/release"
 )
 
 const pem = "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n-----END PUBLIC KEY-----\n"

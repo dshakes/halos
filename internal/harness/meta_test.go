@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/halos-dev/halos/internal/harness"
-	_ "github.com/halos-dev/halos/internal/harness/all"
-	"github.com/halos-dev/halos/internal/harness/hutil/hutiltest"
+	"github.com/dshakes/halos/internal/harness"
+	_ "github.com/dshakes/halos/internal/harness/all"
+	"github.com/dshakes/halos/internal/harness/hutil/hutiltest"
 )
 
 // Every adapter must publish Meta: halod, halo release build and the gateway

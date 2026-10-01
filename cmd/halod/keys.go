@@ -11,8 +11,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/halos-dev/halos/internal/bundle"
-	"github.com/halos-dev/halos/internal/gateway"
+	"github.com/dshakes/halos/internal/bundle"
+	"github.com/dshakes/halos/internal/gateway"
 )
 
 // keyring accepts a release signed by any one of its ed25519 keys.

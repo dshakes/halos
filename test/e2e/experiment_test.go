@@ -18,9 +18,9 @@ import (
 	"gopkg.in/yaml.v3"
 	"oras.land/oras-go/v2"
 
-	"github.com/halos-dev/halos/internal/bundle"
-	"github.com/halos-dev/halos/internal/identity/identitytest"
-	"github.com/halos-dev/halos/internal/policy"
+	"github.com/dshakes/halos/internal/bundle"
+	"github.com/dshakes/halos/internal/identity/identitytest"
+	"github.com/dshakes/halos/internal/policy"
 )
 
 const pinNext = "2.1.312" // treatment pin of the client-axis experiment

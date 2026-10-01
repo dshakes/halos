@@ -2,8 +2,8 @@
 package all
 
 import (
-	_ "github.com/halos-dev/halos/internal/harness/claudecode"
-	_ "github.com/halos-dev/halos/internal/harness/codex"
-	_ "github.com/halos-dev/halos/internal/harness/copilot"
-	_ "github.com/halos-dev/halos/internal/harness/gemini"
+	_ "github.com/dshakes/halos/internal/harness/claudecode"
+	_ "github.com/dshakes/halos/internal/harness/codex"
+	_ "github.com/dshakes/halos/internal/harness/copilot"
+	_ "github.com/dshakes/halos/internal/harness/gemini"
 )

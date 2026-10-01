@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/halos-dev/halos/internal/stats"
+	"github.com/dshakes/halos/internal/stats"
 )
 
 const (

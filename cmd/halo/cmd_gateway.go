@@ -5,9 +5,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/halos-dev/halos/internal/fsutil"
-	"github.com/halos-dev/halos/internal/gateway/kong"
-	"github.com/halos-dev/halos/internal/policy"
+	"github.com/dshakes/halos/internal/fsutil"
+	"github.com/dshakes/halos/internal/gateway/kong"
+	"github.com/dshakes/halos/internal/policy"
 )
 
 // emitBytes writes b to out ("-" or "" = stdout), atomically for files.

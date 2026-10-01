@@ -11,8 +11,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/halos-dev/halos/internal/policy"
-	"github.com/halos-dev/halos/internal/telemetry/gwmetrics"
+	"github.com/dshakes/halos/internal/policy"
+	"github.com/dshakes/halos/internal/telemetry/gwmetrics"
 )
 
 // Model calls are exported as halo.gateway.* with the decided cohort; token

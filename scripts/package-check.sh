@@ -25,9 +25,9 @@ clean() {
   docker volume ls -q --filter "label=$L" | xargs -r docker volume rm >/dev/null 2>&1 || true
   docker image ls -q --filter "label=$L" | sort -u | xargs -r docker rmi -f >/dev/null 2>&1 || true
   docker image ls --format '{{.Repository}}:{{.Tag}}' | grep -E '^(halos-pkgtest/|vsc-ws-)' | xargs -r docker rmi -f >/dev/null 2>&1 || true
-  docker image ls --format '{{.Repository}}:{{.Tag}}' | grep -E '^ghcr.io/halos-dev/(halo-server|halo-proxy|halo-shadow|kong-halo):(.*SNAPSHOT|latest-(amd64|arm64))$' \
+  docker image ls --format '{{.Repository}}:{{.Tag}}' | grep -E '^ghcr.io/dshakes/(halo-server|halo-proxy|halo-shadow|kong-halo):(.*SNAPSHOT|latest-(amd64|arm64))$' \
     | xargs -r docker rmi -f >/dev/null 2>&1 || true
-  docker image ls --format '{{.Repository}}:{{.Tag}}' | grep -E '^ghcr.io/halos-dev/eval-[a-z]+:' \
+  docker image ls --format '{{.Repository}}:{{.Tag}}' | grep -E '^ghcr.io/dshakes/eval-[a-z]+:' \
     | xargs -r docker rmi -f >/dev/null 2>&1 || true
   [ -n "${PKGTEST_SRV:-}" ] && kill "$PKGTEST_SRV" 2>/dev/null || true
   [ "${KEEP:-}" = 1 ] || case "$W" in /tmp/*|/var/folders/*|/private/*) rm -rf "$W" ;; esac
@@ -56,10 +56,10 @@ snapshot() {
   cd "$ROOT"
 }
 
-snap_tag() { docker image ls --format '{{.Tag}}' "ghcr.io/halos-dev/$1" | grep -E "SNAPSHOT.*-$ARCH\$" | head -1; }
+snap_tag() { docker image ls --format '{{.Tag}}' "ghcr.io/dshakes/$1" | grep -E "SNAPSHOT.*-$ARCH\$" | head -1; }
 
 svc_check() { # svc_check <image> : non-root user, size
-  local ref="ghcr.io/halos-dev/$1:$(snap_tag "$1")"
+  local ref="ghcr.io/dshakes/$1:$(snap_tag "$1")"
   docker image inspect "$ref" --format '{{.Config.User}}' | grep -Eq '^(nonroot|kong|[1-9][0-9]*)' || die "$1 runs as root"
   echo "SIZE $1 $(docker image inspect "$ref" --format '{{.Size}}') bytes (user $(docker image inspect "$ref" --format '{{.Config.User}}'))"
   echo "$ref"
@@ -112,11 +112,11 @@ E
 evals() { # real DockerRunner path against Docker with a stub `claude`; real CLIs only --version
   for h in claude:2.1.280 codex:0.58.0 gemini:0.12.0; do
     n=${h%%:*}; v=${h##*:}
-    docker build -q --label $L --build-arg CLI_VERSION="$v" -t "ghcr.io/halos-dev/eval-$n:$v" "evals/images/$n" >/dev/null
-    echo "SIZE eval-$n:$v $(docker image inspect "ghcr.io/halos-dev/eval-$n:$v" --format '{{.Size}}') bytes"
-    docker run --rm --label $L --network none "ghcr.io/halos-dev/eval-$n:$v" sh -c "test \$(id -un) = eval && go version >/dev/null && git --version >/dev/null && $n --version" >/dev/null
+    docker build -q --label $L --build-arg CLI_VERSION="$v" -t "ghcr.io/dshakes/eval-$n:$v" "evals/images/$n" >/dev/null
+    echo "SIZE eval-$n:$v $(docker image inspect "ghcr.io/dshakes/eval-$n:$v" --format '{{.Size}}') bytes"
+    docker run --rm --label $L --network none "ghcr.io/dshakes/eval-$n:$v" sh -c "test \$(id -un) = eval && go version >/dev/null && git --version >/dev/null && $n --version" >/dev/null
   done
-  docker build -q --label $L -t ghcr.io/halos-dev/eval-claude:fake evals/images/fake >/dev/null
+  docker build -q --label $L -t ghcr.io/dshakes/eval-claude:fake evals/images/fake >/dev/null
   mkdir -p "$W/es/suites"; ln -sfn "$ROOT/evals/tasks" "$W/es/tasks"
   printf 'name: fake\ntasks: [fix-failing-go-test]\ncontrol: a\nrepeats: 2\nvariants:\n  - {name: a, harness: claude, version: fake, model: sonnet}\n  - {name: b, harness: claude, version: fake, model: sonnet}\n' >"$W/es/suites/fake.yaml"
   go build -o "$W/halo" ./cmd/halo

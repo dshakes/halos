@@ -23,8 +23,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/halos-dev/halos/internal/telemetry/gwmetrics"
-	"github.com/halos-dev/halos/internal/telemetry/synth"
+	"github.com/dshakes/halos/internal/telemetry/gwmetrics"
+	"github.com/dshakes/halos/internal/telemetry/synth"
 )
 
 const (

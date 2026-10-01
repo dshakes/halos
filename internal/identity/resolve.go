@@ -5,7 +5,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/halos-dev/halos/internal/policy"
+	"github.com/dshakes/halos/internal/policy"
 )
 
 // Modes.

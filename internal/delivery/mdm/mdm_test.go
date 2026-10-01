@@ -14,9 +14,9 @@ import (
 
 	"howett.net/plist"
 
-	"github.com/halos-dev/halos/internal/harness"
-	"github.com/halos-dev/halos/internal/policy"
-	"github.com/halos-dev/halos/internal/release"
+	"github.com/dshakes/halos/internal/harness"
+	"github.com/dshakes/halos/internal/policy"
+	"github.com/dshakes/halos/internal/release"
 )
 
 var update = flag.Bool("update", false, "rewrite golden files")

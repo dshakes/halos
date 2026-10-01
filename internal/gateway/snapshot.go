@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/halos-dev/halos/internal/policy"
+	"github.com/dshakes/halos/internal/policy"
 )
 
 // Snapshot serves a compiled org policy (policy.Compile output, or a bare

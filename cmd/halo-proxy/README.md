@@ -229,7 +229,7 @@ the `halo.unit` attribute is `HMAC-SHA256(salt, verified subject)`, never a clie
 every replica** so one user stays one unit (no salt means a random per-process one; there is no inline flag, flags
 leak via `ps`). The collector accepts these only on its authenticated gateway receiver (`:4319`, bearer token);
 without `tokenFile` the collector answers 401. Only this gateway-sourced evidence may trip the controller's kill
-switch. Generate the collector with `halo telemetry collector-config` ([evidence plane](https://halos-dev.github.io/halos/concepts/evidence-plane/#evidence-trust)).
+switch. Generate the collector with `halo telemetry collector-config` ([evidence plane](https://dshakes.github.io/halos/concepts/evidence-plane/#evidence-trust)).
 
 ## Not included
 

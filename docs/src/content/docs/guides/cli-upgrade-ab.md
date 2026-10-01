@@ -56,7 +56,7 @@ For Claude Code the release sets `requiredMinimumVersion` and `requiredMaximumVe
 halo eval run evals/suites/cli-upgrade.yaml --output json > scorecard.json
 ```
 
-Runs use Docker images `ghcr.io/halos-dev/eval-<harness>:<version>` (a placeholder until images are published), no network by default, and `--pass-env` to forward only the credentials the agent step needs. **Check:** no regression beyond your thresholds. See [writing evals](/halos/guides/writing-evals/).
+Runs use Docker images `ghcr.io/dshakes/eval-<harness>:<version>` (a placeholder until images are published), no network by default, and `--pass-env` to forward only the credentials the agent step needs. **Check:** no regression beyond your thresholds. See [writing evals](/halos/guides/writing-evals/).
 
 ## 3. Start the experiment and publish
 

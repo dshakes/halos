@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/halos-dev/halos/internal/promote"
+	"github.com/dshakes/halos/internal/promote"
 )
 
 func diffFiles(dir string, files map[string][]byte) (string, error) {

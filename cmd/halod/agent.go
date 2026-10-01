@@ -23,11 +23,11 @@ import (
 
 	"oras.land/oras-go/v2"
 
-	"github.com/halos-dev/halos/internal/bundle"
-	"github.com/halos-dev/halos/internal/fsutil"
-	"github.com/halos-dev/halos/internal/gateway"
-	"github.com/halos-dev/halos/internal/policy"
-	"github.com/halos-dev/halos/internal/release"
+	"github.com/dshakes/halos/internal/bundle"
+	"github.com/dshakes/halos/internal/fsutil"
+	"github.com/dshakes/halos/internal/gateway"
+	"github.com/dshakes/halos/internal/policy"
+	"github.com/dshakes/halos/internal/release"
 )
 
 // Runner runs a command line; injectable for tests.

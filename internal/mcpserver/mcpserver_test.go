@@ -12,7 +12,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/halos-dev/halos/internal/promote"
+	"github.com/dshakes/halos/internal/promote"
 )
 
 const example = "../../examples/acme-corp"

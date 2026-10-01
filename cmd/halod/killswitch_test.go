@@ -15,7 +15,7 @@ import (
 
 	"oras.land/oras-go/v2"
 
-	"github.com/halos-dev/halos/internal/gateway"
+	"github.com/dshakes/halos/internal/gateway"
 )
 
 // killServer serves a signed kill list the way halo-server's

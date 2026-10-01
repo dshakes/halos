@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/halos-dev/halos/internal/policy"
+	"github.com/dshakes/halos/internal/policy"
 )
 
 // Verifier authenticates a request and returns the caller. Any error means

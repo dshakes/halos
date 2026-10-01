@@ -7,7 +7,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 
-	"github.com/halos-dev/halos/internal/mcpserver"
+	"github.com/dshakes/halos/internal/mcpserver"
 )
 
 func (a *app) cmdMCP() *cobra.Command {

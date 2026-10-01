@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/halos-dev/halos/internal/shadow"
+	"github.com/dshakes/halos/internal/shadow"
 )
 
 func TestLoadUpstreamHeaders(t *testing.T) {

@@ -12,9 +12,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/halos-dev/halos/internal/fsutil"
-	"github.com/halos-dev/halos/internal/policy"
-	"github.com/halos-dev/halos/internal/yamledit"
+	"github.com/dshakes/halos/internal/fsutil"
+	"github.com/dshakes/halos/internal/policy"
+	"github.com/dshakes/halos/internal/yamledit"
 )
 
 // Target locates the policy-repo files a change edits, relative to RepoDir.

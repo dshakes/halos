@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/halos-dev/halos/internal/fsutil"
+	"github.com/dshakes/halos/internal/fsutil"
 )
 
 // KillSwitch trips the traffic-plane kill switch for an experiment.

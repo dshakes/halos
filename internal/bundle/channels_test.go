@@ -8,8 +8,8 @@ import (
 
 	"oras.land/oras-go/v2/content/memory"
 
-	"github.com/halos-dev/halos/internal/policy"
-	"github.com/halos-dev/halos/internal/release"
+	"github.com/dshakes/halos/internal/policy"
+	"github.com/dshakes/halos/internal/release"
 )
 
 func expOrg(status string) *policy.Org {

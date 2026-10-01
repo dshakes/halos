@@ -18,8 +18,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/halos-dev/halos/internal/fsutil"
-	"github.com/halos-dev/halos/internal/policy"
+	"github.com/dshakes/halos/internal/fsutil"
+	"github.com/dshakes/halos/internal/policy"
 )
 
 // Doc is one YAML document of a given kind/name found in a policy repo.

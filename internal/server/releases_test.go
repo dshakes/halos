@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/halos-dev/halos/internal/bundle"
+	"github.com/dshakes/halos/internal/bundle"
 )
 
 func TestReleasesPointerChecksAndChannels(t *testing.T) {

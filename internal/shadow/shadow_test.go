@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/halos-dev/halos/internal/policy"
+	"github.com/dshakes/halos/internal/policy"
 )
 
 type memStore struct {

@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/halos-dev/halos/internal/policy"
+	"github.com/dshakes/halos/internal/policy"
 )
 
 func normals(rng *rand.Rand, n int, mu, sd float64) []float64 {

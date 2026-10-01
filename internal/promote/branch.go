@@ -11,7 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/halos-dev/halos/internal/fsutil"
+	"github.com/dshakes/halos/internal/fsutil"
 )
 
 // RunFunc runs a command in dir and returns stdout (see Run).

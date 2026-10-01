@@ -17,7 +17,7 @@ Every command on this page was run against this repository. Upstreams are mocks;
 ### 1. Build and inspect the policy
 
 ```bash
-git clone https://github.com/halos-dev/halos && cd halos
+git clone https://github.com/dshakes/halos && cd halos
 make build
 export PATH="$PWD/bin:$PATH"
 

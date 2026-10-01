@@ -4,8 +4,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/halos-dev/halos/internal/harness"
-	_ "github.com/halos-dev/halos/internal/harness/all"
+	"github.com/dshakes/halos/internal/harness"
+	_ "github.com/dshakes/halos/internal/harness/all"
 )
 
 func TestMatrix(t *testing.T) {

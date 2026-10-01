@@ -14,5 +14,5 @@ Rough Harbor mapping: `prompt` = `instruction.md`, `check` = `tests/test.sh`,
 `repo`+`setup` = the `environment/` Dockerfile, `timeout` = agent timeout.
 Harbor's reward-file scoring is not read; only the exit code counts.
 
-Runs use container images `ghcr.io/halos-dev/eval-<harness>:<version>`
+Runs use container images `ghcr.io/dshakes/eval-<harness>:<version>`
 (with `go` installed for these tasks); override with `DockerRunner.Image`.

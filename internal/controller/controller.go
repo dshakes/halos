@@ -24,8 +24,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/halos-dev/halos/internal/policy"
-	"github.com/halos-dev/halos/internal/promote"
+	"github.com/dshakes/halos/internal/policy"
+	"github.com/dshakes/halos/internal/promote"
 )
 
 // Actor is the identity the controller records on kills and audit entries.

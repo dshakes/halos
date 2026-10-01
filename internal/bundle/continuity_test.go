@@ -10,7 +10,7 @@ import (
 
 	"oras.land/oras-go/v2/content/memory"
 
-	"github.com/halos-dev/halos/internal/release"
+	"github.com/dshakes/halos/internal/release"
 )
 
 // A registry-level attacker can move any tag. Promote must follow the source

@@ -3,8 +3,8 @@ package gateway
 import (
 	"slices"
 
-	"github.com/halos-dev/halos/internal/assign"
-	"github.com/halos-dev/halos/internal/policy"
+	"github.com/dshakes/halos/internal/assign"
+	"github.com/dshakes/halos/internal/policy"
 )
 
 // Headers the gateway stamps on upstream requests. Everything under HaloPrefix

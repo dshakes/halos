@@ -19,8 +19,8 @@ import (
 
 	"golang.org/x/time/rate"
 
-	"github.com/halos-dev/halos/internal/fsutil"
-	"github.com/halos-dev/halos/internal/policy"
+	"github.com/dshakes/halos/internal/fsutil"
+	"github.com/dshakes/halos/internal/policy"
 )
 
 // Device is the server-side binding of a device token. Only the SHA-256 of the

@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/halos-dev/halos/internal/identity/identitytest"
-	"github.com/halos-dev/halos/internal/policy"
-	"github.com/halos-dev/halos/internal/shadow"
+	"github.com/dshakes/halos/internal/identity/identitytest"
+	"github.com/dshakes/halos/internal/policy"
+	"github.com/dshakes/halos/internal/shadow"
 )
 
 const audience = "halos-gateway"

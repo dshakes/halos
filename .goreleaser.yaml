@@ -44,31 +44,31 @@ dockers_v2:
   - &img
     id: halo-server
     ids: [halo-server]
-    images: [ghcr.io/halos-dev/halo-server]
+    images: [ghcr.io/dshakes/halo-server]
     tags: ["{{ .Version }}", latest]
     dockerfile: deploy/docker/Dockerfile.service
     platforms: [linux/amd64, linux/arm64]
     build_args: {BINARY: halo-server}
     sbom: true
     labels:
-      org.opencontainers.image.source: https://github.com/halos-dev/halos
+      org.opencontainers.image.source: https://github.com/dshakes/halos
       org.opencontainers.image.version: "{{ .Version }}"
       org.opencontainers.image.revision: "{{ .FullCommit }}"
       org.opencontainers.image.licenses: Apache-2.0
   - <<: *img
     id: halo-proxy
     ids: [halo-proxy]
-    images: [ghcr.io/halos-dev/halo-proxy]
+    images: [ghcr.io/dshakes/halo-proxy]
     build_args: {BINARY: halo-proxy}
   - <<: *img
     id: halo-shadow
     ids: [halo-shadow]
-    images: [ghcr.io/halos-dev/halo-shadow]
+    images: [ghcr.io/dshakes/halo-shadow]
     build_args: {BINARY: halo-shadow}
   - <<: *img
     id: halo-kong
     ids: [halo-kong]
-    images: [ghcr.io/halos-dev/kong-halo]
+    images: [ghcr.io/dshakes/kong-halo]
     dockerfile: deploy/docker/Dockerfile.kong
     build_args: {}
 archives:
@@ -112,4 +112,4 @@ docker_signs:
     output: true
     args: [sign, --yes, "${artifact}@${digest}"]
 release:
-  github: {owner: halos-dev, name: halos}
+  github: {owner: dshakes, name: halos}

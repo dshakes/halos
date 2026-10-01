@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/halos-dev/halos/internal/policy"
+	"github.com/dshakes/halos/internal/policy"
 )
 
 // policyHolder loads the policy dir and reloads it when any file's mtime/size

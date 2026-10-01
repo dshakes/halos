@@ -19,9 +19,9 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/halos-dev/halos/internal/harness"
-	"github.com/halos-dev/halos/internal/policy"
-	"github.com/halos-dev/halos/internal/promote"
+	"github.com/dshakes/halos/internal/harness"
+	"github.com/dshakes/halos/internal/policy"
+	"github.com/dshakes/halos/internal/promote"
 )
 
 var sha = strings.Repeat("ab", 32)

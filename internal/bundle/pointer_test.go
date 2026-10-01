@@ -14,7 +14,7 @@ import (
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/content/memory"
 
-	"github.com/halos-dev/halos/internal/release"
+	"github.com/dshakes/halos/internal/release"
 )
 
 // countingTarget records layer fetches so tests prove nothing was downloaded

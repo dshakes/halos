@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/halos-dev/halos/internal/promote"
+	"github.com/dshakes/halos/internal/promote"
 )
 
 type recOpener struct{ reqs []promote.PRRequest }

@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/halos-dev/halos/internal/gateway"
+	"github.com/dshakes/halos/internal/gateway"
 )
 
 // Mirrorer is the halo-kong side: Submit never blocks the request path. Jobs go

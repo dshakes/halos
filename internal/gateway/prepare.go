@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/halos-dev/halos/internal/policy"
+	"github.com/dshakes/halos/internal/policy"
 )
 
 // Result is everything the Kong plugin must apply to the upstream request.

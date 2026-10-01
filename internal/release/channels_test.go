@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/halos-dev/halos/internal/harness"
-	"github.com/halos-dev/halos/internal/policy"
+	"github.com/dshakes/halos/internal/harness"
+	"github.com/dshakes/halos/internal/policy"
 )
 
 // ctxAdapter renders what it is given (pin + experiment context) as JSON; the

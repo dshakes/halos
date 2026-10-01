@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/halos-dev/halos/internal/fsutil"
+	"github.com/dshakes/halos/internal/fsutil"
 )
 
 // AuditEntry is one privileged action. Hash covers every other field, Prev is
@@ -47,7 +47,7 @@ func VerifyAuditChain(entries []AuditEntry) error {
 	prev := ""
 	for i, e := range entries {
 		switch {
-		case e.Seq != uint64(i)+1:
+		case e.Seq != uint64(i)+1: //nolint:gosec // i is a non-negative slice index
 			return fmt.Errorf("entry %d: seq %d out of order (entry removed or reordered)", i+1, e.Seq)
 		case e.Prev != prev:
 			return fmt.Errorf("seq %d: prev hash does not match the preceding entry", e.Seq)

@@ -28,8 +28,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/halos-dev/halos/internal/gateway"
-	"github.com/halos-dev/halos/internal/shadow"
+	"github.com/dshakes/halos/internal/gateway"
+	"github.com/dshakes/halos/internal/shadow"
 )
 
 func main() {

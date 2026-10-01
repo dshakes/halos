@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "description": "Drive Halos rollouts (CLI upgrades, model upgrades, experiments) from Claude Code, with human approval at every irreversible step.",
   "author": { "name": "Halos contributors" },
-  "homepage": "https://github.com/halos-dev/halos",
-  "repository": "https://github.com/halos-dev/halos",
+  "homepage": "https://github.com/dshakes/halos",
+  "repository": "https://github.com/dshakes/halos",
   "license": "Apache-2.0",
   "keywords": ["halos", "rollout", "policy", "experiments", "mcp"]
 }

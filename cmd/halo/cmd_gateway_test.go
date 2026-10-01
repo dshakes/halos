@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/halos-dev/halos/internal/gateway/kong"
-	"github.com/halos-dev/halos/internal/policy"
-	"github.com/halos-dev/halos/internal/promote"
+	"github.com/dshakes/halos/internal/gateway/kong"
+	"github.com/dshakes/halos/internal/policy"
+	"github.com/dshakes/halos/internal/promote"
 )
 
 func TestGatewayCompileAndDeck(t *testing.T) {

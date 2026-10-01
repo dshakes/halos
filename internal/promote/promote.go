@@ -14,8 +14,8 @@ import (
 	"math"
 	"time"
 
-	"github.com/halos-dev/halos/internal/policy"
-	"github.com/halos-dev/halos/internal/stats"
+	"github.com/dshakes/halos/internal/policy"
+	"github.com/dshakes/halos/internal/stats"
 )
 
 // Verdict is the decision for an experiment at this point in time.

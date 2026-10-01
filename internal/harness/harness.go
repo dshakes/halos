@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/halos-dev/halos/internal/policy"
+	"github.com/dshakes/halos/internal/policy"
 )
 
 // OS is a target platform for rendered files.

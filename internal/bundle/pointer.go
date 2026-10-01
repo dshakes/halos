@@ -15,7 +15,7 @@ import (
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
 
-	"github.com/halos-dev/halos/internal/release"
+	"github.com/dshakes/halos/internal/release"
 )
 
 // Signed ring pointers (TUF-lite). A ring tag alone is unauthenticated: whoever

@@ -14,12 +14,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/halos-dev/halos/internal/gateway"
-	"github.com/halos-dev/halos/internal/gateway/upstreamauth"
-	"github.com/halos-dev/halos/internal/identity"
-	"github.com/halos-dev/halos/internal/policy"
-	"github.com/halos-dev/halos/internal/shadow"
-	"github.com/halos-dev/halos/internal/telemetry/gwmetrics"
+	"github.com/dshakes/halos/internal/gateway"
+	"github.com/dshakes/halos/internal/gateway/upstreamauth"
+	"github.com/dshakes/halos/internal/identity"
+	"github.com/dshakes/halos/internal/policy"
+	"github.com/dshakes/halos/internal/shadow"
+	"github.com/dshakes/halos/internal/telemetry/gwmetrics"
 )
 
 // Proxy is the stack-agnostic traffic plane: verify identity, decide cohort,

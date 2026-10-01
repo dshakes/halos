@@ -26,7 +26,7 @@ jobs:
       - run: |
           set -euo pipefail
           cd "$RUNNER_TEMP"
-          base="https://github.com/halos-dev/halos/releases/download/v${HALO_VERSION}"
+          base="https://github.com/dshakes/halos/releases/download/v${HALO_VERSION}"
           archive="halos_${HALO_VERSION}_linux_amd64.tar.gz"
           for f in "$archive" checksums.txt checksums.txt.sig checksums.txt.pem; do
             curl -fsSLO "$base/$f"
@@ -34,7 +34,7 @@ jobs:
           cosign verify-blob checksums.txt \
             --signature checksums.txt.sig --certificate checksums.txt.pem \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-            --certificate-identity-regexp '^https://github\.com/halos-dev/halos/\.github/workflows/release\.yml@refs/tags/v'
+            --certificate-identity-regexp '^https://github\.com/dshakes/halos/\.github/workflows/release\.yml@refs/tags/v'
           grep " ${archive}\$" checksums.txt | sha256sum -c -
           tar -xzf "$archive" halo
           install -m 0755 halo /usr/local/bin/halo

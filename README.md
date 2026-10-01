@@ -7,10 +7,10 @@
 <p align="center"><b>Ship AI coding tools like you ship software: versioned, signed, ring-deployed, and proven by evals.</b></p>
 
 <p align="center">
-  <a href="https://github.com/halos-dev/halos/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/halos-dev/halos/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://goreportcard.com/report/github.com/halos-dev/halos"><img alt="Go Report Card" src="https://goreportcard.com/badge/github.com/halos-dev/halos"></a>
+  <a href="https://github.com/dshakes/halos/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/dshakes/halos/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://goreportcard.com/report/github.com/dshakes/halos"><img alt="Go Report Card" src="https://goreportcard.com/badge/github.com/dshakes/halos"></a>
   <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue.svg"></a>
-  <a href="https://halos-dev.github.io/halos/"><img alt="Docs" src="https://img.shields.io/badge/docs-halos--dev.github.io-0f766e.svg"></a>
+  <a href="https://dshakes.github.io/halos/"><img alt="Docs" src="https://img.shields.io/badge/docs-halos--dev.github.io-0f766e.svg"></a>
 </p>
 
 Halos is an open-source control plane that rolls Claude Code, Codex, Gemini CLI and Copilot CLI configuration, versions and model routes out to a company like a software release: signed, ring by ring, gated on evals, with an automated controller that watches experiments and an instant, signed kill switch when one goes wrong.
@@ -122,7 +122,7 @@ sequenceDiagram
 Needs Go 1.25+, Docker with Compose v2, and `curl`. Nothing here talks to a real model provider: the upstreams are mocks.
 
 ```bash
-git clone https://github.com/halos-dev/halos && cd halos
+git clone https://github.com/dshakes/halos && cd halos
 make build && export PATH="$PWD/bin:$PATH"
 
 halo validate --policy-dir examples/acme-corp                                            # schema + guardrails
@@ -162,7 +162,7 @@ curl -s localhost:18080/api/v1/audit         # "verified":true, one experiment.k
 kill %1
 ```
 
-`halo-proxy` and `halo-kong` poll that signed list (every 10 seconds), verify it with the kill-switch public key (`$D/killswitch.pub`), and treat `opus-5-5-canary` as not running: control routing, no mirroring. Unit tests cover the gateway side; a live gateway polling a live `halo-server` has only been exercised in tests. See [experiments](https://halos-dev.github.io/halos/concepts/experiments/#kill-switch).
+`halo-proxy` and `halo-kong` poll that signed list (every 10 seconds), verify it with the kill-switch public key (`$D/killswitch.pub`), and treat `opus-5-5-canary` as not running: control routing, no mirroring. Unit tests cover the gateway side; a live gateway polling a live `halo-server` has only been exercised in tests. See [experiments](https://dshakes.github.io/halos/concepts/experiments/#kill-switch).
 
 ### A/B a CLI upgrade on the client axis
 
@@ -174,7 +174,7 @@ halo release publish --policy-dir examples/acme-corp --ring ring1-canary --relea
 #   channel experiment claude-cli-2.1.3xx-ab variant cli-next: ... ring-ring1-canary.x-claude-cli-2.1.3xx-ab.cli-next
 ```
 
-Each variant is a signed release on its own channel. `halod` computes its variant with the gateway's hash and applies that channel (Claude Code pin plus `halo.experiment`/`halo.variant` telemetry attributes). Run against a local registry and a test build of `halod`; not against a live fleet. Walkthrough: [A/B a CLI upgrade](https://halos-dev.github.io/halos/guides/cli-upgrade-ab/).
+Each variant is a signed release on its own channel. `halod` computes its variant with the gateway's hash and applies that channel (Claude Code pin plus `halo.experiment`/`halo.variant` telemetry attributes). Run against a local registry and a test build of `halod`; not against a live fleet. Walkthrough: [A/B a CLI upgrade](https://dshakes.github.io/halos/guides/cli-upgrade-ab/).
 
 ### The controller and the evidence plane
 
@@ -193,9 +193,9 @@ halo controller run --once --policy-dir . --clickhouse http://clickhouse:8123 --
 
 ### Bedrock without an orchestrator
 
-Declare `kind: bedrock` upstreams in the gateway policy and `halo-proxy` SigV4-signs Bedrock requests with its own AWS identity (IRSA, Pod Identity, instance profile, env). Developers only need their Halos token. Setup and region rules: [stack-agnostic traffic plane](https://halos-dev.github.io/halos/concepts/stack-agnostic/#direct-bedrock-sigv4-in-halo-proxy). This is tested against a fake Bedrock with fixed-key signatures, **not** real AWS.
+Declare `kind: bedrock` upstreams in the gateway policy and `halo-proxy` SigV4-signs Bedrock requests with its own AWS identity (IRSA, Pod Identity, instance profile, env). Developers only need their Halos token. Setup and region rules: [stack-agnostic traffic plane](https://dshakes.github.io/halos/concepts/stack-agnostic/#direct-bedrock-sigv4-in-halo-proxy). This is tested against a fake Bedrock with fixed-key signatures, **not** real AWS.
 
-The full walkthrough, including publishing, promoting and rolling back a signed release against a local registry, is the [quickstart](https://halos-dev.github.io/halos/getting-started/quickstart/).
+The full walkthrough, including publishing, promoting and rolling back a signed release against a local registry, is the [quickstart](https://dshakes.github.io/halos/getting-started/quickstart/).
 
 ## Who it is for
 
@@ -231,7 +231,7 @@ Generated from the adapters (`halo harnesses`) and the sources cited in [`intern
 | Telemetry (OTEL) | Rendered | Rendered | Rendered | Rendered (http only) |
 | Instructions | Managed `CLAUDE.md` | No | No | No |
 
-Everything above was derived from vendor documentation. **Nothing was executed against a real CLI.** Details and paths: [harness matrix reference](https://halos-dev.github.io/halos/reference/harness-matrix/).
+Everything above was derived from vendor documentation. **Nothing was executed against a real CLI.** Details and paths: [harness matrix reference](https://dshakes.github.io/halos/reference/harness-matrix/).
 
 ## Security posture
 
@@ -239,14 +239,14 @@ Everything above was derived from vendor documentation. **Nothing was executed a
 - **The signer is guarded too.** `promote`, `refresh`, `publish` and `rollback` keep a signer state file (`$XDG_STATE_HOME/halos/pointers.json`) and refuse a registry that serves an older pointer than this signer wrote, so a replay cannot be re-signed into a fresh one. `promote` follows the source ring's *signed* pointer, never its tag; `rollback --to <version>` requires the signed manifest to carry that version; `refresh` refuses expired pointers (recover with `halo rollback --to <version>`); `--expect-digest` is the stateless guard. Stateless CI must cache the state file, or the replay check is off.
 - **Verified artifacts, not `curl | bash`.** CLI installs come from sha256/sha512-pinned artifacts in the signed manifest. The legacy shell-install path exists only behind `allowShellInstall: true` and is off by default.
 - **Root-side hardening in `halod`.** Per-harness path allowlist (a signed manifest cannot write arbitrary files as root), 0644 mode ceiling, root-ownership and symlink checks on config, key, token and state chains, atomic writes.
-- **Guardrails at validate and at release.** Overrides are a per-harness allowlist, no `bypassPermissions` / `danger-full-access` anywhere (checked again on the rendered output), no literal secrets, reserved env prefixes, strict names. See [security model](https://halos-dev.github.io/halos/concepts/security-model/).
+- **Guardrails at validate and at release.** Overrides are a per-harness allowlist, no `bypassPermissions` / `danger-full-access` anywhere (checked again on the rendered output), no literal secrets, reserved env prefixes, strict names. See [security model](https://dshakes.github.io/halos/concepts/security-model/).
 - **Identity is verified, never trusted.** The gateway checks the caller's OIDC JWT (issuer, audience, expiry, RS256/ES256/EdDSA only). Client `x-halo-*` headers are stripped. The model allowlist fails closed.
 - **Key rotation without a flag day.** `halod.yaml` takes `pubkeys: [..]` (any listed key verifies) and `revokedKeys` (fingerprints never trusted). Device tokens expire after `halo-server --device-ttl` (default 90 days); `POST /api/v1/users/{id}/revoke-sessions` logs a user out everywhere; an `email` identity claim must carry `email_verified=true`.
 - **Signed kill switch.** Gateways take the kill list only if it verifies against a dedicated ed25519 key (not the release key), is fresh (not older than 10 minutes, not more than 1 minute in the future) and strictly newer than the one they hold. A failed fetch keeps the last list. Gateways refuse a cleartext kill URL unless told it is in-cluster, and `halo-kong` flags a broken kill-switch config with `x-halo-killswitch: misconfigured`. Privileged actions, including kills, go to a hash-chained, fsynced audit log and fail closed if the append fails; tail truncation is not detectable from the log alone.
 - **Evidence has a trust boundary.** Developer machines can post any telemetry, so the collector splits receivers: the CLI receiver drops `halo.gateway.*`, stamps `halo.source=cli` and can require per-device tokens; only the bearer-token gateway receiver (`:4319`) stamps `gateway`. The controller auto-kills only on gateway-sourced evidence; CLI-sourced rollbacks open the pause PR and wait for a human. Controller webhooks are HMAC-signed over a timestamp; receivers must verify it and reject timestamps more than 5 minutes old.
 - **Human at every irreversible step.** No auto-merge, no auto-promote. Automatic rollback (the kill switch, which only returns users to control) is the only automatic direction, and the MCP server exposes no tool that publishes, retags, merges or pushes.
 
-Full attacker models and mitigations: [threat model](https://halos-dev.github.io/halos/reference/threat-model/). Report vulnerabilities per [SECURITY.md](SECURITY.md).
+Full attacker models and mitigations: [threat model](https://dshakes.github.io/halos/reference/threat-model/). Report vulnerabilities per [SECURITY.md](SECURITY.md).
 
 > **Shadowing is single-turn only.** Agentic sessions are multi-turn with side-effecting tool calls, and a shadow candidate's tool calls never execute in the developer's workspace. `halo-shadow` mirrors first-turn requests and grades them with a judge. Whole-task comparison is done with containerized **replay evals** ([ADR-0004](docs/adr/0004-shadow-single-turn-only.md)).
 
@@ -296,7 +296,7 @@ Reported honestly. These are implemented or written from documentation, but have
 
 ## Documentation
 
-[Docs site](https://halos-dev.github.io/halos/): [quickstart](https://halos-dev.github.io/halos/getting-started/quickstart/), [architecture](https://halos-dev.github.io/halos/concepts/architecture/), [self-service portal](https://halos-dev.github.io/halos/concepts/self-service-portal/), [stack-agnostic traffic plane](https://halos-dev.github.io/halos/concepts/stack-agnostic/), [production deployment](https://halos-dev.github.io/halos/guides/production-deployment/), [agentic operations](https://halos-dev.github.io/halos/guides/agentic-operations/), [experiments and the kill switch](https://halos-dev.github.io/halos/concepts/experiments/), [CLI reference](https://halos-dev.github.io/halos/reference/cli/), [API reference](https://halos-dev.github.io/halos/reference/api/).
+[Docs site](https://dshakes.github.io/halos/): [quickstart](https://dshakes.github.io/halos/getting-started/quickstart/), [architecture](https://dshakes.github.io/halos/concepts/architecture/), [self-service portal](https://dshakes.github.io/halos/concepts/self-service-portal/), [stack-agnostic traffic plane](https://dshakes.github.io/halos/concepts/stack-agnostic/), [production deployment](https://dshakes.github.io/halos/guides/production-deployment/), [agentic operations](https://dshakes.github.io/halos/guides/agentic-operations/), [experiments and the kill switch](https://dshakes.github.io/halos/concepts/experiments/), [CLI reference](https://dshakes.github.io/halos/reference/cli/), [API reference](https://dshakes.github.io/halos/reference/api/).
 
 ## Repo layout
 

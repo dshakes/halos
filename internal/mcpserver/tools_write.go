@@ -8,9 +8,9 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/halos-dev/halos/internal/policy"
-	"github.com/halos-dev/halos/internal/promote"
-	"github.com/halos-dev/halos/internal/yamledit"
+	"github.com/dshakes/halos/internal/policy"
+	"github.com/dshakes/halos/internal/promote"
+	"github.com/dshakes/halos/internal/yamledit"
 )
 
 // Every tool here edits policy YAML only, on a local branch or in a PR. None

@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/halos-dev/halos/internal/harness"
-	_ "github.com/halos-dev/halos/internal/harness/all" // managed paths and binaries come from the adapters
+	"github.com/dshakes/halos/internal/harness"
+	_ "github.com/dshakes/halos/internal/harness/all" // managed paths and binaries come from the adapters
 )
 
 // layout is halod's fixed, root-owned footprint per OS. Nothing here is

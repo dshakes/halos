@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/halos-dev/halos/internal/promote"
+	"github.com/dshakes/halos/internal/promote"
 )
 
 func testEvent() Event {

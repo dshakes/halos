@@ -1,5 +1,5 @@
-# Eval image for the gemini harness: ghcr.io/halos-dev/eval-gemini:<CLI version>.
-# Build: docker build --build-arg CLI_VERSION=0.12.0 -t ghcr.io/halos-dev/eval-gemini:0.12.0 evals/images/gemini
+# Eval image for the gemini harness: ghcr.io/dshakes/eval-gemini:<CLI version>.
+# Build: docker build --build-arg CLI_VERSION=0.12.0 -t ghcr.io/dshakes/eval-gemini:0.12.0 evals/images/gemini
 # Bases are pinned by digest; bump tag and digest together.
 FROM golang:1.25-bookworm@sha256:3b4a11519ad929d1e1d261a12cff056f0c85b735253d7d861346b9c6f8b36437 AS go
 

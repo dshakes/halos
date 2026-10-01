@@ -12,7 +12,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/credentials"
 
-	"github.com/halos-dev/halos/internal/policy"
+	"github.com/dshakes/halos/internal/policy"
 )
 
 const arnModel = "arn:aws:bedrock:us-east-1:1:inference-profile/us.anthropic.x"

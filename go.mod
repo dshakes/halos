@@ -1,4 +1,4 @@
-module github.com/halos-dev/halos
+module github.com/dshakes/halos
 
 go 1.25.0
 

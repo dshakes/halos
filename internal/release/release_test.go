@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/halos-dev/halos/internal/harness"
-	"github.com/halos-dev/halos/internal/policy"
+	"github.com/dshakes/halos/internal/harness"
+	"github.com/dshakes/halos/internal/policy"
 )
 
 type fakeAdapter struct{ body string }

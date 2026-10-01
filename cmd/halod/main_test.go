@@ -17,7 +17,7 @@ import (
 
 	"oras.land/oras-go/v2"
 
-	"github.com/halos-dev/halos/internal/bundle"
+	"github.com/dshakes/halos/internal/bundle"
 )
 
 func TestRunHelp(t *testing.T) {

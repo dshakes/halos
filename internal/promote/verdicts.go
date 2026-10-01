@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/halos-dev/halos/internal/fsutil"
+	"github.com/dshakes/halos/internal/fsutil"
 )
 
 // verdictRow is one entry of the verdicts file halo-server reads (server.Verdict).

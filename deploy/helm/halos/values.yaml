@@ -47,7 +47,7 @@ policy:
 
 server:
   enabled: true
-  image: {repository: halos-dev/halo-server, tag: "", digest: ""}
+  image: {repository: dshakes/halo-server, tag: "", digest: ""}
   replicas: 1                      # file-backed store + RWO PVC: keep at 1
   port: 8080
   args: []                         # extra halo-server flags
@@ -131,7 +131,7 @@ server:
 
 proxy:
   enabled: true
-  image: {repository: halos-dev/halo-proxy, tag: "", digest: ""}
+  image: {repository: dshakes/halo-proxy, tag: "", digest: ""}
   replicas: 2
   port: 8088
   args: []
@@ -225,7 +225,7 @@ proxy:
 
 shadow:
   enabled: false
-  image: {repository: halos-dev/halo-shadow, tag: "", digest: ""}
+  image: {repository: dshakes/halo-shadow, tag: "", digest: ""}
   replicas: 1
   port: 8090
   # Listens on 0.0.0.0 in-cluster (binary default is 127.0.0.1); NetworkPolicy restricts ingress to

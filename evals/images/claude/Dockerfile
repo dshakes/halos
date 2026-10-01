@@ -1,5 +1,5 @@
-# Eval image for the claude harness: ghcr.io/halos-dev/eval-claude:<CLI version>.
-# Build: docker build --build-arg CLI_VERSION=2.1.280 -t ghcr.io/halos-dev/eval-claude:2.1.280 evals/images/claude
+# Eval image for the claude harness: ghcr.io/dshakes/eval-claude:<CLI version>.
+# Build: docker build --build-arg CLI_VERSION=2.1.280 -t ghcr.io/dshakes/eval-claude:2.1.280 evals/images/claude
 # Bases are pinned by digest; bump tag and digest together.
 FROM golang:1.25-bookworm@sha256:3b4a11519ad929d1e1d261a12cff056f0c85b735253d7d861346b9c6f8b36437 AS go
 

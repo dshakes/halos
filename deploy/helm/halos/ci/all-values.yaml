@@ -18,7 +18,7 @@ server:
       webhook: {existingSecret: halos-webhook}
     policyRepo:
       enabled: true
-      image: {repository: halos-dev/halo-server-git}
+      image: {repository: dshakes/halo-server-git}
       ghToken: {existingSecret: halos-gh}
   ingress:
     enabled: true

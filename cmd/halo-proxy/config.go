@@ -13,8 +13,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/halos-dev/halos/internal/identity"
-	"github.com/halos-dev/halos/internal/telemetry/gwmetrics"
+	"github.com/dshakes/halos/internal/identity"
+	"github.com/dshakes/halos/internal/telemetry/gwmetrics"
 )
 
 // Config is halo-proxy's configuration. Precedence: defaults < YAML (--config)

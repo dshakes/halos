@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/halos-dev/halos/internal/policy"
-	"github.com/halos-dev/halos/internal/yamledit"
+	"github.com/dshakes/halos/internal/policy"
+	"github.com/dshakes/halos/internal/yamledit"
 )
 
 // gitRepo makes a clone of a bare origin with one commit on main.

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/halos-dev/halos/internal/policy"
+	"github.com/dshakes/halos/internal/policy"
 )
 
 const src = "# head\nkind: Experiment\nname: e1   # keep\nstatus: draft # c\n\n# tail\nx: 1\n"

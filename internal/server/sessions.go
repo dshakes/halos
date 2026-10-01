@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/halos-dev/halos/internal/fsutil"
+	"github.com/dshakes/halos/internal/fsutil"
 )
 
 // sessionRevocations is the per-user session epoch: a session cookie issued at

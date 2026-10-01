@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/halos-dev/halos/internal/bundle"
-	"github.com/halos-dev/halos/internal/gateway"
+	"github.com/dshakes/halos/internal/bundle"
+	"github.com/dshakes/halos/internal/gateway"
 )
 
 func TestAccessKillSwitch(t *testing.T) {

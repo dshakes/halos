@@ -14,8 +14,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/halos-dev/halos/internal/gateway"
-	"github.com/halos-dev/halos/internal/policy"
+	"github.com/dshakes/halos/internal/gateway"
+	"github.com/dshakes/halos/internal/policy"
 )
 
 // KillExperiment trips the kill switch as actor (the in-process controller)

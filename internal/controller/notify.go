@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/halos-dev/halos/internal/promote"
+	"github.com/dshakes/halos/internal/promote"
 )
 
 // KillOutcome is the typed result of the kill-switch step of a rollback.

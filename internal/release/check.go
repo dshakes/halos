@@ -10,8 +10,8 @@ import (
 
 	toml "github.com/pelletier/go-toml/v2"
 
-	"github.com/halos-dev/halos/internal/harness"
-	"github.com/halos-dev/halos/internal/policy"
+	"github.com/dshakes/halos/internal/harness"
+	"github.com/dshakes/halos/internal/policy"
 )
 
 // strictHarnesses are the adapters whose rendered JSON/TOML must parse; for

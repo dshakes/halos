@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/halos-dev/halos/internal/harness"
-	"github.com/halos-dev/halos/internal/policy"
+	"github.com/dshakes/halos/internal/harness"
+	"github.com/dshakes/halos/internal/policy"
 )
 
 // ProfileResolver is satisfied by *policy.Org once it grows ResolveProfile.

@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/halos-dev/halos/internal/harness"
-	"github.com/halos-dev/halos/internal/harness/hutil/hutiltest"
-	"github.com/halos-dev/halos/internal/policy"
+	"github.com/dshakes/halos/internal/harness"
+	"github.com/dshakes/halos/internal/harness/hutil/hutiltest"
+	"github.com/dshakes/halos/internal/policy"
 )
 
 func TestRender(t *testing.T) {

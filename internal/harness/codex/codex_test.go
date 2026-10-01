@@ -6,9 +6,9 @@ import (
 
 	toml "github.com/pelletier/go-toml/v2"
 
-	"github.com/halos-dev/halos/internal/harness"
-	"github.com/halos-dev/halos/internal/harness/hutil/hutiltest"
-	"github.com/halos-dev/halos/internal/policy"
+	"github.com/dshakes/halos/internal/harness"
+	"github.com/dshakes/halos/internal/harness/hutil/hutiltest"
+	"github.com/dshakes/halos/internal/policy"
 )
 
 func render(mut func(*policy.Profile, *policy.Gateway), os harness.OS) ([]harness.File, []string, error) {

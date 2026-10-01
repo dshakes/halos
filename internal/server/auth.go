@@ -21,8 +21,8 @@ import (
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
 
-	"github.com/halos-dev/halos/internal/identity"
-	"github.com/halos-dev/halos/internal/policy"
+	"github.com/dshakes/halos/internal/identity"
+	"github.com/dshakes/halos/internal/policy"
 )
 
 const (

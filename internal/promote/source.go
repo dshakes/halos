@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/halos-dev/halos/internal/telemetry"
+	"github.com/dshakes/halos/internal/telemetry"
 )
 
 // MemorySource is an in-memory MetricSource for tests and local analysis.

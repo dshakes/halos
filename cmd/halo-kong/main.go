@@ -47,11 +47,11 @@ import (
 	"github.com/Kong/go-pdk"
 	"github.com/Kong/go-pdk/server"
 
-	"github.com/halos-dev/halos/internal/bundle"
-	"github.com/halos-dev/halos/internal/gateway"
-	"github.com/halos-dev/halos/internal/identity"
-	"github.com/halos-dev/halos/internal/policy"
-	"github.com/halos-dev/halos/internal/shadow"
+	"github.com/dshakes/halos/internal/bundle"
+	"github.com/dshakes/halos/internal/gateway"
+	"github.com/dshakes/halos/internal/identity"
+	"github.com/dshakes/halos/internal/policy"
+	"github.com/dshakes/halos/internal/shadow"
 )
 
 const (

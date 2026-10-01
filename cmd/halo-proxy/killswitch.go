@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/halos-dev/halos/internal/bundle"
-	"github.com/halos-dev/halos/internal/gateway"
+	"github.com/dshakes/halos/internal/bundle"
+	"github.com/dshakes/halos/internal/gateway"
 )
 
 // KillSwitchConfig points at halo-server's signed kill list.

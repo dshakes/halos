@@ -3,7 +3,7 @@ package server
 import (
 	"testing"
 
-	"github.com/halos-dev/halos/internal/policy"
+	"github.com/dshakes/halos/internal/policy"
 )
 
 func TestRedact(t *testing.T) {

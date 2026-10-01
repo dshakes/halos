@@ -19,8 +19,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/halos-dev/halos/internal/gateway"
-	"github.com/halos-dev/halos/internal/policy"
+	"github.com/dshakes/halos/internal/gateway"
+	"github.com/dshakes/halos/internal/policy"
 )
 
 const maxBody = 8 << 20

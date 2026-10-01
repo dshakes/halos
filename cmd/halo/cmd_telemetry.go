@@ -3,7 +3,7 @@ package main
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/halos-dev/halos/internal/telemetry"
+	"github.com/dshakes/halos/internal/telemetry"
 )
 
 func (a *app) cmdTelemetry() *cobra.Command {

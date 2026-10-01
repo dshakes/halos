@@ -12,10 +12,10 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/halos-dev/halos/internal/controller"
-	"github.com/halos-dev/halos/internal/policy"
-	"github.com/halos-dev/halos/internal/promote"
-	"github.com/halos-dev/halos/internal/yamledit"
+	"github.com/dshakes/halos/internal/controller"
+	"github.com/dshakes/halos/internal/policy"
+	"github.com/dshakes/halos/internal/promote"
+	"github.com/dshakes/halos/internal/yamledit"
 )
 
 // GitPolicyWriter implements PolicyWriter by editing YAML in a dedicated clone

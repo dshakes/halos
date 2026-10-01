@@ -16,8 +16,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/halos-dev/halos/internal/policy"
-	"github.com/halos-dev/halos/internal/promote"
+	"github.com/dshakes/halos/internal/policy"
+	"github.com/dshakes/halos/internal/promote"
 )
 
 var start = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)

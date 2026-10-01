@@ -5,5 +5,5 @@ type: application
 version: 0.1.0
 appVersion: "0.1.0"
 kubeVersion: ">=1.27.0-0"
-home: https://github.com/halos-dev/halos
+home: https://github.com/dshakes/halos
 keywords: [halos, ai-coding, gateway, policy]

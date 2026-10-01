@@ -202,4 +202,4 @@ The device and request stores are append-only JSONL files, last line per id wins
 - [ ] `allowShellInstall` is not set on any `halod`
 - [ ] `halo-proxy` is unreachable except through your ingress or gateway; if you use `trusted_header`, the CIDR pin is set
 - [ ] `--dev-insecure-*` flags are not present anywhere
-- [ ] Read the [threat model](/halos/reference/threat-model/) and the **UNVERIFIED** items in the [README](https://github.com/halos-dev/halos#what-is-not-verified)
+- [ ] Read the [threat model](/halos/reference/threat-model/) and the **UNVERIFIED** items in the [README](https://github.com/dshakes/halos#what-is-not-verified)

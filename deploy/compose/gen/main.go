@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/halos-dev/halos/internal/gateway/kong"
-	"github.com/halos-dev/halos/internal/policy"
+	"github.com/dshakes/halos/internal/gateway/kong"
+	"github.com/dshakes/halos/internal/policy"
 )
 
 func main() {

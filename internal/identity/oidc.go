@@ -11,7 +11,7 @@ import (
 
 	"github.com/coreos/go-oidc/v3/oidc"
 
-	"github.com/halos-dev/halos/internal/policy"
+	"github.com/dshakes/halos/internal/policy"
 )
 
 // AllowedAlgs is the JWT signature allowlist. "none" and HS* are never

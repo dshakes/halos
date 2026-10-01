@@ -15,7 +15,7 @@ const Buckets = 10000
 // Bucket deterministically maps (salt, subject) to [0, Buckets).
 func Bucket(salt, subject string) int {
 	h := sha256.Sum256([]byte(salt + "\x00" + subject))
-	return int(binary.BigEndian.Uint64(h[:8]) % Buckets)
+	return int(binary.BigEndian.Uint64(h[:8]) % Buckets) //nolint:gosec // < Buckets, always fits int
 }
 
 // Share converts a fraction of the population (0.0057 = 0.57%) to a bucket

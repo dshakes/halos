@@ -11,7 +11,7 @@ Coder templates define the workspace, so applying policy there gives environment
 
 ```hcl
 module "halos" {
-  source           = "github.com/halos-dev/halos//features/coder"
+  source           = "github.com/dshakes/halos//features/coder"
   agent_id         = coder_agent.main.id
   registry         = "ghcr.io/acme/halos-releases"
   org              = "acme"

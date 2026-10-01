@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/halos-dev/halos/internal/fsutil"
-	"github.com/halos-dev/halos/internal/promote"
+	"github.com/dshakes/halos/internal/fsutil"
+	"github.com/dshakes/halos/internal/promote"
 )
 
 // Actions the controller takes at most once per experiment run.
