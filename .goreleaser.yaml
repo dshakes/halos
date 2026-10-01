@@ -1,0 +1,115 @@
+version: 2
+project_name: halos
+# Local builds compile the web console here. CI (release.yml) builds it in a
+# separate unprivileged job and sets HALO_WEB_PREBUILT=1, so no npm code runs
+# in the job that holds the release/signing credentials.
+before:
+  hooks:
+    # ponytail: hook `if:` is GoReleaser Pro only; a skipped hook runs `true`.
+    - '{{ if isEnvSet "HALO_WEB_PREBUILT" }}true{{ else }}npm --prefix web ci --ignore-scripts{{ end }}'
+    - '{{ if isEnvSet "HALO_WEB_PREBUILT" }}true{{ else }}npm --prefix web run build{{ end }}'
+builds:
+  - &build
+    id: halo
+    main: ./cmd/halo
+    binary: halo
+    env: [CGO_ENABLED=0]
+    goos: [darwin, linux, windows]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags: ["-s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}"]
+  - <<: *build
+    id: halod
+    main: ./cmd/halod
+    binary: halod
+  - <<: *build
+    id: halo-shadow
+    main: ./cmd/halo-shadow
+    binary: halo-shadow
+  - <<: *build
+    id: halo-server
+    main: ./cmd/halo-server
+    binary: halo-server
+    flags: [-trimpath, -tags=webdist]
+  - <<: *build
+    id: halo-proxy
+    main: ./cmd/halo-proxy
+    binary: halo-proxy
+  - <<: *build
+    id: halo-kong
+    main: ./cmd/halo-kong
+    binary: halo-kong
+    goos: [linux] # Kong plugin server; runs in the Kong container
+dockers_v2:
+  - &img
+    id: halo-server
+    ids: [halo-server]
+    images: [ghcr.io/halos-dev/halo-server]
+    tags: ["{{ .Version }}", latest]
+    dockerfile: deploy/docker/Dockerfile.service
+    platforms: [linux/amd64, linux/arm64]
+    build_args: {BINARY: halo-server}
+    sbom: true
+    labels:
+      org.opencontainers.image.source: https://github.com/halos-dev/halos
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.licenses: Apache-2.0
+  - <<: *img
+    id: halo-proxy
+    ids: [halo-proxy]
+    images: [ghcr.io/halos-dev/halo-proxy]
+    build_args: {BINARY: halo-proxy}
+  - <<: *img
+    id: halo-shadow
+    ids: [halo-shadow]
+    images: [ghcr.io/halos-dev/halo-shadow]
+    build_args: {BINARY: halo-shadow}
+  - <<: *img
+    id: halo-kong
+    ids: [halo-kong]
+    images: [ghcr.io/halos-dev/kong-halo]
+    dockerfile: deploy/docker/Dockerfile.kong
+    build_args: {}
+archives:
+  - &arc
+    id: halo
+    ids: [halo]
+    name_template: "{{ .Binary }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides:
+      - {goos: windows, formats: [zip]}
+  - <<: *arc
+    id: halod
+    ids: [halod]
+  - <<: *arc
+    id: halo-shadow
+    ids: [halo-shadow]
+  - <<: *arc
+    id: halo-server
+    ids: [halo-server]
+  - <<: *arc
+    id: halo-proxy
+    ids: [halo-proxy]
+  - <<: *arc
+    id: halo-kong
+    ids: [halo-kong]
+checksum:
+  name_template: checksums.txt
+sboms:
+  - artifacts: archive # requires syft on PATH
+signs:
+  - cmd: cosign
+    signature: "${artifact}.sig"
+    certificate: "${artifact}.pem"
+    args: [sign-blob, --yes, "--output-signature=${signature}", "--output-certificate=${certificate}", "${artifact}"]
+    artifacts: checksum # keyless: uses GitHub OIDC token
+changelog:
+  use: github
+docker_signs:
+  - cmd: cosign # keyless: uses GitHub OIDC token
+    artifacts: images
+    output: true
+    args: [sign, --yes, "${artifact}@${digest}"]
+release:
+  github: {owner: halos-dev, name: halos}

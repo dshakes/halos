@@ -1,0 +1,137 @@
+---
+title: Threat model
+description: Assets, trust boundaries, attacker models, and the control that mitigates each threat, with the code that implements it.
+---
+
+This is a design-level threat model written from the code as it stands. It has not been reviewed by a third party, and no external penetration test has been run: treat it as the maintainers' claim, not an attestation. The [security model](/halos/concepts/security-model/) explains the mechanisms; this page lists what they are for.
+
+There is no numbered findings register in the repository. Controls `C1` to `C16` have IDs (the later threats T22 to T32 are described by row instead) so reviews and commits can refer to them; every row names the code that enforces it.
+
+## Assets
+
+| Asset | Why it matters |
+|---|---|
+| Release signing key (ed25519) | Whoever can sign can ship hooks, MCP servers and permission changes to every developer |
+| Policy repo and its merge gate | Source of truth; a malicious merge is a legitimate release |
+| Root on developer machines | `halod` writes config and installs binaries as root |
+| Model traffic and prompts | Source code and secrets in prompts, upstream provider credentials |
+| Cohort integrity | Experiments and rollouts are only meaningful if users cannot choose their arm |
+| Device and enrollment tokens | Authenticate a machine to `halo-server` |
+| Shadow pair store | Contains prompts and responses |
+| OIDC configuration | Decides who is who at the gateway and portal |
+| Kill-switch key and gateway token | Whoever holds the key can make gateways treat any experiment as killed; the token reads the list |
+| Audit log | The record of who killed, revoked or changed what |
+| Gateway AWS identity | `halo-proxy` signs Bedrock requests with it |
+
+## Trust boundaries
+
+```mermaid
+flowchart TB
+  subgraph Z0[Z0 Internet and vendor hosts: untrusted]
+    VEND[vendor CLI download hosts / npm]
+    ATT[attacker on the network]
+  end
+  subgraph Z1[Z1 Developer machine]
+    USER[non-root user + agent process<br/>untrusted: can edit own files, send any header]
+    subgraph Z1R[Root-owned area]
+      HALOD[halod as root]
+      CFG[halod.yaml, release.pub, token, state<br/>root-owned chain]
+      MANAGED[managed config dirs]
+    end
+  end
+  subgraph Z2[Z2 Supply chain]
+    CI[CI publish + refresh job<br/>holds signing key]
+    REG[(OCI registry<br/>untrusted transport)]
+    GIT[policy repo + review gate]
+  end
+  subgraph Z3[Z3 Your infrastructure]
+    PX[halo-proxy / halo-kong]
+    SRV[halo-server portal + device store]
+    SHD[halo-shadow]
+    UP[model upstreams, IdP]
+  end
+  GIT -->|merge| CI
+  CI -->|signed release + pointer| REG
+  REG -->|pointer + release| HALOD
+  VEND -->|artifact bytes| HALOD
+  HALOD -->|allowlisted, 0644| MANAGED
+  CFG --> HALOD
+  USER -->|JWT, any headers| PX
+  USER -->|enrollment token| SRV
+  HALOD -->|device token| SRV
+  PX --> UP
+  PX -.job: experiment + variant only.-> SHD
+  SRV -->|signed kill list, bearer gateway token| PX
+  SHD -->|upstreams from own policy copy| UP
+  ATT -.-> REG
+  ATT -.-> PX
+  ATT -.-> SRV
+```
+
+## Attacker models
+
+| ID | Attacker | Capability | Goal |
+|---|---|---|---|
+| A1 | Malicious or compromised registry | Serve arbitrary tags and blobs | Push a hook or older release to the fleet |
+| A2 | Network attacker between device and vendor or registry | Modify traffic | Swap a CLI binary; freeze updates |
+| A3 | Local non-root user, or an agent process running as one | Write anywhere they own, plant symlinks, edit user config, send any HTTP header | Escalate to root via `halod`; pick their own ring; disable controls |
+| A4 | Client of the gateway | Any request, any header, any body | Choose a cohort, reach unallowed models or endpoints, read others' data |
+| A5 | Holder of an enrollment or device token | Token in hand | Impersonate a device or user; replay |
+| A6 | Malicious insider with policy-repo write | Can open PRs, may abuse override keys and MCP entries | Smuggle a dangerous setting or secret through review |
+| A7 | Stolen signing key | Can sign any release and pointer | Fleet-wide code execution |
+| A8 | Prompt-injected agent | The agent calls Halos tools | Use the MCP server to publish, promote or merge |
+| A9 | Holder of the shadow token | Can enqueue mirror jobs | Aim the shadow mirror (and its credentials) at an arbitrary URL; read pairs |
+| A10 | Attacker on the path between gateway and `halo-server`, or who can replay captured responses | Serve, delay or replay kill lists | Hide a kill, or forge one to disable an experiment |
+| A11 | Holder of the gateway token only | Can read the kill list | Learn which experiments are killed; probe the endpoint |
+| A12 | Someone with write access to the server's data dir | Edit `audit.jsonl` or `killswitch.jsonl` | Erase or rewrite history; un-kill an experiment |
+| A13 | Anyone who can reach the telemetry collector (every developer machine) | Post OTLP metrics with any `halo.experiment`, `halo.variant`, `halo.gateway.*` | Forge evidence: trip a kill on a good treatment, promote a bad one, or mask a regression |
+
+## Threats and mitigations
+
+| Threat | Attacker | Control | Where |
+|---|---|---|---|
+| T1 Registry serves a tampered release | A1 | **C1** Release signature verified with the pinned ed25519 key before any use; fail closed | `internal/bundle/sign.go`, `bundle.PullRing` |
+| T2 Registry replays an older signed release, or one built for another ring or org | A1 | **C2** Signed ring pointer with `org`, `ring`, `seq`, `expiresAt`; `halod` checks all four and refuses a `seq` regression. The signer side has its own guard, see T28 | `internal/bundle/pointer.go`, `cmd/halod/agent.go` |
+| T3 Registry freezes clients on a stale release | A1 | **C3** 7-day pointer expiry plus a scheduled `halo release refresh`; `halod` warns 24h out and stops updating after expiry | `pointer.go` (`DefaultPointerTTL`), `halod` warn window |
+| T4 Binary swapped in transit or at the vendor | A2 | **C4** Manifest carries https URL, exact size, sha256 or sha512; https-only redirects; size cap; hash check before rename | `cmd/halod/install.go` |
+| T5 Install script runs as root (`curl \| bash`, npm lifecycle scripts) | A2, A6 | **C5** No shell install by default (`allowShellInstall: false`); npm `--ignore-scripts`, empty npmrc, root-owned node only | `install.go`, `config.go` |
+| T6 Signed manifest names an arbitrary path, so the key alone gives root file write | A1, A7 | **C6** Per-harness path allowlist; clean absolute paths only; 0644 mode ceiling; stale-file removal uses the same allowlist | `cmd/halod/paths.go` |
+| T7 Non-root user swaps config, key, token or state, or races a directory | A3 | **C7** Ownership preflight: root-owned, not group or other writable, no user-planted symlinks, whole ancestor chain; device token file must be 0600 | `paths.go` (`checkChain`), `main.go` (`preflight`) |
+| T8 Artifact overwrites `halod` | A1, A7 | **C8** `binPath` may not name `halod`; shims never replace a foreign file | `install.go` |
+| T9 Client forges `x-halo-*` or identity headers to pick a cohort | A4 | **C9** Every inbound `x-halo-*` stripped; cohort from verified identity only; unknown identity gets default routing and no experiment | `internal/gateway/prepare.go`, `decision.go` |
+| T10 Forged or wrong-audience token at the gateway | A4 | **C10** OIDC JWT verification: issuer, audience, `exp`, `nbf`, RS256/ES256/EdDSA only; JWKS refetch on unknown `kid`; `trusted_header` only from CIDR-pinned peers, fail closed without CIDRs | `internal/identity/oidc.go`, `cmd/halo-proxy` |
+| T11 Access to unallowed models, batch API or unknown endpoints; oversize bodies | A4 | **C11** Fail-closed allowlist: exact model paths, 404 for other paths under model prefixes, 403 for batches and non-alias models, 413 for oversize, no forward on rewrite failure | `internal/gateway/prepare.go` (`admit`), `rewrite.go` |
+| T12 Enrollment token stolen or replayed | A5 | **C12** 32 random bytes, stored as SHA-256, single-use (burned on first presentation), 15-minute default TTL; device token shown once, stored as SHA-256, revocable; failed-auth rate limiting per IP | `internal/server/portal.go`, `devices.go` |
+| T13 Scripts or portal config used for injection | A6 | **C13** Portal config validated as shell-safe; `halod` checksums pinned per OS and arch; enrollment refuses to install without a pinned sum | `portal.go` (`Validate`), `scripts.go` |
+| T14 Dangerous permission modes shipped | A6 | **C14a** Guardrails: no `bypassPermissions`, `disableBypass` required on every ring. **C14b** Release backstop parses rendered files and rejects `bypassPermissions` or `danger-full-access` anywhere | `internal/policy/guardrails.go`, `internal/release/check.go` |
+| T15 Overrides smuggle security-relevant keys after rendering | A6 | **C15** Per-harness overrides ALLOWLIST (only cosmetic/behavioural keys pass; everything else, including new security knobs, is rejected); harnesses with no allowlist accept no overrides; reserved env prefixes | `guardrails.go` |
+| T16 Literal secrets baked into world-readable bundles | A6 | **C16** Secret detector on MCP headers and `env`; only `${VAR}` references pass | `guardrails.go` (`looksSecret`) |
+| T17 Malicious names inject into scripts, paths, headers | A6 | Strict name regex on every identifier | `internal/policy/names.go` |
+| T18 Agent uses MCP to publish, promote or merge | A8 | No such tool exists; write tools need `--allow-writes`, default `dry_run`, require a `reason`, and only commit to a local branch or open a PR; promotion needs a `promote` verdict | `internal/mcpserver` |
+| T19 Shadow token aims the shadow mirror at an arbitrary URL | A9 | Jobs carry only experiment and variant; `halo-shadow` resolves upstreams from its own policy; client credentials never forwarded; pairs optionally AES-256-GCM encrypted; budget and retention | `internal/shadow`, `cmd/halo-shadow` |
+| T20 Insider merges a malicious change | A6 | Not prevented by Halos: **the merge gate is yours**. Mitigated by review, `halo plan` diffs, no auto-merge, guardrails as a floor | process |
+| T21 Signing key stolen | A7 | Partially: key held in CI or KMS; path allowlist and ownership limit the blast radius; rotation procedure. **No threshold signing or revocation list** | [production deployment](/halos/guides/production-deployment/) |
+| T22 Forged kill list (disable or un-kill experiments) | A10 | Ed25519 signature over a domain-separated payload, verified with a public key pinned in the gateway config. The kill key is **separate from the release key**, so a stolen release key cannot forge kills and a stolen kill key cannot sign releases | `internal/gateway/killswitch.go` (`VerifyKillList`), `internal/server/killswitch.go` |
+| T23 Stale or replayed kill list hides a kill | A10 | `issuedAt` more than 10 minutes old or more than 1 minute in the future is rejected; a list is accepted only if `issuedAt` is **strictly newer** than the current one, so an older envelope cannot undo a kill | `killswitch.go` (`Refresh`) |
+| T24 Control plane down or blocked, kill lapses | A10 | A failed fetch or verification keeps the **last accepted** list; kills never auto-expire. **Residual:** a gateway that has never fetched a valid list kills nothing, so a kill issued while `halo-server` is unreachable takes effect only once the gateway can fetch | `killswitch.go` |
+| T25 Anyone reads or probes the gateway kill endpoint | A11 | Bearer gateway token (16+ characters, constant-time compare), 404 when unconfigured, failed attempts rate-limited per IP. Kill and unkill endpoints are admin-only, same-origin and audited | `internal/server/killswitch.go`, `auth.go` |
+| T26 Audit history rewritten or erased | A12 | Hash-chained entries (`seq`, `prev`, `hash`); `GET /api/v1/audit` re-verifies the whole chain and reports `verified`. **Residual:** removing the newest entries is undetectable from the log alone, and a writer who can recompute hashes can forge a whole chain; pin `head` externally | `internal/server/audit.go` (`VerifyAuditChain`) |
+| T27 Forged controller webhook; client credentials reaching Bedrock | A4, A10 | Generic webhook signed `X-Halo-Signature: sha256=<HMAC-SHA256(secret, X-Halo-Timestamp + "." + body)>` under a shared secret; receivers reject timestamps more than 5 minutes off (replay) (Slack uses a secret URL; URLs are read from files, never logged). Bedrock requests are SigV4-signed with the gateway's own identity; client `Authorization`, `x-api-key` and every `x-amz*`/`x-amzn*` header are always dropped, and signing happens only for AWS endpoint hosts (`*.amazonaws.com`, `*.amazonaws.com.cn`, `*.api.aws`) or halo-proxy `signHosts`; no credentials gives 502, never an unsigned forward | `internal/controller/notify.go`, `internal/gateway/upstreamauth/bedrock.go` |
+| T28 Registry serves an old signed pointer and the signer re-signs it, laundering the replay into a fresh `seq` and expiry | A1 | `refresh`, `promote`, `publish` and `rollback` consult the signer state file (`$XDG_STATE_HOME/halos/pointers.json`, `--state-file`) and refuse a served pointer with a lower `seq`, the same `seq` with another digest, or none where one was written. New `seq = max(served + 1, recorded + 1, unix now)`. `promote` takes its source from `--from-ring`'s **signed** pointer (signature, ring, org, expiry, state), never the unauthenticated `ring-<name>` tag. `refresh` refuses an **expired** pointer; recover with `halo rollback --to <version>`. `rollback --to <version>` requires the signed manifest to carry that version (a retagged `v` tag is refused); `--to sha256:` is content-addressed. `--expect-digest` is the stateless check. **Residual:** a stateless CI runner has no state file, so the replay check is off unless the file is cached or `--expect-digest` is passed; the signer prints `Signing ring X → version V (digest D, seq S)` to stderr before every signature | `internal/bundle/state.go`, `pointer.go` (`preflight`, `currentPointer`, `resolveSource`), `cmd/halo/cmd_release.go` |
+| T29 Forged experiment evidence auto-kills an experiment, or hides a regression | A13 | Two collector receivers. The CLI receiver (4317/4318) drops every `halo.gateway.*` metric, overwrites `halo.source=cli`, caps requests at 4 MiB and can require per-device bearer tokens (`halo telemetry collector-config --cli-token-file`). Only the gateway receiver (4319, bearer token `HALO_OTLP_GATEWAY_TOKEN`, collector will not start without it) stamps `halo.source=gateway`. Analysis counts gateway rows only with that stamp, and the controller auto-kills only on gateway-sourced evidence; CLI-sourced rollbacks open the pause PR and notify. `halo.unit` is an HMAC of the verified subject, never a client id. **Residual:** forged CLI cost can expire an experiment early (a conclude PR, never a kill); the gateway token is a shared secret between `halo-proxy` replicas and the collector | `internal/telemetry/collector.go`, `internal/promote/source.go`, `internal/controller/controller.go`, `internal/telemetry/gwmetrics` |
+| T30 A privileged action happens with no audit record | A12 | Kill, unkill, device enrollment, session and device revocation and experiment-status PRs append with fsync **before** the response and fail (HTTP 500) if the append fails. A kill whose audit fails stays applied (fail safe); a failed unkill is reverted; a revocation stays in force. `halo controller run` appends through the same chain (single writer: never against a live server's data dir) | `internal/server/audit.go` (`AuditStrict`), `killswitch.go` |
+| T31 Kill switch silently inert (no key, bad URL, cleartext token) | A10, A11 | The server serves no kill list and answers 501 to kill/unkill without `--killswitch-key-file`, which itself requires `--data-dir`; `GET /api/v1/capabilities` reports `killSwitch` only when a key is set; the in-process controller then reports rollbacks as not enforced ("merge urgently") instead of tripping an unread switch. Gateways refuse plain `http://` to a non-loopback kill URL unless `killSwitch.allowInsecureInCluster` (halo-kong: `killswitch_allow_insecure_in_cluster`) is set. A misconfigured `halo-kong` logs at ERROR and tags upstream requests `x-halo-killswitch: misconfigured`, while still serving traffic. Kill requires a reason (422 without one) | `cmd/halo-server/main.go`, `internal/server/killswitch.go`, `capabilities.go`, `internal/gateway/killswitch.go`, `cmd/halo-kong/main.go` |
+| T32 A client-axis variant profile weakens the ring (extra hooks, another telemetry endpoint, wider models, a more permissive mode) and ships to a slice of the fleet | A6 | Variant profiles are validated against the ring profile as **errors**: hooks subset, `telemetry.otlpEndpoint` and `logPrompts` equal, `models.allowed` subset, `permissions.mode` not more permissive, `instructions` and `env` equal, plus the version-pin, MCP, deny-list and sandbox rules ([list](/halos/concepts/experiments/#variant-guardrails)) | `internal/policy/guardrails.go` (`variantProfileIssues`) |
+
+## Residual risk and non-goals
+
+- **Signing-key compromise is fleet-wide.** The allowlist prevents arbitrary file writes, but a signed hook in an allowed directory is still code execution as the developer. There is no multi-party signing.
+- **Local admins beat client-side enforcement.** Anything the matrix marks as `halod` enforcing can be stopped by a local administrator. The gateway is authoritative for cohorts and model access.
+- **Insider merges.** Guardrails are a floor, not a review substitute.
+- **Windows:** ownership is checked by owner SID only, not the DACL. `halod` is a console binary run as SYSTEM, not a native service. **UNVERIFIED** on real Windows hosts.
+- **Prompts are sensitive.** Telemetry with `logPrompts` and shadow pairs export prompt content. Both are off unless enabled; the guardrails warn on `logPrompts` for the GA ring.
+- **Not defended:** a compromised IdP, a compromised model provider, compromised vendor signing, and denial of service by a party that can already reach the gateway. mTLS and per-user rate limiting are not provided. Bedrock SigV4 signing is provided by `halo-proxy` only, and has not run against real AWS.
+- **Kill-switch scope.** The kill switch acts on gateways. It does not reach client-axis variants on machines, which change only when the pause PR merges and `halod` pulls the release. Anyone with the kill key and control of the path can kill experiments (not roll out anything); anyone who can write `killswitch.jsonl` on the server can un-kill.
+- **Webhook receivers do the verifying.** The generated signature is only as good as the receiver's check: verify the HMAC over the raw body and the 5-minute timestamp window ([snippets](/halos/reference/cli/#verifying-the-webhook-signature)). Slack incoming webhooks carry no signature; the URL is the secret.
+- **Controller privileges.** The controller opens PRs from a dedicated clone with the credentials of the `gh` login on the server. Scope that token to the policy repo; it never merges.
+- **Evidence status:** all of the above is covered by unit tests in the repo; none of it has been validated on a real fleet, real Kong Enterprise, real AWS Bedrock, or by an external reviewer.

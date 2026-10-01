@@ -1,0 +1,9 @@
+id: fix-add
+repo: repo
+setup:
+  - test -f add.go
+prompt: Fix the failing test in this repo.
+check: go test ./...
+timeout: 2m
+budget_usd: 1
+tags: [go, fixture]

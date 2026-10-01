@@ -1,0 +1,13 @@
+:root {
+  --sl-color-accent-low: #06302c;
+  --sl-color-accent: #0f766e;
+  --sl-color-accent-high: #7ee7d6;
+  --sl-font-system-mono: ui-monospace, 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+}
+:root[data-theme='light'] {
+  --sl-color-accent-low: #c9f2ea;
+  --sl-color-accent: #0f766e;
+  --sl-color-accent-high: #0b4f4a;
+}
+.sl-markdown-content table { display: table; width: 100%; }
+.mermaid { margin: 1.5rem 0; text-align: center; }

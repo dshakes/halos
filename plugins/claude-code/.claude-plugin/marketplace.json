@@ -1,0 +1,11 @@
+{
+  "name": "halos",
+  "owner": { "name": "Halos contributors" },
+  "plugins": [
+    {
+      "name": "halos",
+      "source": "./",
+      "description": "Halos rollout skills, commands and MCP server for platform engineers."
+    }
+  ]
+}

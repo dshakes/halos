@@ -1,0 +1,255 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://halos.dev/schemas/experiment.schema.json",
+  "title": "Experiment",
+  "description": "An A/B, canary or shadow experiment with sticky per-user assignment.",
+  "type": "object",
+  "properties": {
+    "apiVersion": {
+      "type": "string",
+      "description": "Document version.",
+      "const": "halos.dev/v1alpha1"
+    },
+    "kind": {
+      "type": "string",
+      "description": "Document kind.",
+      "const": "Experiment"
+    },
+    "name": {
+      "type": "string",
+      "description": "Unique name within its kind.",
+      "pattern": "^[a-z0-9][a-zA-Z0-9._-]*$"
+    },
+    "labels": {
+      "type": "object",
+      "description": "Free-form labels.",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "type": {
+      "type": "string",
+      "description": "How users are exposed.",
+      "enum": [
+        "ab",
+        "canary",
+        "shadow"
+      ]
+    },
+    "axis": {
+      "type": "string",
+      "description": "Where variants differ: client (profiles) or traffic (model routes). Shadow must be traffic.",
+      "enum": [
+        "client",
+        "traffic"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "description": "Lifecycle state; only running experiments assign users.",
+      "enum": [
+        "draft",
+        "running",
+        "paused",
+        "concluded"
+      ]
+    },
+    "rings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Rings the experiment draws users from.",
+      "minItems": 1
+    },
+    "variants": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "description": "An experiment arm.",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Variant name, unique within the experiment."
+          },
+          "weight": {
+            "type": "number",
+            "description": "Share of users (normalised); must be > 0.",
+            "exclusiveMinimum": 0
+          },
+          "routes": {
+            "type": "object",
+            "description": "Traffic axis: model alias -> route override.",
+            "additionalProperties": {
+              "type": "object",
+              "description": "Upstream target for a model alias.",
+              "properties": {
+                "upstream": {
+                  "type": "string",
+                  "description": "Name of an entry in gateway.upstreams."
+                },
+                "model": {
+                  "type": "string",
+                  "description": "Provider model id or Bedrock inference profile ARN."
+                }
+              },
+              "required": [
+                "upstream",
+                "model"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "profile": {
+            "type": "string",
+            "description": "Client axis: profile to apply."
+          },
+          "control": {
+            "type": "boolean",
+            "description": "Marks the control variant (exactly one for ab/canary)."
+          }
+        },
+        "required": [
+          "name",
+          "weight"
+        ],
+        "additionalProperties": false
+      },
+      "description": "Experiment arms.",
+      "minItems": 1
+    },
+    "sampleRate": {
+      "type": "number",
+      "description": "Shadow only: fraction of eligible requests mirrored, in (0,1].",
+      "exclusiveMinimum": 0,
+      "maximum": 1
+    },
+    "metrics": {
+      "type": "object",
+      "description": "Metrics.",
+      "properties": {
+        "primary": {
+          "type": "object",
+          "description": "A metric objective.",
+          "properties": {
+            "metric": {
+              "type": "string",
+              "description": "Normalised halo.* metric name (see internal/policy MetricRegistry).",
+              "pattern": "^halo\\.[a-z0-9_.]+$"
+            },
+            "direction": {
+              "type": "string",
+              "description": "Which direction is better.",
+              "enum": [
+                "increase",
+                "decrease"
+              ]
+            },
+            "maxRegression": {
+              "type": "number",
+              "description": "Guardrails: relative worsening that aborts, e.g. 0.05 = 5%.",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "metric",
+            "direction"
+          ],
+          "additionalProperties": false
+        },
+        "guardrails": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "description": "A metric objective.",
+            "properties": {
+              "metric": {
+                "type": "string",
+                "description": "Normalised halo.* metric name (see internal/policy MetricRegistry).",
+                "pattern": "^halo\\.[a-z0-9_.]+$"
+              },
+              "direction": {
+                "type": "string",
+                "description": "Which direction is better.",
+                "enum": [
+                  "increase",
+                  "decrease"
+                ]
+              },
+              "maxRegression": {
+                "type": "number",
+                "description": "Guardrails: relative worsening that aborts, e.g. 0.05 = 5%.",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "metric",
+              "direction"
+            ],
+            "additionalProperties": false
+          },
+          "description": "Metrics that abort the experiment on regression."
+        }
+      },
+      "required": [
+        "primary"
+      ],
+      "additionalProperties": false
+    },
+    "stopping": {
+      "type": "object",
+      "description": "Stopping rule.",
+      "properties": {
+        "method": {
+          "type": "string",
+          "description": "Stopping rule.",
+          "enum": [
+            "msprt",
+            "fixed"
+          ]
+        },
+        "alpha": {
+          "type": "number",
+          "description": "Significance level in (0,1).",
+          "exclusiveMinimum": 0,
+          "exclusiveMaximum": 1
+        },
+        "minSamples": {
+          "type": "integer",
+          "description": "Minimum samples before a decision.",
+          "minimum": 0
+        },
+        "maxDays": {
+          "type": "integer",
+          "description": "Maximum duration.",
+          "minimum": 0
+        },
+        "maxSpendUSD": {
+          "type": "number",
+          "description": "Maximum spend.",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "method"
+      ],
+      "additionalProperties": false
+    },
+    "salt": {
+      "type": "string",
+      "description": "Keeps assignment independent across experiments; defaults to name."
+    }
+  },
+  "required": [
+    "apiVersion",
+    "kind",
+    "name",
+    "type",
+    "axis",
+    "rings",
+    "variants",
+    "metrics",
+    "stopping"
+  ],
+  "additionalProperties": false
+}

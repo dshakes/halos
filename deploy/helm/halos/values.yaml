@@ -1,0 +1,366 @@
+# Halos chart values. Secrets are NEVER inlined: reference pre-created Secrets.
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  registry: ghcr.io
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# Non-root, immutable rootfs, no caps. Applied to every container in the chart.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile: {type: RuntimeDefault}
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  capabilities: {drop: [ALL]}
+
+topologySpread:
+  enabled: true
+  maxSkew: 1
+  whenUnsatisfiable: ScheduleAnyway
+  topologyKeys: [topology.kubernetes.io/zone, kubernetes.io/hostname]
+
+# Policy repo synced by git-sync into an emptyDir (server + proxy when source=gitSync).
+policy:
+  gitSync:
+    image: {repository: git-sync/git-sync, registry: registry.k8s.io, tag: v4.4.0, digest: ""}
+    repo: https://github.com/example-org/halos-policy.git   # CHANGE ME
+    ref: main
+    depth: 1
+    period: 30s
+    # none (public repo) | ssh (Secret keys: ssh, known_hosts) | token (Secret key: password)
+    auth: {type: none, existingSecret: "", username: git}
+    resources:
+      requests: {cpu: 10m, memory: 32Mi}
+      limits: {memory: 128Mi}
+
+server:
+  enabled: true
+  image: {repository: halos-dev/halo-server, tag: "", digest: ""}
+  replicas: 1                      # file-backed store + RWO PVC: keep at 1
+  port: 8080
+  args: []                         # extra halo-server flags
+  extraEnv: []
+  extraVolumes: []
+  extraVolumeMounts: []
+  # Subdirectory of the policy repo that holds the policy (--policy-dir).
+  policySubdir: ""
+  verdictsPath: ""                 # optional --verdicts-file path
+  # --trusted-proxy-cidrs: CIDRs whose X-Forwarded-For is trusted for rate limiting. Empty = never
+  # trust XFF. Set to the ingress controller pod CIDR (NOT 0.0.0.0/0), e.g. "10.42.0.0/16".
+  trustedProxyCIDRs: ""
+  # Secrets (existing). token is required by halo-server; session key / OIDC secret optional.
+  fleetToken: {existingSecret: halos-fleet-token, key: token}
+  sessionKey: {existingSecret: halos-session, key: session-key}
+  oidcClientSecret: {existingSecret: "", key: client-secret}
+  # Portal JSON (--portal-config): baseURL, registry, halodURL, halodSHA256, launchers ...
+  # sessionKeyFile / oidcClientSecretFile are injected from the Secrets above.
+  portal:
+    baseURL: https://halos.example.com
+  # Self-service proposals (portal.policyRepoDir). Uses the one writable clone shared with controller PRs
+  # (real `git clone` init container; see controller.policyRepo). UNVERIFIED against a real cluster.
+  proposals: {enabled: false}
+  # Gateway kill switch (--killswitch-key-file + --gateway-token-file, set together). Enabled when
+  # existingSecret is set. Create the Secret yourself (human runs):
+  #   halo keys generate --name killswitch        # PKCS#8 PEM private key -> key `signingKey`; public half -> proxy pubkey Secret
+  #   openssl rand -hex 32                        # >= 16 chars -> key `gatewayToken`
+  # The gateways (halo-proxy / halo-kong) poll GET /api/v1/gateway/killswitch with that token and verify the signature.
+  # Requires persistence.enabled (kills live in --data-dir/killswitch.jsonl and must survive a restart).
+  killSwitch: {existingSecret: "", signingKey: signing-key, gatewayToken: gateway-token}
+  # Metrics listener (--metrics-listen, controller /metrics, UNAUTHENTICATED: keep internal). Adds a `metrics`
+  # container/Service port; NetworkPolicy admits only networkPolicy.metricsFrom. ServiceMonitor scrapes it.
+  metrics: {enabled: false, port: 9092}
+  # Automated experiment loop (--controller): evaluates experiments from ClickHouse, trips the kill switch on
+  # rollback, opens PRs, notifies. Requires persistence.enabled (--data-dir: action log dedups PRs across restarts).
+  controller:
+    enabled: false
+    interval: 5m                   # --interval (>= 1m)
+    clickhouse:                    # evidence store (HTTP interface)
+      url: ""                      # REQUIRED, e.g. http://clickhouse.data.svc:8123
+      database: ""
+      # user/password come from this Secret (password mounted as --clickhouse-password-file). Empty existingSecret = none.
+      existingSecret: ""
+      userKey: username
+      passwordKey: password
+    # Each is optional; Secret value = the URL / HMAC secret. Empty existingSecret disables that channel.
+    notify:
+      slack: {existingSecret: "", key: url}                    # --notify-slack-url-file
+      webhook: {existingSecret: "", urlKey: url, secretKey: secret}   # --notify-webhook-url-file / -secret-file (X-Halo-Signature)
+    # PR opening from ONE writable clone (/policy-writer/repo, shared with proposals; never the served policy dir), made by
+    # an init container running a real `git clone` (git-sync worktrees have no origin). Needs `git`, `sh`, `gh` (+ `ssh` for
+    # ssh auth) IN THE halo-server IMAGE: set `image` to one that has them. UNVERIFIED against a real cluster.
+    policyRepo:
+      enabled: false
+      image: {repository: "", tag: "", digest: ""}     # alternate halo-server image (git+gh); empty repository = server.image
+      subdir: ""                   # --policy-repo-subdir (defaults to server.policySubdir)
+      base: main                   # --policy-repo-base
+      # gh auth: Secret key holding a GitHub token, exported as GH_TOKEN. Clone auth reuses policy.gitSync.auth.
+      ghToken: {existingSecret: "", key: token}
+  persistence:
+    enabled: true
+    existingClaim: ""
+    size: 5Gi
+    storageClass: ""
+    accessModes: [ReadWriteOnce]
+  service: {type: ClusterIP, port: 80, annotations: {}}
+  resources:
+    requests: {cpu: 100m, memory: 128Mi}
+    limits: {memory: 512Mi}
+  pdb: {enabled: false, maxUnavailable: 1}   # single replica: a PDB would block node drains
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    hosts: [halos.example.com]
+    tls: []                        # [{secretName: halos-tls, hosts: [halos.example.com]}]
+
+proxy:
+  enabled: true
+  image: {repository: halos-dev/halo-proxy, tag: "", digest: ""}
+  replicas: 2
+  port: 8088
+  args: []
+  # Admin listener (/healthz + /metrics; the public port serves only proxied model paths). Probes and
+  # ServiceMonitor use it; NetworkPolicy admits only networkPolicy.metricsFrom on this port.
+  adminPort: 9090
+  extraEnv: []                     # e.g. secret-backed vars referenced as ${ENV} in upstreamHeaders
+  extraVolumes: []
+  extraVolumeMounts: []
+  # Written verbatim to the halo-proxy YAML config (strict keys; see cmd/halo-proxy/config.go).
+  # listen and policy are set by the chart. Timeouts favour long model streams.
+  config:
+    forwardAuth: false
+    maxBodyBytes: 33554432
+    readHeaderTimeout: 10s
+    readTimeout: 5m
+    idleTimeout: 2m
+    upstreamHeaderTimeout: 10m
+    shutdownTimeout: 2m
+    identity:
+      mode: jwt
+      issuer: ""
+      audience: ""
+  # Dedicated ServiceAccount (default: shared chart SA). Needed to scope cloud credentials to the proxy.
+  # Bedrock upstreams are signed (SigV4) with the AWS default credential chain; the upstream `region` lives in the
+  # policy snapshot. Pick one:
+  #  - IRSA:              annotations: {eks.amazonaws.com/role-arn: arn:aws:iam::<acct>:role/halos-proxy-bedrock}
+  #  - EKS Pod Identity:  NO annotation; `aws eks create-pod-identity-association --cluster-name <c> --namespace <ns>
+  #                       --service-account <name> --role-arn <arn>` (human runs). Name = <fullname>-proxy unless `name` set.
+  # The role needs bedrock:InvokeModel[WithResponseStream]. SA token automount stays off (the EKS webhook injects its own
+  # projected token). With networkPolicy on, see networkPolicy.aws for egress.
+  serviceAccount: {create: false, name: "", annotations: {}}
+  # Gateway kill switch: polls halo-server's signed kill list (config killSwitch {url,tokenFile,pubkeyFile,interval}).
+  killSwitch:
+    enabled: false
+    url: ""                        # default: in-cluster halo-server Service /api/v1/gateway/killswitch (plain HTTP, see allowInsecureInCluster)
+    # The gateway token is a bearer credential sent on every poll, so the gateway refuses plain http to non-loopback hosts
+    # unless this is true. The chart's halo-server has no TLS listener, so the in-cluster default URL needs it. Set a https://
+    # url (TLS terminated in front of halo-server, e.g. ingress/service mesh) and this to false to enforce TLS.
+    allowInsecureInCluster: true
+    interval: 10s
+    token: {existingSecret: "", key: gateway-token}    # empty existingSecret = server.killSwitch.existingSecret
+    pubkey: {existingSecret: "", key: killswitch.pub}  # PUBLIC half of the signing key (REQUIRED)
+  # Gateway evidence (halo.gateway.* metrics): OTLP/HTTP to the otel gateway receiver (:4319), authenticated by a bearer
+  # token mounted as a file (config telemetry.tokenFile). Without it the collector rejects exports (401) and the controller
+  # sees no gateway evidence. tokenSecret defaults to otel.gatewayToken. unitSaltSecret (optional, --telemetry-unit-salt-file):
+  # same salt on every replica so one user stays one halo.unit; empty = random per-process salt.
+  telemetry:
+    enabled: false
+    otlpEndpoint: ""               # default: http://<release>-otel:4319 (in-chart collector)
+    tokenSecret: {existingSecret: "", key: token}      # empty existingSecret = otel.gatewayToken.existingSecret
+    unitSaltSecret: {existingSecret: "", key: unit-salt}
+  # Policy snapshot (`halo gateway compile`). source: configMap | gitSync
+  policy:
+    source: configMap
+    existingConfigMap: ""          # ConfigMap holding the snapshot; else `snapshot` below is rendered
+    key: gateway.compiled.json
+    snapshot: "{}"
+    gitSyncPath: gateway.compiled.json   # path inside the repo when source=gitSync
+  shadow: {enabled: true}          # mirror to in-chart halo-shadow when halo-shadow.enabled
+  # Grace must exceed config.shutdownTimeout so in-flight streams drain.
+  terminationGracePeriodSeconds: 150
+  preStopSleepSeconds: 5           # needs k8s >= 1.30, else ignored
+  service: {type: ClusterIP, port: 80, annotations: {}}
+  resources:
+    requests: {cpu: 200m, memory: 128Mi}
+    limits: {memory: 512Mi}
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: null
+    scaleDownStabilizationSeconds: 600   # slow scale-down: streams are long-lived
+  pdb: {enabled: true, maxUnavailable: 1}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  ingress:
+    enabled: false
+    className: ""
+    # nginx defaults for SSE/long streams; override for other controllers.
+    annotations:
+      nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+      nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+      nginx.ingress.kubernetes.io/proxy-buffering: "off"
+      nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    hosts: [gateway.example.com]
+    tls: []
+
+shadow:
+  enabled: false
+  image: {repository: halos-dev/halo-shadow, tag: "", digest: ""}
+  replicas: 1
+  port: 8090
+  # Listens on 0.0.0.0 in-cluster (binary default is 127.0.0.1); NetworkPolicy restricts ingress to
+  # halo-proxy (+ networkPolicy.ingressFrom.halo-shadow, e.g. Kong pods).
+  listen: 0.0.0.0
+  # HALO_SHADOW_TOKEN authenticates the proxy/halo-kong mirror callers and guards /metrics on the main
+  # listener. Prometheus scrapes the separate unauthenticated --metrics-listen (counters only).
+  token: {existingSecret: halos-halo-shadow, key: token}
+  # REQUIRED by halo-shadow (--policy): the SAME compiled snapshot halo-proxy uses, produced by
+  # `halo gateway compile` in CI. Empty values inherit proxy.policy.* (source/existingConfigMap/key/gitSyncPath).
+  policy:
+    source: ""                     # "" (inherit proxy.policy.source) | configMap | gitSync
+    existingConfigMap: ""
+    key: ""
+    gitSyncPath: ""
+  # Per-upstream credentials (--upstream-headers): Secret key holding YAML
+  # {upstreamName: {Header: value}}; values may use ${ENV} (feed those via extraEnv). HALO_SHADOW_AUTH_HEADER is refused.
+  upstreamHeaders: {existingSecret: "", key: upstream-headers.yaml}
+  # Optional at-rest encryption of pairs (--pair-key-file): Secret key with a base64 32-byte AES-256-GCM key.
+  pairKey: {existingSecret: "", key: pair-key}
+  retention: 720h                  # --retention; prune pairs older than this (0 = forever)
+  extraEnv: []
+  queue: 64
+  workers: 4
+  budgetUSD: 50                    # must be > 0 (halo-shadow refuses to start otherwise)
+  priceIn: 3
+  priceOut: 15
+  args: []
+  # Pairs JSONL. Disabled => emptyDir (lost on restart).
+  persistence: {enabled: true, existingClaim: "", size: 10Gi, storageClass: "", accessModes: [ReadWriteOnce]}
+  # --metrics-listen (HALO_SHADOW_METRICS_LISTEN): GET /metrics only, no token. "" disables. NetworkPolicy
+  # admits only networkPolicy.metricsFrom on this port.
+  metricsListen: ":9091"
+  service: {type: ClusterIP, port: 8090, annotations: {}}
+  resources:
+    requests: {cpu: 100m, memory: 128Mi}
+    limits: {memory: 512Mi}
+  pdb: {enabled: false, maxUnavailable: 1}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+
+otel:
+  enabled: false
+  image: {registry: docker.io, repository: otel/opentelemetry-collector-contrib, tag: 0.161.0, digest: ""}   # version the generated config is verified against (make obs-e2e)
+  replicas: 1
+  # Collector config precedence: existingConfigMap (key config.yaml) > config (string) > files/otel-collector.yaml.
+  # The shipped file is the output of `halo telemetry collector-config --clickhouse tcp://clickhouse:9000`
+  # (normalises harness metrics to halo.*). For your ClickHouse/ports, regenerate it in CI and
+  # publish it as a ConfigMap (preferred): halo telemetry collector-config --clickhouse <dsn> -o config.yaml
+  #   kubectl create configmap halo-otel --from-file=config.yaml   (human runs)  -> existingConfigMap: halo-otel
+  existingConfigMap: ""
+  config: ""
+  # The generated config reads ${env:CLICKHOUSE_USER} and ${env:CLICKHOUSE_PASSWORD}: both come from this
+  # Secret (required when using the shipped files/otel-collector.yaml or any config that references them).
+  # The example file targets tcp://clickhouse:9000; regenerate for another endpoint (see above).
+  clickhouse: {existingSecret: "", userKey: username, passwordKey: password}
+  # Evidence trust: the CLI receiver (4317/4318) is open to developer machines and cannot carry
+  # halo.gateway.* evidence; halo-proxy exports to the gateway receiver (4319), which requires this
+  # bearer token (env HALO_OTLP_GATEWAY_TOKEN; required by the shipped config). Give halo-proxy the same
+  # token as a file: proxy.extraVolumes/extraVolumeMounts + proxy.config.telemetry
+  # {otlpEndpoint: http://<release>-otel:4319, tokenFile: <mounted path>}. Per-device CLI tokens:
+  # regenerate with --cli-token-file and mount that file (recommended).
+  gatewayToken: {existingSecret: "", key: token}
+  service: {type: ClusterIP}
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 512Mi}
+  pdb: {enabled: false, maxUnavailable: 1}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+
+# NetworkPolicy: default deny (ingress+egress) for all chart pods, then explicit allows.
+# Egress beyond DNS and in-chart traffic is EMPTY by default: add upstreams/IdP/registry/git rules
+# (raw NetworkPolicyEgressRule) per component or the pods cannot reach them.
+networkPolicy:
+  enabled: true
+  dnsNamespaceSelector: {kubernetes.io/metadata.name: kube-system}
+  # ingress peers (raw NetworkPolicyPeer list) allowed to reach each component
+  ingressFrom:
+    server: []                     # e.g. [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: ingress-nginx}}}]
+    proxy: []
+    shadow: []                    # proxy is auto-allowed; add halo-kong pods here
+    otel: []                       # OTLP senders (CLI 4317/4318, halo-proxy 4319)
+  # Prometheus peers for halo-proxy admin (9090), halo-shadow metrics (9091) and the OTel scrape port.
+  metricsFrom:
+    - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: monitoring}}
+  egress:
+    server: []                     # IdP, git host, OCI registry, GitHub API
+    proxy: []                      # model provider upstreams, IdP JWKS
+    shadow: []                    # control/candidate upstreams
+    otel: []                       # ClickHouse
+  # Values-driven egress (raw NetworkPolicyPeer list in `to`; empty `to` = rule not rendered). Plain NetworkPolicy has
+  # NO FQDN matching: use CIDRs / VPC-endpoint IPs, or a CNI-specific policy via egress.* (Cilium/Calico FQDN).
+  # halo-server controller (rendered only when server.controller.enabled):
+  controllerEgress:
+    clickhouse: {to: [], ports: [8123]}    # e.g. [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: data}}}]
+    git: {to: [], ports: [443, 22]}        # git host + GitHub API for `gh` (api.github.com, github.com)
+    webhook: {to: [], ports: [443]}        # Slack / generic webhook receiver
+  # halo-proxy -> AWS. Bedrock runtime is bedrock-runtime.<region>.amazonaws.com:443 (prefer a bedrock-runtime VPC
+  # interface endpoint and put its subnet CIDR here). IRSA also calls sts.<region>.amazonaws.com:443 (add its CIDR/endpoint).
+  # Pod Identity instead talks to the node-local agent 169.254.170.23:80 (podIdentityAgent: true).
+  aws: {to: [], ports: [443], podIdentityAgent: false}
+  # proxy -> halo-server kill switch endpoint is automatic when proxy.killSwitch.enabled (same release).
+  # proxy -> otel gateway receiver (:4319) and the matching otel ingress are automatic when proxy.telemetry.enabled.
+  # halo-server proposals (server.proposals.enabled) push branches/open PRs from the same clone as the controller, so
+  # controllerEgress.git is rendered for the server when proposals OR the controller are enabled.
+
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  labels: {}                       # e.g. release: kube-prometheus-stack
+  # halo-server controller metrics are scraped too when server.metrics.enabled
+
+# Kong Ingress Controller mode: render a KongPlugin CR for halo-kong. UNVERIFIED (never applied).
+# The halo-kong plugin must already be installed in Kong and the policy snapshot must exist at
+# `policyPath` inside the Kong pods; this chart does not mount it there.
+kong:
+  enabled: false
+  pluginName: halo-kong
+  config:
+    policy_path: /policy/gateway.compiled.json
+    identity_mode: jwt
+    issuer: ""
+    audience: ""
+  # Kill switch for halo-kong: killswitch_url (in-cluster halo-server) + vault refs, NOT literals. The Kong release must
+  # also set HALO_KILLSWITCH_TOKEN (gateway token) and HALO_KILLSWITCH_PUBKEY (PEM public key) env + KONG_NGINX_MAIN_ENV.
+  killSwitch: {enabled: false, url: "", allowInsecureInCluster: true} # same semantics as proxy.killSwitch.allowInsecureInCluster
+  mirrorToShadow: true            # sets shadow_url to the in-chart halo-shadow Service /mirror
+  # The halo-shadow token is NOT put in the plugin config (it would leak via the Kong Admin API). The plugin
+  # references {vault://env/halo-shadow-token}; the Kong deployment (not this chart) must set, e.g. for
+  # kong/kong or kong/ingress `env:` values:
+  #   HALO_SHADOW_TOKEN: from Secret <halo-shadow.token.existingSecret>/<key>
+  #   KONG_NGINX_MAIN_ENV: HALO_SHADOW_TOKEN
+  #   KONG_NGINX_HTTP_CLIENT_BODY_BUFFER_SIZE: 32m     (halo-kong buffers the body; spooled bodies get 413)

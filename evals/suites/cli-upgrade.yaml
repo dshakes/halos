@@ -1,0 +1,10 @@
+# Does upgrading the Claude Code CLI regress task success, cost or latency?
+# Add `settings: <path to rendered managed-settings.json>` to a variant to
+# mount that variant's rendered settings into its container.
+name: cli-upgrade
+tasks: [fix-failing-go-test, add-cli-flag, refactor-rename]
+control: current
+repeats: 5
+variants:
+  - {name: current, harness: claude, version: "2.1.280", model: sonnet}
+  - {name: candidate, harness: claude, version: "2.1.300", model: sonnet}

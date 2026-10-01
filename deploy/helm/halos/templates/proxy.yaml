@@ -1,0 +1,221 @@
+{{- if .Values.proxy.enabled }}
+{{- $p := .Values.proxy }}
+{{- $n := include "halo.cname" (list . "proxy") }}
+{{- $gs := eq $p.policy.source "gitSync" }}
+{{- $polPath := ternary (printf "/policy/current/%s" (trimAll "/" $p.policy.gitSyncPath)) (printf "/policy/%s" $p.policy.key) $gs }}
+{{- $useShadow := and $p.shadow.enabled .Values.shadow.enabled }}
+{{- $cfg := deepCopy $p.config }}
+{{- $_ := set $cfg "listen" (printf ":%v" $p.port) }}
+{{- $_ := set $cfg "adminListen" (printf ":%v" $p.adminPort) }}
+{{- $_ := set $cfg "policy" $polPath }}
+{{- if $useShadow }}{{ $_ := set $cfg "shadow" (dict "url" (printf "http://%s:%v/mirror" (include "halo.cname" (list . "halo-shadow")) .Values.shadow.service.port)) }}{{ end }}
+{{- $ks := $p.killSwitch }}
+{{- $ksTok := default .Values.server.killSwitch.existingSecret $ks.token.existingSecret }}
+{{- if $ks.enabled }}
+{{- $_ := required "proxy.killSwitch.token.existingSecret (or server.killSwitch.existingSecret) is required" $ksTok }}
+{{- $_ := required "proxy.killSwitch.pubkey.existingSecret is required" $ks.pubkey.existingSecret }}
+{{- $_ := set $cfg "killSwitch" (dict "url" (default (printf "http://%s:%v/api/v1/gateway/killswitch" (include "halo.cname" (list . "server")) .Values.server.service.port) $ks.url) "tokenFile" "/etc/halo-killswitch/token" "pubkeyFile" "/etc/halo-killswitch/pubkey" "interval" $ks.interval "allowInsecureInCluster" (and $ks.allowInsecureInCluster (not (hasPrefix "https://" (default "" $ks.url)))) ) }}
+{{- end }}
+{{- /* Gateway evidence: OTLP to the otel gateway receiver (:4319, bearer token). Token/salt are mounted files, never inline. */}}
+{{- $tl := $p.telemetry }}
+{{- $tlTok := default .Values.otel.gatewayToken.existingSecret $tl.tokenSecret.existingSecret }}
+{{- if $tl.enabled }}
+{{- $_ := required "proxy.telemetry.tokenSecret.existingSecret (or otel.gatewayToken.existingSecret) is required" $tlTok }}
+{{- $tcfg := dict "otlpEndpoint" (default (printf "http://%s:4319" (include "halo.cname" (list . "otel"))) $tl.otlpEndpoint) "tokenFile" "/etc/halo-telemetry/token" }}
+{{- $_ := set $cfg "telemetry" (mergeOverwrite (default (dict) $cfg.telemetry) $tcfg) }}
+{{- end }}
+{{- $cmName := default (printf "%s-policy" $n) $p.policy.existingConfigMap }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $n }}
+  labels: {{- include "halo.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    {{- toYaml $cfg | nindent 4 }}
+{{- if and (not $gs) (not $p.policy.existingConfigMap) }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $n }}-policy
+  labels: {{- include "halo.labels" . | nindent 4 }}
+data:
+  {{ $p.policy.key }}: |
+    {{- $p.policy.snapshot | nindent 4 }}
+{{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $n }}
+  labels: {{- include "halo.labels" . | nindent 4 }}
+    app.kubernetes.io/component: proxy
+  {{- with $p.service.annotations }}
+  annotations: {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ $p.service.type }}
+  selector: {{- include "halo.selector" (list . "proxy") | nindent 4 }}
+  ports:
+    - {name: http, port: {{ $p.service.port }}, targetPort: http}
+    - {name: admin, port: {{ $p.adminPort }}, targetPort: admin}   # /healthz + /metrics; NetworkPolicy limits to metricsFrom
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $n }}
+  labels: {{- include "halo.labels" . | nindent 4 }}
+spec:
+  {{- if not $p.autoscaling.enabled }}
+  replicas: {{ $p.replicas }}
+  {{- end }}
+  strategy: {type: RollingUpdate, rollingUpdate: {maxUnavailable: 0, maxSurge: 1}}
+  selector:
+    matchLabels: {{- include "halo.selector" (list . "proxy") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "halo.selector" (list . "proxy") | nindent 8 }}
+      annotations:
+        checksum/config: {{ toJson $cfg | sha256sum }}
+        {{- with $p.podAnnotations }}{{ toYaml . | nindent 8 }}{{ end }}
+    spec:
+      serviceAccountName: {{ include "halo.proxyServiceAccountName" . }}
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: {{ $p.terminationGracePeriodSeconds }}
+      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- include "halo.pullSecrets" . | nindent 6 }}
+      {{- if $gs }}
+      initContainers:
+        {{- include "halo.gitsync" (dict "root" . "name" "git-sync-init" "once" true "link" "current" "dir" "/policy" "vol" "policy") | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: halo-proxy
+          image: {{ include "halo.image" (list . $p.image) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - --config=/etc/halo-proxy/config.yaml
+            {{- if and $tl.enabled $tl.unitSaltSecret.existingSecret }}
+            - --telemetry-unit-salt-file=/etc/halo-telemetry/unit-salt   # no config key: file flag only
+            {{- end }}
+            {{- range $p.args }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            {{- if $useShadow }}
+            - name: HALO_PROXY_HALO_SHADOW_TOKEN
+              valueFrom: {secretKeyRef: {name: {{ .Values.shadow.token.existingSecret }}, key: {{ .Values.shadow.token.key }}}}
+            {{- end }}
+            {{- with $p.extraEnv }}{{ toYaml . | nindent 12 }}{{ end }}
+          ports:
+            - {name: http, containerPort: {{ $p.port }}}
+            - {name: admin, containerPort: {{ $p.adminPort }}}
+          readinessProbe: {httpGet: {path: /healthz, port: admin}, periodSeconds: 5, failureThreshold: 2}
+          livenessProbe: {httpGet: {path: /healthz, port: admin}, initialDelaySeconds: 10, periodSeconds: 20}
+          {{- if semverCompare ">=1.30.0-0" .Capabilities.KubeVersion.Version }}
+          lifecycle:
+            preStop: {sleep: {seconds: {{ $p.preStopSleepSeconds }}}}
+          {{- end }}
+          securityContext: {{- toYaml .Values.securityContext | nindent 12 }}
+          resources: {{- toYaml $p.resources | nindent 12 }}
+          volumeMounts:
+            - {name: config, mountPath: /etc/halo-proxy, readOnly: true}
+            - {name: policy, mountPath: /policy, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+            {{- if $ks.enabled }}
+            - {name: killswitch, mountPath: /etc/halo-killswitch, readOnly: true}
+            {{- end }}
+            {{- if $tl.enabled }}
+            - {name: telemetry, mountPath: /etc/halo-telemetry, readOnly: true}
+            {{- end }}
+            {{- with $p.extraVolumeMounts }}{{ toYaml . | nindent 12 }}{{ end }}
+        {{- if $gs }}
+        {{- include "halo.gitsync" (dict "root" . "name" "git-sync" "once" false "link" "current" "dir" "/policy" "vol" "policy") | nindent 8 }}
+        {{- end }}
+      {{- include "halo.topologySpread" (list . "proxy") | nindent 6 }}
+      {{- with $p.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $p.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $p.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - name: config
+          configMap: {name: {{ $n }}}
+        {{- if $gs }}
+        - {name: policy, emptyDir: {}}
+        {{- else }}
+        - name: policy
+          configMap: {name: {{ $cmName }}}
+        {{- end }}
+        - {name: tmp, emptyDir: {}}
+        {{- if $ks.enabled }}
+        - name: killswitch
+          projected:
+            defaultMode: 0440
+            sources:
+              - secret:
+                  name: {{ $ksTok }}
+                  items: [{key: {{ $ks.token.key }}, path: token}]
+              - secret:
+                  name: {{ $ks.pubkey.existingSecret }}
+                  items: [{key: {{ $ks.pubkey.key }}, path: pubkey}]
+        {{- end }}
+        {{- if $tl.enabled }}
+        - name: telemetry
+          projected:
+            defaultMode: 0440
+            sources:
+              - secret:
+                  name: {{ $tlTok }}
+                  items: [{key: {{ $tl.tokenSecret.key }}, path: token}]
+              {{- with $tl.unitSaltSecret.existingSecret }}
+              - secret:
+                  name: {{ . }}
+                  items: [{key: {{ $tl.unitSaltSecret.key }}, path: unit-salt}]
+              {{- end }}
+        {{- end }}
+        {{- if $gs }}{{- include "halo.gitsyncVolume" . | nindent 8 }}{{ end }}
+        {{- with $p.extraVolumes }}{{ toYaml . | nindent 8 }}{{ end }}
+{{- if $p.autoscaling.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ $n }}
+  labels: {{- include "halo.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: {{ $n }}}
+  minReplicas: {{ $p.autoscaling.minReplicas }}
+  maxReplicas: {{ $p.autoscaling.maxReplicas }}
+  metrics:
+    {{- with $p.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource: {name: cpu, target: {type: Utilization, averageUtilization: {{ . }}}}
+    {{- end }}
+    {{- with $p.autoscaling.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource: {name: memory, target: {type: Utilization, averageUtilization: {{ . }}}}
+    {{- end }}
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: {{ $p.autoscaling.scaleDownStabilizationSeconds }}
+      policies: [{type: Pods, value: 1, periodSeconds: 120}]
+{{- end }}
+{{- if $p.pdb.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $n }}
+  labels: {{- include "halo.labels" . | nindent 4 }}
+spec:
+  maxUnavailable: {{ $p.pdb.maxUnavailable }}
+  selector:
+    matchLabels: {{- include "halo.selector" (list . "proxy") | nindent 6 }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,21 @@
+{
+  "name": "halos-docs",
+  "type": "module",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "astro": "astro",
+    "sync-adr": "mkdir -p src/content/docs/adr && cp adr/*.md src/content/docs/adr/",
+    "predev": "npm run sync-adr",
+    "prebuild": "npm run sync-adr"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "^0.42.4",
+    "astro": "^7.3.5",
+    "astro-mermaid": "^2.1.0",
+    "mermaid": "^11.4.0"
+  }
+}

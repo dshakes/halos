@@ -1,0 +1,8 @@
+# Same CLI, different model behind the alias: is the candidate model at least as good?
+name: model-upgrade
+tasks: [fix-failing-go-test, add-cli-flag, refactor-rename]
+control: sonnet-current
+repeats: 5
+variants:
+  - {name: sonnet-current, harness: claude, version: "2.1.280", model: sonnet}
+  - {name: sonnet-candidate, harness: claude, version: "2.1.280", model: sonnet-next}

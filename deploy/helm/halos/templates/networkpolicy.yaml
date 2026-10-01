@@ -1,0 +1,134 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- $np := .Values.networkPolicy }}
+# Default deny for every pod of this release.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "halo.fullname" . }}-default-deny
+  labels: {{- include "halo.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "halo.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes: [Ingress, Egress]
+---
+# DNS egress for all pods.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "halo.fullname" . }}-allow-dns
+  labels: {{- include "halo.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "halo.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {{- toYaml $np.dnsNamespaceSelector | nindent 14 }}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+{{- range $c := list "server" "proxy" "halo-shadow" "otel" }}
+{{- $vk := ternary "shadow" $c (eq $c "halo-shadow") }}{{- /* values key */ -}}
+{{- if (index $.Values $vk).enabled }}
+{{- $ing := index $np.ingressFrom $vk }}
+{{- $eg := index $np.egress $vk }}
+{{- $ports := dict "server" (list (int $.Values.server.port)) "proxy" (list (int $.Values.proxy.port)) "halo-shadow" (list (int $.Values.shadow.port)) "otel" (list 4317 4318 4319) }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "halo.cname" (list $ $c) }}
+  labels: {{- include "halo.labels" $ | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: {{- include "halo.selector" (list $ $c) | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    {{- $ksIn := and (eq $c "server") $.Values.proxy.enabled $.Values.proxy.killSwitch.enabled }}
+    {{- if or $ing $ksIn (and (eq $c "halo-shadow") $.Values.proxy.enabled) }}
+    - from:
+        {{- with $ing }}{{ toYaml . | nindent 8 }}{{ end }}
+        {{- if or $ksIn (and (eq $c "halo-shadow") $.Values.proxy.enabled) }}
+        - podSelector:
+            matchLabels: {{- include "halo.selector" (list $ "proxy") | nindent 14 }}
+        {{- end }}
+      ports:
+        {{- range index $ports $c }}
+        - {protocol: TCP, port: {{ . }}}
+        {{- end }}
+    {{- end }}
+    {{- if and (eq $c "otel") $.Values.proxy.enabled $.Values.proxy.telemetry.enabled }}
+    - from:
+        - podSelector:
+            matchLabels: {{- include "halo.selector" (list $ "proxy") | nindent 14 }}
+      ports: [{protocol: TCP, port: 4319}]
+    {{- end }}
+    {{- $mp := dict "proxy" (int $.Values.proxy.adminPort) "halo-shadow" (int (regexFind "[0-9]+$" (default "" $.Values.shadow.metricsListen))) "otel" 8889 "server" (ternary (int $.Values.server.metrics.port) 0 $.Values.server.metrics.enabled) }}
+    {{- if and (index $mp $c) $np.metricsFrom }}
+    - from: {{- toYaml $np.metricsFrom | nindent 8 }}
+      ports:
+        - {protocol: TCP, port: {{ index $mp $c }}}
+    {{- end }}
+  egress:
+    {{- if and (eq $c "proxy") $.Values.shadow.enabled }}
+    - to:
+        - podSelector:
+            matchLabels: {{- include "halo.selector" (list $ "halo-shadow") | nindent 14 }}
+      ports: [{protocol: TCP, port: {{ $.Values.shadow.port }}}]
+    {{- end }}
+    {{- $extra := 0 }}
+    {{- if and (eq $c "proxy") $.Values.proxy.killSwitch.enabled $.Values.server.enabled }}
+    {{- $extra = 1 }}
+    - to:
+        - podSelector:
+            matchLabels: {{- include "halo.selector" (list $ "server") | nindent 14 }}
+      ports: [{protocol: TCP, port: {{ $.Values.server.port }}}]
+    {{- end }}
+    {{- if and (eq $c "proxy") $.Values.proxy.telemetry.enabled $.Values.otel.enabled }}
+    {{- $extra = 1 }}
+    - to:
+        - podSelector:
+            matchLabels: {{- include "halo.selector" (list $ "otel") | nindent 14 }}
+      ports: [{protocol: TCP, port: 4319}]
+    {{- end }}
+    {{- if eq $c "proxy" }}
+    {{- $aws := $np.aws }}
+    {{- if $aws.to }}
+    {{- $extra = 1 }}
+    - to: {{- toYaml $aws.to | nindent 8 }}
+      ports:
+        {{- range $aws.ports }}
+        - {protocol: TCP, port: {{ . }}}
+        {{- end }}
+    {{- end }}
+    {{- if $aws.podIdentityAgent }}
+    {{- $extra = 1 }}
+    - to: [{ipBlock: {cidr: 169.254.170.23/32}}]   # EKS Pod Identity agent
+      ports: [{protocol: TCP, port: 80}]
+    {{- end }}
+    {{- end }}
+    {{- if eq $c "server" }}
+    {{- range $k, $t := $np.controllerEgress }}
+    {{- /* controller: all targets; proposals-only: just the git host (the writable clone pushes/opens PRs) */}}
+    {{- if and $t.to (or $.Values.server.controller.enabled (and $.Values.server.proposals.enabled (eq $k "git"))) }}
+    {{- $extra = 1 }}
+    - to: {{- toYaml $t.to | nindent 8 }}   # controller/proposals: {{ $k }}
+      ports:
+        {{- range $t.ports }}
+        - {protocol: TCP, port: {{ . }}}
+        {{- end }}
+    {{- end }}
+    {{- end }}
+    {{- end }}
+    {{- with $eg }}{{ toYaml . | nindent 4 }}{{ end }}
+    {{- if and (not $eg) (not $extra) (not (and (eq $c "proxy") $.Values.shadow.enabled)) }}
+    []
+    {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

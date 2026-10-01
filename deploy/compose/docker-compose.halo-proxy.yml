@@ -1,0 +1,38 @@
+# Standalone / no-Kong variant: client -> halo-proxy -> mock upstreams.
+# halo-proxy does identity (JWT vs the mock IdP), cohort assignment, model rewrite
+# and shadow mirroring itself; no gateway needed. See cmd/halo-proxy/README.md for
+# the other deploy modes (edge with --next-hop, behind an existing gateway).
+# Run:  docker compose -f docker-compose.halo-proxy.yml up -d --build
+#       curl 'localhost:8081/token?user=alice@acme.com&groups=ai-platform'
+name: halos-proxy
+services:
+  mock-idp:
+    build: {context: ../.., dockerfile: deploy/compose/Dockerfile.svc, args: {PKG: ./deploy/compose/mockidp}}
+    environment: {ISSUER: "http://mock-idp:8080", AUDIENCE: halos-gateway}
+    ports: ["${HALO_IDP_PORT:-8081}:8080"]
+
+  halo-proxy:
+    build: {context: ../.., dockerfile: deploy/compose/Dockerfile.svc, args: {PKG: ./cmd/halo-proxy}}
+    # Issuer/audience come from identity in policy.json. Sits on :8080 for clients.
+    command: ["--listen", ":8080", "--policy", "/etc/halos/policy.json",
+              "--halo-shadow-url", "http://halo-shadow:8090/mirror"]
+    environment: {HALO_PROXY_HALO_SHADOW_TOKEN: dev-only-token}
+    volumes: ["./policy.json:/etc/halos/policy.json:ro"]
+    ports: ["${HALO_PORT:-8080}:8080"]
+    depends_on: [orch-mock, anthropic-mock, halo-shadow, mock-idp]
+
+  orch-mock:
+    build: {context: ../.., dockerfile: deploy/compose/Dockerfile.svc, args: {PKG: ./deploy/compose/mockllm}}
+    environment: {MOCK_NAME: orch}
+  anthropic-mock:
+    build: {context: ../.., dockerfile: deploy/compose/Dockerfile.svc, args: {PKG: ./deploy/compose/mockllm}}
+    environment: {MOCK_NAME: anthropic}
+
+  halo-shadow:
+    build: {context: ../.., dockerfile: deploy/compose/Dockerfile.svc, args: {PKG: ./cmd/halo-shadow}}
+    # Upstreams come from the policy snapshot, never from the mirror job.
+    command: ["-listen", ":8090", "-policy", "/etc/halos/policy.json", "-out", "/data/pairs.jsonl", "-budget-usd", "5"]
+    environment: {HALO_SHADOW_TOKEN: dev-only-token}
+    volumes: ["pairs:/data", "./policy.json:/etc/halos/policy.json:ro"]
+
+volumes: {pairs: {}}

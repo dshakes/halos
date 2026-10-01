@@ -1,0 +1,176 @@
+{{- if .Values.shadow.enabled }}
+{{- $d := .Values.shadow }}
+{{- $n := include "halo.cname" (list . "halo-shadow") }}
+{{- $pp := .Values.proxy.policy }}
+{{- $src := default $pp.source $d.policy.source }}
+{{- $gs := eq $src "gitSync" }}
+{{- $key := default $pp.key $d.policy.key }}
+{{- $gsPath := default $pp.gitSyncPath $d.policy.gitSyncPath }}
+{{- $mPort := regexFind "[0-9]+$" (default "" $d.metricsListen) }}
+{{- $polPath := ternary (printf "/policy/current/%s" (trimAll "/" $gsPath)) (printf "/policy/%s" $key) $gs }}
+{{- $cmName := default (default (printf "%s-policy" (include "halo.cname" (list . "proxy"))) $pp.existingConfigMap) $d.policy.existingConfigMap }}
+{{- if and (not $gs) (not $d.policy.existingConfigMap) (not .Values.proxy.enabled) (not $pp.existingConfigMap) }}
+{{- fail "halo-shadow requires the compiled policy snapshot: set halo-shadow.policy.existingConfigMap (or enable proxy / use gitSync)" }}
+{{- end }}
+{{- if le (float64 $d.budgetUSD) 0.0 }}
+{{- fail "halo-shadow.budgetUSD must be > 0 (halo-shadow refuses to start otherwise)" }}
+{{- end }}
+{{- if and $d.persistence.enabled (not $d.persistence.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $n }}-pairs
+  labels: {{- include "halo.labels" . | nindent 4 }}
+  annotations: {"helm.sh/resource-policy": keep}
+spec:
+  accessModes: {{- toYaml $d.persistence.accessModes | nindent 4 }}
+  {{- with $d.persistence.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources: {requests: {storage: {{ $d.persistence.size }}}}
+---
+{{- end }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $n }}
+  labels: {{- include "halo.labels" . | nindent 4 }}
+    app.kubernetes.io/component: halo-shadow
+  {{- with $d.service.annotations }}
+  annotations: {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ $d.service.type }}
+  selector: {{- include "halo.selector" (list . "halo-shadow") | nindent 4 }}
+  ports:
+    - {name: http, port: {{ $d.service.port }}, targetPort: http}
+    {{- if $mPort }}
+    - {name: metrics, port: {{ $mPort }}, targetPort: metrics}
+    {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $n }}
+  labels: {{- include "halo.labels" . | nindent 4 }}
+spec:
+  replicas: {{ $d.replicas }}
+  {{- if $d.persistence.enabled }}
+  strategy: {type: Recreate}
+  {{- end }}
+  selector:
+    matchLabels: {{- include "halo.selector" (list . "halo-shadow") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "halo.selector" (list . "halo-shadow") | nindent 8 }}
+      {{- with $d.podAnnotations }}
+      annotations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "halo.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- include "halo.pullSecrets" . | nindent 6 }}
+      {{- if $gs }}
+      initContainers:
+        {{- include "halo.gitsync" (dict "root" . "name" "git-sync-init" "once" true "link" "current" "dir" "/policy" "vol" "policy") | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: halo-shadow
+          image: {{ include "halo.image" (list . $d.image) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - --listen={{ $d.listen }}:{{ $d.port }}
+            - --policy={{ $polPath }}
+            - --retention={{ $d.retention }}
+            {{- if $d.upstreamHeaders.existingSecret }}
+            - --upstream-headers=/etc/halo-shadow/headers/{{ $d.upstreamHeaders.key }}
+            {{- end }}
+            {{- if $d.pairKey.existingSecret }}
+            - --pair-key-file=/etc/halo-shadow/pairkey/{{ $d.pairKey.key }}
+            {{- end }}
+            - --out=/data/pairs.jsonl
+            {{- if $mPort }}
+            - --metrics-listen={{ $d.metricsListen }}
+            {{- end }}
+            - --queue={{ $d.queue }}
+            - --workers={{ $d.workers }}
+            - --budget-usd={{ $d.budgetUSD }}
+            - --price-in={{ $d.priceIn }}
+            - --price-out={{ $d.priceOut }}
+            {{- range $d.args }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            - name: HALO_SHADOW_TOKEN
+              valueFrom: {secretKeyRef: {name: {{ $d.token.existingSecret }}, key: {{ $d.token.key }}}}
+            {{- with $d.extraEnv }}{{ toYaml . | nindent 12 }}{{ end }}
+          ports:
+            - {name: http, containerPort: {{ $d.port }}}
+            {{- if $mPort }}
+            - {name: metrics, containerPort: {{ $mPort }}}
+            {{- end }}
+          readinessProbe: {httpGet: {path: /healthz, port: http}, periodSeconds: 10}
+          livenessProbe: {httpGet: {path: /healthz, port: http}, initialDelaySeconds: 10, periodSeconds: 20}
+          securityContext: {{- toYaml .Values.securityContext | nindent 12 }}
+          resources: {{- toYaml $d.resources | nindent 12 }}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: tmp, mountPath: /tmp}
+            - {name: policy, mountPath: /policy, readOnly: true}
+            {{- if $d.upstreamHeaders.existingSecret }}
+            - {name: upstream-headers, mountPath: /etc/halo-shadow/headers, readOnly: true}
+            {{- end }}
+            {{- if $d.pairKey.existingSecret }}
+            - {name: pair-key, mountPath: /etc/halo-shadow/pairkey, readOnly: true}
+            {{- end }}
+        {{- if $gs }}
+        {{- include "halo.gitsync" (dict "root" . "name" "git-sync" "once" false "link" "current" "dir" "/policy" "vol" "policy") | nindent 8 }}
+        {{- end }}
+      {{- include "halo.topologySpread" (list . "halo-shadow") | nindent 6 }}
+      {{- with $d.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $d.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $d.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - {name: tmp, emptyDir: {}}
+        {{- if $gs }}
+        - {name: policy, emptyDir: {}}
+        {{- include "halo.gitsyncVolume" . | nindent 8 }}
+        {{- else }}
+        - name: policy
+          configMap: {name: {{ $cmName }}}
+        {{- end }}
+        {{- if $d.upstreamHeaders.existingSecret }}
+        - name: upstream-headers
+          secret: {secretName: {{ $d.upstreamHeaders.existingSecret }}, defaultMode: 0440}
+        {{- end }}
+        {{- if $d.pairKey.existingSecret }}
+        - name: pair-key
+          secret: {secretName: {{ $d.pairKey.existingSecret }}, defaultMode: 0440}
+        {{- end }}
+        {{- if $d.persistence.enabled }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ default (printf "%s-pairs" $n) $d.persistence.existingClaim }}
+        {{- else }}
+        - {name: data, emptyDir: {}}
+        {{- end }}
+{{- if $d.pdb.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $n }}
+  labels: {{- include "halo.labels" . | nindent 4 }}
+spec:
+  maxUnavailable: {{ $d.pdb.maxUnavailable }}
+  selector:
+    matchLabels: {{- include "halo.selector" (list . "halo-shadow") | nindent 6 }}
+{{- end }}
+{{- end }}

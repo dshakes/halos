@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "docs": {
+      "headers": {
+        "X-Org": "acme"
+      },
+      "type": "http",
+      "url": "https://mcp.example.com/docs"
+    },
+    "lint": {
+      "args": [
+        "-y",
+        "lint-mcp"
+      ],
+      "command": "npx"
+    }
+  }
+}

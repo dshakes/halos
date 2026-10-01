@@ -1,0 +1,312 @@
+{{- /* git auth for the writer clone (init clone + halo-server's fetch/push); credentials never go in the URL. */}}
+{{- define "halo.writerGitEnv" -}}
+{{- $g := .Values.policy.gitSync -}}
+- {name: GIT_TERMINAL_PROMPT, value: "0"}
+{{- if eq $g.auth.type "token" }}
+- {name: GIT_ASKPASS, value: /etc/halos-git/askpass.sh}
+- {name: GIT_USERNAME, value: {{ $g.auth.username | quote }}}
+{{- else if eq $g.auth.type "ssh" }}
+- {name: GIT_SSH_COMMAND, value: "ssh -i /etc/git-secret/ssh -o UserKnownHostsFile=/etc/git-secret/known_hosts -o IdentitiesOnly=yes"}
+{{- end }}
+{{- end -}}
+{{- define "halo.writerGitMounts" -}}
+- {name: policy-writer, mountPath: /policy-writer}
+{{- if ne .Values.policy.gitSync.auth.type "none" }}
+- {name: git-secret, mountPath: /etc/git-secret, readOnly: true}
+{{- end }}
+{{- if eq .Values.policy.gitSync.auth.type "token" }}
+- {name: git-askpass, mountPath: /etc/halos-git, readOnly: true}
+{{- end }}
+{{- end -}}
+{{- if .Values.server.enabled }}
+{{- $s := .Values.server }}
+{{- $n := include "halo.cname" (list . "server") }}
+{{- $pol := printf "/policy/current%s" (ternary (printf "/%s" (trimAll "/" $s.policySubdir)) "" (ne $s.policySubdir "")) }}
+{{- $c := $s.controller }}
+{{- $ks := $s.killSwitch }}
+{{- $pr := and $c.enabled $c.policyRepo.enabled }}
+{{- /* ONE writable clone (/policy-writer/repo) serves console proposals and controller PRs (shared lock in halo-server). */}}
+{{- $wr := or $s.proposals.enabled $pr }}
+{{- $wsub := trimAll "/" (default $s.policySubdir $c.policyRepo.subdir) }}
+{{- $wbase := default "main" $c.policyRepo.base }}
+{{- if and $ks.existingSecret (not $s.persistence.enabled) }}{{ fail "server.killSwitch.existingSecret requires server.persistence.enabled (--data-dir: kills must survive a restart)" }}{{ end }}
+{{- if $c.enabled }}
+{{- if not $c.clickhouse.url }}{{ fail "server.controller.clickhouse.url is required when server.controller.enabled" }}{{ end }}
+{{- if not $s.persistence.enabled }}{{ fail "server.controller.enabled requires server.persistence.enabled (--data-dir action log)" }}{{ end }}
+{{- end }}
+{{- $srvImg := $s.image }}
+{{- if and $pr $c.policyRepo.image.repository }}{{ $srvImg = $c.policyRepo.image }}{{ end }}
+{{- $portal := deepCopy $s.portal }}
+{{- if $s.sessionKey.existingSecret }}{{ $_ := set $portal "sessionKeyFile" "/secrets/session-key" }}{{ end }}
+{{- if $s.oidcClientSecret.existingSecret }}{{ $_ := set $portal "oidcClientSecretFile" "/secrets/oidc-client-secret" }}{{ end }}
+{{- if $s.proposals.enabled }}
+{{- $_ := set $portal "policyRepoDir" "/policy-writer/repo" }}
+{{- $wsub = trimAll "/" (default $wsub $portal.policySubdir) }}{{ $_ := set $portal "policySubdir" $wsub }}
+{{- $wbase = default $wbase $portal.policyBase }}{{ $_ := set $portal "policyBase" $wbase }}
+{{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $n }}
+  labels: {{- include "halo.labels" . | nindent 4 }}
+data:
+  portal.json: |
+    {{- toPrettyJson $portal | nindent 4 }}
+  {{- if $wr }}
+  # GIT_ASKPASS helper: the token is read from the mounted Secret, never put in the remote URL.
+  askpass.sh: |
+    #!/bin/sh
+    case "$1" in
+      Username*) printf '%s\n' "$GIT_USERNAME" ;;
+      *) cat /etc/git-secret/password ;;
+    esac
+  {{- end }}
+---
+{{- if and $s.persistence.enabled (not $s.persistence.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $n }}-data
+  labels: {{- include "halo.labels" . | nindent 4 }}
+  annotations: {"helm.sh/resource-policy": keep}
+spec:
+  accessModes: {{- toYaml $s.persistence.accessModes | nindent 4 }}
+  {{- with $s.persistence.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources: {requests: {storage: {{ $s.persistence.size }}}}
+---
+{{- end }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $n }}
+  labels: {{- include "halo.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+  {{- with $s.service.annotations }}
+  annotations: {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ $s.service.type }}
+  selector: {{- include "halo.selector" (list . "server") | nindent 4 }}
+  ports:
+    - {name: http, port: {{ $s.service.port }}, targetPort: http}
+    {{- if $s.metrics.enabled }}
+    - {name: metrics, port: {{ $s.metrics.port }}, targetPort: metrics}   # unauthenticated; NetworkPolicy limits to metricsFrom
+    {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $n }}
+  labels: {{- include "halo.labels" . | nindent 4 }}
+spec:
+  replicas: {{ $s.replicas }}
+  {{- if $s.persistence.enabled }}
+  strategy: {type: Recreate}   # RWO volume: old pod must release it first
+  {{- end }}
+  selector:
+    matchLabels: {{- include "halo.selector" (list . "server") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "halo.selector" (list . "server") | nindent 8 }}
+      annotations:
+        checksum/config: {{ toJson $portal | sha256sum }}
+        {{- with $s.podAnnotations }}{{ toYaml . | nindent 8 }}{{ end }}
+    spec:
+      serviceAccountName: {{ include "halo.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- include "halo.pullSecrets" . | nindent 6 }}
+      initContainers:
+        {{- include "halo.gitsync" (dict "root" . "name" "git-sync-init" "once" true "link" "current" "dir" "/policy" "vol" "policy") | nindent 8 }}
+        {{- if $wr }}
+        # A real clone (origin remote, branch checked out) that halo-server then fetches/hard-resets
+        # before each PR (promote.SyncClone). git-sync worktrees are detached with no origin, so they
+        # cannot be used here. Skipped when the emptyDir already holds a clone (init re-run).
+        - name: git-clone-writer
+          image: {{ include "halo.image" (list . $srvImg) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: [sh, -c, 'test -d "$3/.git" || exec git clone --quiet --branch "$2" -c user.name=Halos -c user.email=halos@users.noreply.invalid "$1" "$3"', clone]
+          args: [{{ .Values.policy.gitSync.repo | quote }}, {{ $wbase | quote }}, /policy-writer/repo]
+          env:
+            - {name: HOME, value: /tmp}
+            {{- include "halo.writerGitEnv" . | nindent 12 }}
+          securityContext: {{- toYaml .Values.securityContext | nindent 12 }}
+          resources: {{- toYaml .Values.policy.gitSync.resources | nindent 12 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            {{- include "halo.writerGitMounts" . | nindent 12 }}
+        {{- end }}
+      containers:
+        - name: halo-server
+          image: {{ include "halo.image" (list . $srvImg) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - --listen=0.0.0.0:{{ $s.port }}
+            - --policy-dir={{ $pol }}
+            - --token-file=/secrets/fleet-token
+            - --portal-config=/etc/halos/portal.json
+            {{- if $s.persistence.enabled }}
+            - --data-dir=/data
+            {{- end }}
+            {{- with $s.trustedProxyCIDRs }}
+            - --trusted-proxy-cidrs={{ . }}
+            {{- end }}
+            {{- if $s.metrics.enabled }}
+            - --metrics-listen=:{{ $s.metrics.port }}
+            {{- end }}
+            {{- if $ks.existingSecret }}
+            - --killswitch-key-file=/secrets/killswitch-key
+            - --gateway-token-file=/secrets/gateway-token
+            {{- end }}
+            {{- if $c.enabled }}
+            - --controller
+            - --interval={{ $c.interval }}
+            - --clickhouse-url={{ $c.clickhouse.url }}
+            {{- with $c.clickhouse.database }}
+            - --clickhouse-database={{ . }}
+            {{- end }}
+            {{- if $c.clickhouse.existingSecret }}
+            - --clickhouse-user=$(HALO_CLICKHOUSE_USER)
+            - --clickhouse-password-file=/secrets/clickhouse-password
+            {{- end }}
+            {{- if $c.notify.slack.existingSecret }}
+            - --notify-slack-url-file=/secrets/notify-slack-url
+            {{- end }}
+            {{- if $c.notify.webhook.existingSecret }}
+            - --notify-webhook-url-file=/secrets/notify-webhook-url
+            - --notify-webhook-secret-file=/secrets/notify-webhook-secret
+            {{- end }}
+            {{- if $pr }}
+            - --policy-repo-dir=/policy-writer/repo
+            {{- with $wsub }}
+            - --policy-repo-subdir={{ . }}
+            {{- end }}
+            - --policy-repo-base={{ $wbase }}
+            {{- end }}
+            {{- end }}
+            {{- with $s.verdictsPath }}
+            - --verdicts-file={{ . }}
+            {{- end }}
+            {{- range $s.args }}
+            - {{ . | quote }}
+            {{- end }}
+          {{- if or $s.extraEnv (and $c.enabled $c.clickhouse.existingSecret) (and $pr $c.policyRepo.ghToken.existingSecret) $wr }}
+          env:
+            {{- if $wr }}
+            {{- include "halo.writerGitEnv" . | nindent 12 }}
+            {{- end }}
+            {{- if and $c.enabled $c.clickhouse.existingSecret }}
+            - name: HALO_CLICKHOUSE_USER
+              valueFrom: {secretKeyRef: {name: {{ $c.clickhouse.existingSecret }}, key: {{ $c.clickhouse.userKey }}}}
+            {{- end }}
+            {{- if and $pr $c.policyRepo.ghToken.existingSecret }}
+            - name: GH_TOKEN
+              valueFrom: {secretKeyRef: {name: {{ $c.policyRepo.ghToken.existingSecret }}, key: {{ $c.policyRepo.ghToken.key }}}}
+            {{- end }}
+            {{- with $s.extraEnv }}{{ toYaml . | nindent 12 }}{{ end }}
+          {{- end }}
+          ports:
+            - {name: http, containerPort: {{ $s.port }}}
+            {{- if $s.metrics.enabled }}
+            - {name: metrics, containerPort: {{ $s.metrics.port }}}
+            {{- end }}
+          readinessProbe: {httpGet: {path: /healthz, port: http}, periodSeconds: 10}
+          livenessProbe: {httpGet: {path: /healthz, port: http}, initialDelaySeconds: 10, periodSeconds: 20}
+          securityContext: {{- toYaml .Values.securityContext | nindent 12 }}
+          resources: {{- toYaml $s.resources | nindent 12 }}
+          volumeMounts:
+            - {name: policy, mountPath: /policy, readOnly: true}
+            {{- if $wr }}
+            {{- include "halo.writerGitMounts" . | nindent 12 }}
+            {{- end }}
+            - {name: secrets, mountPath: /secrets, readOnly: true}
+            - {name: portal, mountPath: /etc/halos, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+            {{- if $s.persistence.enabled }}
+            - {name: data, mountPath: /data}
+            {{- end }}
+            {{- with $s.extraVolumeMounts }}{{ toYaml . | nindent 12 }}{{ end }}
+        # Continuous sync; halo-server reloads the policy by mtime (no SIGHUP needed).
+        {{- include "halo.gitsync" (dict "root" . "name" "git-sync" "once" false "link" "current" "dir" "/policy" "vol" "policy") | nindent 8 }}
+      {{- include "halo.topologySpread" (list . "server") | nindent 6 }}
+      {{- with $s.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $s.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $s.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - {name: policy, emptyDir: {}}
+        {{- if $wr }}
+        - {name: policy-writer, emptyDir: {}}
+        {{- if eq .Values.policy.gitSync.auth.type "token" }}
+        - name: git-askpass
+          configMap: {name: {{ $n }}, items: [{key: askpass.sh, path: askpass.sh}], defaultMode: 0555}
+        {{- end }}
+        {{- end }}
+        - {name: tmp, emptyDir: {}}
+        - name: portal
+          configMap: {name: {{ $n }}}
+        - name: secrets
+          projected:
+            defaultMode: 0440
+            sources:
+              - secret:
+                  name: {{ $s.fleetToken.existingSecret }}
+                  items: [{key: {{ $s.fleetToken.key }}, path: fleet-token}]
+              {{- if $s.sessionKey.existingSecret }}
+              - secret:
+                  name: {{ $s.sessionKey.existingSecret }}
+                  items: [{key: {{ $s.sessionKey.key }}, path: session-key}]
+              {{- end }}
+              {{- if $s.oidcClientSecret.existingSecret }}
+              - secret:
+                  name: {{ $s.oidcClientSecret.existingSecret }}
+                  items: [{key: {{ $s.oidcClientSecret.key }}, path: oidc-client-secret}]
+              {{- end }}
+              {{- if $ks.existingSecret }}
+              - secret:
+                  name: {{ $ks.existingSecret }}
+                  items: [{key: {{ $ks.signingKey }}, path: killswitch-key}, {key: {{ $ks.gatewayToken }}, path: gateway-token}]
+              {{- end }}
+              {{- if and $c.enabled $c.clickhouse.existingSecret }}
+              - secret:
+                  name: {{ $c.clickhouse.existingSecret }}
+                  items: [{key: {{ $c.clickhouse.passwordKey }}, path: clickhouse-password}]
+              {{- end }}
+              {{- if and $c.enabled $c.notify.slack.existingSecret }}
+              - secret:
+                  name: {{ $c.notify.slack.existingSecret }}
+                  items: [{key: {{ $c.notify.slack.key }}, path: notify-slack-url}]
+              {{- end }}
+              {{- if and $c.enabled $c.notify.webhook.existingSecret }}
+              - secret:
+                  name: {{ $c.notify.webhook.existingSecret }}
+                  items: [{key: {{ $c.notify.webhook.urlKey }}, path: notify-webhook-url}, {key: {{ $c.notify.webhook.secretKey }}, path: notify-webhook-secret}]
+              {{- end }}
+        {{- if $s.persistence.enabled }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ default (printf "%s-data" $n) $s.persistence.existingClaim }}
+        {{- end }}
+        {{- include "halo.gitsyncVolume" . | nindent 8 }}
+        {{- with $s.extraVolumes }}{{ toYaml . | nindent 8 }}{{ end }}
+{{- if $s.pdb.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $n }}
+  labels: {{- include "halo.labels" . | nindent 4 }}
+spec:
+  maxUnavailable: {{ $s.pdb.maxUnavailable }}
+  selector:
+    matchLabels: {{- include "halo.selector" (list . "server") | nindent 6 }}
+{{- end }}
+{{- end }}

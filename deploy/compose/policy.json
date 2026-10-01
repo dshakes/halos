@@ -1,0 +1,40 @@
+{
+  "Name": "compose-demo",
+  "Identity": {"Issuer": "http://mock-idp:8080", "Audience": "halos-gateway"},
+  "Gateway": {
+    "name": "gw",
+    "baseURL": "http://localhost:8080",
+    "auth": {"identityHeader": "x-acme-user"},
+    "models": {
+      "sonnet": {"upstream": "orch", "model": "us.anthropic.claude-sonnet-4-5-v1:0"},
+      "haiku": {"upstream": "orch", "model": "us.anthropic.claude-haiku-4-5-v1:0"}
+    },
+    "upstreams": {
+      "orch": {"url": "http://orch-mock:9000", "kind": "orchestrator"},
+      "anthropic": {"url": "http://anthropic-mock:9000", "kind": "anthropic"}
+    }
+  },
+  "Rings": [
+    {"name": "ring0-harness-team", "order": 0, "profile": "default", "release": "sha256:ring0", "membership": {"groups": ["ai-platform"]}},
+    {"name": "ring1-canary", "order": 1, "profile": "default", "release": "sha256:ring1", "membership": {"percent": 20}},
+    {"name": "ring3-ga", "order": 3, "profile": "default", "release": "sha256:ga", "membership": {"default": true}}
+  ],
+  "Experiments": [
+    {
+      "name": "sonnet-direct-canary", "type": "canary", "axis": "traffic", "status": "running",
+      "rings": ["ring1-canary", "ring3-ga"],
+      "variants": [
+        {"name": "control", "weight": 50, "control": true},
+        {"name": "direct", "weight": 50, "routes": {"sonnet": {"upstream": "anthropic", "model": "claude-sonnet-4-5-20250929"}}}
+      ]
+    },
+    {
+      "name": "sonnet-next-shadow", "type": "shadow", "axis": "traffic", "status": "running",
+      "rings": ["ring0-harness-team", "ring1-canary", "ring3-ga"], "sampleRate": 1,
+      "variants": [
+        {"name": "control", "weight": 50, "control": true},
+        {"name": "next", "weight": 50, "routes": {"sonnet": {"upstream": "anthropic", "model": "claude-sonnet-next"}}}
+      ]
+    }
+  ]
+}

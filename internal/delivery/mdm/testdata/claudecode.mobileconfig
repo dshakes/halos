@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>PayloadContent</key>
+    <array>
+      <dict>
+        <key>PayloadDisplayName</key>
+        <string>Claude Code managed settings</string>
+        <key>PayloadIdentifier</key>
+        <string>dev.halos.claudecode.canary</string>
+        <key>PayloadType</key>
+        <string>com.anthropic.claudecode</string>
+        <key>PayloadUUID</key>
+        <string>A69B0E0A-311C-450C-88EF-4F0340830AF8</string>
+        <key>PayloadVersion</key>
+        <integer>1</integer>
+        <key>cleanupPeriodDays</key>
+        <integer>30</integer>
+        <key>env</key>
+        <dict>
+          <key>X</key>
+          <string>it&#39;s</string>
+        </dict>
+        <key>model</key>
+        <string>opus</string>
+        <key>permissions</key>
+        <dict>
+          <key>deny</key>
+          <array>
+            <string>Bash(rm -rf:*)</string>
+          </array>
+        </dict>
+        <key>requiredMaximumVersion</key>
+        <string>2.1.0</string>
+        <key>requiredMinimumVersion</key>
+        <string>2.1.0</string>
+      </dict>
+    </array>
+    <key>PayloadDescription</key>
+    <string>Halos release sha256:4754dce5019b16aeff7c3a499c13935d84aa289dba2a42b2763319e5c236b34b</string>
+    <key>PayloadDisplayName</key>
+    <string>Halos canary</string>
+    <key>PayloadIdentifier</key>
+    <string>dev.halos.release.canary</string>
+    <key>PayloadOrganization</key>
+    <string>acme</string>
+    <key>PayloadScope</key>
+    <string>System</string>
+    <key>PayloadType</key>
+    <string>Configuration</string>
+    <key>PayloadUUID</key>
+    <string>4EC100BE-7514-45F8-9155-D531719425C5</string>
+    <key>PayloadVersion</key>
+    <integer>1</integer>
+  </dict>
+</plist>

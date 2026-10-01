@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://halos.dev/schemas/halos.schema.json",
+  "title": "Halos root",
+  "description": "The policy repo root document (halos.yaml).",
+  "type": "object",
+  "properties": {
+    "apiVersion": {
+      "type": "string",
+      "description": "Document version.",
+      "const": "halos.dev/v1alpha1"
+    },
+    "kind": {
+      "type": "string",
+      "description": "Document kind.",
+      "const": "Halos"
+    },
+    "org": {
+      "type": "string",
+      "description": "Organisation name.",
+      "minLength": 1
+    },
+    "identity": {
+      "type": "object",
+      "description": "The org's OIDC provider (any compliant IdP: Okta, Entra ID, Google, Keycloak, Ping, Auth0...). Used by the portal, halo-proxy / halo-kong and enrollment.",
+      "properties": {
+        "issuer": {
+          "type": "string",
+          "format": "uri",
+          "description": "OIDC issuer URL; discovery is fetched from <issuer>/.well-known/openid-configuration."
+        },
+        "clientID": {
+          "type": "string",
+          "description": "OAuth client id used by the portal."
+        },
+        "audience": {
+          "type": "string",
+          "description": "Audience expected in gateway bearer tokens; defaults to clientID."
+        },
+        "userClaim": {
+          "type": "string",
+          "description": "JWT claim holding the user id (default \"email\")."
+        },
+        "groupsClaim": {
+          "type": "string",
+          "description": "JWT claim holding the user's groups (default \"groups\")."
+        },
+        "adminGroups": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Groups that may approve requests and manage experiments in the portal."
+        }
+      },
+      "additionalProperties": false
+    },
+    "selfService": {
+      "type": "object",
+      "description": "The developer portal (kiosk).",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Turn the portal's self-service features on."
+        },
+        "launchers": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "devcontainer",
+              "codespaces",
+              "coder",
+              "laptop"
+            ]
+          },
+          "description": "Launchers offered to developers."
+        },
+        "requestable": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "mcp-server",
+              "model",
+              "ring-opt-in",
+              "harness"
+            ]
+          },
+          "description": "Kinds of access developers may request (approval opens a policy PR)."
+        },
+        "catalog": {
+          "type": "array",
+          "description": "MCP servers developers may request that aren't in their profile yet.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string",
+                "format": "uri"
+              },
+              "command": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "headers": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "enrollmentTTLSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Lifetime of one-time laptop bootstrap tokens (default 900)."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "org"
+  ],
+  "additionalProperties": false
+}

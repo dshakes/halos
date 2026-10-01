@@ -1,0 +1,14 @@
+/bin/
+/dist/
+node_modules/
+docs/dist/
+docs/.astro/
+web/dist/
+*.test
+coverage.out
+
+# locally built binaries at repo root
+/halo
+/halod
+/halo-*
+!/halo-*/

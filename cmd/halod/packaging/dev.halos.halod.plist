@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Install root:wheel 0644 in /Library/LaunchDaemons. halod refuses to start unless
+     /Library/Halos/{bin,etc,var} and the files in them are root-owned and not
+     group/other-writable. -->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>dev.halos.halod</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/Library/Halos/bin/halod</string>
+		<string>run</string>
+		<string>--config</string>
+		<string>/Library/Halos/etc/halod.yaml</string>
+		<string>--state</string>
+		<string>/Library/Halos/var/state.json</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>StandardOutPath</key>
+	<string>/Library/Halos/var/halod.log</string>
+	<key>StandardErrorPath</key>
+	<string>/Library/Halos/var/halod.log</string>
+</dict>
+</plist>

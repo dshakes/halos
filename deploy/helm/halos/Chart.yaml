@@ -1,0 +1,9 @@
+apiVersion: v2
+name: halos
+description: Halos control plane (halo-server, halo-proxy, halo-shadow, optional OTel collector and Kong plugin CR)
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.27.0-0"
+home: https://github.com/halos-dev/halos
+keywords: [halos, ai-coding, gateway, policy]

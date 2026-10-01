@@ -1,0 +1,36 @@
+{
+  "admin": {
+    "secureModeEnabled": true
+  },
+  "mcp": {
+    "allowed": [
+      "docs",
+      "lint"
+    ]
+  },
+  "mcpServers": {
+    "docs": {
+      "headers": {
+        "X-Org": "acme"
+      },
+      "httpUrl": "https://mcp.example.com/docs"
+    },
+    "lint": {
+      "args": [
+        "-y",
+        "lint-mcp"
+      ],
+      "command": "npx"
+    }
+  },
+  "model": {
+    "name": "halo-sonnet"
+  },
+  "telemetry": {
+    "enabled": true,
+    "logPrompts": true,
+    "otlpEndpoint": "https://otel.example.com:4317",
+    "otlpProtocol": "grpc",
+    "target": "local"
+  }
+}

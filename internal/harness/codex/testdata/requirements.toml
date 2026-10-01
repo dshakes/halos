@@ -1,0 +1,20 @@
+allowed_approval_policies = ['on-request']
+allowed_sandbox_modes = ['workspace-write']
+
+[mcp_servers]
+[mcp_servers.docs]
+[mcp_servers.docs.identity]
+url = 'https://mcp.example.com/docs'
+
+[mcp_servers.lint]
+[mcp_servers.lint.identity]
+[mcp_servers.lint.identity.command]
+executable = 'npx'
+
+[[mcp_servers.lint.identity.command.args]]
+match = 'exact'
+value = '-y'
+
+[[mcp_servers.lint.identity.command.args]]
+match = 'exact'
+value = 'lint-mcp'

@@ -1,0 +1,11 @@
+id: refactor-rename
+repo: repo
+prompt: |
+  Rename the function `calc` to `ComputeTotal` (exported) everywhere it is
+  defined or used in this package. Behaviour must not change and the tests
+  must pass.
+check: "! grep -rwn calc --include='*.go' . && go test ./..."
+timeout: 10m
+budget_usd: 1.0
+max_turns: 20
+tags: [go, refactor]

@@ -1,0 +1,34 @@
+approval_policy = 'on-request'
+model = 'halo-sonnet'
+model_provider = 'halos'
+sandbox_mode = 'workspace-write'
+
+[mcp_servers]
+[mcp_servers.docs]
+url = 'https://mcp.example.com/docs'
+
+[mcp_servers.docs.http_headers]
+X-Org = 'acme'
+
+[mcp_servers.lint]
+args = ['-y', 'lint-mcp']
+command = 'npx'
+
+[model_providers]
+[model_providers.halos]
+base_url = 'https://gw.example.com/v1'
+env_key = 'HALO_GATEWAY_TOKEN'
+name = 'Halos'
+wire_api = 'responses'
+
+[model_providers.halos.http_headers]
+x-halo-release = 'sha256:abc'
+x-halo-ring = 'canary'
+
+[otel]
+environment = 'canary'
+log_user_prompt = true
+
+[otel.exporter]
+[otel.exporter.otlp-grpc]
+endpoint = 'https://otel.example.com:4317'

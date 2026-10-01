@@ -1,0 +1,38 @@
+# yaml-language-server: $schema=../../../schemas/experiment.schema.json
+# Shadow: 5% of first-turn sonnet requests are mirrored to the candidate route
+# on direct Anthropic and graded offline. Users only ever see the primary response.
+apiVersion: halos.dev/v1alpha1
+kind: Experiment
+name: sonnet-next-shadow
+type: shadow
+axis: traffic
+status: draft
+rings: [ring2-early, ring3-ga]
+sampleRate: 0.05
+variants:
+  - name: primary
+    weight: 1
+    control: true
+  - name: sonnet-next
+    weight: 1
+    routes:
+      sonnet:
+        upstream: anthropic-direct
+        model: claude-sonnet-next
+metrics:
+  primary:
+    metric: halo.task.success
+    direction: increase
+  guardrails:
+    - metric: halo.cost.usd_per_session
+      direction: decrease
+      maxRegression: 0.20
+    - metric: halo.latency.p95_ms
+      direction: decrease
+      maxRegression: 0.15
+stopping:
+  method: msprt
+  alpha: 0.05
+  minSamples: 2000
+  maxDays: 14
+  maxSpendUSD: 500

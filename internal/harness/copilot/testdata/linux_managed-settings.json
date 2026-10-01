@@ -1,0 +1,18 @@
+{
+  "allowedMcpServers": [
+    {
+      "serverUrl": "https://mcp.example.com/docs"
+    },
+    {
+      "serverCommand": [
+        "npx",
+        "-y",
+        "lint-mcp"
+      ]
+    }
+  ],
+  "model": "halo-sonnet",
+  "permissions": {
+    "disableBypassPermissionsMode": "disable"
+  }
+}

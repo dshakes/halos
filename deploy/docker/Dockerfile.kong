@@ -1,0 +1,14 @@
+# Kong with the halo-kong Go plugin server. Used by goreleaser (dockers_v2):
+# the build context holds the prebuilt binary at <os>/<arch>/halo-kong.
+# Base pinned by digest (multi-arch index); bump tag and digest together.
+# Mount kong.yml (halo gateway deck) and policy.json (halo gateway compile) at run time.
+# Read-only rootfs: run with KONG_PREFIX=/tmp/kong and a tmpfs on /tmp (verified).
+FROM kong:3.9@sha256:12972ce1ab6396083e56e7d46fce084836c98cc819344bef44a1f583ec3ab191
+ARG TARGETPLATFORM
+COPY ${TARGETPLATFORM}/halo-kong /usr/local/bin/halo-kong
+ENV KONG_DATABASE=off \
+    KONG_PLUGINS=bundled,halo-kong \
+    KONG_PLUGINSERVER_NAMES=halo-kong \
+    KONG_PLUGINSERVER_HALO_KONG_START_CMD=/usr/local/bin/halo-kong \
+    KONG_PLUGINSERVER_HALO_KONG_QUERY_CMD="/usr/local/bin/halo-kong -dump" \
+    KONG_NGINX_HTTP_CLIENT_BODY_BUFFER_SIZE=16m

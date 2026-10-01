@@ -1,0 +1,1 @@
+export GOOGLE_GEMINI_BASE_URL='https://gw.example.com'

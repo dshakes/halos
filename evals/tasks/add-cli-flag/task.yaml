@@ -1,0 +1,11 @@
+id: add-cli-flag
+repo: repo
+prompt: |
+  This small CLI greets a name. Add a `-shout` boolean flag that upper-cases
+  the whole greeting (e.g. `-name bob -shout` prints `HELLO, BOB`). Without
+  the flag the output must not change.
+check: go build -o hello-bin . && test "$(./hello-bin -name bob -shout)" = "HELLO, BOB" && test "$(./hello-bin -name bob)" = "hello, bob"
+timeout: 10m
+budget_usd: 1.0
+max_turns: 20
+tags: [go, feature, cli]

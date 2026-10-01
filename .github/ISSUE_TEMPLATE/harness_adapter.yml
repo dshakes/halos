@@ -1,0 +1,24 @@
+name: Harness adapter request
+description: Request or report a capability for a harness (Claude Code, Codex, Gemini CLI, Copilot CLI, other)
+labels: [adapter]
+body:
+  - type: input
+    id: harness
+    attributes:
+      label: Harness and version
+    validations:
+      required: true
+  - type: textarea
+    id: capability
+    attributes:
+      label: Capability
+      description: Which matrix row (version pin, model lock, MCP allowlist, hooks lock, permissions, gateway, headers, telemetry, instructions)?
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Link to vendor docs or paste the command and output that proves the behavior. Unverified claims are welcome if labeled.
+    validations:
+      required: true

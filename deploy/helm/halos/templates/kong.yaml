@@ -1,0 +1,23 @@
+{{- if .Values.kong.enabled }}
+{{- $cfg := deepCopy .Values.kong.config }}
+{{- if and .Values.kong.mirrorToShadow .Values.shadow.enabled }}
+{{- $_ := set $cfg "shadow_url" (printf "http://%s.%s.svc:%v/mirror" (include "halo.cname" (list . "halo-shadow")) .Release.Namespace .Values.shadow.service.port) }}
+{{- $_ := set $cfg "shadow_token" "{vault://env/halo-shadow-token}" }}
+{{- end }}
+{{- if .Values.kong.killSwitch.enabled }}
+{{- $_ := set $cfg "killswitch_url" (default (printf "http://%s.%s.svc:%v/api/v1/gateway/killswitch" (include "halo.cname" (list . "server")) .Release.Namespace .Values.server.service.port) .Values.kong.killSwitch.url) }}
+{{- $_ := set $cfg "killswitch_allow_insecure_in_cluster" (and .Values.kong.killSwitch.allowInsecureInCluster (not (hasPrefix "https://" (default "" .Values.kong.killSwitch.url)))) }}
+{{- $_ := set $cfg "killswitch_token" "{vault://env/halo-killswitch-token}" }}
+{{- $_ := set $cfg "killswitch_pubkey" "{vault://env/halo-killswitch-pubkey}" }}
+{{- end }}
+# The token is a Kong env-vault reference: the Kong pods need HALO_SHADOW_TOKEN + KONG_NGINX_MAIN_ENV=HALO_SHADOW_TOKEN
+# (see README). UNVERIFIED: rendered only, never applied to a Kong Ingress Controller. Attach with the
+# annotation  konghq.com/plugins: {{ .Values.kong.pluginName }}  on the Ingress/Service.
+apiVersion: configuration.konghq.com/v1
+kind: KongPlugin
+metadata:
+  name: {{ .Values.kong.pluginName }}
+  labels: {{- include "halo.labels" . | nindent 4 }}
+plugin: halo-kong
+config: {{- toYaml $cfg | nindent 2 }}
+{{- end }}

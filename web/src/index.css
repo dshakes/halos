@@ -1,0 +1,37 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --bg: #fafafa; --panel: #ffffff; --panel2: #f4f4f5; --line: #e4e4e7;
+  --fg: #18181b; --mute: #71717a; --accent: #4f46e5;
+  color-scheme: light;
+}
+.dark {
+  --bg: #09090b; --panel: #101013; --panel2: #16161a; --line: #26262b;
+  --fg: #ececef; --mute: #8b8b95; --accent: #818cf8;
+  color-scheme: dark;
+}
+@theme inline {
+  --color-bg: var(--bg); --color-panel: var(--panel); --color-panel2: var(--panel2);
+  --color-line: var(--line); --color-fg: var(--fg); --color-mute: var(--mute); --color-accent: var(--accent);
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+}
+html, body, #root { height: 100%; }
+body { background: var(--bg); color: var(--fg); font-size: 13px; font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
+::selection { background: color-mix(in oklab, var(--accent) 30%, transparent); }
+
+/* rail: two steel lines with sleepers, the halos track */
+.rail {
+  height: 18px;
+  background:
+    linear-gradient(var(--line), var(--line)) 0 3px / 100% 1.5px no-repeat,
+    linear-gradient(var(--line), var(--line)) 0 13.5px / 100% 1.5px no-repeat,
+    repeating-linear-gradient(90deg, transparent 0 9px, var(--line) 9px 10.5px);
+  background-clip: border-box;
+  mask: linear-gradient(#000, #000);
+}
+.rail-fill { background:
+    linear-gradient(var(--accent), var(--accent)) 0 3px / 100% 1.5px no-repeat,
+    linear-gradient(var(--accent), var(--accent)) 0 13.5px / 100% 1.5px no-repeat,
+    repeating-linear-gradient(90deg, transparent 0 9px, color-mix(in oklab, var(--accent) 55%, transparent) 9px 10.5px); }

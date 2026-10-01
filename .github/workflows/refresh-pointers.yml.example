@@ -1,0 +1,64 @@
+# EXAMPLE, not active (the .example suffix keeps GitHub from running it).
+# Signed ring pointers expire after 7 days; halod refuses an expired pointer.
+# Copy to refresh-pointers.yml and run more often than that (daily here).
+name: refresh-pointers
+on:
+  schedule: [{cron: "17 5 * * *"}]
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: write   # push refreshed pointers to ghcr.io
+concurrency:
+  group: refresh-pointers
+  cancel-in-progress: false
+env:
+  HALO_VERSION: "0.1.0"   # pin; bump deliberately
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        ring: [ring1-canary, ring2-early, ring3-ga]
+    steps:
+      - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+      # Install halo from the signed release: cosign proves checksums.txt was
+      # produced by Halos's release workflow, sha256sum proves the archive.
+      - run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          base="https://github.com/halos-dev/halos/releases/download/v${HALO_VERSION}"
+          archive="halos_${HALO_VERSION}_linux_amd64.tar.gz"
+          for f in "$archive" checksums.txt checksums.txt.sig checksums.txt.pem; do
+            curl -fsSLO "$base/$f"
+          done
+          cosign verify-blob checksums.txt \
+            --signature checksums.txt.sig --certificate checksums.txt.pem \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            --certificate-identity-regexp '^https://github\.com/halos-dev/halos/\.github/workflows/release\.yml@refs/tags/v'
+          grep " ${archive}\$" checksums.txt | sha256sum -c -
+          tar -xzf "$archive" halo
+          install -m 0755 halo /usr/local/bin/halo
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with: {registry: ghcr.io, username: "${{ github.actor }}", password: "${{ secrets.GITHUB_TOKEN }}"}
+      # Signer state ($XDG_STATE_HOME/halos/pointers.json) records the last pointer signed per ring; a registry
+      # serving an older one (replay/rollback) is refused. Cache entries are immutable, so each run saves a new
+      # key and the next run restores the newest one for the same ring (restore-keys prefix).
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/halo-state/halos/pointers.json
+          key: halos-pointers-${{ matrix.ring }}-${{ github.run_id }}
+          restore-keys: halos-pointers-${{ matrix.ring }}-
+      # If the cache is evicted (GitHub drops entries unused for 7 days) or the file fails to parse, the signer
+      # refuses to sign without it. Recover by adding to the command below, once, with the digest the ring must be
+      # serving (the release digest you last promoted):
+      #   --expect-digest "sha256:<digest>"
+      # Do not paste a digest permanently: it would pin the ring and fail every legitimate promotion.
+      # (`--adopt-existing` also works after an eviction, but trusts whatever the registry serves at that moment;
+      # prefer --expect-digest when you know the digest.)
+      - env:
+          HALO_KEY: ${{ secrets.HALO_SIGNING_KEY }}   # ed25519 private key PEM
+          RING: ${{ matrix.ring }}
+          XDG_STATE_HOME: ${{ runner.temp }}/halo-state
+        run: |
+          umask 077; printf '%s' "$HALO_KEY" > "$RUNNER_TEMP/halo.key"
+          halo release refresh --ring "$RING" --registry "ghcr.io/${{ github.repository_owner }}/halos" --key "$RUNNER_TEMP/halo.key"

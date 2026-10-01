@@ -1,0 +1,62 @@
+{
+  "id": "halos",
+  "version": "0.1.0",
+  "name": "Halos",
+  "description": "Installs the halod agent (npm-distributed CLIs such as codex/gemini-cli need a root-owned node+npm in the base image: distro nodejs/npm or the nodejs.org install; the nvm-based node Feature is rejected by halod), applies the org's signed Halos release (pinned AI CLIs + managed settings), optionally locks egress to the gateway and registry.",
+  "options": {
+    "registry": {
+      "type": "string",
+      "default": "",
+      "description": "OCI repository holding releases, e.g. ghcr.io/acme/halos-releases"
+    },
+    "org": { "type": "string", "default": "", "description": "Org name; must equal the org in the signed release (halod requires org:)" },
+    "ring": {
+      "type": "string",
+      "default": "ga",
+      "description": "Ring to follow (tag ring-<name>)"
+    },
+    "pubkeyPem": {
+      "type": "string",
+      "default": "",
+      "description": "ed25519 release public key, PKIX PEM contents (\\n-escaped). Preferred; embedded inline, never downloaded."
+    },
+    "pubkey": {
+      "type": "string",
+      "default": "",
+      "description": "https URL of the public key PEM. Only accepted together with pubkeySha256, which is verified before use."
+    },
+    "pubkeySha256": {
+      "type": "string",
+      "default": "",
+      "description": "sha256 (hex) of the file at 'pubkey'."
+    },
+    "halodUrl": {
+      "type": "string",
+      "default": "",
+      "description": "Download URL of the halod binary; {os} and {arch} are substituted"
+    },
+    "halodSha256": {
+      "type": "string",
+      "default": "",
+      "description": "Required. sha256 (hex) of the halod binary, or 'amd64=<hex>,arm64=<hex>'. Verified before the binary is installed."
+    },
+    "gatewayHost": {
+      "type": "string",
+      "default": "",
+      "description": "Gateway hostname allowed through the firewall"
+    },
+    "firewall": {
+      "type": "boolean",
+      "default": false,
+      "description": "Egress allowlist (gateway + registry only), default DROP for IPv4 and IPv6, started at container start via the feature entrypoint. Requires NET_ADMIN and NET_RAW."
+    }
+  },
+  "capAdd": [
+    "NET_ADMIN",
+    "NET_RAW"
+  ],
+  "installsAfter": [
+    "ghcr.io/devcontainers/features/common-utils"
+  ],
+  "entrypoint": "/usr/local/bin/halos-init-firewall"
+}

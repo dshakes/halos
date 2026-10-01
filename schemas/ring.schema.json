@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://halos.dev/schemas/ring.schema.json",
+  "title": "Ring",
+  "description": "An ordered rollout cohort pointing at a profile.",
+  "type": "object",
+  "properties": {
+    "apiVersion": {
+      "type": "string",
+      "description": "Document version.",
+      "const": "halos.dev/v1alpha1"
+    },
+    "kind": {
+      "type": "string",
+      "description": "Document kind.",
+      "const": "Ring"
+    },
+    "name": {
+      "type": "string",
+      "description": "Unique name within its kind.",
+      "pattern": "^[a-z0-9][a-zA-Z0-9._-]*$"
+    },
+    "labels": {
+      "type": "object",
+      "description": "Free-form labels.",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "order": {
+      "type": "integer",
+      "description": "Position in the rollout; earliest ring has the lowest order. Must be unique."
+    },
+    "profile": {
+      "type": "string",
+      "description": "Name of the Profile applied to members."
+    },
+    "release": {
+      "type": "string",
+      "description": "Immutable published release digest to pin to; empty builds from the profile."
+    },
+    "membership": {
+      "type": "object",
+      "description": "Who belongs to the ring.",
+      "properties": {
+        "users": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Explicit user ids always in this ring; checked before groups. A user may appear in only one ring."
+        },
+        "groups": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "IdP groups always in this ring."
+        },
+        "percent": {
+          "type": "number",
+          "description": "Percent of remaining users hashed into this ring (0-100, 0.01 precision).",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "default": {
+          "type": "boolean",
+          "description": "Marks the catch-all (GA) ring. Exactly one ring must set this."
+        },
+        "optIn": {
+          "type": "boolean",
+          "description": "Developers may join this ring themselves from the portal (recorded as a group membership request; admins may auto-approve)."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "apiVersion",
+    "kind",
+    "name",
+    "order",
+    "profile",
+    "membership"
+  ],
+  "additionalProperties": false
+}

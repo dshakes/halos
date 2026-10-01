@@ -1,0 +1,6 @@
+name: fixture-suite
+tasks: [fix-add]
+repeats: 3
+variants:
+  - {name: control, harness: claude, version: "1.0.0", model: noop}
+  - {name: fixer, harness: claude, version: "1.1.0", model: fixer, settings: settings.json}

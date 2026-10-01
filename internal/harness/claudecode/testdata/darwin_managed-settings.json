@@ -1,0 +1,92 @@
+{
+  "allowManagedHooksOnly": true,
+  "allowManagedMcpServersOnly": true,
+  "allowedMcpServers": [
+    {
+      "serverUrl": "https://mcp.example.com/docs"
+    },
+    {
+      "serverCommand": [
+        "npx",
+        "-y",
+        "lint-mcp"
+      ]
+    }
+  ],
+  "apiKeyHelper": "/opt/halo/token.sh",
+  "availableModels": [
+    "halo-sonnet",
+    "halo-haiku"
+  ],
+  "deniedMcpServers": [
+    {
+      "serverName": "filesystem"
+    }
+  ],
+  "disableBypassPermissionsMode": "disable",
+  "enforceAvailableModels": true,
+  "env": {
+    "ANTHROPIC_BASE_URL": "https://gw.example.com",
+    "ANTHROPIC_CUSTOM_HEADERS": "x-halo-ring: canary\nx-halo-release: sha256:abc",
+    "CLAUDE_CODE_API_KEY_HELPER_TTL_MS": "300000",
+    "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+    "DISABLE_AUTOUPDATER": "1",
+    "FOO": "bar",
+    "OTEL_EXPORTER_OTLP_ENDPOINT": "https://otel.example.com:4317",
+    "OTEL_EXPORTER_OTLP_PROTOCOL": "grpc",
+    "OTEL_LOGS_EXPORTER": "otlp",
+    "OTEL_LOG_USER_PROMPTS": "1",
+    "OTEL_METRICS_EXPORTER": "otlp",
+    "OTEL_METRICS_INCLUDE_VERSION": "true",
+    "OTEL_RESOURCE_ATTRIBUTES": "cost-center=a%2Fb,halo.harness=claude-code,halo.release=sha256%3Aabc,halo.ring=canary,team=platform%20eng"
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "/opt/halo/audit.sh",
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash"
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "command": "/opt/halo/start.sh",
+            "type": "command"
+          }
+        ]
+      }
+    ]
+  },
+  "model": "halo-sonnet",
+  "permissions": {
+    "allow": [
+      "Bash(go test:*)"
+    ],
+    "ask": [
+      "Bash(git push:*)"
+    ],
+    "defaultMode": "acceptEdits",
+    "deny": [
+      "Read(./.env)"
+    ]
+  },
+  "requiredMaximumVersion": "2.1.280",
+  "requiredMinimumVersion": "2.1.280",
+  "sandbox": {
+    "allowUnsandboxedCommands": false,
+    "enabled": true,
+    "network": {
+      "allowManagedDomainsOnly": true,
+      "allowedDomains": [
+        "example.com",
+        "github.com"
+      ]
+    }
+  }
+}

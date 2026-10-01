@@ -1,0 +1,83 @@
+# Halos evidence plane: OTLP -> otel-collector-contrib -> ClickHouse -> Grafana.
+#
+#   go run ./cmd/halo telemetry collector-config --clickhouse tcp://clickhouse:9000 -o otelcol.yaml
+#   HALO_OTELCOL_CONFIG=./otelcol.yaml docker compose up -d
+#
+# `make obs-e2e` does all of that plus a synthetic-telemetry assertion run.
+# Host ports bind to loopback only; override with HALO_OBS_*_PORT.
+name: ${COMPOSE_PROJECT_NAME:-halo-obs}
+
+x-ch-env: &ch-env
+  CLICKHOUSE_USER: halo
+  CLICKHOUSE_PASSWORD: halo-dev-only # local dev stack; never reuse
+
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:26.9.7.9@sha256:1f9c29a753cc07f9e2272a9d9383a840b222bbda78166da39dd10eecafe6500d
+    environment:
+      <<: *ch-env
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    ports: ["127.0.0.1:${HALO_OBS_CH_HTTP_PORT:-18123}:8123"]
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--user", "halo", "--password", "halo-dev-only", "-q", "SELECT 1"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.161.0@sha256:fd328de2552466ad78385e1b1289c3f2402b1c45f265b252aab1955b42845ac1
+    command: ["--config=/etc/otelcol/config.yaml"]
+    environment:
+      CLICKHOUSE_USER: halo
+      CLICKHOUSE_PASSWORD: halo-dev-only
+      # Bearer token halo-proxy presents on the gateway receiver (4319); local dev stack only.
+      HALO_OTLP_GATEWAY_TOKEN: halo-dev-gateway-token
+    volumes:
+      - type: bind
+        source: ${HALO_OTELCOL_CONFIG:?set HALO_OTELCOL_CONFIG to the output of halo telemetry collector-config}
+        target: /etc/otelcol/config.yaml
+        read_only: true
+    ports:
+      - "127.0.0.1:${HALO_OBS_OTLP_HTTP_PORT:-14318}:4318"
+      - "127.0.0.1:${HALO_OBS_OTLP_GRPC_PORT:-14317}:4317"
+      - "127.0.0.1:${HALO_OBS_OTLP_GATEWAY_PORT:-14319}:4319"
+    depends_on:
+      clickhouse: {condition: service_healthy}
+
+  # One-shot: the collector (create_schema) owns the otel_* tables; the halo_*
+  # tables and materialised views need them to exist, so wait, then apply.
+  schema:
+    image: clickhouse/clickhouse-server:26.9.7.9@sha256:1f9c29a753cc07f9e2272a9d9383a840b222bbda78166da39dd10eecafe6500d
+    restart: "no"
+    depends_on:
+      clickhouse: {condition: service_healthy}
+      otel-collector: {condition: service_started}
+    volumes: ["./clickhouse/schema.sql:/schema.sql:ro"]
+    entrypoint:
+      - bash
+      - -ec
+      - |
+        c="clickhouse-client --host clickhouse --user halo --password halo-dev-only"
+        for i in $$(seq 60); do
+          n=$$($$c -q "SELECT count() FROM system.tables WHERE database='halo' AND name IN ('otel_metrics_sum','otel_metrics_gauge','otel_metrics_histogram','otel_logs')")
+          [ "$$n" = 4 ] && break; sleep 1
+        done
+        [ "$$n" = 4 ] || { echo "collector never created the otel_metrics_* / otel_logs tables" >&2; exit 1; }
+        $$c --multiquery < /schema.sql
+
+  grafana:
+    image: grafana/grafana:13.2.3@sha256:b28bae15e219c998fb0e0424ed724930cc61b1f61fb404d47c862f9a23f9e572
+    environment:
+      GF_PLUGINS_PREINSTALL_SYNC: grafana-clickhouse-datasource@4.20.0
+      GF_SECURITY_ADMIN_PASSWORD: halo-dev-only
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      CLICKHOUSE_USER: halo
+      CLICKHOUSE_PASSWORD: halo-dev-only
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboard.json:/var/lib/grafana/dashboards/halo-fleet.json:ro
+    ports: ["127.0.0.1:${HALO_OBS_GRAFANA_PORT:-13000}:3000"]
+    depends_on:
+      schema: {condition: service_completed_successfully}

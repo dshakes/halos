@@ -1,0 +1,9 @@
+#!/bin/sh
+# Deterministic stand-in for `claude -p` (DockerRunner end-to-end test only):
+# fixes the fix-failing-go-test task's off-by-one and emits a stream-json result.
+set -eu
+# In-place rewrite (like an editor tool): fails with EACCES if /work files are not owned by the agent user.
+[ -f mean.go ] && { sed 's|len(xs)-1)|len(xs))|' mean.go > /tmp/m.go && cat /tmp/m.go > mean.go; }
+[ -n "${HALO_TEST_TOKEN:-}" ] && echo saw-token > .agent-saw-token
+[ -e /tmp/setup-marker ] && echo leaked > .setup-leak
+echo '{"type":"result","subtype":"success","is_error":false,"num_turns":1,"duration_ms":5,"total_cost_usd":0.001,"usage":{"input_tokens":1,"output_tokens":1}}'

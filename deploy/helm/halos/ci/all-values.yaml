@@ -1,0 +1,68 @@
+policy:
+  gitSync:
+    repo: git@github.com:acme/halos-policy.git
+    auth: {type: ssh, existingSecret: policy-git-ssh}
+server:
+  trustedProxyCIDRs: 10.42.0.0/16
+  oidcClientSecret: {existingSecret: halos-oidc}
+  proposals: {enabled: true}
+  pdb: {enabled: true}
+  policySubdir: policy
+  killSwitch: {existingSecret: halos-killswitch}
+  metrics: {enabled: true}
+  controller:
+    enabled: true
+    clickhouse: {url: "http://clickhouse.data.svc:8123", database: halo, existingSecret: clickhouse-pw}
+    notify:
+      slack: {existingSecret: halos-slack}
+      webhook: {existingSecret: halos-webhook}
+    policyRepo:
+      enabled: true
+      image: {repository: halos-dev/halo-server-git}
+      ghToken: {existingSecret: halos-gh}
+  ingress:
+    enabled: true
+    className: nginx
+    tls: [{secretName: halos-tls, hosts: [halos.acme.dev]}]
+    hosts: [halos.acme.dev]
+proxy:
+  serviceAccount: {create: true, annotations: {eks.amazonaws.com/role-arn: "arn:aws:iam::111122223333:role/halos-proxy-bedrock"}}
+  killSwitch: {enabled: true, pubkey: {existingSecret: halos-killswitch-pub}}
+  telemetry: {enabled: true, tokenSecret: {existingSecret: halos-otel-gw}, unitSaltSecret: {existingSecret: halos-unit-salt}}
+  policy: {source: gitSync}
+  config:
+    identity: {mode: jwt, issuer: https://idp.acme.dev, audience: halos}
+  autoscaling: {targetMemoryUtilizationPercentage: 80}
+  ingress:
+    enabled: true
+    className: nginx
+    hosts: [gateway.acme.dev]
+    tls: [{secretName: gateway-tls, hosts: [gateway.acme.dev]}]
+shadow:
+  enabled: true
+  upstreamHeaders: {existingSecret: halo-shadow-upstream}
+  pairKey: {existingSecret: halo-shadow-pairkey}
+  pdb: {enabled: true}
+otel:
+  enabled: true
+  gatewayToken: {existingSecret: halos-otel-gw}
+  clickhouse: {existingSecret: clickhouse-pw}
+  pdb: {enabled: true}
+networkPolicy:
+  ingressFrom:
+    server: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: ingress-nginx}}}]
+    proxy: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: ingress-nginx}}}]
+    otel: [{namespaceSelector: {matchLabels: {halo/otlp-sender: "true"}}}]
+  metricsFrom: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: monitoring}}}]
+  egress:
+    server: [{to: [{ipBlock: {cidr: 0.0.0.0/0}}], ports: [{protocol: TCP, port: 443}, {protocol: TCP, port: 22}]}]
+    proxy: [{to: [{ipBlock: {cidr: 0.0.0.0/0, except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16]}}], ports: [{protocol: TCP, port: 443}]}]
+    shadow: [{to: [{ipBlock: {cidr: 0.0.0.0/0}}], ports: [{protocol: TCP, port: 443}]}]
+    otel: [{to: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: data}}}], ports: [{protocol: TCP, port: 9000}]}]
+  controllerEgress:
+    clickhouse: {to: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: data}}}], ports: [8123]}
+    git: {to: [{ipBlock: {cidr: 140.82.112.0/20}}], ports: [443]}
+    webhook: {to: [{ipBlock: {cidr: 0.0.0.0/0, except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16]}}], ports: [443]}
+  aws: {to: [{ipBlock: {cidr: 10.0.64.0/24}}], ports: [443], podIdentityAgent: true}
+serviceMonitor: {enabled: true}
+kong: {enabled: true, killSwitch: {enabled: true}}

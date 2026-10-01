@@ -1,0 +1,116 @@
+{{- if .Values.otel.enabled }}
+{{- $o := .Values.otel }}
+{{- $n := include "halo.cname" (list . "otel") }}
+{{- if and (not $o.clickhouse.existingSecret) (not $o.existingConfigMap) (not $o.config) }}
+{{- fail "otel: set otel.clickhouse.existingSecret (keys username/password used by the generated config), or otel.existingConfigMap / otel.config" }}
+{{- end }}
+{{- if and (not $o.gatewayToken.existingSecret) (not $o.existingConfigMap) (not $o.config) }}
+{{- fail "otel: set otel.gatewayToken.existingSecret (the bearer token halo-proxy presents on the gateway receiver; the generated config refuses to start without it)" }}
+{{- end }}
+{{- if not $o.existingConfigMap }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $n }}
+  labels: {{- include "halo.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    {{- if $o.config }}
+    {{- $o.config | nindent 4 }}
+    {{- else }}
+    {{- .Files.Get "files/otel-collector.yaml" | nindent 4 }}
+    {{- end }}
+---
+{{- end }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $n }}
+  labels: {{- include "halo.labels" . | nindent 4 }}
+    app.kubernetes.io/component: otel
+spec:
+  type: {{ $o.service.type }}
+  selector: {{- include "halo.selector" (list . "otel") | nindent 4 }}
+  ports:
+    - {name: otlp-grpc, port: 4317, targetPort: otlp-grpc}
+    - {name: otlp-http, port: 4318, targetPort: otlp-http}
+    - {name: otlp-gateway, port: 4319, targetPort: otlp-gateway}   # halo-proxy only (bearer token)
+    - {name: metrics, port: 8889, targetPort: metrics}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $n }}
+  labels: {{- include "halo.labels" . | nindent 4 }}
+spec:
+  replicas: {{ $o.replicas }}
+  selector:
+    matchLabels: {{- include "halo.selector" (list . "otel") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "halo.selector" (list . "otel") | nindent 8 }}
+      annotations:
+        checksum/config: {{ toJson $o | sha256sum }}
+        {{- with $o.podAnnotations }}{{ toYaml . | nindent 8 }}{{ end }}
+    spec:
+      serviceAccountName: {{ include "halo.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- include "halo.pullSecrets" . | nindent 6 }}
+      containers:
+        - name: otel-collector
+          image: {{ include "halo.image" (list . $o.image) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: [--config=/etc/otelcol/config.yaml]
+          {{- if or $o.clickhouse.existingSecret $o.gatewayToken.existingSecret }}
+          env:
+            {{- if $o.clickhouse.existingSecret }}
+            - name: CLICKHOUSE_USER
+              valueFrom: {secretKeyRef: {name: {{ $o.clickhouse.existingSecret }}, key: {{ $o.clickhouse.userKey }}}}
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom: {secretKeyRef: {name: {{ $o.clickhouse.existingSecret }}, key: {{ $o.clickhouse.passwordKey }}}}
+            {{- end }}
+            {{- if $o.gatewayToken.existingSecret }}
+            - name: HALO_OTLP_GATEWAY_TOKEN
+              valueFrom: {secretKeyRef: {name: {{ $o.gatewayToken.existingSecret }}, key: {{ $o.gatewayToken.key }}}}
+            {{- end }}
+          {{- end }}
+          ports:
+            - {name: otlp-grpc, containerPort: 4317}
+            - {name: otlp-http, containerPort: 4318}
+            - {name: otlp-gateway, containerPort: 4319}
+            - {name: metrics, containerPort: 8889}
+          readinessProbe: {httpGet: {path: /, port: 13133}, periodSeconds: 10}
+          livenessProbe: {httpGet: {path: /, port: 13133}, initialDelaySeconds: 10, periodSeconds: 20}
+          securityContext: {{- toYaml .Values.securityContext | nindent 12 }}
+          resources: {{- toYaml $o.resources | nindent 12 }}
+          volumeMounts:
+            - {name: config, mountPath: /etc/otelcol, readOnly: true}
+      {{- include "halo.topologySpread" (list . "otel") | nindent 6 }}
+      {{- with $o.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $o.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $o.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ default $n $o.existingConfigMap }}
+            items: [{key: config.yaml, path: config.yaml}]
+{{- if $o.pdb.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $n }}
+  labels: {{- include "halo.labels" . | nindent 4 }}
+spec:
+  maxUnavailable: {{ $o.pdb.maxUnavailable }}
+  selector:
+    matchLabels: {{- include "halo.selector" (list . "otel") | nindent 6 }}
+{{- end }}
+{{- end }}

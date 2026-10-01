@@ -1,0 +1,8 @@
+# Fragment for halo-proxy's config (standalone mode). Keys come from the environment, never the file.
+forwardAuth: false          # the caller's IdP token must not reach providers
+upstreamHeaders:
+  anthropic:     {x-api-key: "${ANTHROPIC_API_KEY}", anthropic-version: "2023-06-01"}
+  azure-foundry: {x-api-key: "${AZURE_FOUNDRY_KEY}", anthropic-version: "2023-06-01"}
+  openai:        {Authorization: "Bearer ${OPENAI_API_KEY}"}
+  litellm:       {Authorization: "Bearer ${LITELLM_MASTER_KEY}"}
+  # orch: authenticated by network policy / mTLS or a header your orchestrator expects

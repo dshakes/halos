@@ -1,0 +1,14 @@
+# Runtime image for a Go service. Used by goreleaser (dockers_v2): the build
+# context holds prebuilt binaries at <os>/<arch>/<binary>.
+#   BINARY: halo-server | halo-proxy | halo-shadow
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
+ARG TARGETPLATFORM
+ARG BINARY
+COPY ${TARGETPLATFORM}/${BINARY} /app
+USER nonroot:nonroot
+# Writable state dir for nonroot (halo-shadow pairs, halo-server -data-dir);
+# BuildKit creates WORKDIR owned by USER. Mount a volume here to persist.
+WORKDIR /data
+ENV HALO_SHADOW_OUT=/data/pairs.jsonl
+VOLUME /data
+ENTRYPOINT ["/app"]

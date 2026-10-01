@@ -1,0 +1,57 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "definitions": {
+    "image": {"type": "object", "properties": {"registry": {"type": "string"}, "repository": {"type": "string", "minLength": 1}, "tag": {"type": "string"}, "digest": {"type": "string", "pattern": "^(sha256:[a-f0-9]{64})?$"}}},
+    "secretRef": {"type": "object", "properties": {"existingSecret": {"type": "string"}, "key": {"type": "string"}}},
+    "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+    "pvc": {"type": "object", "properties": {"enabled": {"type": "boolean"}, "existingClaim": {"type": "string"}, "size": {"type": "string"}, "storageClass": {"type": "string"}, "accessModes": {"type": "array", "items": {"type": "string"}}}},
+    "egressTarget": {"type": "object", "properties": {"to": {"type": "array"}, "ports": {"type": "array", "items": {"$ref": "#/definitions/port"}}}},
+    "ingress": {"type": "object", "properties": {"enabled": {"type": "boolean"}, "className": {"type": "string"}, "annotations": {"type": "object"}, "hosts": {"type": "array", "items": {"type": "string"}}, "tls": {"type": "array"}}}
+  },
+  "properties": {
+    "image": {"type": "object", "properties": {"registry": {"type": "string"}, "pullPolicy": {"enum": ["Always", "IfNotPresent", "Never"]}}},
+    "podSecurityContext": {"type": "object", "properties": {"runAsNonRoot": {"const": true}}},
+    "securityContext": {"type": "object", "properties": {"readOnlyRootFilesystem": {"type": "boolean"}, "allowPrivilegeEscalation": {"const": false}}},
+    "policy": {"type": "object", "properties": {"gitSync": {"type": "object", "required": ["repo"], "properties": {
+      "image": {"$ref": "#/definitions/image"},
+      "repo": {"type": "string", "minLength": 1},
+      "ref": {"type": "string"},
+      "auth": {"type": "object", "properties": {"type": {"enum": ["none", "ssh", "token"]}}}}}}},
+    "server": {"type": "object", "properties": {
+      "enabled": {"type": "boolean"}, "image": {"$ref": "#/definitions/image"},
+      "replicas": {"type": "integer", "minimum": 1, "maximum": 1, "description": "file-backed store; single writer"},
+      "port": {"$ref": "#/definitions/port"},
+      "fleetToken": {"$ref": "#/definitions/secretRef"}, "sessionKey": {"$ref": "#/definitions/secretRef"}, "oidcClientSecret": {"$ref": "#/definitions/secretRef"},
+      "killSwitch": {"type": "object", "properties": {"existingSecret": {"type": "string"}, "signingKey": {"type": "string", "minLength": 1}, "gatewayToken": {"type": "string", "minLength": 1}}},
+      "metrics": {"type": "object", "properties": {"enabled": {"type": "boolean"}, "port": {"$ref": "#/definitions/port"}}},
+      "controller": {"type": "object", "properties": {
+        "enabled": {"type": "boolean"},
+        "interval": {"type": "string", "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h))+$"},
+        "clickhouse": {"type": "object", "properties": {"url": {"type": "string", "pattern": "^(https?://.+)?$"}, "database": {"type": "string"}, "existingSecret": {"type": "string"}, "userKey": {"type": "string", "minLength": 1}, "passwordKey": {"type": "string", "minLength": 1}}},
+        "notify": {"type": "object", "properties": {"slack": {"$ref": "#/definitions/secretRef"}, "webhook": {"type": "object", "properties": {"existingSecret": {"type": "string"}, "urlKey": {"type": "string"}, "secretKey": {"type": "string"}}}}},
+        "policyRepo": {"type": "object", "properties": {"enabled": {"type": "boolean"}, "image": {"type": "object", "properties": {"repository": {"type": "string"}, "tag": {"type": "string"}, "digest": {"type": "string", "pattern": "^(sha256:[a-f0-9]{64})?$"}}}, "subdir": {"type": "string"}, "base": {"type": "string", "minLength": 1}, "ghToken": {"$ref": "#/definitions/secretRef"}}}}},
+      "portal": {"type": "object"}, "persistence": {"$ref": "#/definitions/pvc"}, "ingress": {"$ref": "#/definitions/ingress"}}},
+    "proxy": {"type": "object", "properties": {
+      "enabled": {"type": "boolean"}, "image": {"$ref": "#/definitions/image"},
+      "replicas": {"type": "integer", "minimum": 1}, "port": {"$ref": "#/definitions/port"},
+      "policy": {"type": "object", "properties": {"source": {"enum": ["configMap", "gitSync"]}}},
+      "serviceAccount": {"type": "object", "properties": {"create": {"type": "boolean"}, "name": {"type": "string"}, "annotations": {"type": "object"}}},
+      "killSwitch": {"type": "object", "properties": {"enabled": {"type": "boolean"}, "url": {"type": "string", "pattern": "^(https?://.+)?$"}, "allowInsecureInCluster": {"type": "boolean"}, "interval": {"type": "string"}, "token": {"$ref": "#/definitions/secretRef"}, "pubkey": {"$ref": "#/definitions/secretRef"}}},
+      "telemetry": {"type": "object", "properties": {"enabled": {"type": "boolean"}, "otlpEndpoint": {"type": "string", "pattern": "^(https?://.+)?$"}, "tokenSecret": {"$ref": "#/definitions/secretRef"}, "unitSaltSecret": {"$ref": "#/definitions/secretRef"}}},
+      "autoscaling": {"type": "object", "properties": {"enabled": {"type": "boolean"}, "minReplicas": {"type": "integer", "minimum": 1}, "maxReplicas": {"type": "integer", "minimum": 1}}},
+      "terminationGracePeriodSeconds": {"type": "integer", "minimum": 0},
+      "ingress": {"$ref": "#/definitions/ingress"}}},
+    "shadow": {"type": "object", "properties": {
+      "enabled": {"type": "boolean"}, "image": {"$ref": "#/definitions/image"}, "port": {"$ref": "#/definitions/port"},
+      "replicas": {"type": "integer", "minimum": 1, "maximum": 1},
+      "token": {"$ref": "#/definitions/secretRef"}, "persistence": {"$ref": "#/definitions/pvc"},
+      "budgetUSD": {"type": "number", "exclusiveMinimum": 0}, "upstreamHeaders": {"$ref": "#/definitions/secretRef"}, "pairKey": {"$ref": "#/definitions/secretRef"}}},
+    "otel": {"type": "object", "properties": {"enabled": {"type": "boolean"}, "image": {"$ref": "#/definitions/image"}}},
+    "networkPolicy": {"type": "object", "properties": {"enabled": {"type": "boolean"},
+      "controllerEgress": {"type": "object", "additionalProperties": {"$ref": "#/definitions/egressTarget"}},
+      "aws": {"type": "object", "properties": {"to": {"type": "array"}, "ports": {"type": "array", "items": {"$ref": "#/definitions/port"}}, "podIdentityAgent": {"type": "boolean"}}}}},
+    "serviceMonitor": {"type": "object", "properties": {"enabled": {"type": "boolean"}}},
+    "kong": {"type": "object", "properties": {"enabled": {"type": "boolean"}, "killSwitch": {"type": "object", "properties": {"enabled": {"type": "boolean"}, "url": {"type": "string"}, "allowInsecureInCluster": {"type": "boolean"}}}}}
+  }
+}

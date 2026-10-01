@@ -1,0 +1,36 @@
+{{- if .Values.serviceMonitor.enabled }}
+{{- range $c := list "proxy" "halo-shadow" "otel" }}
+{{- if and (index $.Values (ternary "shadow" $c (eq $c "halo-shadow"))).enabled (or (ne $c "halo-shadow") $.Values.shadow.metricsListen) }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "halo.cname" (list $ $c) }}
+  labels: {{- include "halo.labels" $ | nindent 4 }}
+    {{- with $.Values.serviceMonitor.labels }}{{ toYaml . | nindent 4 }}{{ end }}
+spec:
+  selector:
+    matchLabels: {{- include "halo.selector" (list $ $c) | nindent 6 }}
+  endpoints:
+    - port: {{ ternary "admin" "metrics" (eq $c "proxy") }}
+      path: /metrics
+      interval: {{ $.Values.serviceMonitor.interval }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- if and .Values.serviceMonitor.enabled .Values.server.enabled .Values.server.metrics.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "halo.cname" (list . "server") }}
+  labels: {{- include "halo.labels" . | nindent 4 }}
+    {{- with .Values.serviceMonitor.labels }}{{ toYaml . | nindent 4 }}{{ end }}
+spec:
+  selector:
+    matchLabels: {{- include "halo.selector" (list . "server") | nindent 6 }}
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: {{ .Values.serviceMonitor.interval }}
+{{- end }}

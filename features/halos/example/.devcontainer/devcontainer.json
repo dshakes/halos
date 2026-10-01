@@ -1,0 +1,17 @@
+{
+  "name": "acme-dev",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "features": {
+    "ghcr.io/acme/halos-features/halos:0": {
+      "registry": "ghcr.io/acme/halos-releases",
+      "org": "acme",
+      "ring": "canary",
+      "pubkeyPem": "-----BEGIN PUBLIC KEY-----\\nMCowBQYDK2VwAyEA...replace-with-your-release-key...=\\n-----END PUBLIC KEY-----",
+      "halodUrl": "https://releases.acme.example/halod/{os}-{arch}/halod",
+      "halodSha256": "amd64=<sha256-of-linux-amd64-halod>,arm64=<sha256-of-linux-arm64-halod>",
+      "gatewayHost": "llm-gateway.acme.example",
+      "firewall": true
+    }
+  },
+  "runArgs": ["--cap-add=NET_ADMIN", "--cap-add=NET_RAW"]
+}

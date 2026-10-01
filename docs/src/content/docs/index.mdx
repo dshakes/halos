@@ -1,0 +1,41 @@
+---
+title: Halos
+description: Ship AI coding tools like you ship software, versioned, signed, ring-deployed, and proven by evals.
+template: splash
+hero:
+  tagline: Ship AI coding tools like you ship software. Versioned, signed, ring-deployed, and proven by evals.
+  actions:
+    - text: Quickstart
+      link: /halos/getting-started/quickstart/
+      icon: right-arrow
+    - text: Architecture
+      link: /halos/concepts/architecture/
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+<CardGrid stagger>
+  <Card title="One policy, every harness" icon="puzzle">
+    Describe Claude Code, Codex, Gemini CLI and Copilot CLI behavior once as YAML in git. Per-harness adapters compile it and warn where a CLI cannot enforce a setting.
+  </Card>
+  <Card title="Signed releases, signed pointers" icon="approve-check">
+    Policy compiles to a content-addressed OCI release signed with ed25519. Each ring is a signed pointer with a sequence number and expiry, so a compromised registry cannot replay an old release.
+  </Card>
+  <Card title="Rings and rollback" icon="rocket">
+    Rings point at releases. Promote with a PR, roll back by re-signing a pointer. Automatic rollback is allowed; automatic promotion never is.
+  </Card>
+  <Card title="Evidence, not vibes" icon="seti:graph">
+    A/B, canary and single-turn shadow experiments, plus containerized replay evals, gate every change on real metrics. A controller evaluates running experiments on a timer and, on a bad verdict, trips an instant signed kill switch and opens the pause PR.
+  </Card>
+  <Card title="Any gateway, any IdP" icon="setting">
+    `halo-proxy` runs in front of, behind or instead of Kong, LiteLLM, Envoy, nginx or AWS API Gateway, and verifies OIDC JWTs from any provider. Bedrock (signed directly by `halo-proxy`, or through your orchestrator) and custom gateways work where vendor-managed settings do not.
+  </Card>
+  <Card title="Self-hosted, Apache-2.0" icon="github">
+    Proxy, agent, CLI, portal and docs are all open. Your prompts stay in your network.
+  </Card>
+</CardGrid>
+
+## Status
+
+Pre-release (`v1alpha1`). The components are built and unit-tested. Pages label anything that has not run against the real third-party system as **UNVERIFIED**; the [README](https://github.com/halos-dev/halos#what-is-not-verified) keeps the consolidated list.

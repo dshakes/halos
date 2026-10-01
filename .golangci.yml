@@ -1,0 +1,22 @@
+version: "2"
+run:
+  timeout: 5m
+linters:
+  default: none
+  enable: [govet, staticcheck, errcheck, gosec, revive, unused]
+  settings:
+    errcheck:
+      exclude-functions: [fmt.Fprint, fmt.Fprintf, fmt.Fprintln, (*text/tabwriter.Writer).Flush]
+    revive:
+      rules:
+        - name: exported
+          disabled: true
+  exclusions:
+    rules:
+      # Config/rendered files are meant to be world-readable; dirs 0755.
+      - linters: [gosec]
+        text: "G301|G306|G304|G204|G104"
+      - path: _test\.go
+        linters: [gosec, errcheck]
+formatters:
+  enable: [gofmt]

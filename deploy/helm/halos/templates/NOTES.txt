@@ -1,0 +1,116 @@
+Halos {{ .Chart.AppVersion }} installed as "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+Pre-create these Secrets (this chart never creates or reads secret values):
+{{- if .Values.server.enabled }}
+  - {{ .Values.server.fleetToken.existingSecret }} (key {{ .Values.server.fleetToken.key }}): bearer token halod uses to POST reports
+{{- if .Values.server.sessionKey.existingSecret }}
+  - {{ .Values.server.sessionKey.existingSecret }} (key {{ .Values.server.sessionKey.key }}): session signing key
+{{- end }}
+{{- if .Values.server.oidcClientSecret.existingSecret }}
+  - {{ .Values.server.oidcClientSecret.existingSecret }} (key {{ .Values.server.oidcClientSecret.key }}): OIDC client secret
+{{- end }}
+{{- with .Values.server.killSwitch.existingSecret }}
+  - {{ . }} (keys {{ $.Values.server.killSwitch.signingKey }}, {{ $.Values.server.killSwitch.gatewayToken }}): kill-switch Ed25519 PKCS#8 signing key + gateway bearer token (>= 16 chars)
+{{- end }}
+{{- if .Values.server.controller.enabled }}
+{{- with .Values.server.controller.clickhouse.existingSecret }}
+  - {{ . }} (keys {{ $.Values.server.controller.clickhouse.userKey }}, {{ $.Values.server.controller.clickhouse.passwordKey }}): ClickHouse credentials
+{{- end }}
+{{- with .Values.server.controller.notify.slack.existingSecret }}
+  - {{ . }} (key {{ $.Values.server.controller.notify.slack.key }}): Slack incoming-webhook URL
+{{- end }}
+{{- with .Values.server.controller.notify.webhook.existingSecret }}
+  - {{ . }} (keys {{ $.Values.server.controller.notify.webhook.urlKey }}, {{ $.Values.server.controller.notify.webhook.secretKey }}): webhook URL + HMAC secret
+{{- end }}
+{{- if .Values.server.controller.policyRepo.enabled }}
+{{- with .Values.server.controller.policyRepo.ghToken.existingSecret }}
+  - {{ . }} (key {{ $.Values.server.controller.policyRepo.ghToken.key }}): GitHub token exported as GH_TOKEN for `gh`
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- if and .Values.proxy.enabled .Values.proxy.killSwitch.enabled }}
+  - {{ default .Values.server.killSwitch.existingSecret .Values.proxy.killSwitch.token.existingSecret }} (key {{ .Values.proxy.killSwitch.token.key }}): gateway token; {{ .Values.proxy.killSwitch.pubkey.existingSecret }} (key {{ .Values.proxy.killSwitch.pubkey.key }}): PUBLIC kill-switch key
+{{- end }}
+{{- if and .Values.proxy.enabled .Values.proxy.telemetry.enabled }}
+  - {{ default .Values.otel.gatewayToken.existingSecret .Values.proxy.telemetry.tokenSecret.existingSecret }} (key {{ .Values.proxy.telemetry.tokenSecret.key }}): otel gateway-receiver bearer token (same value as otel.gatewayToken)
+{{- with .Values.proxy.telemetry.unitSaltSecret.existingSecret }}
+  - {{ . }} (key {{ $.Values.proxy.telemetry.unitSaltSecret.key }}): halo.unit hash salt shared by all proxy replicas
+{{- end }}
+{{- end }}
+{{- if .Values.shadow.enabled }}
+  - {{ .Values.shadow.token.existingSecret }} (key {{ .Values.shadow.token.key }}): halo-shadow token
+{{- with .Values.shadow.upstreamHeaders.existingSecret }}
+  - {{ . }} (key {{ $.Values.shadow.upstreamHeaders.key }}): YAML {upstream: {Header: value}} for halo-shadow --upstream-headers
+{{- end }}
+{{- with .Values.shadow.pairKey.existingSecret }}
+  - {{ . }} (key {{ $.Values.shadow.pairKey.key }}): base64 32-byte AES key for halo-shadow --pair-key-file
+{{- end }}
+{{- end }}
+{{- if ne .Values.policy.gitSync.auth.type "none" }}
+  - {{ .Values.policy.gitSync.auth.existingSecret }}: git credentials ({{ .Values.policy.gitSync.auth.type }})
+{{- end }}
+
+Policy repo: {{ .Values.policy.gitSync.repo }} @ {{ .Values.policy.gitSync.ref }}
+{{- if eq .Values.policy.gitSync.repo "https://github.com/example-org/halos-policy.git" }}
+  WARNING: policy.gitSync.repo is still the placeholder.
+{{- end }}
+{{- if .Values.networkPolicy.enabled }}
+
+NetworkPolicy is default-deny. Egress beyond DNS and in-chart traffic is only what you set in
+networkPolicy.egress.* (model upstreams, IdP, git host, registry, ClickHouse). Without those, pods
+cannot reach them.
+{{- end }}
+{{- if and .Values.server.enabled .Values.server.controller.enabled }}
+
+controller: ON (interval {{ .Values.server.controller.interval }}). Needs ClickHouse egress (networkPolicy.controllerEgress).
+{{- if .Values.server.controller.policyRepo.enabled }}
+policyRepo: the halo-server image ({{ default "server.image" .Values.server.controller.policyRepo.image.repository }}) MUST contain `git` and `gh`; clone is UNVERIFIED (git-sync worktree).
+{{- end }}
+{{- end }}
+{{- if .Values.proxy.enabled }}
+
+Bedrock upstreams: halo-proxy signs with the AWS default credential chain. IRSA: proxy.serviceAccount.annotations[eks.amazonaws.com/role-arn];
+Pod Identity: create the association for ServiceAccount {{ include "halo.proxyServiceAccountName" . }} (human runs). Allow egress via networkPolicy.aws.
+{{- end }}
+{{- if and .Values.proxy.enabled (not .Values.proxy.telemetry.enabled) }}
+
+NOTE: proxy.telemetry is off: halo-proxy exports no gateway evidence, so the controller cannot auto-kill (only gateway-sourced evidence may).
+{{- end }}
+{{- if and .Values.proxy.enabled .Values.proxy.telemetry.enabled (not .Values.otel.enabled) (not .Values.proxy.telemetry.otlpEndpoint) }}
+
+WARNING: proxy.telemetry targets the in-chart otel Service but otel.enabled=false; set proxy.telemetry.otlpEndpoint.
+{{- end }}
+{{- if and .Values.proxy.enabled .Values.proxy.killSwitch.enabled .Values.proxy.killSwitch.allowInsecureInCluster (not (hasPrefix "https://" (default "" .Values.proxy.killSwitch.url))) }}
+
+WARNING: proxy kill switch polls halo-server over plain http (allowInsecureInCluster); the gateway token crosses the pod network
+unencrypted. Terminate TLS in front of halo-server, set proxy.killSwitch.url to https://... and allowInsecureInCluster=false.
+{{- end }}
+{{- if and .Values.kong.enabled .Values.kong.killSwitch.enabled .Values.kong.killSwitch.allowInsecureInCluster (not (hasPrefix "https://" (default "" .Values.kong.killSwitch.url))) }}
+
+WARNING: kong kill switch polls halo-server over plain http (allowInsecureInCluster); see proxy warning above for the https switch.
+{{- end }}
+{{- if .Values.shadow.enabled }}
+
+shadow: needs the compiled policy snapshot (`halo gateway compile`, produced in CI) mounted like halo-proxy's; it is not
+scraped by ServiceMonitor (/metrics needs header X-Halo-Shadow-Token).
+{{- end }}
+{{- if .Values.server.enabled }}
+
+Console: kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "halo.cname" (list . "server") }} 8080:{{ .Values.server.service.port }}
+{{- end }}
+{{- if .Values.proxy.enabled }}
+Proxy:   kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "halo.cname" (list . "proxy") }} 8088:{{ .Values.proxy.service.port }}
+{{- end }}
+{{- if .Values.kong.enabled }}
+
+Kong: KongPlugin "{{ .Values.kong.pluginName }}" rendered (UNVERIFIED). This chart does not deploy Kong. The Kong
+release MUST set (kong/kong or kong/ingress `env:`), or the plugin cannot read the halo-shadow token / big bodies get 413:
+  HALO_SHADOW_TOKEN                        from Secret {{ .Values.shadow.token.existingSecret }}/{{ .Values.shadow.token.key }}
+{{- if .Values.kong.killSwitch.enabled }}
+  HALO_KILLSWITCH_TOKEN / HALO_KILLSWITCH_PUBKEY  gateway token / PEM public key (vault://env/halo-killswitch-token, -pubkey); add both to KONG_NGINX_MAIN_ENV
+{{- end }}
+  KONG_NGINX_MAIN_ENV=HALO_SHADOW_TOKEN
+  KONG_NGINX_HTTP_CLIENT_BODY_BUFFER_SIZE=32m
+The plugin references it as {vault://env/halo-shadow-token}.
+{{- end }}

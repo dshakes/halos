@@ -1,0 +1,10 @@
+id: fix-failing-go-test
+repo: repo
+prompt: |
+  `go test ./...` is failing in this repo. Find the bug in the non-test code
+  and fix it. Do not modify the tests.
+check: go test ./...
+timeout: 10m
+budget_usd: 1.0
+max_turns: 20
+tags: [go, bugfix, smoke]
