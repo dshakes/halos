@@ -15,10 +15,13 @@ halo gateway deck [flags]
 
 | Flag | Shorthand | Type | Default | Description |
 |---|---|---|---|---|
+| `--allow-unverified` |  | bool | false | opt out of the default 401 for model calls without a verified identity (JWT mode): route them anonymously instead |
+| `--forward-client-credentials` |  | bool | false | opt out of dropping the caller's Authorization/x-api-key/... before the upstream (leaks the IdP token to provider upstreams) |
 | `--groups-header` |  | string |  | header carrying IdP groups |
 | `--halo-shadow-token` |  | string |  | halo-shadow auth token |
 | `--halo-shadow-url` |  | string |  | halo-shadow URL for shadow traffic |
 | `--identity-header` |  | string |  | identity header (default: org gateway.auth.identityHeader) |
+| `--killswitch-allow-insecure-in-cluster` |  | bool | false | allow a plain-http --killswitch-url on a trusted pod network (in-cluster halo-server Service) |
 | `--killswitch-url` |  | string |  | halo-server kill-switch URL; token and pubkey are emitted as &#123;vault://env/halo-killswitch-*} refs |
 | `--out` | `-o` | string | - | output file ('-' = stdout) |
 | `--policy-dir` |  | string |  | policy repo directory (default ".") |
