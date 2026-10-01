@@ -1144,9 +1144,9 @@ def docs_diagrams():
     seq(
         "request-path",
         "Request path through halo-proxy",
-        "Claude Code sends a request with a bearer JWT; halo-proxy strips client x-halo headers, verifies "
+        "Claude Code sends a request with a bearer JWT; halo-proxy verifies "
         "the token against the issuer JWKS, assigns ring, experiment and variant, enforces the model "
-        "allowlist, forwards with x-halo stamps, streams the response and mirrors the first turn to "
+        "allowlist, strips client x-halo headers, forwards with x-halo stamps, streams the response and mirrors the first turn to "
         "halo-shadow asynchronously.",
         [
             ("Claude Code", "client"),
@@ -1157,11 +1157,11 @@ def docs_diagrams():
         ],
         [
             (0, 1, "POST /v1/messages · Bearer JWT · spoofed x-halo-*", "call"),
-            ("self", 1, "strip every x-halo-*"),
             (1, 2, "JWKS (cached, refetch on unknown kid)", "call"),
             ("self", 1, "verify iss · aud · exp · nbf · alg"),
             ("self", 1, "ring, experiment, variant ← user + groups"),
             ("self", 1, "model allowlist (fails closed) · alias → route"),
+            ("self", 1, "strip every x-halo-* · stamp gateway-owned ones"),
             (1, 3, "forward with x-halo-ring/release/experiment/variant", "call"),
             (3, 0, "streamed response, no buffering", "reply"),
             (1, 4, "async: experiment, variant, first-turn body", "async"),
