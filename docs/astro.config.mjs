@@ -26,7 +26,16 @@ export default defineConfig({
           codeFontSize: '0.86rem',
           codeLineHeight: '1.7',
           uiFontFamily: 'var(--sl-font)',
-          frames: { shadowColor: 'transparent', frameBoxShadowCssValue: 'none' },
+          // Warm ink / paper instead of GitHub's blue-black, to match the Eclipse tokens.
+          codeBackground: ({ theme }) => (theme.type === 'dark' ? '#0e0e12' : '#fffdf9'),
+          frames: {
+            shadowColor: 'transparent',
+            frameBoxShadowCssValue: 'none',
+            editorTabBarBackground: ({ theme }) => (theme.type === 'dark' ? '#121217' : '#f3ece0'),
+            editorActiveTabBackground: ({ theme }) => (theme.type === 'dark' ? '#0e0e12' : '#fffdf9'),
+            terminalTitlebarBackground: ({ theme }) => (theme.type === 'dark' ? '#121217' : '#f3ece0'),
+            terminalBackground: ({ theme }) => (theme.type === 'dark' ? '#0e0e12' : '#fffdf9'),
+          },
         },
       },
       social: [
@@ -38,6 +47,7 @@ export default defineConfig({
       customCss: [
         '@fontsource-variable/inter/wght.css',
         '@fontsource-variable/jetbrains-mono/wght.css',
+        '@fontsource-variable/sora/wght.css',
         './src/styles/tokens.css',
         './src/styles/custom.css',
       ],
