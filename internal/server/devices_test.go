@@ -166,7 +166,13 @@ func TestDeviceCannotOverwriteOtherHost(t *testing.T) {
 	report(a, `{"hostname":"lap1","ring":"ga","digest":"good"}`)
 	report(b, `{"hostname":"lap1","ring":"ga","digest":"evil"}`)
 	report(tok, `{"hostname":"lap1","device":"`+da.ID+`","digest":"fleet"}`)
-	for _, s := range []Store{e.s.cfg.Store, mustOpen(t, dir)} { // live and replayed from disk
+	live := e.s.cfg.Store
+	for i := 0; i < 2; i++ { // live, then replayed from disk
+		s := live
+		if i == 1 {
+			_ = live.(io.Closer).Close() // reopening compacts via rename, which Windows refuses over an open file
+			s = mustOpen(t, dir)
+		}
 		hosts := s.All()
 		digests := map[string]string{}
 		for _, h := range hosts {

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -432,7 +433,7 @@ func TestFileStoreEncryptedAndPruned(t *testing.T) {
 	if _, err := DecodePair(lines[0], bytes.Repeat([]byte{8}, 32)); err == nil {
 		t.Fatal("wrong key must fail")
 	}
-	if fi, _ := os.Stat(path); fi.Mode().Perm() != 0o600 {
+	if fi, _ := os.Stat(path); runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 { // no POSIX mode bits on Windows
 		t.Fatalf("mode %v", fi.Mode())
 	}
 }
