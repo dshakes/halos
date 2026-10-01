@@ -26,8 +26,8 @@ Halos has three planes plus a policy source. Each plane can be adopted independe
 
 ## Request path
 
-<img class="diagram dark:sl-hidden" src="/halos/diagrams/request-path-light.svg" alt="Claude Code sends a request with a bearer JWT; halo-proxy strips client x-halo headers, verifies the token against the issuer JWKS, assigns ring, experiment and variant, enforces the model allowlist, forwards with x-halo stamps, streams the response and mirrors the first turn to halo-shadow asynchronously." width="760" />
-<img class="diagram light:sl-hidden" src="/halos/diagrams/request-path-dark.svg" alt="Claude Code sends a request with a bearer JWT; halo-proxy strips client x-halo headers, verifies the token against the issuer JWKS, assigns ring, experiment and variant, enforces the model allowlist, forwards with x-halo stamps, streams the response and mirrors the first turn to halo-shadow asynchronously." width="760" />
+<img class="diagram dark:sl-hidden" src="/halos/diagrams/request-path-light.svg" alt="Claude Code sends a request with a bearer JWT; halo-proxy verifies the token against the issuer JWKS, assigns ring, experiment and variant, enforces the model allowlist, strips client x-halo headers, forwards with x-halo stamps, streams the response and mirrors the first turn to halo-shadow asynchronously." width="760" />
+<img class="diagram light:sl-hidden" src="/halos/diagrams/request-path-dark.svg" alt="Claude Code sends a request with a bearer JWT; halo-proxy verifies the token against the issuer JWKS, assigns ring, experiment and variant, enforces the model allowlist, strips client x-halo headers, forwards with x-halo stamps, streams the response and mirrors the first turn to halo-shadow asynchronously." width="760" />
 
 The mirror is asynchronous and dropped when its queue is full. A shadow job carries only the experiment, variant, protocol, path, allowlisted headers and body; `halo-shadow` resolves both upstreams from its own copy of the policy.
 

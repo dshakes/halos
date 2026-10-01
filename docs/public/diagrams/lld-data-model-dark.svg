@@ -1,0 +1,122 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 452" width="760" height="452" role="img" aria-labelledby="t d" font-family="ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif">
+<title id="t">Policy data model</title>
+<desc id="d">The policy kinds and their references: a Rollout names its backing Experiment and, per step, a Ring; an Experiment draws users from Rings and its variants override Gateway alias routes (traffic axis) or name a Profile (client axis); a Ring points at a Profile and optionally pins a release; a traffic Toggle overrides Gateway alias routes and its rules target rings, groups, users and a percent; halos.yaml holds the org and identity. policy.Load joins all into one Org.</desc>
+<style>
+.cv{fill:#0c0c10;stroke:#1e1e24;stroke-width:1.5}
+.card{fill:#121217;stroke:#2a2a31;stroke-width:1.5}
+.soft{fill:url(#gs)}
+.ring{fill:none;stroke:url(#ga);stroke-width:1.5}
+.dcard{fill:#2a1414;stroke:#ff7a7a;stroke-width:1.5}
+.ghost{fill:none;stroke:#5a564f;stroke-width:1.5;stroke-dasharray:4 4}
+.zone{fill:#0f0f14;stroke:#24242b;stroke-width:1.5}
+.chip{fill:#1a1a20;stroke:#2a2a31;stroke-width:1}
+text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
+.t{font-size:13.5px;font-weight:600;fill:#f4f1ea}
+.tm{font:600 12.5px ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;fill:#f4f1ea}
+.td{fill:#ff7a7a}
+.s{font-size:12px;fill:#bdb7ac}
+.m{font:11px ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;fill:#bdb7ac}
+.xs{font-size:10.5px;font-weight:500;fill:#9a958b}
+.xm{font-family:ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;font-weight:400}
+.xa{fill:url(#ga);font-weight:600}
+.xd{fill:#ff7a7a;font-weight:600}
+.xw{fill:#16130f;font-weight:600}
+.k{font-size:10.5px;font-weight:600;letter-spacing:.08em;fill:#9a958b}
+.ka{fill:url(#ga)}
+.h1{font-size:42px;font-weight:700;letter-spacing:-.02em;fill:#f4f1ea}
+.ln,.la,.ld,.lm{fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.ln{stroke:#5a564f}.la{stroke:url(#ga)}.ld{stroke:#ff7a7a}.lm{stroke:#2a2a31}
+.lane{stroke:#2a2a31;stroke-width:1.5;stroke-dasharray:3 4}
+.dash{stroke-dasharray:5 5}
+.dl{fill:#5a564f}.da{fill:url(#ga)}.dd{fill:#ff7a7a}
+.pl{fill:#0c0c10}.pa{fill:#0c0c10;stroke:url(#ga);stroke-width:1}
+.pd{fill:#2a1414;stroke:#ff7a7a;stroke-width:1}.ps{fill:url(#ga)}
+.fa{fill:url(#ga)}.fs{fill:url(#gs)}.fm{fill:#1a1a20}.fd{fill:#ff7a7a}.ft{fill:#f4f1ea}
+.bdg{fill:url(#ga)}.bn{font-size:9.5px;font-weight:700;fill:#16130f}
+.ic{fill:none;stroke:url(#ga);stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
+.pkt{fill:url(#ga)}
+.grow{transform-box:fill-box;transform-origin:left;animation:grow 4.8s cubic-bezier(.6,0,.2,1) infinite}
+@keyframes grow{0%{transform:scaleX(.08)}25%{transform:scaleX(.3)}50%{transform:scaleX(.55)}75%,100%{transform:scaleX(1)}}
+.flow{stroke-dasharray:4 6;animation:flow 1.1s linear infinite}
+@keyframes flow{to{stroke-dashoffset:-20}}
+.blink{animation:blink 3.2s ease-in-out infinite}
+@keyframes blink{0%,100%{opacity:.18}35%,65%{opacity:1}}
+.pulse{transform-box:fill-box;transform-origin:center;animation:pulse 2.8s ease-out infinite}
+@keyframes pulse{0%{opacity:.55;transform:scale(.6)}100%{opacity:0;transform:scale(1.5)}}
+@media (prefers-reduced-motion:reduce){.flow,.blink,.pulse,.grow{animation:none}.blink{opacity:1}.pulse,.pkt{display:none}}
+</style>
+<defs>
+<linearGradient id="ga" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="760" y2="0"><stop offset="0" stop-color="#ffb547"/><stop offset="1" stop-color="#ff7a4d"/></linearGradient>
+<linearGradient id="gs" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="760" y2="0"><stop offset="0" stop-color="#ffb547" stop-opacity="0.12"/><stop offset="1" stop-color="#ff7a4d" stop-opacity="0.12"/></linearGradient>
+<filter id="sh" x="-10%" y="-10%" width="120%" height="140%"><feDropShadow dx="0" dy="1" stdDeviation="1.6" flood-color="#000000" flood-opacity="0.5"/></filter>
+</defs>
+<rect class="cv" x=".75" y=".75" width="758.5" height="450.5" rx="16"/>
+<text class="k ka" x="24" y="34">KINDS · APIVERSION HALOS.DEV/V1ALPHA1</text>
+<rect class="card" x="24" y="56" width="196" height="104" rx="12" filter="url(#sh)"/>
+<text class="tm" x="40" y="96.5">halos.yaml</text>
+<text class="m" x="40" y="114.5">org, identity (OIDC)</text>
+<text class="m" x="40" y="130.5">selfService, simple mode</text>
+<rect class="card" x="24" y="196" width="196" height="104" rx="12" filter="url(#sh)"/>
+<text class="tm" x="40" y="236.5">Gateway</text>
+<text class="m" x="40" y="254.5">models{alias: route}</text>
+<text class="m" x="40" y="270.5">upstreams{name}, engine</text>
+<rect class="card" x="24" y="336" width="196" height="104" rx="12" filter="url(#sh)"/>
+<text class="tm" x="40" y="368.5">Toggle</text>
+<text class="m" x="40" y="386.5">rules[rings, groups,</text>
+<text class="m" x="40" y="402.5">users, percent]</text>
+<text class="m" x="40" y="418.5">client | traffic.routes</text>
+<rect class="card" x="282" y="56" width="196" height="104" rx="12" filter="url(#sh)"/>
+<text class="tm" x="298" y="88.5">Rollout</text>
+<text class="m" x="298" y="106.5">axis, experiment</text>
+<text class="m" x="298" y="122.5">change, baseline</text>
+<text class="m" x="298" y="138.5">steps[strategy, gates]</text>
+<rect class="card" x="282" y="196" width="196" height="104" rx="12" filter="url(#sh)"/>
+<rect class="soft" x="282" y="196" width="196" height="104" rx="12"/>
+<rect class="ring" x="282.75" y="196.75" width="194.5" height="102.5" rx="11.25"/>
+<text class="tm" x="298" y="228.5">Experiment</text>
+<text class="m" x="298" y="246.5">type, axis, rings[]</text>
+<text class="m" x="298" y="262.5">variants[routes|profile]</text>
+<text class="m" x="298" y="278.5">metrics, stopping</text>
+<rect class="card" x="540" y="56" width="196" height="104" rx="12" filter="url(#sh)"/>
+<text class="tm" x="556" y="88.5">Ring</text>
+<text class="m" x="556" y="106.5">order, profile</text>
+<text class="m" x="556" y="122.5">release (pin)</text>
+<text class="m" x="556" y="138.5">membership</text>
+<rect class="card" x="540" y="196" width="196" height="104" rx="12" filter="url(#sh)"/>
+<text class="tm" x="556" y="228.5">Profile</text>
+<text class="m" x="556" y="246.5">extends</text>
+<text class="m" x="556" y="262.5">harnesses{version}</text>
+<text class="m" x="556" y="278.5">models, permissions, mcp</text>
+<rect class="ghost" x="540" y="336" width="196" height="104" rx="12"/>
+<text class="tm" x="556" y="376.5">Org</text>
+<text class="m" x="556" y="394.5">policy.Load joins every</text>
+<text class="m" x="556" y="410.5">document into one Org</text>
+<path class="la" d="M380 166L380 190"/>
+<path class="la hd" d="M376.6 184.5L380 190L383.4 184.5"/>
+<rect class="pa" x="341.0" y="169" width="78.0" height="18" rx="9"/>
+<text class="xs xa xm" x="380" y="181.6" text-anchor="middle">experiment</text>
+<path class="ln" d="M484 94L534 94"/>
+<path class="ln hd" d="M528.5 97.4L534 94L528.5 90.6"/>
+<rect class="pl" x="489.2" y="71.0" width="39.6" height="18" rx="9"/>
+<text class="xs xm" x="509" y="83.6" text-anchor="middle">ring</text>
+<path class="ln" d="M484 220L500.0 220.0Q506 220 506.0 214.0L506.0 136.0Q506 130 512.0 130.0L534 130"/>
+<path class="ln hd" d="M528.5 133.4L534 130L528.5 126.6"/>
+<rect class="pl" x="476.6" y="173" width="58.8" height="18" rx="9"/>
+<text class="xs xm" x="506" y="185.6" text-anchor="middle">rings[]</text>
+<path class="ln" d="M484 264L534 264"/>
+<path class="ln hd" d="M528.5 267.4L534 264L528.5 260.6"/>
+<rect class="pl" x="479.6" y="241.0" width="58.8" height="18" rx="9"/>
+<text class="xs xm" x="509" y="253.6" text-anchor="middle">profile</text>
+<path class="la" d="M276 248L226 248"/>
+<path class="la hd" d="M231.5 244.6L226 248L231.5 251.4"/>
+<rect class="pa" x="224.8" y="225.0" width="52.4" height="18" rx="9"/>
+<text class="xs xa xm" x="251" y="237.6" text-anchor="middle">routes</text>
+<path class="ln" d="M638 166L638 190"/>
+<path class="ln hd" d="M634.6 184.5L638 190L641.4 184.5"/>
+<rect class="pl" x="608.6" y="169" width="58.8" height="18" rx="9"/>
+<text class="xs xm" x="638" y="181.6" text-anchor="middle">profile</text>
+<path class="ln" d="M122 330L122 306"/>
+<path class="ln hd" d="M125.4 311.5L122 306L118.6 311.5"/>
+<rect class="pl" x="70.2" y="309" width="103.7" height="18" rx="9"/>
+<text class="xs xm" x="122" y="321.6" text-anchor="middle">traffic.routes</text>
+</svg>

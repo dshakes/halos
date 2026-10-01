@@ -1,0 +1,158 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 776" width="760" height="776" role="img" aria-labelledby="t d" font-family="ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif">
+<title id="t">Request path inside halo-proxy</title>
+<desc id="d">Order of operations in cmd/halo-proxy ServeHTTP: snapshot, identity, body bound, kill list, decision per alias, route order, attempts with translation, header hygiene, shadow mirror, failover with breaker and upstream auth, streaming, and deferred metrics in a defer.</desc>
+<style>
+.cv{fill:#f7f2e9;stroke:#e6ddcd;stroke-width:1.5}
+.card{fill:#fffdf9;stroke:#e3d9c8;stroke-width:1.5}
+.soft{fill:url(#gs)}
+.ring{fill:none;stroke:url(#ga);stroke-width:1.5}
+.dcard{fill:#fbedea;stroke:#b42323;stroke-width:1.5}
+.ghost{fill:none;stroke:#a89f90;stroke-width:1.5;stroke-dasharray:4 4}
+.zone{fill:#f3ece0;stroke:#e0d5c2;stroke-width:1.5}
+.chip{fill:#f3ece0;stroke:#e3d9c8;stroke-width:1}
+text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
+.t{font-size:13.5px;font-weight:600;fill:#16130f}
+.tm{font:600 12.5px ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;fill:#16130f}
+.td{fill:#b42323}
+.s{font-size:12px;fill:#4a443b}
+.m{font:11px ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;fill:#4a443b}
+.xs{font-size:10.5px;font-weight:500;fill:#655e52}
+.xm{font-family:ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;font-weight:400}
+.xa{fill:url(#ga);font-weight:600}
+.xd{fill:#b42323;font-weight:600}
+.xw{fill:#fffdf9;font-weight:600}
+.k{font-size:10.5px;font-weight:600;letter-spacing:.08em;fill:#655e52}
+.ka{fill:url(#ga)}
+.h1{font-size:42px;font-weight:700;letter-spacing:-.02em;fill:#16130f}
+.ln,.la,.ld,.lm{fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.ln{stroke:#a89f90}.la{stroke:url(#ga)}.ld{stroke:#b42323}.lm{stroke:#e3d9c8}
+.lane{stroke:#e3d9c8;stroke-width:1.5;stroke-dasharray:3 4}
+.dash{stroke-dasharray:5 5}
+.dl{fill:#a89f90}.da{fill:url(#ga)}.dd{fill:#b42323}
+.pl{fill:#f7f2e9}.pa{fill:#f7f2e9;stroke:url(#ga);stroke-width:1}
+.pd{fill:#fbedea;stroke:#b42323;stroke-width:1}.ps{fill:url(#ga)}
+.fa{fill:url(#ga)}.fs{fill:url(#gs)}.fm{fill:#f3ece0}.fd{fill:#b42323}.ft{fill:#16130f}
+.bdg{fill:url(#ga)}.bn{font-size:9.5px;font-weight:700;fill:#fffdf9}
+.ic{fill:none;stroke:url(#ga);stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
+.pkt{fill:url(#ga)}
+.grow{transform-box:fill-box;transform-origin:left;animation:grow 4.8s cubic-bezier(.6,0,.2,1) infinite}
+@keyframes grow{0%{transform:scaleX(.08)}25%{transform:scaleX(.3)}50%{transform:scaleX(.55)}75%,100%{transform:scaleX(1)}}
+.flow{stroke-dasharray:4 6;animation:flow 1.1s linear infinite}
+@keyframes flow{to{stroke-dashoffset:-20}}
+.blink{animation:blink 3.2s ease-in-out infinite}
+@keyframes blink{0%,100%{opacity:.18}35%,65%{opacity:1}}
+.pulse{transform-box:fill-box;transform-origin:center;animation:pulse 2.8s ease-out infinite}
+@keyframes pulse{0%{opacity:.55;transform:scale(.6)}100%{opacity:0;transform:scale(1.5)}}
+@media (prefers-reduced-motion:reduce){.flow,.blink,.pulse,.grow{animation:none}.blink{opacity:1}.pulse,.pkt{display:none}}
+</style>
+<defs>
+<linearGradient id="ga" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="760" y2="0"><stop offset="0" stop-color="#b4400f"/><stop offset="1" stop-color="#8a5300"/></linearGradient>
+<linearGradient id="gs" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="760" y2="0"><stop offset="0" stop-color="#b4400f" stop-opacity="0.08"/><stop offset="1" stop-color="#8a5300" stop-opacity="0.08"/></linearGradient>
+<filter id="sh" x="-10%" y="-10%" width="120%" height="140%"><feDropShadow dx="0" dy="1" stdDeviation="1.6" flood-color="#3c280a" flood-opacity="0.08"/></filter>
+</defs>
+<rect class="cv" x=".75" y=".75" width="758.5" height="774.5" rx="16"/>
+<text class="k ka" x="24" y="38">CMD/HALO-PROXY · PROXY.SERVEHTTP</text>
+<rect class="card" x="56" y="64" width="452" height="46" rx="12" filter="url(#sh)"/>
+<text class="t" x="96" y="83.5">Load the policy snapshot</text>
+<text class="m" x="96" y="101.5">gateway.Snapshot.Get (hot reload)</text>
+<circle class="bdg" cx="76" cy="87.0" r="8"/>
+<text class="bn" x="76" y="90.4" text-anchor="middle">1</text>
+<path class="ld" d="M514 87L544 87"/>
+<path class="ld hd" d="M538.5 90.4L544 87L538.5 83.6"/>
+<rect class="pd" x="548.0" y="78.0" width="123.7" height="18" rx="9"/>
+<text class="xs xd" x="609.862" y="90.6" text-anchor="middle">503 policy_unavailable</text>
+<rect class="card" x="56" y="122" width="452" height="46" rx="12" filter="url(#sh)"/>
+<text class="t" x="96" y="141.5">Verify the caller</text>
+<text class="m" x="96" y="159.5">identity: jwt | trusted_header | none</text>
+<circle class="bdg" cx="76" cy="145.0" r="8"/>
+<text class="bn" x="76" y="148.4" text-anchor="middle">2</text>
+<path class="ln" d="M76 111L76 113"/>
+<path class="ld" d="M514 145L544 145"/>
+<path class="ld hd" d="M538.5 148.4L544 145L538.5 141.6"/>
+<rect class="pd" x="548.0" y="136.0" width="98.9" height="18" rx="9"/>
+<text class="xs xd" x="597.472" y="148.6" text-anchor="middle">401 unauthorized</text>
+<rect class="card" x="56" y="180" width="452" height="46" rx="12" filter="url(#sh)"/>
+<text class="t" x="96" y="199.5">Bound the body</text>
+<text class="m" x="96" y="217.5">MaxBytesReader, 32 MiB default</text>
+<circle class="bdg" cx="76" cy="203.0" r="8"/>
+<text class="bn" x="76" y="206.4" text-anchor="middle">3</text>
+<path class="ln" d="M76 169L76 171"/>
+<path class="ld" d="M514 203L544 203"/>
+<path class="ld hd" d="M538.5 206.4L544 203L538.5 199.6"/>
+<rect class="pd" x="548.0" y="194.0" width="125.2" height="18" rx="9"/>
+<text class="xs xd" x="610.597" y="206.6" text-anchor="middle">413 request_too_large</text>
+<rect class="card" x="56" y="238" width="452" height="46" rx="12" filter="url(#sh)"/>
+<text class="t" x="96" y="257.5">Apply the signed kill list</text>
+<text class="m" x="96" y="275.5">KillSwitch.Apply: killed exp = paused</text>
+<circle class="bdg" cx="76" cy="261.0" r="8"/>
+<text class="bn" x="76" y="264.4" text-anchor="middle">4</text>
+<path class="ln" d="M76 227L76 229"/>
+<rect class="card" x="56" y="296" width="452" height="46" rx="12" filter="url(#sh)"/>
+<text class="t" x="96" y="315.5">Decide ring, toggle, experiment</text>
+<text class="m" x="96" y="333.5">PrepareVerified -&gt; Decide, per alias</text>
+<circle class="bdg" cx="76" cy="319.0" r="8"/>
+<text class="bn" x="76" y="322.4" text-anchor="middle">5</text>
+<path class="ln" d="M76 285L76 287"/>
+<path class="ld" d="M514 319L544 319"/>
+<path class="ld hd" d="M538.5 322.4L544 319L538.5 315.6"/>
+<rect class="pd" x="548.0" y="310.0" width="117.3" height="18" rx="9"/>
+<text class="xs xd" x="606.66" y="322.6" text-anchor="middle">400 / 404 not served</text>
+<rect class="card" x="56" y="354" width="452" height="46" rx="12" filter="url(#sh)"/>
+<text class="t" x="96" y="373.5">Order the route targets</text>
+<text class="m" x="96" y="391.5">RouteOrder: tiers, assign.Pick(user, session)</text>
+<circle class="bdg" cx="76" cy="377.0" r="8"/>
+<text class="bn" x="76" y="380.4" text-anchor="middle">6</text>
+<path class="ln" d="M76 343L76 345"/>
+<rect class="card" x="56" y="412" width="452" height="46" rx="12" filter="url(#sh)"/>
+<text class="t" x="96" y="431.5">Build attempts, translate</text>
+<text class="m" x="96" y="449.5">BuildOutbound, CheckURL, signHosts</text>
+<circle class="bdg" cx="76" cy="435.0" r="8"/>
+<text class="bn" x="76" y="438.4" text-anchor="middle">7</text>
+<path class="ln" d="M76 401L76 403"/>
+<path class="ld" d="M514 435L544 435"/>
+<path class="ld hd" d="M538.5 438.4L544 435L538.5 431.6"/>
+<rect class="pd" x="548.0" y="426.0" width="105.1" height="18" rx="9"/>
+<text class="xs xd" x="600.57" y="438.6" text-anchor="middle">502 bad_upstream</text>
+<rect class="card" x="56" y="470" width="452" height="46" rx="12" filter="url(#sh)"/>
+<text class="t" x="96" y="489.5">Header hygiene</text>
+<text class="m" x="96" y="507.5">drop x-halo-* + identity, stamp, strip creds</text>
+<circle class="bdg" cx="76" cy="493.0" r="8"/>
+<text class="bn" x="76" y="496.4" text-anchor="middle">8</text>
+<path class="ln" d="M76 459L76 461"/>
+<rect class="card" x="56" y="528" width="452" height="46" rx="12" filter="url(#sh)"/>
+<text class="t" x="96" y="547.5">Mirror the first turn</text>
+<text class="m" x="96" y="565.5">shadow.Jobs -&gt; bounded async queue</text>
+<circle class="bdg" cx="76" cy="551.0" r="8"/>
+<text class="bn" x="76" y="554.4" text-anchor="middle">9</text>
+<path class="ln" d="M76 517L76 519"/>
+<path class="la" d="M514 551L544 551"/>
+<path class="la hd" d="M538.5 554.4L544 551L538.5 547.6"/>
+<rect class="pl" x="548.0" y="542.0" width="74.8" height="18" rx="9"/>
+<text class="xs" x="585.398" y="554.6" text-anchor="middle">halo-shadow</text>
+<rect class="card" x="56" y="586" width="452" height="46" rx="12" filter="url(#sh)"/>
+<text class="t" x="96" y="605.5">Failover over attempts</text>
+<text class="m" x="96" y="623.5">Breaker.Allow, auth, RoundTrip, 5xx/429 next</text>
+<circle class="bdg" cx="76" cy="609.0" r="8"/>
+<text class="bn" x="76" y="612.4" text-anchor="middle">10</text>
+<path class="ln" d="M76 575L76 577"/>
+<path class="ld" d="M514 609L544 609"/>
+<path class="ld hd" d="M538.5 612.4L544 609L538.5 605.6"/>
+<rect class="pd" x="548.0" y="600.0" width="130.9" height="18" rx="9"/>
+<text class="xs xd" x="613.433" y="612.6" text-anchor="middle">503 no_available_target</text>
+<rect class="card" x="56" y="644" width="452" height="46" rx="12" filter="url(#sh)"/>
+<text class="t" x="96" y="663.5">Stream the response</text>
+<text class="m" x="96" y="681.5">FlushInterval -1, eventstream -&gt; SSE</text>
+<circle class="bdg" cx="76" cy="667.0" r="8"/>
+<text class="bn" x="76" y="670.4" text-anchor="middle">11</text>
+<path class="ln" d="M76 633L76 635"/>
+<rect class="card" x="56" y="702" width="452" height="46" rx="12" filter="url(#sh)"/>
+<text class="t" x="96" y="721.5">Deferred metrics and log</text>
+<text class="m" x="96" y="739.5">OTLP halo.gateway.*, /metrics, access log</text>
+<circle class="bdg" cx="76" cy="725.0" r="8"/>
+<text class="bn" x="76" y="728.4" text-anchor="middle">12</text>
+<path class="ln" d="M76 691L76 693"/>
+<path class="la" d="M514 725L544 725"/>
+<path class="la hd" d="M538.5 728.4L544 725L538.5 721.6"/>
+<rect class="pa" x="548.0" y="716.0" width="88.0" height="18" rx="9"/>
+<text class="xs xa" x="592.013" y="728.6" text-anchor="middle">collector :4319</text>
+</svg>
