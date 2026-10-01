@@ -12,6 +12,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/dshakes/halos/internal/fsutil"
 )
 
 // HarnessStatus mirrors cmd/halod's per-harness report.
@@ -116,6 +118,9 @@ func OpenLogStore(dir string) (Store, error) {
 	if err := f.Close(); err != nil {
 		return nil, err
 	}
+	if err := fsutil.RestrictToOwner(tmp); err != nil {
+		return nil, err
+	}
 	if err := os.Rename(tmp, path); err != nil {
 		return nil, err
 	}
@@ -124,6 +129,9 @@ func OpenLogStore(dir string) (Store, error) {
 	}
 	return s, nil
 }
+
+// Close closes the report log. A held handle blocks deleting or renaming the file on Windows.
+func (s *logStore) Close() error { return closeFile(&s.mu, s.f) }
 
 func (s *logStore) Put(h Host) error {
 	s.mu.Lock()
@@ -171,4 +179,14 @@ func (s *logStore) All() []Host {
 		return out[i].key() < out[j].key()
 	})
 	return out
+}
+
+// closeFile closes f under mu; a nil f (memory only) is a no-op.
+func closeFile(mu sync.Locker, f *os.File) error {
+	mu.Lock()
+	defer mu.Unlock()
+	if f == nil {
+		return nil
+	}
+	return f.Close()
 }

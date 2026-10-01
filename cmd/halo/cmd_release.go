@@ -16,6 +16,7 @@ import (
 	"github.com/dshakes/halos/internal/bundle"
 	"github.com/dshakes/halos/internal/delivery/devcontainer"
 	"github.com/dshakes/halos/internal/delivery/mdm"
+	"github.com/dshakes/halos/internal/fsutil"
 	"github.com/dshakes/halos/internal/policy"
 	"github.com/dshakes/halos/internal/release"
 )
@@ -444,6 +445,11 @@ func createExcl(p string, data []byte, mode os.FileMode) error {
 	}
 	if werr != nil {
 		return fmt.Errorf("write %s: %w", p, werr)
+	}
+	if mode&0o077 == 0 { // private key: owner-only DACL on Windows
+		if err := fsutil.RestrictToOwner(p); err != nil {
+			return fmt.Errorf("create %s: %w", p, err)
+		}
 	}
 	return nil
 }

@@ -21,6 +21,7 @@ import (
 	"oras.land/oras-go/v2/content/memory"
 
 	"github.com/dshakes/halos/internal/bundle"
+	"github.com/dshakes/halos/internal/fsutil"
 	"github.com/dshakes/halos/internal/harness"
 	"github.com/dshakes/halos/internal/policy"
 	"github.com/dshakes/halos/internal/release"
@@ -136,7 +137,7 @@ func newEnv(t *testing.T) *env {
 		Open: func(context.Context) (oras.ReadOnlyTarget, error) { return e.store, nil },
 		Run: func(_ context.Context, name string, args ...string) ([]byte, error) {
 			e.cmds = append(e.cmds, name+" "+strings.Join(args, " "))
-			if strings.HasSuffix(name, "/claude") && len(args) == 1 && args[0] == "--version" {
+			if filepath.Base(name) == "claude" && len(args) == 1 && args[0] == "--version" {
 				b, err := os.ReadFile(name)
 				return append(b, " (Claude Code)\n"...), err
 			}
@@ -202,13 +203,13 @@ func TestApplyInstallDriftAndRemoval(t *testing.T) {
 	if !strings.Contains(e.read(settings), `"x":1`) {
 		t.Fatal("file not written")
 	}
-	if fi, _ := os.Stat(filepath.Join(e.root, "/etc/claude-code/old.json")); fi.Mode().Perm() != 0o600 {
-		t.Fatalf("mode %v", fi.Mode())
+	if err := fsutil.VerifyPrivate(filepath.Join(e.root, "/etc/claude-code/old.json")); err != nil {
+		t.Fatal(err)
 	}
 	if st.Harnesses["claude-code"].Installed != "2.0.0" || e.read(managedBin) != "fake-claude 2.0.0" || e.vendor.downloads.Load() != 1 {
 		t.Fatalf("verified install not done: %+v downloads=%d", st, e.vendor.downloads.Load())
 	}
-	if fi, _ := os.Stat(filepath.Join(e.root, managedBin)); fi.Mode().Perm() != 0o755 {
+	if fi, _ := os.Stat(filepath.Join(e.root, managedBin)); runtime.GOOS != "windows" && fi.Mode().Perm() != 0o755 { // no POSIX mode bits on Windows
 		t.Fatalf("binary mode %v", fi.Mode())
 	}
 	if l, err := os.Readlink(filepath.Join(e.root, "/usr/local/bin/claude")); err != nil || l != filepath.Join(e.root, managedBin) {

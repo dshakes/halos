@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -356,6 +357,9 @@ func TestSecretsOnlyInAgentStep(t *testing.T) {
 }
 
 func TestDockerExecEnvArgs(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake docker is a #!/bin/sh script, which Windows cannot exec")
+	}
 	bin := filepath.Join(t.TempDir(), "docker")
 	log := bin + ".log"
 	_ = os.WriteFile(bin, []byte("#!/bin/sh\necho \"$@\" >> "+log+"\ncase \"$2\" in *:*) mkdir -p \"$3\";; esac # docker cp out creates its destination\n"), 0o755)
@@ -378,6 +382,9 @@ func TestDockerExecEnvArgs(t *testing.T) {
 // removed (all its processes die) and only /work is carried over; secrets
 // reach the agent's container only.
 func TestDockerPhasesUseFreshContainers(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake docker is a #!/bin/sh script, which Windows cannot exec")
+	}
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "docker")
 	log := bin + ".log"

@@ -3,6 +3,7 @@ package fsutil
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -16,9 +17,8 @@ func TestWriteAtomic(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(p)
-	st, _ := os.Stat(p)
-	if string(b) != "bb" || st.Mode().Perm() != 0o600 {
-		t.Fatalf("got %q %v", b, st.Mode())
+	if err := VerifyPrivate(p); err != nil || string(b) != "bb" { // overwrite keeps it private
+		t.Fatalf("got %q: %v", b, err)
 	}
 	if ents, _ := os.ReadDir(dir); len(ents) != 1 {
 		t.Fatalf("temp file left behind: %v", ents)
@@ -28,5 +28,27 @@ func TestWriteAtomic(t *testing.T) {
 	}
 	if err := WriteAtomic(filepath.Join(dir, "missing", "f"), nil, 0o600); err == nil {
 		t.Error("want error for missing dir")
+	}
+}
+
+func TestRestrictToOwner(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "secret")
+	if err := os.WriteFile(p, []byte("k"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyPrivate(p); err == nil {
+		t.Fatal("a default-permission file passed VerifyPrivate")
+	}
+	if err := os.Chmod(p, 0o600); err != nil { // unix: this alone is private
+		t.Fatal(err)
+	}
+	if err := RestrictToOwner(p); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyPrivate(p); err != nil {
+		t.Fatal(err)
+	}
+	if err := RestrictToOwner(filepath.Join(t.TempDir(), "missing")); runtime.GOOS == "windows" && err == nil {
+		t.Error("restricting a missing file must fail")
 	}
 }

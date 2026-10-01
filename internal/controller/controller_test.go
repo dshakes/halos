@@ -478,6 +478,7 @@ func TestKilledExperimentIsHeld(t *testing.T) {
 		t.Fatalf("not resumed after unkill: %+v", r.w.calls)
 	}
 	// Unreadable kill state is an error, not a silent evaluation.
+	_ = r.kills.Close() // Windows cannot delete an open file
 	if err := os.Remove(filepath.Join(r.dir, "killswitch.jsonl")); err != nil {
 		t.Fatal(err)
 	}

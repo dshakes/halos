@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dshakes/halos/internal/fsutil"
 	"github.com/dshakes/halos/internal/gateway/kong"
 	"github.com/dshakes/halos/internal/policy"
 	"github.com/dshakes/halos/internal/promote"
@@ -61,6 +62,9 @@ func TestUpsertVerdict(t *testing.T) {
 	if err := os.WriteFile(p, []byte(other), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if err := fsutil.RestrictToOwner(p); err != nil { // 0600 means nothing to Windows; UpsertVerdict must keep it private
+		t.Fatal(err)
+	}
 	up := func(exp string, v promote.Verdict) {
 		t.Helper()
 		if err := promote.UpsertVerdict(p, exp, promote.Report{Verdict: v, NControl: 3}, at); err != nil {
@@ -84,8 +88,9 @@ func TestUpsertVerdict(t *testing.T) {
 	if rows[1]["experiment"] != "e1" || rows[1]["verdict"] != "promote" || rows[1]["nControl"] != float64(3) || rows[1]["evaluatedAt"] == nil {
 		t.Fatalf("row = %v", rows[1])
 	}
-	if st, _ := os.Stat(p); st.Mode().Perm() != 0o600 {
-		t.Errorf("mode = %v", st.Mode())
+	// Windows has no POSIX mode bits (Perm() is always 0666); access is ACL-based.
+	if err := fsutil.VerifyPrivate(p); err != nil {
+		t.Errorf("verdicts file not private: %v", err)
 	}
 	// not an array -> error, file untouched
 	os.WriteFile(p, []byte(`{"a":1}`), 0o644)

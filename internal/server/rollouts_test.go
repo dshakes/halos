@@ -25,6 +25,7 @@ func TestRolloutsAPI(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		t.Cleanup(func() { _ = s.Close() })
 		return s
 	}
 	h := newSrv(true).Handler()

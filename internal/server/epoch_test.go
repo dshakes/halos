@@ -58,6 +58,7 @@ func TestSessionEpoch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = s2.Close() })
 	if c := req(s2.Handler(), "GET", "/api/v1/me", phone); c != 401 {
 		t.Errorf("revoked session resurrected by restart: %d", c)
 	}

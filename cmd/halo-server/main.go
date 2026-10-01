@@ -9,6 +9,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/netip"
@@ -233,6 +234,10 @@ func run(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	defer func() { _ = srv.Close() }() // also unlocks the data dir on Windows
+	if c, ok := store.(io.Closer); ok {
+		defer func() { _ = c.Close() }()
+	}
 	hup := make(chan os.Signal, 1)
 	signal.Notify(hup, syscall.SIGHUP)
 	defer signal.Stop(hup)
@@ -256,7 +261,14 @@ func run(ctx context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
-		go ctrl.Run(ctx, o.interval)
+		cctx, stopCtrl := context.WithCancel(ctx)
+		done := make(chan struct{})
+		go func() { defer close(done); ctrl.Run(cctx, o.interval) }()
+		defer func() { // stop the loop before closing the log it appends to
+			stopCtrl()
+			<-done
+			_ = ctrl.State.Close()
+		}()
 		slog.Info("experiment controller running", "interval", o.interval, "prs", ctrl.Writer != nil, "killswitch_served", killKey != nil)
 		if o.metricsListen != "" {
 			mux := http.NewServeMux()

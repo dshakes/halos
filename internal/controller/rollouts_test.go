@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -172,7 +173,7 @@ func TestGitWriterProposeRollout(t *testing.T) {
 		gotDir = dir
 		return &promote.Change{Files: map[string][]byte{"r.yaml": []byte("x")}, Patch: "PATCH"}, nil
 	}, "halos/rollout-x", "T", func(p string) string { return "body " + p })
-	if err != nil || url == "" || gotDir != "/repo/policy" || o.req.Body != "body PATCH" || o.req.Base != "main" || o.req.Branch != "halos/rollout-x" {
+	if err != nil || url == "" || gotDir != filepath.Join("/repo", "policy") || o.req.Body != "body PATCH" || o.req.Base != "main" || o.req.Branch != "halos/rollout-x" {
 		t.Fatalf("url=%q err=%v dir=%q req=%+v", url, err, gotDir, o.req)
 	}
 	_, err = w.ProposeRollout(context.Background(), func(string) (*promote.Change, error) { return &promote.Change{}, nil }, "b", "T", func(string) string { return "" })

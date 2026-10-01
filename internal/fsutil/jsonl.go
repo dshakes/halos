@@ -17,6 +17,10 @@ func OpenJSONL(path string, replay func([]byte)) (*os.File, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := RestrictToOwner(path); err != nil {
+		_ = f.Close()
+		return nil, err
+	}
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
 	for sc.Scan() {

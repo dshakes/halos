@@ -27,6 +27,8 @@ type revocation struct {
 	At   int64  `json:"at"`
 }
 
+func (r *sessionRevocations) close() error { return closeFile(&r.mu, r.f) }
+
 func openSessionRevocations(dir string) (*sessionRevocations, error) {
 	r := &sessionRevocations{before: map[string]int64{}}
 	if dir == "" {
