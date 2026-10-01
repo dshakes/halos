@@ -78,6 +78,13 @@ $ halo toggle kill github-mcp --server https://halos.acme.example --reason "MCP 
 
 No release, no ring move, no PR. `--unkill` clears it. The kill call requires https, or http to a loopback host, because it carries a session cookie.
 
+## In the console
+
+Admins get a **Toggles** page in the [operator console](/halos/concepts/self-service-portal/#operator-console): a searchable list with axis and status filters (on by default, killed, stale), and a detail drawer per toggle. The drawer shows the rules as sentences, what the toggle delivers (names only; header and env values are never sent to the browser), who killed it and why, the history from the audit log, and a **Who gets it?** tester that runs the same evaluator as `halo toggle eval`.
+
+- **Kill / Restore** asks for a reason and takes effect at the next poll, exactly like `halo toggle kill`.
+- **Propose change** opens a validated policy PR: default, a rule's percent (`0` matches nobody), rings, groups or users to add or remove, expiry. Nothing changes until a human merges it.
+
 ## Commands
 
 | Command | Does |
