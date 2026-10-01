@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"sync"
 	"time"
@@ -51,6 +52,9 @@ func (s *Snapshot) Get() (*policy.Org, error) {
 	if err != nil {
 		s.mod, s.size = fi.ModTime(), fi.Size() // don't re-parse a broken file every second
 		return s.org, fmt.Errorf("gateway: load policy snapshot %s: %w", s.path, err)
+	}
+	for _, is := range policy.TrafficOverlaps(o) {
+		slog.Warn("policy snapshot: overlapping traffic experiments; the first by name routes", "path", s.path, "issue", is.Message)
 	}
 	s.org, s.mod, s.size = o, fi.ModTime(), fi.Size()
 	return s.org, nil

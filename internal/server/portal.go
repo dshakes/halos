@@ -497,6 +497,7 @@ func (s *Server) postEnroll(w http.ResponseWriter, r *http.Request) {
 	hc := halodConfig{
 		Registry: s.cfg.Portal.Registry, Org: org.Name, RingEndpoint: base + "/api/v1/fleet/ring", DeviceToken: devTok,
 		PubKey: halodEtcPath(body.OS, "release.pub"), Interval: "15m", ReportURL: base + "/api/v1/fleet/report",
+		PlainHTTP: s.cfg.Portal.RegistryPlainHTTP,
 	}
 	if s.cfg.KillKey != nil { // the enroll scripts fetch the key from /enroll/killswitch.pub
 		hc.KillSwitch = &halodKillSwitch{URL: base + "/api/v1/fleet/killswitch", PubKey: halodEtcPath(body.OS, "killswitch.pub")}
@@ -528,6 +529,8 @@ type halodConfig struct {
 	PubKey       string `yaml:"pubkey"`
 	Interval     string `yaml:"interval"`
 	ReportURL    string `yaml:"reportURL"`
+	// PlainHTTP mirrors portal registryPlainHTTP: halod cannot reach an http (dev) registry without it.
+	PlainHTTP bool `yaml:"plainHTTP,omitempty"`
 	// KillSwitch is set only when the server signs a kill list.
 	KillSwitch *halodKillSwitch `yaml:"killSwitch,omitempty"`
 }

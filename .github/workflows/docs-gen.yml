@@ -1,0 +1,20 @@
+name: docs-gen
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  fresh:
+    # Generated reference pages must match the code; run `make docs-gen` and commit.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with: {go-version-file: go.mod}
+      - run: go run ./internal/tools/gendocs --out docs/src/content/docs/reference
+      - run: |
+          d="docs/src/content/docs/reference/cli docs/src/content/docs/reference/policy"
+          git add -N $d  # so brand-new generated pages count as drift
+          git diff --exit-code $d

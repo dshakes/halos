@@ -1,0 +1,12 @@
+cross (windows-latest): failure
+packaging: success
+cross (macos-latest): success
+vuln: success
+web: success
+docs: success
+tidy: failure
+lint: failure
+test: success
+smoke: skipped
+e2e: success
+obs-e2e: success

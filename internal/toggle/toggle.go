@@ -88,11 +88,11 @@ func match(name string, r policy.ToggleRule, s Subject) (bool, string) {
 	if len(r.Users) > 0 {
 		check("user", slices.Contains(r.Users, s.ID), "")
 	}
-	if r.Percent > 0 {
+	if r.Percent != nil { // explicit 0 matches nobody (bucket < 0 never holds)
 		if s.ID == "" { // no identity, no cohort: never roll out to an anonymous caller
 			check("percent", false, " (no subject id)")
 		} else {
-			b, cut := Bucket(name, s.ID), assign.Share(r.Percent/100)
+			b, cut := Bucket(name, s.ID), assign.Share(*r.Percent/100)
 			check("percent", b < cut, fmt.Sprintf(" (bucket %d < %d of %d)", b, cut, assign.Buckets))
 		}
 	}

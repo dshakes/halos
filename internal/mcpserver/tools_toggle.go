@@ -50,7 +50,7 @@ type toggleChangeIn struct {
 	Reason  string   `json:"reason" jsonschema:"why; recorded in the commit message"`
 	Default *bool    `json:"default,omitempty" jsonschema:"new default state"`
 	Rule    string   `json:"rule,omitempty" jsonschema:"rule name or index whose percent to change (with percent)"`
-	Percent *float64 `json:"percent,omitempty" jsonschema:"new rollout percent 0-100 for rule"`
+	Percent *float64 `json:"percent,omitempty" jsonschema:"new rollout percent 0-100 for rule; 0 matches nobody (ramp-down), never everyone"`
 	Expires string   `json:"expires,omitempty" jsonschema:"new expiry date YYYY-MM-DD"`
 	DryRun  *bool    `json:"dry_run,omitempty" jsonschema:"default true: return the diff and change nothing"`
 }

@@ -136,15 +136,17 @@ A policy **upstream** is a named backend with a `kind`; a **model route** maps a
 
 | `kind` | Serves clients speaking | What `halo-proxy` does |
 |---|---|---|
-| `orchestrator` | any | Pass-through to your own LLM gateway; it handles provider auth |
+| `orchestrator` | any (including `gemini`) | Pass-through to your own LLM gateway; it handles provider auth |
 | `anthropic` | any (use with `anthropic-messages`) | Pass-through; auth via `upstreamHeaders` |
 | `bedrock` | `bedrock-invoke`, `anthropic-messages` | SigV4 with its own AWS identity (below). `anthropic-messages` is translated to `invoke` / `invoke-with-response-stream`, and the event stream is converted back to SSE |
 | `vertex` | `anthropic-messages` | Translated to `rawPredict` / `streamRawPredict` with the model in the path. Needs `project` and `region` (`us-east5` or `global`); the URL is derived. Token from Google ADC: a service-account key file or the metadata server (GKE workload identity, GCE, Cloud Run) |
 | `openai` | any (use with `openai-responses`) | Pass-through; bearer key from `credential.env` or `credential.file` |
 | `azure-openai` | `openai-responses` | Rewritten to `/openai/v1/responses`, or `/openai/responses?api-version=` when `apiVersion` is set; `model` is the deployment. `credential` is required |
-| `gemini` | any | Pass-through |
+| `gemini` | `gemini` | Pass-through of `/v1beta/models/{model}:{generateContent,streamGenerateContent,countTokens}` (alias in the path is rewritten). Optional `credential` (env or file) is sent as `x-goog-api-key`; with a credential the host must be `generativelanguage.googleapis.com` or an `upstreamHosts` entry |
 
-Credentials never come from policy values or the client: client `Authorization`, `x-api-key` and `api-key` are dropped even with `forwardAuth`. Credentialed kinds must use https on the provider's own domain (`*.googleapis.com`, `api.openai.com`, `*.openai.azure.com`, ...) or an exact `upstreamHosts` entry; other hosts are never sent a credential. `count_tokens` has no Bedrock or Vertex equivalent and is skipped for them. `halo-kong` does not translate or fail over: it routes each alias to its first target.
+Credentials never come from policy values or the client: client `Authorization`, `x-api-key`, `api-key`, `x-goog-api-key` and `Proxy-Authorization` are dropped even with `forwardAuth`. Credentialed kinds must use https on the provider's own domain (`*.googleapis.com`, `api.openai.com`, `*.openai.azure.com`, ...) or an exact `upstreamHosts` entry; other hosts are never sent a credential. `count_tokens` has no Bedrock or Vertex equivalent and is skipped for them. `halo-kong` does not translate or fail over: it routes each alias to its first target.
+
+**Gemini CLI.** gemini-cli cannot send `Authorization` to a custom base URL; it sends `GEMINI_API_KEY` as `x-goog-api-key`. On the `gemini` wire only, `halo-proxy` takes the Halos credential (the developer's OIDC JWT) from `x-goog-api-key`, verifies it exactly like a bearer token, and strips it (and any `?key=`) before forwarding. On every other wire that header is not a credential. The `gemini` adapter renders `GEMINI_API_KEY="$(sh -c '<gateway.auth.helperCommand>')"` into the login-shell profile, so the token is minted at shell start and never written to disk; it is short-lived, so open a new shell when it expires. `vertex` does not serve Gemini models yet (`halo validate` warns when no harness can use a target). `halo-kong` does not accept `x-goog-api-key` as identity.
 
 Translations are covered by fixture tests; all real providers are **UNVERIFIED** (no provider accounts were available).
 

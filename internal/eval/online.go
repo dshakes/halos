@@ -74,6 +74,17 @@ type OnlineOptions struct {
 	// Skip holds pair ids already graded (from the history file).
 	Skip map[string]bool
 	Now  func() time.Time
+	// ControlNames maps experiment -> its control variant name (from policy).
+	// halo-shadow does not label the control side, and analysis matches arms by
+	// the experiment's variant names; default "control".
+	ControlNames map[string]string
+}
+
+// PairScore is one pair's judge scores; each is one analysis sample
+// (unit = pair) of halo.eval.judge.score for its arm.
+type PairScore struct {
+	ID                 string
+	Control, Candidate float64
 }
 
 // OnlineResult is one experiment's online quality reading.
@@ -93,6 +104,8 @@ type OnlineResult struct {
 	ControlVariant   string   `json:"controlVariant"`
 	CandidateVariant string   `json:"candidateVariant"`
 	PairIDs          []string `json:"pairIds"`
+	// Scores are the per-pair readings the exporter sends (not kept in history).
+	Scores []PairScore `json:"-"`
 }
 
 // judgeSideCap bounds each request/response handed to the judge.
@@ -105,9 +118,12 @@ func clip(b []byte) string {
 	return string(b)
 }
 
-func pairInput(p shadow.Pair, s shadow.Side) string {
-	return "## Request (as sent by the coding agent)\n\n```json\n" + clip(p.Request) +
-		"\n```\n\n## Model response\n\n```json\n" + clip(s.Response) + "\n```\n"
+// pairInput: both the client request and the model response are untrusted.
+func pairInput(p shadow.Pair, s shadow.Side) []Part {
+	return []Part{
+		{Title: "Request sent by the coding agent (JSON)", Body: clip(p.Request), Untrusted: true},
+		{Title: "Model response to grade (JSON)", Body: clip(s.Response), Untrusted: true},
+	}
 }
 
 func usable(s shadow.Side) bool {
@@ -148,7 +164,7 @@ func RunOnline(ctx context.Context, src PairSource, o OnlineOptions) ([]OnlineRe
 			ps = ps[:o.Sample]
 		}
 		r := OnlineResult{Experiment: e, Rubric: o.Rubric.Ref(), JudgeModel: o.Judge.Model, Pairs: len(byExp[e]),
-			ControlVariant: or(ps[0].Control.Target.Variant, "control"), CandidateVariant: or(ps[0].Candidate.Target.Variant, "candidate")}
+			ControlVariant: or(ps[0].Control.Target.Variant, or(o.ControlNames[e], "control")), CandidateVariant: or(ps[0].Candidate.Target.Variant, "candidate")}
 		var cs, ts []float64
 		wins := 0.0
 		for _, p := range ps {
@@ -163,6 +179,7 @@ func RunOnline(ctx context.Context, src PairSource, o OnlineOptions) ([]OnlineRe
 				continue
 			}
 			cs, ts = append(cs, cv.Score), append(ts, tv.Score)
+			r.Scores = append(r.Scores, PairScore{ID: p.ID, Control: cv.Score, Candidate: tv.Score})
 			switch {
 			case tv.Score > cv.Score:
 				wins++
@@ -257,9 +274,12 @@ func GradedPairs(path string) (map[string]bool, error) {
 }
 
 // OTLPExporter posts halo.eval.* metrics to an OTel collector over OTLP/HTTP
-// JSON. Point it at the authenticated gateway receiver (4319, with the
-// halo-proxy token) so the readings carry halo.source=gateway: the CLI
-// receiver is client-reachable and its rows are client-controlled evidence.
+// JSON. Point it at the collector's eval receiver (`halo telemetry
+// collector-config --eval-receiver`, 4320, token HALO_OTLP_EVAL_TOKEN) so
+// readings carry halo.source=eval. Never give it the gateway token: rows on
+// the gateway receiver are stamped halo.source=gateway, which the controller
+// trusts for auto-kill. The CLI receiver works too, but its rows are
+// client-controlled (halo.source=cli) and are not shown as evidence.
 type OTLPExporter struct {
 	URL   string // collector base URL; /v1/metrics is appended
 	Token string // bearer token (optional)
@@ -268,7 +288,7 @@ type OTLPExporter struct {
 
 // Online eval metric names (halo.* schema, see internal/telemetry).
 const (
-	MetricJudgeScore   = "halo.eval.judge.score"    // gauge per arm, 0..1
+	MetricJudgeScore   = "halo.eval.judge.score"    // gauge per pair and arm (halo.unit = pair id), 0..1
 	MetricJudgeDelta   = "halo.eval.judge.delta"    // gauge, candidate - control
 	MetricJudgeWinRate = "halo.eval.judge.win_rate" // gauge
 	MetricPairsGraded  = "halo.eval.pairs.graded"   // sum (delta)
@@ -296,9 +316,13 @@ func (x *OTLPExporter) Export(ctx context.Context, rs []OnlineResult, start, now
 	var score, delta, win, graded, errs []m
 	for _, r := range rs {
 		base := []string{"halo.experiment", r.Experiment, "halo.eval.rubric", r.Rubric, "halo.eval.judge", r.JudgeModel}
-		score = append(score,
-			gauge(r.Control, kvs(append(base, "halo.variant", r.ControlVariant)...)),
-			gauge(r.Candidate, kvs(append(base, "halo.variant", r.CandidateVariant)...)))
+		// One judge.score point per pair and arm, unit = pair: what analyze
+		// samples (promote reads halo.source=eval rows per (variant, unit)).
+		for _, ps := range r.Scores {
+			score = append(score,
+				gauge(ps.Control, kvs(append(base, "halo.variant", r.ControlVariant, "halo.unit", ps.ID)...)),
+				gauge(ps.Candidate, kvs(append(base, "halo.variant", r.CandidateVariant, "halo.unit", ps.ID)...)))
+		}
 		delta = append(delta, gauge(r.Delta.Mean, kvs(append(base, "halo.variant", r.CandidateVariant)...)))
 		win = append(win, gauge(r.WinRate, kvs(append(base, "halo.variant", r.CandidateVariant)...)))
 		graded = append(graded, count(r.Graded, kvs(base...)))

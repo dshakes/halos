@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -37,6 +38,9 @@ const (
 	expNull        = "obs-cost-null"          // identical arms: must not roll back (also the target of forged gateway rows)
 	expForged      = "obs-forged-source"      // not in policy: a CLI row claiming halo.source=gateway
 	gatewayToken   = "halo-dev-gateway-token" // deploy/observability/docker-compose.yml
+	evalToken      = "halo-dev-eval-token"    // deploy/observability/docker-compose.yml
+	expEvalForged  = "obs-eval-forged"        // halo.gateway.* sent on the eval receiver: must be dropped
+	expJudge       = "obs-judge-shadow"       // shadow experiment decided on halo.eval.judge.score (eval evidence)
 	usersPerArm    = 40
 	sessionsPerU   = 3
 	gwReqsPerSess  = 30
@@ -136,11 +140,33 @@ metrics:
 stopping: {method: msprt, alpha: 0.05, minSamples: 20, maxDays: 21}
 `
 
+// obsJudgeExperiment: a running shadow experiment whose primary metric is the
+// online LLM-judge score (graded on halo-shadow pairs, eval evidence).
+const obsJudgeExperiment = `apiVersion: halos.dev/v1alpha1
+kind: Experiment
+name: ` + expJudge + `
+type: shadow
+axis: traffic
+status: running
+rings: [ring2-early]
+sampleRate: 0.05
+variants:
+  - {name: primary, weight: 1, control: true}
+  - name: sonnet-next
+    weight: 1
+    routes:
+      sonnet: {upstream: anthropic-direct, model: claude-sonnet-next}
+metrics:
+  primary: {metric: halo.eval.judge.score, direction: increase}
+stopping: {method: msprt, alpha: 0.05, minSamples: 20, maxDays: 21}
+`
+
 func TestObsEvidencePlane(t *testing.T) {
 	ch := chClient{"http://127.0.0.1:" + obsPort(t, "HALO_OBS_CH_HTTP_PORT")}
 	otlp := "http://127.0.0.1:" + obsPort(t, "HALO_OBS_OTLP_HTTP_PORT")
 	grafana := "http://127.0.0.1:" + obsPort(t, "HALO_OBS_GRAFANA_PORT")
 	gwOTLP := "http://127.0.0.1:" + obsPort(t, "HALO_OBS_OTLP_GATEWAY_PORT")
+	evalOTLP := "http://127.0.0.1:" + obsPort(t, "HALO_OBS_OTLP_EVAL_PORT")
 
 	root, _ := filepath.Abs("../..")
 	halo := filepath.Join(t.TempDir(), "halo")
@@ -159,6 +185,9 @@ func TestObsEvidencePlane(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(policy, "experiments", n+".yaml"), fmt.Appendf(nil, obsExperiment, n), 0o644); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if err := os.WriteFile(filepath.Join(policy, "experiments", expJudge+".yaml"), []byte(obsJudgeExperiment), 0o644); err != nil {
+		t.Fatal(err)
 	}
 
 	// Synthetic telemetry.
@@ -191,7 +220,29 @@ func TestObsEvidencePlane(t *testing.T) {
 		t.Fatal(err)
 	}
 	sendGatewayMetrics(ctx, t, gwOTLP, tokFile, expGW, 1.4, 529, 0.02)
-	runEvalOnline(t, halo, root, gwOTLP, tokFile)
+	evalTokFile := filepath.Join(t.TempDir(), "eval-token")
+	if err := os.WriteFile(evalTokFile, []byte(evalToken), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runEvalOnline(t, halo, root, policy, evalOTLP, evalTokFile)
+	// The eval receiver has its own token (the gateway token is refused) and
+	// carries only halo.eval.*: a forged halo.gateway.* export must not land.
+	for _, tok := range []string{"", "wrong", gatewayToken} {
+		req, _ := http.NewRequest(http.MethodPost, evalOTLP+"/v1/metrics", strings.NewReader(`{"resourceMetrics":[]}`))
+		req.Header.Set("Content-Type", "application/json")
+		if tok != "" {
+			req.Header.Set("Authorization", "Bearer "+tok)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Errorf("eval receiver with token %q: HTTP %d, want 401", tok, resp.StatusCode)
+		}
+	}
+	sendGatewayMetrics(ctx, t, evalOTLP, evalTokFile, expEvalForged, 5, 503, 1)
 
 	// 0. Evidence trust. The gateway receiver rejects missing and wrong tokens.
 	for _, tok := range []string{"", "wrong"} {
@@ -225,19 +276,24 @@ func TestObsEvidencePlane(t *testing.T) {
 		t.Fatalf("CLI receiver must accept unauthenticated exports: HTTP %d", resp.StatusCode)
 	}
 
-	// Online eval quality: judge-score gauges for both arms, via the gateway receiver.
+	// Online eval quality: judge-score gauges for both arms, via the eval receiver.
 	waitFor(t, 90*time.Second, "online eval judge scores", func() bool {
-		return ch.num(t, "SELECT count() FROM halo_metrics WHERE metric='halo.eval.judge.score' AND experiment='"+expCost+"'") == 2
+		return ch.num(t, "SELECT count() FROM halo_metrics WHERE metric='halo.eval.judge.score' AND experiment='"+expCost+"'") == 8 &&
+			ch.num(t, "SELECT count() FROM halo_metrics WHERE metric='halo.eval.judge.score' AND experiment='"+expJudge+"' AND unit_id != ''") == 2*usersPerArm
 	})
 	judged := map[string]float64{}
 	for _, r := range ch.rows(t, "SELECT variant, source, judge_score, readings FROM halo_eval_quality WHERE experiment='"+expCost+"' AND rubric='code-change-quality@1' AND judge='judge-pinned-1'") {
-		if r["source"] != "gateway" {
-			t.Errorf("judge score row with source %v, want gateway", r["source"])
+		if r["source"] != "eval" {
+			t.Errorf("judge score row with source %v, want eval", r["source"])
 		}
 		judged[r["variant"].(string)] = r["judge_score"].(float64)
 	}
 	if math.Abs(judged["control"]-0.6) > 1e-6 || math.Abs(judged["treatment"]-0.8) > 1e-6 {
 		t.Errorf("halo_eval_quality averages %v, want control 0.6 / treatment 0.8", judged)
+	}
+	if n := ch.num(t, "SELECT count() FROM otel_metrics_sum WHERE Attributes['halo.experiment'] = '"+expEvalForged+"'") +
+		ch.num(t, "SELECT count() FROM otel_metrics_histogram WHERE Attributes['halo.experiment'] = '"+expEvalForged+"'"); n != 0 {
+		t.Errorf("%v halo.gateway.* rows sent on the eval receiver reached ClickHouse", n)
 	}
 
 	// 1. Rows land (collector batches for 5s) and were normalised.
@@ -372,6 +428,10 @@ func TestObsEvidencePlane(t *testing.T) {
 			t.Errorf("%s: verdict %q, want prefix %q and source %s", tc.exp, v, tc.want, tc.source)
 		}
 	}
+	// Judge score is consumable by analyze: eval-sourced evidence decides a verdict.
+	if v := analyze(expJudge, filepath.Join(t.TempDir(), "judge-verdicts.json")); !strings.HasPrefix(v, "rollback: primary halo.eval.judge.score significantly worse") || !strings.HasSuffix(v, "[eval]") {
+		t.Errorf("%s: verdict %q, want an eval-sourced rollback on halo.eval.judge.score", expJudge, v)
+	}
 	b, err := os.ReadFile(vf)
 	if err != nil {
 		t.Fatal(err)
@@ -433,17 +493,23 @@ func TestObsEvidencePlane(t *testing.T) {
 	}
 }
 
-// runEvalOnline drives the real `halo eval online` for expCost: a plaintext
-// pair store of 4 pairs, a fake gateway judge (Anthropic Messages wire) that
-// scores "terse" 0.6 and "thorough" 0.8, and the collector's authenticated
-// gateway receiver, so the readings carry halo.source=gateway.
-func runEvalOnline(t *testing.T, halo, root, gwOTLP, tokFile string) {
+// runEvalOnline drives the real `halo eval online` (with --policy-dir, so
+// each control arm carries its experiment's control variant name) over one
+// plaintext pair store. The fake gateway judge (Anthropic Messages wire)
+// grades a response "score=X" as X on every criterion. Pairs:
+//   - expCost: 4 pairs, control 0.6 / treatment 0.8 (dashboard + view averages);
+//   - expJudge (shadow): usersPerArm pairs, primary ~0.75 vs sonnet-next ~0.55,
+//     so `halo exp analyze` must roll it back on eval evidence.
+//
+// Readings go to the collector's eval receiver (its own token): halo.source=eval.
+func runEvalOnline(t *testing.T, halo, root, policy, evalOTLP, tokFile string) {
 	t.Helper()
+	scoreRE := regexp.MustCompile(`score=([0-9.]+)`)
 	judge := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
-		score := "0.6"
-		if strings.Contains(string(b), "thorough") {
-			score = "0.8"
+		score := "0"
+		if m := scoreRE.FindSubmatch(b); m != nil {
+			score = string(m[1])
 		}
 		reply := `{"scores": {"correctness": ` + score + `, "minimality": ` + score + `, "idiom": ` + score + `}, "rationale": "synthetic"}`
 		out, _ := json.Marshal(map[string]any{"content": []map[string]string{{"type": "text", "text": reply}}})
@@ -451,20 +517,28 @@ func runEvalOnline(t *testing.T, halo, root, gwOTLP, tokFile string) {
 	}))
 	defer judge.Close()
 	var pairs bytes.Buffer
-	for i := range 4 {
-		p := map[string]any{"id": fmt.Sprintf("obs-pair-%d", i), "time": time.Now().UTC(), "experiment": expCost, "protocol": "anthropic-messages",
+	add := func(id, exp, cand string, ctl, trt float64) {
+		p := map[string]any{"id": id, "time": time.Now().UTC(), "experiment": exp, "protocol": "anthropic-messages",
 			"request":   map[string]any{"messages": []any{}},
-			"control":   map[string]any{"target": map[string]any{"variant": "control"}, "status": 200, "response": "terse"},
-			"candidate": map[string]any{"target": map[string]any{"variant": "treatment"}, "status": 200, "response": "thorough"}}
+			"control":   map[string]any{"target": map[string]any{}, "status": 200, "response": fmt.Sprintf("score=%.4f", ctl)},
+			"candidate": map[string]any{"target": map[string]any{"variant": cand}, "status": 200, "response": fmt.Sprintf("score=%.4f", trt)}}
 		b, _ := json.Marshal(p)
 		pairs.Write(append(b, '\n'))
+	}
+	for i := range 4 {
+		add(fmt.Sprintf("obs-pair-%d", i), expCost, "treatment", 0.6, 0.8)
+	}
+	rng := rand.New(rand.NewSource(11))
+	for i := range usersPerArm {
+		add(fmt.Sprintf("obs-judge-%d", i), expJudge, "sonnet-next", 0.75+0.05*rng.NormFloat64(), 0.55+0.05*rng.NormFloat64())
 	}
 	pf := filepath.Join(t.TempDir(), "pairs.jsonl")
 	if err := os.WriteFile(pf, pairs.Bytes(), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	out, err := exec.Command(halo, "eval", "online", "--pairs", pf, "--rubric", filepath.Join(root, "evals/rubrics/code-change-quality.yaml"),
-		"--judge-url", judge.URL, "--judge-model", "judge-pinned-1", "--otlp", gwOTLP, "--otlp-token-file", tokFile).CombinedOutput()
+		"--judge-url", judge.URL, "--judge-model", "judge-pinned-1", "--sample", "0", "--policy-dir", policy,
+		"--otlp", evalOTLP, "--otlp-token-file", tokFile).CombinedOutput()
 	if err != nil {
 		t.Fatalf("halo eval online: %v\n%s", err, out)
 	}

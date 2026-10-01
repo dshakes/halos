@@ -23,7 +23,7 @@ func TestRolloutCLI(t *testing.T) {
 		{"plan", []string{"rollout", "plan", "claude-code-2.1.300"}, 0, []string{"canary-1", "[#.........]", "ring3-ga", "Earliest completion: T+7d14h"}},
 		{"plan manual on completion", []string{"rollout", "plan", "opus-5-5-upgrade"}, 0, []string{"held on control", "On completion: gateway.models.opus has failover targets"}},
 		{"status without evidence", []string{"rollout", "status", "opus-5-5-upgrade"}, 0, []string{"3/6 canary-5", "Entered:    unknown", "bake", "pending", "(metric gates need --clickhouse)", "Next:       hold"}},
-		{"simulate healthy", []string{"rollout", "simulate", "opus-5-5-upgrade"}, 0, []string{"advance (approved)", "Outcome: complete after 19d16h"}},
+		{"simulate healthy", []string{"rollout", "simulate", "opus-5-5-upgrade"}, 0, []string{"advance (approved)", "Outcome: complete after 19d20h"}},
 		{"simulate regression", []string{"rollout", "simulate", "claude-code-2.1.300", "--scenario", "regression"}, 0, []string{"rollback", "guardrail:halo.tool.error_rate failed", "Outcome: rollback"}},
 		{"simulate bad scenario", []string{"rollout", "simulate", "opus-5-5-upgrade", "--scenario", "chaos"}, 1, []string{"--scenario must be"}},
 		{"advance dry-run", []string{"rollout", "advance", "opus-5-5-upgrade", "--reason", "metrics look fine", "--dry-run"}, 0, []string{"-step: canary-5", "+step: canary-25", "-    weight: 95", "+    weight: 75"}},

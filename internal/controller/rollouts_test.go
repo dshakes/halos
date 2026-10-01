@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"strings"
 	"sync"
@@ -177,5 +178,56 @@ func TestGitWriterProposeRollout(t *testing.T) {
 	_, err = w.ProposeRollout(context.Background(), func(string) (*promote.Change, error) { return &promote.Change{}, nil }, "b", "T", func(string) string { return "" })
 	if err == nil || !strings.Contains(err.Error(), "already has this change") {
 		t.Fatalf("empty change err = %v", err)
+	}
+}
+
+// Audit M1: a canary step with only bake + approval still auto-rolls back,
+// and kills, on its backing experiment's own guardrail.
+func TestRolloutInheritsExperimentGuardrails(t *testing.T) {
+	r, w, _ := rolloutRig(t, promote.Rollback, "c5")
+	r.org.Rollouts[0].Steps[0].Gates = policy.RolloutGates{Approval: true}
+	r.org.Rollouts[0].Steps[0].MinSamples = 0
+	ticks(t, r.c, 2)
+	if got := r.killed(t); len(got) != 1 || got[0] != "exp-a" {
+		t.Fatalf("killed = %v", got)
+	}
+	if len(w.prs) != 1 || !strings.Contains(w.prs[0].body, "guardrail:halo.cost.usd_per_session") {
+		t.Fatalf("PRs = %+v", w.prs)
+	}
+}
+
+// Audit L1: Last is display-only. A forged Last.Source on a CLI-evidence
+// halt must not trip the kill switch on a later tick.
+func TestRolloutForgedLastDoesNotKill(t *testing.T) {
+	r, w, _ := rolloutRig(t, promote.Rollback, "c5")
+	r.c.Metrics.(*promote.MemorySource).Source = promote.SourceCLI
+	ticks(t, r.c, 1)
+	p := rollout.StatePath(r.c.RolloutStateDir, "ro")
+	b, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(b, &doc); err != nil {
+		t.Fatal(err)
+	}
+	last := doc["last"].(map[string]any)
+	if last["source"] != "cli" {
+		t.Fatalf("last = %v", last)
+	}
+	last["source"] = "gateway" // Last is not chained: this loads fine
+	forged, _ := json.Marshal(doc)
+	if err := os.WriteFile(p, forged, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rollout.LoadState(r.c.RolloutStateDir, "ro"); err != nil {
+		t.Fatalf("forged Last should load (display-only): %v", err)
+	}
+	ticks(t, r.c, 2)
+	if got := r.killed(t); len(got) != 0 {
+		t.Fatalf("killed on forged Last: %v", got)
+	}
+	if len(w.prs) != 1 || len(r.n.events) != 1 {
+		t.Fatalf("prs=%d events=%d", len(w.prs), len(r.n.events))
 	}
 }

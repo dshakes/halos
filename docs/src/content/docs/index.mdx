@@ -9,8 +9,11 @@ hero:
     - text: 60-second start
       link: '#60-second-start'
       icon: right-arrow
-    - text: Architecture
-      link: /halos/concepts/architecture/
+    - text: How it works
+      link: /halos/concepts/how-it-works/
+      variant: minimal
+    - text: Playground
+      link: /halos/getting-started/playground/
       variant: minimal
     - text: GitHub
       link: https://github.com/dshakes/halos
@@ -23,6 +26,15 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
 <img class="diagram dark:sl-hidden" src="/halos/diagrams/hero-light.svg" alt="Policy repo to signed release to rollout rings to every environment, with evals and telemetry looping back to promote or roll back." width="880" />
 <img class="diagram light:sl-hidden" src="/halos/diagrams/hero-dark.svg" alt="Policy repo to signed release to rollout rings to every environment, with evals and telemetry looping back to promote or roll back." width="880" />
 
+## How it works
+
+Your **platform team** keeps one git repo of Halos YAML: which CLI versions, models, permissions, MCP servers and hooks each ring of developers gets. Every change is a pull request that `halo` validates, plans and evals; a human merges it, and Halos ships a signed release ring by ring to every machine and gateway. **Developers install nothing new and never touch the repo**: they keep running `claude`, `codex` or `gemini`.
+
+<img class="diagram dark:sl-hidden" src="/halos/diagrams/how-it-works-light.svg" alt="The platform team owns a git policy repo. A pull request is validated, planned and evaluated in CI, a human merges, and halo publishes a signed immutable release. Rings point at releases; halod applies them on every machine and the gateway routes model traffic. Developers keep running their CLI as usual." width="880" />
+<img class="diagram light:sl-hidden" src="/halos/diagrams/how-it-works-dark.svg" alt="The platform team owns a git policy repo. A pull request is validated, planned and evaluated in CI, a human merges, and halo publishes a signed immutable release. Rings point at releases; halod applies them on every machine and the gateway routes model traffic. Developers keep running their CLI as usual." width="880" />
+
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/dshakes/halos) &nbsp; Try the whole stack in your browser: console, gateway, a running experiment and rollout. [Playground →](/halos/getting-started/playground/) · [How Halos works →](/halos/concepts/how-it-works/)
+
 <div class="halo-strip">
   <div>
     <p class="halo-problem">Every laptop runs a different agent.</p>
@@ -30,11 +42,11 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
   </div>
   <div>
     <p class="halo-problem">Upgrades ship on vibes.</p>
-    <p>Evals and sequential stats gate every change. Promotion is a PR a human merges.</p>
+    <p>Eval scorecards and sequential stats on live telemetry can gate every rollout step. Promotion is a PR a human merges.</p>
   </div>
   <div>
     <p class="halo-problem">You find out last.</p>
-    <p>A guardrail breach rolls back on its own, and a signed kill switch reaches every gateway in seconds.</p>
+    <p>A gateway-measured guardrail breach on the traffic axis trips the signed kill switch on its own; any other breach opens a rollback PR and notifies.</p>
   </div>
 </div>
 
@@ -45,21 +57,23 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
     Progressive rings, canary ramps, blue-green, dark launch, holdout. Rings point at immutable releases; rollback is a re-point. [Rollouts →](/halos/concepts/rollouts/)
   </Card>
   <Card title="Experiments" icon="seti:graph">
-    A/B on the client, canary and shadow on the traffic path, all assigned by one hash of verified identity. [Experiments →](/halos/concepts/experiments/)
+    A/B on the client and canary on the traffic path, assigned per verified identity; shadow sampled per session with the same hash. [Experiments →](/halos/concepts/experiments/)
   </Card>
   <Card title="Feature toggles" icon="setting">
     Target by ring, group or percentage, resolved per developer, killable with one signed flip. [Feature toggles →](/halos/concepts/toggles/)
   </Card>
   <Card title="Evals and the measure loop" icon="approve-check">
-    pass@k, LLM judge, a harness × model × provider matrix, and an upgrade watch, feeding mSPRT verdicts. [Evals →](/halos/concepts/evals/)
+    pass@k, LLM judge, a harness × model × provider matrix and an upgrade watch. Scorecards gate rollout steps; mSPRT judges live telemetry. [Evals →](/halos/concepts/evals/)
   </Card>
   <Card title="Any provider" icon="puzzle">
-    Anthropic, Bedrock, Vertex, OpenAI and Azure behind `halo-proxy` or Kong, with model routes and failover. [Stack-agnostic →](/halos/concepts/stack-agnostic/)
+    Anthropic, Bedrock, Vertex¹, OpenAI¹ and Azure¹ behind `halo-proxy`, with model routes, wire translation and failover. Kong with `halo-kong` routes each alias to its first target. [Stack-agnostic →](/halos/concepts/stack-agnostic/)
   </Card>
   <Card title="Everywhere" icon="laptop">
-    macOS, Linux and Windows, dev containers, Codespaces and Coder, CI runners, Kubernetes. [Install →](/halos/getting-started/install/)
+    macOS, Linux and Windows¹, dev containers, Codespaces¹ and Coder¹, CI runners, Kubernetes. [Install →](/halos/getting-started/install/)
   </Card>
 </CardGrid>
+
+<small>¹ Built and tested against fixtures, not yet run against the real service or platform (**UNVERIFIED**).</small>
 
 ## Every way to roll out
 
@@ -78,11 +92,19 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
 
 ## 60-second start
 
-```sh
-brew install dshakes/tap/halo
-halo init            # scaffold a policy repo
-halo validate        # schema + guardrails
-halo rollout plan    # what changes, for whom, ring by ring
+```console
+$ git clone https://github.com/dshakes/halos && cd halos && make build && export PATH=$PWD/bin:$PATH
+$ mkdir my-policy && cd my-policy
+$ halo init                                       # one halos.yaml: the whole policy
+create halos.yaml
+$ halo validate
+OK: policy valid (0 warnings)
+$ halo whoami --user you@example.com              # which ring and profile you'd get
+ring     ring3-ga
+$ halo render --ring ring3-ga --out rendered      # exactly what a developer's machine gets
+write rendered/Library/Application Support/ClaudeCode/managed-settings.json
 ```
 
-Then follow the [quickstart](/halos/getting-started/quickstart/). Pre-release (`v1alpha1`), Apache-2.0, self-hosted; anything not yet run against a real third-party system is marked **UNVERIFIED** in the docs.
+Or skip all of it: `make demo` runs the whole stack locally, and the Codespaces badge above runs it in your browser. Homebrew, the packages and the installers switch on with the first tagged release.
+
+Then take [your first 10 minutes](/halos/tutorials/first-10-minutes/), or the [quickstart](/halos/getting-started/quickstart/). Pre-release (`v1alpha1`), Apache-2.0, self-hosted; anything not yet run against a real third-party system is marked **UNVERIFIED** in the docs.

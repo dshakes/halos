@@ -1,0 +1,88 @@
+# Helm values for `make uat-k8s` (kind). Locally built images (pullPolicy Never),
+# in-cluster git/registry/IdP/mocks in uat-infra, every optional component on.
+# scripts/uat-k8s.sh adds the halod checksums with --set-json.
+image: {registry: ghcr.io, pullPolicy: Never}
+
+policy:
+  gitSync:
+    repo: git://git.uat-infra.svc.cluster.local/policy.git
+    ref: main
+    period: 5s
+
+server:
+  image: {repository: dshakes/halo-server, tag: uat}
+  portal:
+    baseURL: https://portal.uat-infra.svc.cluster.local
+    registry: registry.uat-infra.svc.cluster.local:5000/acme/halos
+    registryPlainHTTP: true
+    pubKeyFile: /etc/halos-release/release.pub
+    halodURL: http://dl.uat-infra.svc.cluster.local/dl/halod-{os}-{arch}
+  extraVolumes:
+    - {name: release-pub, secret: {secretName: halos-release-pub}}
+  extraVolumeMounts:
+    - {name: release-pub, mountPath: /etc/halos-release, readOnly: true}
+  killSwitch: {existingSecret: halos-killswitch}
+  metrics: {enabled: true}
+  controller:
+    enabled: true
+    interval: 1m
+    clickhouse: {url: "http://clickhouse:8123", database: halo, existingSecret: clickhouse}
+    policyRepo:
+      enabled: true
+      image: {repository: halos-uat/halo-server-git, tag: uat}
+      base: main
+  persistence: {size: 1Gi}
+
+proxy:
+  image: {repository: dshakes/halo-proxy, tag: uat}
+  replicas: 2
+  autoscaling: {enabled: false}
+  config:
+    allowInsecureUpstreams: true   # mock upstreams speak http inside the cluster
+    shutdownTimeout: 20s
+  terminationGracePeriodSeconds: 40
+  killSwitch:
+    enabled: true
+    interval: 2s
+    pubkey: {existingSecret: halos-killswitch-pub}
+  telemetry: {enabled: true}
+  policy: {source: gitSync, gitSyncPath: gateway.compiled.json}
+
+shadow:
+  enabled: true
+  image: {repository: dshakes/halo-shadow, tag: uat}
+  persistence: {size: 1Gi}
+  budgetUSD: 5
+
+otel:
+  enabled: true
+  clickhouse: {existingSecret: clickhouse}
+  gatewayToken: {existingSecret: halos-otel-gw}
+
+networkPolicy:
+  enabled: true
+  ingressFrom:
+    server: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: uat-infra}}}]
+    proxy: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: uat-infra}}}]
+    otel: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: uat-infra}}}]
+  metricsFrom: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: uat-infra}}}]
+  egress:
+    server:   # OIDC token exchange, registry (console release view), git-sync
+      - to: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: uat-infra}}}]
+        ports: [{protocol: TCP, port: 8080}, {protocol: TCP, port: 5000}, {protocol: TCP, port: 9418}]
+    proxy:    # mock upstreams + IdP JWKS + git-sync
+      - to: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: uat-infra}}, podSelector: {matchLabels: {role: upstream}}}]
+        ports: [{protocol: TCP, port: 9000}]
+      - to: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: uat-infra}}}]
+        ports: [{protocol: TCP, port: 8080}, {protocol: TCP, port: 9418}]
+    shadow:   # replay upstreams + git-sync
+      - to: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: uat-infra}}, podSelector: {matchLabels: {role: upstream}}}]
+        ports: [{protocol: TCP, port: 9000}]
+      - to: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: uat-infra}}}]
+        ports: [{protocol: TCP, port: 9418}]
+    otel:
+      - to: [{podSelector: {matchLabels: {app: clickhouse}}}]
+        ports: [{protocol: TCP, port: 9000}]
+  controllerEgress:
+    clickhouse: {to: [{podSelector: {matchLabels: {app: clickhouse}}}], ports: [8123]}
+    git: {to: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: uat-infra}}}], ports: [9418]}

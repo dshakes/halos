@@ -165,13 +165,22 @@ var derivedSamples = map[string][]sampleExpr{
 	"halo.latency.p50_ms":  {{SourceGateway, histQuantile(0.50, gatewayOK)}, cli(eventQuantile(0.50))},
 	"halo.latency.p95_ms":  {{SourceGateway, histQuantile(0.95, gatewayOK)}, cli(eventQuantile(0.95))},
 	"halo.tool.error_rate": {cli("countIf(metric = 'halo.tool.call' AND attrs['error'] = '1') / nullIf(countIf(metric = 'halo.tool.call'), 0)")},
+	// Judge scores count only from the collector's authenticated eval receiver;
+	// there is no CLI fallback (a client-forged quality score is no evidence).
+	"halo.eval.judge.score": {{SourceEval, "if(countIf(" + evalScore + ") = 0, NULL, avgIf(value, " + evalScore + "))"}},
 }
 
 // Evidence sources (Report.Source): which collector receiver the samples came through.
 const (
 	SourceGateway = telemetry.SourceGateway // authenticated halo-proxy receiver: may auto-kill
 	SourceCLI     = telemetry.SourceCLI     // developer-reachable receiver: client-controlled
+	// SourceEval: the authenticated eval receiver (`halo eval online` judge
+	// scores). Trusted for verdicts and PRs; never trips the kill switch.
+	SourceEval = telemetry.SourceEval
 )
+
+// evalScore: per-pair judge scores stamped on the authenticated eval receiver.
+const evalScore = "attrs['halo.source'] = '" + SourceEval + "' AND metric = 'halo.eval.judge.score'"
 
 // sampleExpr is one per-unit aggregate and the source its rows come from.
 type sampleExpr struct{ source, expr string }

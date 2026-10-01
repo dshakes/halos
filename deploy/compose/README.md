@@ -37,7 +37,7 @@ The reply text shows the upstream, the rewritten model (`sonnet` -> `us.anthropi
 | `POST /model/sonnet/invoke` | path rewritten to the Bedrock model id |
 | `POST /v1/responses` | OpenAI Responses body, model rewritten |
 | no / forged / expired token | halo-kong: default routing, ring `unknown` (halo-proxy: 401) |
-| `-d '{"model":"gpt-4o",...}'` (not a policy alias) | 403 with an Anthropic-shaped `permission_error`; never forwarded |
+| `-d '{"model":"gpt-4o",...}'` (not a policy alias) | 400 with an Anthropic-shaped `invalid_request_error` (permanent: CLIs do not retry it); never forwarded |
 | `POST /v1/messages/batches` | 404 at Kong (exact routes), 403 at halo-proxy |
 | `curl -H 'X-Halo-Shadow-Token: dev-only-token' localhost:8090/metrics` | `halo_shadow_mirrored_total` etc. (token required; port bound to 127.0.0.1) |
 | `docker compose exec halo-shadow tail /data/pairs.jsonl` | control/candidate pairs for the judge |

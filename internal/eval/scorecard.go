@@ -41,7 +41,15 @@ type VariantScore struct {
 	ToolCalls   int      `json:"toolCalls"`
 	GradeErrors int      `json:"gradeErrors"`
 	JudgeScore  *float64 `json:"judgeScore,omitempty"` // mean judge score over judged trials
+	// Unavailable counts trials this host could not measure (Trial.Unavailable,
+	// e.g. codex without Landlock). They are excluded from every statistic; a
+	// variant with no measured trials shows UnavailableReason, not 0%.
+	Unavailable       int    `json:"unavailable,omitempty"`
+	UnavailableReason string `json:"unavailableReason,omitempty"`
 }
+
+// measured is the number of trials that actually ran.
+func (v VariantScore) measured() int { return v.Trials - v.Unavailable }
 
 // Verdicts for a paired comparison against control.
 const (
@@ -142,6 +150,11 @@ func BuildScorecard(s *Suite, trials []Trial, seed uint64) (*Scorecard, error) {
 		if t.Error != "" {
 			vs.Errors++
 		}
+		if t.Unavailable != "" {
+			vs.Unavailable++
+			vs.UnavailableReason = t.Unavailable
+			continue
+		}
 		vs.ToolCalls += t.ToolCalls
 		if t.GraderError != "" {
 			vs.GradeErrors++
@@ -166,12 +179,16 @@ func BuildScorecard(s *Suite, trials []Trial, seed uint64) (*Scorecard, error) {
 		if vs.Trials == 0 {
 			return nil, fmt.Errorf("scorecard: no trials for variant %q", v.Name)
 		}
+		if vs.measured() == 0 { // nothing ran: report why, never a 0% score
+			sc.Variants = append(sc.Variants, *vs)
+			continue
+		}
 		b, err := stats.BootstrapMean(passes[v.Name], bootstrapIters, seed, bootstrapAlpha)
 		if err != nil {
 			return nil, fmt.Errorf("scorecard: variant %s: %w", v.Name, err)
 		}
 		vs.Pass1, vs.Pass1CILo, vs.Pass1CIHi = b.Mean, b.CILo, b.CIHi
-		vs.CostPerTask /= float64(vs.Trials)
+		vs.CostPerTask /= float64(vs.measured())
 		w := walls[v.Name]
 		sort.Slice(w, func(i, j int) bool { return w[i] < w[j] })
 		vs.WallP50Ms, vs.WallP95Ms = percentile(w, 0.50), percentile(w, 0.95)
@@ -191,17 +208,31 @@ func BuildScorecard(s *Suite, trials []Trial, seed uint64) (*Scorecard, error) {
 		if v.Name == s.Control {
 			continue
 		}
-		c, err := compare(perTask[s.Control], perTask[v.Name], seed)
-		if err != nil {
-			return nil, fmt.Errorf("scorecard: %s vs %s: %w", v.Name, s.Control, err)
+		var unmeasured []string
+		for _, n := range []string{s.Control, v.Name} {
+			if vs := scores[n]; vs.Unavailable > 0 {
+				unmeasured = append(unmeasured, fmt.Sprintf("%s: %d/%d trials unmeasurable (%s); fix the host, not the candidate", n, vs.Unavailable, vs.Trials, vs.UnavailableReason))
+			}
 		}
-		c.Variant, c.Control = v.Name, s.Control
-		if s.Gate.MaxPassDrop != nil { // validated suite
-			g, d, err := gate(arms[s.Control], arms[v.Name], s.Gate, seed)
-			if err != nil {
+		c := Comparison{Variant: v.Name, Control: s.Control, Verdict: VerdictNoDiff}
+		g := Gate{Verdict: GateHold}
+		if scores[s.Control].measured() > 0 && scores[v.Name].measured() > 0 {
+			var err error
+			if c, err = compare(perTask[s.Control], perTask[v.Name], seed); err != nil {
 				return nil, fmt.Errorf("scorecard: %s vs %s: %w", v.Name, s.Control, err)
 			}
-			c.Gate, c.Deltas = &g, d
+			c.Variant, c.Control = v.Name, s.Control
+			if s.Gate.MaxPassDrop != nil {
+				if g, c.Deltas, err = gate(arms[s.Control], arms[v.Name], s.Gate, seed); err != nil {
+					return nil, fmt.Errorf("scorecard: %s vs %s: %w", v.Name, s.Control, err)
+				}
+			}
+		}
+		if len(unmeasured) > 0 { // like grader errors: neither ship nor block on data the host could not produce
+			g.Verdict, g.Reasons = GateHold, append(unmeasured, g.Reasons...)
+		}
+		if s.Gate.MaxPassDrop != nil { // validated suite
+			c.Gate = &g
 			if sc.Gate == nil {
 				sc.Gate = &Gate{Verdict: GateShip}
 			}
@@ -294,13 +325,25 @@ func (sc *Scorecard) Markdown() string {
 	fmt.Fprintf(&b, "\n| Variant | Trials | pass@1 (95%% CI) | pass@%d | pass^%d | Cost/task | Wall p50 | Wall p95 | Tool calls | Tool errors | Errors |\n", k, k)
 	b.WriteString("|---|---|---|---|---|---|---|---|---|---|---|\n")
 	for _, v := range sc.Variants {
+		if v.measured() == 0 {
+			fmt.Fprintf(&b, "| %s | %d | error: %s | | | | | | | | %d |\n", v.Name, v.Trials, v.UnavailableReason, v.Errors)
+			continue
+		}
 		fmt.Fprintf(&b, "| %s | %d | %.1f%% (%.1f-%.1f) | %.1f%% | %.1f%% | $%.4f | %.1fs | %.1fs | %d | %d | %d |\n",
 			v.Name, v.Trials, 100*v.Pass1, 100*v.Pass1CILo, 100*v.Pass1CIHi, 100*v.PassAtK, 100*v.PassHatK,
 			v.CostPerTask, float64(v.WallP50Ms)/1000, float64(v.WallP95Ms)/1000, v.ToolCalls, v.ToolErrors, v.Errors+v.GradeErrors)
 	}
 	if len(sc.Comparisons) > 0 {
 		b.WriteString("\n## Paired comparison vs control\n\n| Variant | Tasks | Delta pass rate (95% CI) | Verdict |\n|---|---|---|---|\n")
+		measured := map[string]int{}
+		for _, v := range sc.Variants {
+			measured[v.Name] = v.measured()
+		}
 		for _, c := range sc.Comparisons {
+			if measured[c.Variant] == 0 || measured[c.Control] == 0 {
+				fmt.Fprintf(&b, "| %s | %d | n/a: unmeasurable on this host | %s |\n", c.Variant, c.Tasks, GateHold)
+				continue
+			}
 			fmt.Fprintf(&b, "| %s | %d | %+.1f pp (%+.1f to %+.1f) | %s |\n",
 				c.Variant, c.Tasks, 100*c.Delta, 100*c.CILo, 100*c.CIHi, c.Verdict)
 		}
@@ -363,10 +406,11 @@ func (sc *Scorecard) Table() string {
 	fmt.Fprintf(&b, "%-*s  %6s  %6s  %6s  %8s  %7s  %5s  %s\n", w, "VARIANT", "PASS@1",
 		fmt.Sprintf("PASS@%d", k), fmt.Sprintf("PASS^%d", k), "$/TASK", "P50", "TOOLS", "VERDICT")
 	for _, v := range sc.Variants {
-		tools := 0.0
-		if v.Trials > 0 {
-			tools = float64(v.ToolCalls) / float64(v.Trials)
+		if v.measured() == 0 {
+			fmt.Fprintf(&b, "%-*s  error: %s  %s\n", w, v.Name, v.UnavailableReason, verdict[v.Name])
+			continue
 		}
+		tools := float64(v.ToolCalls) / float64(v.measured())
 		fmt.Fprintf(&b, "%-*s  %5.0f%%  %5.0f%%  %5.0f%%  %8s  %6.1fs  %5.1f  %s\n", w, v.Name,
 			100*v.Pass1, 100*v.PassAtK, 100*v.PassHatK, fmt.Sprintf("$%.3f", v.CostPerTask),
 			float64(v.WallP50Ms)/1000, tools, verdict[v.Name])

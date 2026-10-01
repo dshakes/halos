@@ -1,0 +1,68 @@
+# yaml-language-server: $schema=../../../schemas/profile.schema.json
+apiVersion: halos.dev/v1alpha1
+kind: Profile
+name: base
+labels:
+  owner: security-engineering
+  data-class: restricted
+models:
+  default: sonnet
+  allowed: [sonnet, haiku]
+  enforce: true
+permissions:
+  mode: default
+  disableBypass: true
+  sandbox: workspace-write
+  sandboxRequired: true # fail closed if the sandbox cannot start
+  deny:
+    - WebFetch
+    - WebSearch
+    - Bash(curl:*)
+    - Bash(wget:*)
+    - Bash(ssh:*)
+    - Bash(scp:*)
+    - Bash(nc:*)
+    - Read(./.env)
+    - Read(./.env.*)
+    - Read(./secrets/**)
+    - Read(./**/*.pem)
+    - Read(./**/*.key)
+    - Read(~/.aws/**)
+    - Read(~/.ssh/**)
+    - Read(~/.config/gcloud/**)
+  ask:
+    - Bash(git push:*)
+    - Bash(rm:*)
+mcp:
+  managedOnly: true
+  servers:
+    - name: regulated-docs
+      url: https://mcp-docs.internal.regulated.example/mcp
+hooks:
+  managedOnly: true
+  items:
+    - event: PreToolUse
+      matcher: Bash
+      command: /usr/local/bin/regulated-audit-hook
+    - event: UserPromptSubmit
+      command: /usr/local/bin/regulated-prompt-dlp
+telemetry:
+  enabled: true
+  otlpEndpoint: https://otel.internal.regulated.example:4318
+  protocol: http/protobuf
+  logPrompts: false # prompts can hold regulated data: log tool use and cost, not content
+  attributes:
+    org: regulated
+    data-class: restricted
+egress:
+  allowedDomains:
+    - ai.regulated.example
+    - mcp-docs.internal.regulated.example
+    - otel.internal.regulated.example
+    - git.internal.regulated.example
+    - artifacts.internal.regulated.example
+instructions: |
+  # Regulated environment
+  - Treat all code and data in this workspace as restricted.
+  - Do not paste customer data, credentials or personal data into prompts.
+  - Use the regulated-docs MCP server instead of the web; web access is disabled.

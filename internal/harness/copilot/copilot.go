@@ -10,7 +10,10 @@ import (
 	"github.com/dshakes/halos/internal/policy"
 )
 
-const name = "copilot-cli"
+const (
+	name     = "copilot-cli"
+	profileD = "/etc/profile.d/halos-copilot-cli.sh"
+)
 
 func init() { harness.Register(Adapter{}) }
 
@@ -22,7 +25,8 @@ func (Adapter) Name() string { return name }
 // Meta implements harness.Describer.
 func (Adapter) Meta() harness.Meta {
 	return harness.Meta{Binary: "copilot", Installer: harness.InstallerNPM, NPMPackage: "@github/copilot",
-		ManagedDirs: map[harness.OS][]string{harness.Darwin: {"/Library/Application Support/GitHubCopilot"}, harness.Linux: {"/etc/github-copilot"}, harness.Windows: {`C:\Program Files\GitHubCopilot`}}}
+		ManagedDirs:  map[harness.OS][]string{harness.Darwin: {"/Library/Application Support/GitHubCopilot"}, harness.Linux: {"/etc/github-copilot"}, harness.Windows: {`C:\Program Files\GitHubCopilot`}},
+		ManagedFiles: map[harness.OS][]string{harness.Linux: {profileD}}}
 }
 
 func (Adapter) Capabilities() []harness.Capability {
@@ -46,7 +50,7 @@ func settingsPath(os harness.OS) string {
 
 func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []string, error) {
 	warns := hutil.WarnUnsupported(name, p,
-		"models.default", "permissions.disableBypass", "mcp.servers", "telemetry.enabled", "telemetry.logPrompts")
+		"models.default", "permissions.disableBypass", "mcp.servers", "telemetry.enabled", "telemetry.logPrompts", "telemetry.attributes")
 	warns = append(warns, "copilot-cli: cannot self-enforce version; halod enforces")
 	if c.Gateway != nil {
 		warns = append(warns, "copilot-cli: gateway not rendered; BYOK is env-only (COPILOT_PROVIDER_BASE_URL, COPILOT_PROVIDER_API_KEY, COPILOT_MODEL) and managed-settings.json cannot set env; traffic is not routed through Halos")
@@ -60,13 +64,9 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 		warns = append(warns, "copilot-cli: ring/release request headers are not supported")
 	}
 
-	if c.Experiment != "" {
-		warns = append(warns, name+": no telemetry resource-attribute setting; CLI metrics are not attributed to experiment "+c.Experiment+" (the gateway still attributes its own metrics)")
-	}
-
 	s := map[string]any{}
-	if p.Models.Default != "" {
-		s["model"] = p.Models.Default // a default, not a lock: users may still pick another model
+	if m := hutil.Model(p, name); m != "" {
+		s["model"] = m // a default, not a lock: users may still pick another model
 		warns = append(warns, "copilot-cli: models.default is only a default; users can select another model")
 	}
 	if p.Permissions.DisableBypass {
@@ -110,5 +110,15 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 		return nil, nil, fmt.Errorf("copilot-cli: encode managed-settings.json: %w", err)
 	}
 	// Copilot CLI on macOS/Linux rejects the file unless it is a root-owned regular file that is not group/world-writable.
-	return []harness.File{{Path: settingsPath(c.OS), Mode: 0o644, Data: data}}, warns, nil
+	files := []harness.File{{Path: settingsPath(c.OS), Mode: 0o644, Data: data}}
+	// managed-settings.json has no resource-attribute key; the CLI honors the env var (test/uat).
+	if _, ok := s["telemetry"]; ok {
+		if c.OS == harness.Linux {
+			files = append(files, harness.File{Path: profileD, Mode: 0o644,
+				Data: []byte(hutil.OTELShellWrapper("copilot", hutil.OTELResourceAttributes(name, p.Telemetry, c)))})
+		} else {
+			warns = append(warns, name+": no telemetry resource-attribute setting off Linux (no profile.d); CLI telemetry carries no halo.ring/halo.release")
+		}
+	}
+	return files, warns, nil
 }

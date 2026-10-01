@@ -1,0 +1,8 @@
+# yaml-language-server: $schema=../../../schemas/profile.schema.json
+apiVersion: halos.dev/v1alpha1
+kind: Profile
+name: engineering
+extends: base
+harnesses:
+  codex:
+    version: 0.99.0

@@ -41,7 +41,7 @@ Claude Code's server-managed settings are not fetched with Bedrock or a custom `
 | Gemini CLI | `/Library/Application Support/GeminiCli/settings.json`, `/etc/profile.d/halos-*.sh` | `/etc/gemini-cli/settings.json`, `/etc/profile.d/halos-*.sh` | `C:\ProgramData\gemini-cli\settings.json` |
 | Copilot CLI | `/Library/Application Support/GitHubCopilot/managed-settings.json` | `/etc/github-copilot/managed-settings.json` | `C:\Program Files\GitHubCopilot\managed-settings.json` |
 
-Copilot CLI is rendered by its adapter but is not yet in `halod`'s write allowlist, so `halod` will refuse to apply Copilot files today. Dev containers and MDM are the delivery path for it until the allowlist is extended. Claude Code also supports MDM keys (`com.anthropic.claudecode` plist, `HKLM\SOFTWARE\Policies\ClaudeCode`).
+Copilot CLI is in `halod`'s write allowlist too (from its adapter's `harness.Meta`), but that path has not been exercised against the real Copilot CLI (UNVERIFIED); dev containers and MDM remain alternative delivery paths. Claude Code also supports MDM keys (`com.anthropic.claudecode` plist, `HKLM\SOFTWARE\Policies\ClaudeCode`).
 
 `halod`'s own footprint is root-owned and fixed per OS:
 

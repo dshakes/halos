@@ -272,6 +272,11 @@ models:
   Run); external-account and `gcloud` user credentials are not supported. `openai`/`azure-openai` read
   `credential.env` / `credential.file` per request. Client `Authorization`, `x-api-key` and `api-key` are dropped,
   even with `forwardAuth`.
+- **Gemini wire.** `/v1beta/models/{model}:{generateContent,streamGenerateContent,countTokens}` (also `/v1/`) is a
+  first-class client wire: same allowlist, routes, experiments and toggles; only `gemini` (and `orchestrator`)
+  upstreams serve it. gemini-cli's `x-goog-api-key` is accepted as the Halos credential on this wire only, verified like
+  a bearer token and stripped (with `?key=`) before forwarding. A `gemini` upstream with `credential` gets the
+  gateway's own key as `x-goog-api-key`.
 - **Host allowlist.** Credentialed kinds must be https (except `allowInsecureUpstreams: true`, for in-cluster or test
   endpoints) and on the provider's own domain (`*.googleapis.com`, `api.openai.com`, `*.openai.azure.com`, ...) or an
   exact `upstreamHosts` entry. Others are skipped, never sent a credential.

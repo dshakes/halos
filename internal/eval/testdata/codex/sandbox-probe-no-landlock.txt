@@ -1,0 +1,69 @@
+$ docker run --rm --cap-drop=ALL --security-opt=no-new-privileges --pids-limit=512 --memory=4g --cpus=2 --user=1000:1000 --network none ghcr.io/dshakes/eval-codex:0.99.0 codex sandbox linux --full-auto true  # Docker Desktop, kernel 6.10.14-linuxkit, no Landlock
+
+thread 'main' (20) panicked at linux-sandbox/src/linux_run_main.rs:138:9:
+error applying legacy Linux sandbox restrictions: Sandbox(LandlockRestrict)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+rc=101
+--- sandbox --help
+Run commands within a Codex-provided sandbox
+
+Usage: codex sandbox [OPTIONS] <COMMAND>
+
+Commands:
+  macos    Run a command under Seatbelt (macOS only) [aliases: seatbelt]
+  linux    Run a command under Landlock+seccomp (Linux only) [aliases: landlock]
+  windows  Run a command under Windows restricted token (Windows only)
+  help     Print this message or the help of the given subcommand(s)
+
+Options:
+  -c, --config <key=value>
+          Override a configuration value that would otherwise be loaded from `~/.codex/config.toml`.
+          Use a dotted path (`foo.bar.baz`) to override nested values. The `value` portion is parsed
+          as TOML. If it fails to parse as TOML, the raw string is used as a literal.
+          
+          Examples: - `-c model="o3"` - `-c 'sandbox_permissions=["disk-full-read-access"]'` - `-c
+          shell_environment_policy.inherit=all`
+
+      --enable <FEATURE>
+          Enable a feature (repeatable). Equivalent to `-c features.<name>=true`
+
+      --disable <FEATURE>
+          Disable a feature (repeatable). Equivalent to `-c features.<name>=false`
+
+  -h, --help
+          Print help (see a summary with '-h')
+rc=0
+--- sandbox linux --help
+Run a command under Landlock+seccomp (Linux only)
+
+Usage: codex sandbox linux [OPTIONS] [COMMAND]...
+
+Arguments:
+  [COMMAND]...
+          Full command args to run under landlock
+
+Options:
+  -c, --config <key=value>
+          Override a configuration value that would otherwise be loaded from `~/.codex/config.toml`.
+          Use a dotted path (`foo.bar.baz`) to override nested values. The `value` portion is parsed
+          as TOML. If it fails to parse as TOML, the raw string is used as a literal.
+          
+          Examples: - `-c model="o3"` - `-c 'sandbox_permissions=["disk-full-read-access"]'` - `-c
+          shell_environment_policy.inherit=all`
+
+      --full-auto
+          Convenience alias for low-friction sandboxed automatic execution (network-disabled sandbox
+          that can write to cwd and TMPDIR)
+
+      --enable <FEATURE>
+          Enable a feature (repeatable). Equivalent to `-c features.<name>=true`
+
+      --disable <FEATURE>
+          Disable a feature (repeatable). Equivalent to `-c features.<name>=false`
+
+  -h, --help
+          Print help (see a summary with '-h')
+rc=0
+--- version
+codex-cli 0.99.0
+entrypoint=[docker-entrypoint.sh] user=eval

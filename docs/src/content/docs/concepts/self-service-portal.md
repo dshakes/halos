@@ -46,7 +46,7 @@ halo-server -policy-dir policy-repo -token-file fleet.token -listen 127.0.0.1:80
   -portal-config portal.json -data-dir /var/lib/halos
 ```
 
-Flags: `-policy-dir` and `-token-file` are required; `-data-dir` persists the request log, device store, audit log and kill list (empty means in-memory only); `-verdicts` points at the file `halo exp analyze --verdicts-file` writes; `-device-ttl` sets how long a device token lives after enrollment (default 2160h, 90 days; an expired device must re-enroll); `-trusted-proxy-cidrs` lists reverse proxies whose `X-Forwarded-For` is believed for rate limiting. The controller and kill-switch flags are covered in the [CLI reference](/halos/reference/cli/#halo-server). Without `-dev-insecure-user`, the session key must be at least 32 bytes. `-dev-insecure-user`, `-dev-insecure-groups` and `-dev-insecure-admin` disable login for local demos only and log a warning.
+Flags: `-policy-dir` and `-token-file` are required; `-data-dir` persists the request log, device store, audit log and kill list (empty means in-memory only); `-verdicts` points at the file `halo exp analyze --verdicts-file` writes; `-device-ttl` sets how long a device token lives after enrollment (default 2160h, 90 days; an expired device must re-enroll); `-trusted-proxy-cidrs` lists reverse proxies whose `X-Forwarded-For` is believed for rate limiting. The controller and kill-switch flags are covered in the [CLI reference](/halos/reference/binaries/#halo-server). Without `-dev-insecure-user`, the session key must be at least 32 bytes. `-dev-insecure-user`, `-dev-insecure-groups` and `-dev-insecure-admin` disable login for local demos only and log a warning.
 
 ## Launchers
 

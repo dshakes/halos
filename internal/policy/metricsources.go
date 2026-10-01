@@ -21,6 +21,8 @@ func (v *validator) onlineMetrics(path string, e *Experiment) {
 		}
 		cli, gw := m.HasSource(SourceOnlineCLI), m.HasSource(SourceOnlineGateway)
 		switch {
+		case m.ShadowOnly():
+			v.errf(p, "%s is graded on halo-shadow pairs, which only shadow experiments (and rollout dark-launch steps) produce; this %s experiment would never get samples", m.Name, e.Type)
 		case m.HasSource(SourceEval) && !cli && !gw:
 			v.errf(p, "%s is only measured by `halo eval`; use it in eval gates, not online guardrails", m.Name)
 		case !cli && !gw:

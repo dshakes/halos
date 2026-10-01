@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -180,7 +181,28 @@ func TestDecideAndPrepareWithTargets(t *testing.T) {
 
 	// Fail closed: an alias with no route is refused even though other aliases have targets.
 	res := PrepareVerified(org, sub, h, PathMessages, []byte(`{"model":"unlisted","messages":[]}`))
-	if res.Reject == nil || res.Reject.Status != http.StatusForbidden {
-		t.Fatalf("unlisted alias must be 403, got %+v", res.Reject)
+	if res.Reject == nil || res.Reject.Status != http.StatusBadRequest {
+		t.Fatalf("unlisted alias must be 400, got %+v", res.Reject)
+	}
+}
+
+// A denied model is a permanent client error (400, never retried by the CLIs)
+// whose message names the alias and says policy does not permit it, on every wire.
+func TestModelDeniedIsPermanentAndNamesTheAlias(t *testing.T) {
+	org := testOrg()
+	for _, tc := range []struct{ path, body, shape string }{
+		{PathMessages, `{"model":"rogue","messages":[]}`, "invalid_request_error"},
+		{PathResponses, `{"model":"rogue","input":"hi"}`, "model_not_allowed"},
+		{"/model/rogue/invoke", `{}`, `"message"`},
+		{"/v1beta/models/rogue:generateContent", `{}`, "INVALID_ARGUMENT"},
+	} {
+		res := PrepareVerified(org, nil, http.Header{}, tc.path, []byte(tc.body))
+		if res.Reject == nil || res.Reject.Status != http.StatusBadRequest {
+			t.Fatalf("%s: %+v", tc.path, res.Reject)
+		}
+		js := string(res.Reject.JSON())
+		if !strings.Contains(js, `model \"rogue\" is not permitted by the Halos gateway policy`) || !strings.Contains(js, tc.shape) {
+			t.Errorf("%s: %s", tc.path, js)
+		}
 	}
 }

@@ -144,7 +144,7 @@ Rules that matter in operation:
 - **The controller never merges.** Promotion and rollback PRs wait for a human. Automatic rollback (the kill switch) is the only automatic action that changes live traffic.
 - **Errors retry sooner than the interval**: 15s, 30s, and so on, capped at the tick interval. Each tick is bounded to 2 minutes. The interval is at least 1 minute (default 5).
 - **Run one controller per data dir.** Two controllers would race on the action log.
-- **Notifications** go to a Slack incoming webhook and/or a generic webhook. Generic webhook bodies are signed and timestamped: `X-Halo-Timestamp: <unix seconds>` and `X-Halo-Signature: sha256=<hex HMAC-SHA256(secret, timestamp + "." + body)>`, with the secret from `--notify-webhook-secret-file`. Receivers must verify the signature and reject timestamps more than 5 minutes off; [verification snippets](/halos/reference/cli/#verifying-the-webhook-signature). Webhook URLs are secrets: read from files, never logged.
+- **Notifications** go to a Slack incoming webhook and/or a generic webhook. Generic webhook bodies are signed and timestamped: `X-Halo-Timestamp: <unix seconds>` and `X-Halo-Signature: sha256=<hex HMAC-SHA256(secret, timestamp + "." + body)>`, with the secret from `--notify-webhook-secret-file`. Receivers must verify the signature and reject timestamps more than 5 minutes off; [verification snippets](/halos/reference/binaries/#verifying-the-webhook-signature). Webhook URLs are secrets: read from files, never logged.
 - **Audit is fail-closed for privileged actions.** A controller kill is appended to the hash-chained `audit.jsonl` (actor `halo-controller`) with fsync. If the append fails the kill stays applied (fail safe) and the tick reports the audit gap as an error. `halo controller run` appends through the same chain, so it is a **single writer**: do not point it at a data dir a live `halo-server` is appending to; use the server's in-process controller there.
 
 ### Running it
@@ -168,7 +168,7 @@ HALO_CLICKHOUSE_PASSWORD=... halo controller run --once --policy-dir . \
   --clickhouse http://clickhouse:8123 --user halo --data-dir /var/lib/halos
 ```
 
-**Check:** exit code is non-zero if any experiment failed. PRs are opened from the git checkout that contains `--policy-dir`. Kills reach gateways only when `--data-dir` is the same directory `halo-server` uses as `-data-dir` (a shared volume); otherwise the kill is recorded but nothing serves it. Pass `--killswitch-served` only when that is true: without it, rollback PRs and notifications say the kill is merely recorded. Use `--no-pr` for verdicts, kills and notifications only. Flags: [CLI reference](/halos/reference/cli/#halo-controller-run).
+**Check:** exit code is non-zero if any experiment failed. PRs are opened from the git checkout that contains `--policy-dir`. Kills reach gateways only when `--data-dir` is the same directory `halo-server` uses as `-data-dir` (a shared volume); otherwise the kill is recorded but nothing serves it. Pass `--killswitch-served` only when that is true: without it, rollback PRs and notifications say the kill is merely recorded. Use `--no-pr` for verdicts, kills and notifications only. Flags: [CLI reference](/halos/reference/cli/controller-run/).
 
 ## Kill switch
 
@@ -199,7 +199,7 @@ curl -X POST https://halo.acme.example/api/v1/experiments/opus-5-5-canary/unkill
 
 The kill switch lives at the **gateway**, so it fully undoes a `traffic`-axis experiment (model routes). A `client`-axis experiment changes the release **on the machine**. Killing it always stops gateway-side effects (routing, mirroring and attribution). Whether it reaches machines depends on `halod`:
 
-- **`killSwitch` configured in `halod.yaml`:** `halod` polls the same signed list (`GET /api/v1/fleet/killswitch`, device token, default every 60 seconds) and treats a killed experiment as not running. The device applies the ring release (control) within one poll, without a republish, and reports `killed: true`. Unkill returns it to its variant. The list is verified, persisted and replay-protected like the gateway's; a failed fetch keeps the last list. Config: [`halod.yaml`](/halos/reference/cli/#halodyaml).
+- **`killSwitch` configured in `halod.yaml`:** `halod` polls the same signed list (`GET /api/v1/fleet/killswitch`, device token, default every 60 seconds) and treats a killed experiment as not running. The device applies the ring release (control) within one poll, without a republish, and reports `killed: true`. Unkill returns it to its variant. The list is verified, persisted and replay-protected like the gateway's; a failed fetch keeps the last list. Config: [`halod.yaml`](/halos/reference/binaries/#halodyaml).
 - **Not configured (the default; enrollment does not add it):** devices keep their variant until the experiment is paused or concluded in policy and `halo release publish --ring <R>` republishes, or `halo rollback` points the ring and its channels at an earlier release. See [client-axis delivery](#client-axis-delivery).
 
 The controller's notification text ("gateway traffic only; client-axis variants stay until the pause PR merges") describes the second case.

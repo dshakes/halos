@@ -1,0 +1,58 @@
+# yaml-language-server: $schema=../../schemas/gateway.schema.json
+# One alias, three providers. Targets sharing a priority form a tier: weights split
+# traffic inside the tier (sticky per user+session), later tiers are tried only
+# after earlier ones fail (connect error, 5xx, 429, before any byte streams).
+# halo-proxy only: Kong would use each route's first target.
+# Credentials never live in policy: halo-proxy signs Bedrock with its own AWS
+# identity and uses Google ADC for Vertex; the Anthropic key is on the proxy host.
+apiVersion: halos.dev/v1alpha1
+kind: Gateway
+name: multi-gateway
+engine: halo-proxy
+baseURL: https://ai.multi.example
+protocols:
+  claude-code: anthropic-messages
+auth:
+  helperCommand: /usr/local/bin/multi-sso-token --audience halos-gateway
+  ttlSeconds: 900
+upstreams:
+  anthropic:
+    url: https://api.anthropic.com
+    kind: anthropic
+  bedrock-use1:
+    url: https://bedrock-runtime.us-east-1.amazonaws.com
+    kind: bedrock
+    region: us-east-1
+  vertex-east5:
+    kind: vertex # url derived from region: us-east5-aiplatform.googleapis.com
+    project: example-ai-project
+    region: us-east5
+models:
+  sonnet:
+    targets:
+      # tier 0: 70/30 split between Anthropic and Bedrock
+      - upstream: anthropic
+        model: claude-sonnet-4-5-20250929
+        weight: 70
+        timeoutSeconds: 20
+      - upstream: bedrock-use1
+        model: arn:aws:bedrock:us-east-1:111122223333:application-inference-profile/exampleSonnet
+        weight: 30
+        timeoutSeconds: 20
+      # tier 1: only if the whole of tier 0 fails
+      - upstream: vertex-east5
+        model: claude-sonnet-4-5@20250929
+        priority: 1
+  opus:
+    targets:
+      - upstream: anthropic # tier 0
+        model: claude-opus-4-1-20250805
+      - upstream: bedrock-use1 # tier 1
+        model: arn:aws:bedrock:us-east-1:111122223333:application-inference-profile/exampleOpus
+        priority: 1
+      - upstream: vertex-east5 # tier 2
+        model: claude-opus-4-1@20250805
+        priority: 2
+  haiku:
+    upstream: anthropic
+    model: claude-haiku-4-5-20251001

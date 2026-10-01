@@ -1,0 +1,13 @@
+# yaml-language-server: $schema=../../schemas/halos.schema.json
+apiVersion: halos.dev/v1alpha1
+kind: Halos
+org: bedrock-kong
+# Kong sits in front of your auth gateway, so the bearer JWT is verified against
+# this issuer. Cohort comes from the verified identity, never from x-halo-* headers.
+identity:
+  issuer: https://login.corp.example/oauth2/default
+  clientID: halos-portal
+  audience: halos-gateway
+  userClaim: email
+  groupsClaim: groups
+  adminGroups: [ai-platform]

@@ -440,3 +440,77 @@ func TestBedrockPrimaryFailsOverToAnthropicDirect(t *testing.T) {
 		t.Fatalf("status %d body %s bedrock=%d anthropic=%d", resp.StatusCode, b, bSeen.hitCount(), aSeen.hitCount())
 	}
 }
+
+// Every client credential header must be gone on every upstream kind; only the
+// gateway's own credential (if any) may arrive.
+func TestClientCredentialHeadersStrippedOnEveryKind(t *testing.T) {
+	creds := map[string]string{"Authorization": "", "X-Api-Key": "c1", "Api-Key": "c2", "X-Goog-Api-Key": "c3", "Proxy-Authorization": "c4"}
+	for _, tc := range []struct {
+		name, path, body string
+		up               func(url string) policy.Upstream
+		wantOnly         string // the one credential header the gateway itself may send
+		wantValue        string
+	}{
+		{"anthropic", "/v1/messages", opusBody, func(u string) policy.Upstream { return anthropic(u) }, "", ""},
+		{"vertex", "/v1/messages", opusBody, func(u string) policy.Upstream {
+			return policy.Upstream{URL: u, Kind: "vertex", Project: "p", Region: "global"}
+		}, "Authorization", "Bearer gw-token"},
+		{"bedrock", "/v1/messages", opusBody, func(u string) policy.Upstream {
+			return policy.Upstream{URL: u, Kind: "bedrock", Region: "us-west-2"}
+		}, "Authorization", "AWS4"},
+		{"azure-openai", "/v1/responses", `{"model":"opus","input":"hi"}`, func(u string) policy.Upstream {
+			return policy.Upstream{URL: u, Kind: "azure-openai", Credential: &policy.Credential{Env: "K"}}
+		}, "Api-Key", "gw-secret"},
+		{"openai", "/v1/responses", `{"model":"opus","input":"hi"}`, func(u string) policy.Upstream {
+			return policy.Upstream{URL: u, Kind: "openai", Credential: &policy.Credential{Env: "K"}}
+		}, "Authorization", "Bearer gw-secret"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, s := upstream(t, respond(200, `{}`))
+			e := routeEnv(t, map[string]policy.Upstream{"u": tc.up(srv.URL)}, []policy.RouteTarget{{Upstream: "u", Model: "m"}}, func(c *Config) {
+				c.UpstreamHosts, c.AllowInsecureUpstreams, c.SignHosts, c.UpstreamHeaders = []string{"127.0.0.1"}, true, []string{"127.0.0.1"}, nil
+			})
+			e.p.vertexTS = fakeTokens{"gw-token"}
+			e.p.getenv = func(string) string { return "gw-secret" }
+			e.p.sigv4.Credentials = aws.CredentialsProviderFunc(func(context.Context) (aws.Credentials, error) {
+				return aws.Credentials{AccessKeyID: "AKID", SecretAccessKey: "SECRET"}, nil
+			})
+			hdr := map[string]string{}
+			for k, v := range creds {
+				if v != "" {
+					hdr[k] = v
+				}
+			}
+			resp := e.post(t, tc.path, e.token(t, "alice@acme.com"), tc.body, hdr)
+			if resp.StatusCode != 200 {
+				t.Fatalf("status %d", resp.StatusCode)
+			}
+			_, h, _, _ := s.get()
+			for k := range creds {
+				v := h.Get(k)
+				if k == tc.wantOnly {
+					if v != tc.wantValue && (tc.wantValue != "AWS4" || !strings.HasPrefix(v, "AWS4-HMAC-SHA256 ")) {
+						t.Errorf("%s=%q: want only the gateway's own credential %q", k, v, tc.wantValue)
+					}
+					continue
+				}
+				if v != "" {
+					t.Errorf("client credential header %s reached %s upstream: %q", k, tc.name, v)
+				}
+			}
+		})
+	}
+
+	t.Run("legacy single route", func(t *testing.T) {
+		srv, s := upstream(t, respond(200, `{}`))
+		e := testEnv(t, srv, func(c *Config, _ *policy.Org) { c.UpstreamHeaders = nil })
+		hdr := map[string]string{"X-Api-Key": "c1", "Api-Key": "c2", "X-Goog-Api-Key": "c3", "Proxy-Authorization": "c4"}
+		e.post(t, "/v1/messages", e.token(t, "alice@acme.com"), msgBody, hdr)
+		_, h, _, _ := s.get()
+		for _, k := range []string{"Authorization", "X-Api-Key", "Api-Key", "X-Goog-Api-Key", "Proxy-Authorization"} {
+			if h.Get(k) != "" {
+				t.Errorf("%s reached the upstream: %q", k, h.Get(k))
+			}
+		}
+	})
+}

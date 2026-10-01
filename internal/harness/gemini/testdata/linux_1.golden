@@ -1,1 +1,5 @@
 export GOOGLE_GEMINI_BASE_URL='https://gw.example.com'
+export GEMINI_API_KEY="$(sh -c '/opt/halo/token.sh' 2>/dev/null)"
+# Halos: label this CLI's telemetry with the release (login shells).
+gemini() { OTEL_RESOURCE_ATTRIBUTES='cost-center=a%2Fb,halo.harness=gemini-cli,halo.release=sha256%3Aabc,halo.ring=canary,team=platform%20eng' command gemini "$@"; }
+[ -z "${BASH_VERSION:-}" ] || export -f gemini

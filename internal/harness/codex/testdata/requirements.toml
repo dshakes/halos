@@ -1,5 +1,5 @@
 allowed_approval_policies = ['on-request']
-allowed_sandbox_modes = ['workspace-write']
+allowed_sandbox_modes = ['read-only', 'workspace-write']
 
 [mcp_servers]
 [mcp_servers.docs]

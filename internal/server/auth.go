@@ -233,9 +233,10 @@ func (o *oidcState) session(id string, now time.Time) ([]string, bool) {
 	return v.groups, true
 }
 
-// policyGroups keeps only the groups current policy refers to (admin groups
-// and ring membership groups); IdPs often send hundreds, which would overflow
-// the cookie. A group newly referenced by policy applies at the next login.
+// policyGroups keeps only the groups current policy refers to (admin groups,
+// ring membership groups and toggle rule groups: enrolled devices target
+// toggles with the groups recorded here); IdPs often send hundreds, which would
+// overflow the cookie. A group newly referenced by policy applies at the next login.
 func policyGroups(org *policy.Org, groups []string) []string {
 	if org == nil {
 		return nil
@@ -243,7 +244,10 @@ func policyGroups(org *policy.Org, groups []string) []string {
 	var out []string
 	for _, g := range groups {
 		keep := slices.Contains(org.Identity.AdminGroups, g) ||
-			slices.ContainsFunc(org.Rings, func(r *policy.Ring) bool { return slices.Contains(r.Membership.Groups, g) })
+			slices.ContainsFunc(org.Rings, func(r *policy.Ring) bool { return slices.Contains(r.Membership.Groups, g) }) ||
+			slices.ContainsFunc(org.Toggles, func(t *policy.Toggle) bool {
+				return slices.ContainsFunc(t.Rules, func(r policy.ToggleRule) bool { return slices.Contains(r.Groups, g) })
+			})
 		if keep && !slices.Contains(out, g) {
 			out = append(out, g)
 		}

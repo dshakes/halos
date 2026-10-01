@@ -250,6 +250,14 @@ func TestValidate(t *testing.T) {
 		wantSev  Severity
 	}{
 		{"no gateway", func(o *Org) { o.Gateway = nil }, "gateway", "no Gateway", SeverityError},
+		{"harness model not a gateway alias", func(o *Org) {
+			o.Profiles["base"].Models.Enforce = false
+			o.Profiles["base"].Harnesses["codex"] = HarnessSpec{Version: "0.99.0", Model: "codex-default"}
+		}, "harnesses.codex.model", "not a gateway.models alias", SeverityError},
+		{"harness model outside enforced allowlist", func(o *Org) {
+			o.Gateway.Models["codex-default"] = ModelRoute{Upstream: "up", Model: "m3"}
+			o.Profiles["base"].Harnesses["codex"] = HarnessSpec{Version: "0.99.0", Model: "codex-default"}
+		}, "harnesses.codex.model", "must be in models.allowed", SeverityError},
 		{"gateway bad url", func(o *Org) { o.Gateway.BaseURL = "nope" }, "gateway.baseURL", "absolute", SeverityError},
 		{"model route unknown upstream", func(o *Org) { o.Gateway.Models["sonnet"] = ModelRoute{Upstream: "zz", Model: "m"} }, "gateway.models.sonnet.upstream", "not defined", SeverityError},
 		{"upstream bad kind", func(o *Org) { o.Gateway.Upstreams["up"] = Upstream{URL: "https://x.example", Kind: "wat"} }, "upstreams.up.kind", "invalid", SeverityError},
@@ -414,5 +422,25 @@ func TestResolveProfileDenyListsAccumulate(t *testing.T) {
 	}
 	if !slices.Equal(p.MCP.Denied, []string{"evil"}) {
 		t.Fatalf("mcp denied = %v", p.MCP.Denied)
+	}
+}
+
+// A per-harness model (harnesses.<h>.model) validates and survives extends.
+func TestHarnessModelValidAndInherited(t *testing.T) {
+	o := validOrg()
+	o.Gateway.Models["codex-default"] = ModelRoute{Upstream: "up", Model: "m3"}
+	b := o.Profiles["base"]
+	b.Models.Allowed = append(b.Models.Allowed, "codex-default")
+	b.Harnesses["codex"] = HarnessSpec{Version: "0.99.0", Model: "codex-default"}
+	o.Profiles["next"].Harnesses["codex"] = HarnessSpec{Version: "0.100.0"}
+	if is := o.Validate(); len(is) != 0 {
+		t.Fatalf("issues: %v", is)
+	}
+	p, err := o.ResolveProfile("next")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h := p.Harnesses["codex"]; h.Model != "codex-default" || h.Version != "0.100.0" {
+		t.Fatalf("resolved codex = %+v", h)
 	}
 }

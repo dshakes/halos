@@ -1,0 +1,34 @@
+# yaml-language-server: $schema=../../../schemas/experiment.schema.json
+# Traffic-axis canary: 5% of the platform ring gets a newer Opus snapshot at the
+# gateway. Status is draft: nothing is exposed until a human starts it.
+apiVersion: halos.dev/v1alpha1
+kind: Experiment
+name: opus-new-snapshot
+type: canary
+axis: traffic
+status: draft
+rings: [ring0-platform]
+variants:
+  - name: control
+    weight: 95
+    control: true
+  - name: new-snapshot
+    weight: 5
+    routes:
+      opus:
+        upstream: anthropic
+        model: claude-opus-4-5-20251101
+metrics:
+  primary:
+    metric: halo.api.error_rate
+    direction: decrease
+  guardrails:
+    - metric: halo.latency.p95_ms
+      direction: decrease
+      maxRegression: 0.15
+stopping:
+  method: msprt
+  alpha: 0.05
+  minSamples: 500
+  maxDays: 14
+  maxSpendUSD: 500

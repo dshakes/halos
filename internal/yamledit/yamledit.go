@@ -287,6 +287,15 @@ func (d *Doc) SetPath(path []string, raw string) ([]byte, error) {
 		return nil, fmt.Errorf("%s: %s is not an inline scalar", d.Path, strings.Join(path, "."))
 	}
 	start, end, ok := d.scalarSpan(v)
+	if !ok && v.Style == 0 {
+		// A plain scalar inside a flow collection ({a: 1, b: 2}) ends at a
+		// flow indicator, which scalarSpan (block context) does not stop at.
+		if s, sok := d.offset(v); sok {
+			e := s + len(v.Value)
+			ok = e <= len(d.Data) && string(d.Data[s:e]) == v.Value && (e == len(d.Data) || strings.IndexByte(",}] \t\r\n", d.Data[e]) >= 0)
+			start, end = s, e
+		}
+	}
 	if !ok {
 		return nil, fmt.Errorf("%s:%d: cannot locate value of %s for editing", d.Path, v.Line, strings.Join(path, "."))
 	}

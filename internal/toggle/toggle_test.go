@@ -56,11 +56,14 @@ func TestEval(t *testing.T) {
 		{"off rule falls through to later on rule when unmatched", "t", false, rules(
 			policy.ToggleRule{Users: []string{"bob@acme.example"}, Effect: policy.EffectOff},
 			policy.ToggleRule{Rings: []string{"ring1"}}), alice, false, true, 1},
-		{"percent in (bucket 3861 < 4000)", "github-mcp", false, rules(policy.ToggleRule{Percent: 40}), alice, false, true, 0},
-		{"percent out (bucket 3861 >= 3000)", "github-mcp", false, rules(policy.ToggleRule{Percent: 30}), alice, false, false, -1},
-		{"percent 100 is everyone with an id", "github-mcp", false, rules(policy.ToggleRule{Percent: 100}), alice, false, true, 0},
-		{"percent never matches without a subject id", "github-mcp", false, rules(policy.ToggleRule{Percent: 100}), Subject{Ring: "ring1"}, false, false, -1},
-		{"ring AND percent", "github-mcp", false, rules(policy.ToggleRule{Rings: []string{"ring0"}, Percent: 100}), alice, false, false, -1},
+		{"percent in (bucket 3861 < 4000)", "github-mcp", false, rules(policy.ToggleRule{Percent: pct(40)}), alice, false, true, 0},
+		{"percent out (bucket 3861 >= 3000)", "github-mcp", false, rules(policy.ToggleRule{Percent: pct(30)}), alice, false, false, -1},
+		{"percent 100 is everyone with an id", "github-mcp", false, rules(policy.ToggleRule{Percent: pct(100)}), alice, false, true, 0},
+		{"percent 0 matches nobody", "github-mcp", true, rules(policy.ToggleRule{Percent: pct(0)}), alice, false, true, -1}, // falls to default
+		{"percent 0 matches no anonymous caller either", "github-mcp", false, rules(policy.ToggleRule{Percent: pct(0)}), Subject{}, false, false, -1},
+		{"percent 0 with ring still matches nobody", "github-mcp", false, rules(policy.ToggleRule{Rings: []string{"ring1"}, Percent: pct(0)}), alice, false, false, -1},
+		{"percent never matches without a subject id", "github-mcp", false, rules(policy.ToggleRule{Percent: pct(100)}), Subject{Ring: "ring1"}, false, false, -1},
+		{"ring AND percent", "github-mcp", false, rules(policy.ToggleRule{Rings: []string{"ring0"}, Percent: pct(100)}), alice, false, false, -1},
 		{"killed beats a matching rule", "t", true, rules(policy.ToggleRule{}), alice, true, false, 0},
 		{"killed beats default on", "t", true, nil, alice, true, false, -1},
 	}
@@ -81,7 +84,7 @@ func TestEval(t *testing.T) {
 }
 
 func TestEvalDeterministicAndIndependentOfOrder(t *testing.T) {
-	rules := []policy.ToggleRule{{Percent: 25}}
+	rules := []policy.ToggleRule{{Percent: pct(25)}}
 	first := Eval("github-mcp", false, rules, Subject{ID: "bob@acme.example"}, false)
 	for i := 0; i < 50; i++ {
 		if got := Eval("github-mcp", false, rules, Subject{ID: "bob@acme.example"}, false); !reflect.DeepEqual(got, first) {
@@ -101,7 +104,7 @@ func TestPercentSelectsRoughlyThatShare(t *testing.T) {
 	on := 0
 	const n = 20000
 	for i := 0; i < n; i++ {
-		if Eval("t", false, []policy.ToggleRule{{Percent: 10}}, Subject{ID: "u" + strings.Repeat("x", i%7) + string(rune('a'+i%26)) + itoa(i)}, false).On {
+		if Eval("t", false, []policy.ToggleRule{{Percent: pct(10)}}, Subject{ID: "u" + strings.Repeat("x", i%7) + string(rune('a'+i%26)) + itoa(i)}, false).On {
 			on++
 		}
 	}
@@ -109,6 +112,8 @@ func TestPercentSelectsRoughlyThatShare(t *testing.T) {
 		t.Fatalf("10%% rule selected %d of %d", on, n)
 	}
 }
+
+func pct(f float64) *float64 { return &f }
 
 func itoa(i int) string {
 	if i == 0 {

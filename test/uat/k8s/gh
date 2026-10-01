@@ -1,0 +1,12 @@
+#!/bin/sh
+# Recording `gh` for UAT: the controller has already pushed the PR branch to the
+# in-cluster git remote; this stands in for GitHub's `gh pr create` and never
+# merges. It prints a PR URL like the real CLI.
+set -eu
+[ "${1:-}" = pr ] && [ "${2:-}" = create ] || { echo "uat gh: only 'pr create' is supported" >&2; exit 1; }
+head=""
+while [ $# -gt 0 ]; do
+  [ "$1" = --head ] && head="$2"
+  shift
+done
+echo "uat://pull/${head}"

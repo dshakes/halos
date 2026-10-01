@@ -65,7 +65,7 @@ func (e Event) Text() string {
 				b.WriteString(". Kill switch tripped: gateways route everyone to control")
 			}
 		case KillNotGateway:
-			b.WriteString(". Not auto-killed: rollback decided on CLI telemetry; merge the pause PR")
+			b.WriteString(". Not auto-killed: rollback decided on non-gateway (CLI or eval) evidence; merge the pause PR")
 		case KillNotConfigured:
 			b.WriteString(". Kill switch not configured \u2014 merge the pause PR urgently")
 		case KillRecorded:

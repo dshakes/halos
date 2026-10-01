@@ -127,6 +127,7 @@ func GateSummary(s policy.RolloutStep) []string {
 
 // BuildTimeline lays out r's steps with their earliest start.
 func BuildTimeline(org *policy.Org, r *policy.Rollout) Timeline {
+	r = Effective(org, r)
 	t := Timeline{Rollout: r.Name, Axis: string(r.Axis), Status: r.EffectiveStatus(), Experiment: r.Experiment,
 		Change: ChangeSummary(r), Steps: []TimelineStep{}}
 	var at time.Duration

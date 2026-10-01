@@ -13,6 +13,11 @@ import (
 
 const name = "claude-code"
 
+// builtinIDs are the first-party IDs Claude Code 2.1.280 resolves each alias to
+// (verified in test/uat). ponytail: per-generation table; a new default ID shows
+// up as the UAT "no silent fallback" row failing, then add it here.
+var builtinIDs = map[string]string{"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5", "haiku": "claude-haiku-4-5-20251001"}
+
 func init() { harness.Register(Adapter{}) }
 
 // Adapter implements harness.Adapter for Claude Code.
@@ -93,6 +98,24 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 		default:
 			return nil, nil, fmt.Errorf("claudecode: unsupported gateway protocol %q", proto)
 		}
+		// Claude Code resolves its own aliases before sending (managed
+		// `model: sonnet` goes out as e.g. claude-sonnet-5, seen in test/uat),
+		// but the gateway allowlists policy aliases: pin each Claude alias the
+		// gateway routes to itself so the request carries the alias.
+		// The pins do not reach Claude's own fallback: a --model outside
+		// availableModels is dropped silently and the tier default goes out as
+		// its built-in ID (claude-opus-5-5[1m] on 2.1.280), ignoring the env.
+		// modelOverrides does apply there, so map each built-in ID to its alias.
+		overrides := map[string]any{}
+		for _, a := range []string{"opus", "sonnet", "haiku"} {
+			if _, ok := g.Models[a]; ok {
+				env["ANTHROPIC_DEFAULT_"+strings.ToUpper(a)+"_MODEL"] = a
+				overrides[builtinIDs[a]] = a
+			}
+		}
+		if len(overrides) > 0 {
+			s["modelOverrides"] = overrides
+		}
 		if g.Auth.HelperCommand != "" {
 			s["apiKeyHelper"] = g.Auth.HelperCommand
 		}
@@ -117,34 +140,11 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 		if t.LogPrompts {
 			env["OTEL_LOG_USER_PROMPTS"] = "1"
 		}
-		attrs := map[string]string{}
-		for k, v := range t.Attributes {
-			attrs[k] = v
-		}
-		attrs["halo.harness"] = name // halo.* set last so profile attributes cannot spoof them
-		if c.Ring != "" {
-			attrs["halo.ring"] = c.Ring
-		}
-		if c.Release != "" {
-			attrs["halo.release"] = c.Release
-		}
-		// Client-axis variant release: CLI metrics (cost, tokens, tool calls)
-		// carry the variant, so client-axis analysis and maxSpendUSD see them.
-		// Only a variant release may claim them; a profile attribute cannot.
-		delete(attrs, "halo.experiment")
-		delete(attrs, "halo.variant")
-		if c.Experiment != "" {
-			attrs["halo.experiment"], attrs["halo.variant"] = c.Experiment, c.Variant
-		}
-		var kv []string
-		for _, k := range hutil.SortedKeys(attrs) {
-			kv = append(kv, hutil.PctEncode(k)+"="+hutil.PctEncode(attrs[k]))
-		}
-		env["OTEL_RESOURCE_ATTRIBUTES"] = strings.Join(kv, ",")
+		env["OTEL_RESOURCE_ATTRIBUTES"] = hutil.OTELResourceAttributes(name, t, c)
 	}
 
-	if p.Models.Default != "" {
-		s["model"] = p.Models.Default
+	if m := hutil.Model(p, name); m != "" {
+		s["model"] = m
 	}
 	if len(p.Models.Allowed) > 0 {
 		s["availableModels"] = p.Models.Allowed

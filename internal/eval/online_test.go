@@ -64,6 +64,9 @@ func TestRunOnline(t *testing.T) {
 	if r.Pairs != 4 || r.Graded != 3 || r.JudgeErrors != 1 || len(r.PairIDs) != 4 {
 		t.Fatalf("counts %+v", r)
 	}
+	if len(r.Scores) != 3 {
+		t.Fatalf("per-pair scores %+v", r.Scores)
+	}
 	if r.CandidateVariant != "sonnet-next" || r.Rubric != "code-quality@1" || r.JudgeModel != "judge-1" {
 		t.Fatalf("labels %+v", r)
 	}
@@ -145,6 +148,42 @@ func TestOnlineHistoryAndOTLP(t *testing.T) {
 			t.Errorf("OTLP body missing %s", want)
 		}
 	}
+	// judge.score: one point per graded pair and arm, unit = pair id (what analyze samples).
+	var req struct {
+		ResourceMetrics []struct {
+			ScopeMetrics []struct {
+				Metrics []struct {
+					Name  string
+					Gauge struct {
+						DataPoints []struct {
+							AsDouble   float64
+							Attributes []struct {
+								Key   string
+								Value struct{ StringValue string }
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	_ = json.Unmarshal(b, &req)
+	units := map[string]int{}
+	for _, mt := range req.ResourceMetrics[0].ScopeMetrics[0].Metrics {
+		if mt.Name != MetricJudgeScore {
+			continue
+		}
+		for _, dp := range mt.Gauge.DataPoints {
+			for _, a := range dp.Attributes {
+				if a.Key == "halo.unit" {
+					units[a.Value.StringValue]++
+				}
+			}
+		}
+	}
+	if len(units) != 2 || units["a"] != 2 || units["b"] != 2 {
+		t.Errorf("judge.score points per unit: %v, want a and b with one per arm", units)
+	}
 	if auth != "Bearer t" {
 		t.Errorf("auth %q", auth)
 	}
@@ -153,5 +192,20 @@ func TestOnlineHistoryAndOTLP(t *testing.T) {
 	}
 	if !strings.Contains(OnlineTable(rs), "code-quality@1") {
 		t.Error("table missing rubric")
+	}
+}
+
+// The control side of a shadow pair is unlabelled; policy supplies its name.
+func TestOnlineControlNames(t *testing.T) {
+	p := pair("x", "e", "ok", "good")
+	p.Control.Target.Variant = ""
+	o := OnlineOptions{Judge: &Judge{LLM: &fakeLLM{reply: scoreByText}, Model: "m"}, Rubric: testRubric(t)}
+	rs, _ := RunOnline(context.Background(), fakePairs{p}, o)
+	if rs[0].ControlVariant != "control" {
+		t.Fatalf("default %q", rs[0].ControlVariant)
+	}
+	o.ControlNames = map[string]string{"e": "primary"}
+	if rs, _ = RunOnline(context.Background(), fakePairs{p}, o); rs[0].ControlVariant != "primary" {
+		t.Fatalf("policy name %q", rs[0].ControlVariant)
 	}
 }

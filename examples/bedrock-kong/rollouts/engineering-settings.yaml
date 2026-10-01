@@ -1,0 +1,29 @@
+# yaml-language-server: $schema=../../../schemas/rollout.schema.json
+# Draft rollout of a settings change: platform team, then canary, then GA.
+# Digests are placeholders; `halo release build` produces the real ones.
+apiVersion: halos.dev/v1alpha1
+kind: Rollout
+name: engineering-settings-example
+axis: client
+status: draft
+change:
+  version: 2026.10.1
+  release: sha256:1111111111111111111111111111111111111111111111111111111111111111
+baseline:
+  release: sha256:2222222222222222222222222222222222222222222222222222222222222222
+steps:
+  - name: platform
+    strategy: blue-green
+    ring: ring0-platform
+    bake: 4h
+  - name: canary
+    strategy: blue-green
+    ring: ring1-canary
+    bake: 1d
+    gates:
+      approval: true
+  - name: ga
+    strategy: blue-green
+    ring: ring2-ga
+    gates:
+      approval: true

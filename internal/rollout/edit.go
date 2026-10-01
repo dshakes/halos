@@ -1,6 +1,7 @@
 package rollout
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,19 +10,24 @@ import (
 	"strconv"
 	"strings"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/dshakes/halos/internal/policy"
 	"github.com/dshakes/halos/internal/promote"
 	"github.com/dshakes/halos/internal/yamledit"
 )
 
 // edit sets one scalar in the kind/name document. str values are top-level
-// strings set with SetField (keeps quote style); others are raw YAML.
+// strings set with SetField (keeps quote style); others are raw YAML. kind ""
+// is halos.yaml. del deletes the document's file instead (it must be the
+// file's last edit).
 type edit struct {
 	kind policy.Kind
 	name string
 	path []string
 	val  string
 	str  bool
+	del  bool
 }
 
 func num(f float64) string { return strconv.FormatFloat(f, 'f', -1, 64) }
@@ -38,7 +44,9 @@ func num(f float64) string { return strconv.FormatFloat(f, 'f', -1, 64) }
 //   - progressive / blue-green: the ring's release pointer moves to the change
 //     (the experiment is paused so the whole ring gets it).
 //   - complete: the experiment is concluded; traffic-axis rollouts point the
-//     gateway alias at the treatment's route.
+//     gateway alias at the treatment's route. In simple mode that is halos.yaml
+//     models.<alias>, and the gateway.yaml override `halo model switch --canary`
+//     generated for the rollout (see policy.LabelGeneratedBy) is deleted.
 //   - rollback: rollout aborted, experiment paused, every ring moved so far
 //     re-pointed at baseline.release.
 func Plan(dir string, org *policy.Org, r *policy.Rollout, act Action, next int) (*promote.Change, error) {
@@ -53,10 +61,12 @@ func Plan(dir string, org *policy.Org, r *policy.Rollout, act Action, next int) 
 			return nil, fmt.Errorf("rollout %s: experiment %q needs one control and one treatment", r.Name, exp.Name)
 		}
 	}
-	ro := func(key, val string) edit { return edit{policy.KindRollout, r.Name, []string{key}, val, true} }
-	ex := func(key, val string) edit { return edit{policy.KindExperiment, r.Experiment, []string{key}, val, true} }
+	ro := func(key, val string) edit { return edit{policy.KindRollout, r.Name, []string{key}, val, true, false} }
+	ex := func(key, val string) edit {
+		return edit{policy.KindExperiment, r.Experiment, []string{key}, val, true, false}
+	}
 	weight := func(v *policy.Variant, w float64) edit {
-		return edit{policy.KindExperiment, r.Experiment, []string{"variants", "name=" + v.Name, "weight"}, num(w), false}
+		return edit{policy.KindExperiment, r.Experiment, []string{"variants", "name=" + v.Name, "weight"}, num(w), false, false}
 	}
 	pauseExp := func() []edit {
 		if exp != nil && exp.Status == "running" {
@@ -83,9 +93,9 @@ func Plan(dir string, org *policy.Org, r *policy.Rollout, act Action, next int) 
 			edits = append(edits, ex("type", string(policy.ExperimentCanary)), ex("status", "running"), weight(ctl, p), weight(trt, 100-p))
 		case policy.StrategyDarkLaunch:
 			edits = append(edits, ex("type", string(policy.ExperimentShadow)), ex("status", "running"),
-				edit{policy.KindExperiment, r.Experiment, []string{"sampleRate"}, num(p / 100), false})
+				edit{policy.KindExperiment, r.Experiment, []string{"sampleRate"}, num(p / 100), false, false})
 		case policy.StrategyProgressive, policy.StrategyBlueGreen:
-			edits = append(edits, edit{policy.KindRing, s.Ring, []string{"release"}, r.Change.Release, true})
+			edits = append(edits, edit{policy.KindRing, s.Ring, []string{"release"}, r.Change.Release, true, false})
 			edits = append(edits, pauseExp()...)
 		default:
 			return nil, fmt.Errorf("rollout %s: unknown strategy %q", r.Name, s.Strategy)
@@ -106,8 +116,14 @@ func Plan(dir string, org *policy.Org, r *policy.Rollout, act Action, next int) 
 			if ManualSteps(org, r, act) != nil {
 				break // multi-target route: a human edits it (see ManualSteps)
 			}
+			if se, ok, err := simpleCompletion(dir, org, r, rt); err != nil {
+				return nil, err
+			} else if ok {
+				edits = append(edits, se...)
+				break
+			}
 			gw := func(k, v string) edit {
-				return edit{policy.KindGateway, org.Gateway.Name, []string{"models", r.Change.Alias, k}, yamledit.Quote(v, 0), false}
+				return edit{policy.KindGateway, org.Gateway.Name, []string{"models", r.Change.Alias, k}, yamledit.Quote(v, 0), false, false}
 			}
 			edits = append(edits, gw("upstream", rt.Upstream), gw("model", rt.Model))
 		}
@@ -117,7 +133,7 @@ func Plan(dir string, org *policy.Org, r *policy.Rollout, act Action, next int) 
 		for _, s := range r.Steps[:r.StepIndex(r.Step)+1] { // StepIndex is -1 before the first step
 			if s.RingWide() && !slices.Contains(rings, s.Ring) && r.Baseline.Release != "" {
 				rings = append(rings, s.Ring)
-				edits = append(edits, edit{policy.KindRing, s.Ring, []string{"release"}, r.Baseline.Release, true})
+				edits = append(edits, edit{policy.KindRing, s.Ring, []string{"release"}, r.Baseline.Release, true, false})
 			}
 		}
 	case Pause:
@@ -154,6 +170,87 @@ func ManualSteps(org *policy.Org, r *policy.Rollout, act Action) []string {
 	return []string{fmt.Sprintf("gateway.models.%s has failover targets: re-point it to %s by hand in this PR", r.Change.Alias, strings.Join(to, ", "))}
 }
 
+// simpleCompletion re-points alias in simple mode: halos.yaml models.<alias>
+// becomes the treatment's id, and the Gateway document either goes (when it is
+// the override generated for r and holds nothing else) or gets the same route.
+// ok is false when halos.yaml does not route alias by a single id: then the
+// Gateway document is the source of truth (full mode).
+func simpleCompletion(dir string, org *policy.Org, r *policy.Rollout, rt policy.ModelRoute) (edits []edit, ok bool, err error) {
+	b, err := os.ReadFile(filepath.Join(dir, policy.RootFile))
+	if err != nil {
+		return nil, false, fmt.Errorf("rollout plan: %w", err)
+	}
+	var root policy.Root
+	if err := yaml.Unmarshal(b, &root); err != nil {
+		return nil, false, fmt.Errorf("rollout plan: %s: %w", policy.RootFile, err)
+	}
+	alias := r.Change.Alias
+	if !root.Enabled() || len(root.Models[alias]) != 1 {
+		return nil, false, nil
+	}
+	def := ""
+	if root.Provider != nil {
+		def = root.Provider.Name
+	}
+	id := rt.Model
+	if rt.Upstream != def {
+		id = rt.Upstream + "/" + rt.Model
+	}
+	if up, m := policy.SplitModel(id, def); up != rt.Upstream || m != rt.Model {
+		return nil, false, nil // not expressible as a halos.yaml id: keep the Gateway route
+	}
+	edits = []edit{{kind: "", path: []string{"models", alias}, val: yamledit.Quote(id, 0)}}
+	d, err := yamledit.Find(dir, policy.KindGateway, org.Gateway.Name)
+	switch {
+	case err != nil: // no explicit Gateway document: halos.yaml is all there is
+	case generatedOverride(d, r.Name, alias):
+		edits = append(edits, edit{kind: policy.KindGateway, name: org.Gateway.Name, del: true})
+	case d.Get("models", alias) != nil: // a hand-written override: keep it in step
+		for _, kv := range [][2]string{{"upstream", rt.Upstream}, {"model", rt.Model}} {
+			edits = append(edits, edit{kind: policy.KindGateway, name: org.Gateway.Name, path: []string{"models", alias, kv[0]}, val: yamledit.Quote(kv[1], 0)})
+		}
+	}
+	return edits, true, nil
+}
+
+// generatedOverride reports whether d is the gateway override generated for
+// rollout and nothing else: labelled for it, alone in its file, and holding
+// only models.<alias> besides its identity.
+func generatedOverride(d *yamledit.Doc, rollout, alias string) bool {
+	if l := d.Get("labels", policy.LabelGeneratedBy); l == nil || l.Value != policy.GeneratedFor(rollout) {
+		return false
+	}
+	for i := 0; i+1 < len(d.Mapping.Content); i += 2 {
+		if !slices.Contains([]string{"apiVersion", "kind", "name", "labels", "models"}, d.Mapping.Content[i].Value) {
+			return false
+		}
+	}
+	if m := d.Get("models"); m == nil || len(m.Content) != 2 || m.Content[0].Value != alias {
+		return false
+	}
+	docs, dec := 0, yaml.NewDecoder(bytes.NewReader(d.Data))
+	for {
+		var n yaml.Node
+		if dec.Decode(&n) != nil {
+			break
+		}
+		docs++
+	}
+	return docs == 1
+}
+
+// rootMapping is halos.yaml's top-level mapping.
+func rootMapping(b []byte) (*yaml.Node, error) {
+	var n yaml.Node
+	if err := yaml.Unmarshal(b, &n); err != nil {
+		return nil, err
+	}
+	if len(n.Content) != 1 || n.Content[0].Kind != yaml.MappingNode {
+		return nil, fmt.Errorf("%s is not a mapping", policy.RootFile)
+	}
+	return n.Content[0], nil
+}
+
 func findExp(org *policy.Org, name string) *policy.Experiment {
 	for _, e := range org.Experiments {
 		if e.Name == name {
@@ -172,6 +269,10 @@ func planEdits(dir string, edits []edit) (*promote.Change, error) {
 		if _, ok := files[k]; ok {
 			continue
 		}
+		if e.kind == "" {
+			files[k] = policy.RootFile
+			continue
+		}
 		d, err := yamledit.Find(dir, e.kind, e.name)
 		if err != nil {
 			return nil, fmt.Errorf("rollout plan: %w", err)
@@ -182,6 +283,10 @@ func planEdits(dir string, edits []edit) (*promote.Change, error) {
 		out := map[string][]byte{}
 		for _, e := range edits {
 			f := files[string(e.kind)+"/"+e.name]
+			if e.del {
+				out[f] = nil
+				continue
+			}
 			old, ok := out[f]
 			if !ok {
 				b, err := read(f)
@@ -190,7 +295,13 @@ func planEdits(dir string, edits []edit) (*promote.Change, error) {
 				}
 				old = b
 			}
-			m, err := yamledit.Parse(old, e.kind, e.name)
+			var m *yaml.Node
+			var err error
+			if e.kind == "" {
+				m, err = rootMapping(old)
+			} else {
+				m, err = yamledit.Parse(old, e.kind, e.name)
+			}
 			if err != nil {
 				return nil, fmt.Errorf("rollout plan: parse %s: %w", f, err)
 			}
@@ -227,7 +338,7 @@ func planEdits(dir string, edits []edit) (*promote.Change, error) {
 		if err != nil {
 			return nil, fmt.Errorf("rollout plan: read %s: %w", f, err)
 		}
-		if d := promote.UnifiedDiff(f, string(old), string(nw[f])); d != "" {
+		if d := promote.UnifiedDiff(f, string(old), string(nw[f])); d != "" { // a nil file: deleted
 			ch.Files[f] = nw[f]
 			ch.Patch += d
 		}

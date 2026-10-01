@@ -1,0 +1,101 @@
+# Whole-stack playground: `make demo` (scripts/demo.sh) / `make demo-down`. DEV ONLY.
+#
+#   browser -> halo-server :18080 (console + portal) -- OIDC code flow --> mock-idp :18081
+#   curl    -> halo-proxy  :18088 -> orch-mock | anthropic-mock (mockllm)
+#                          \-> halo-shadow (mirrors)   \-> otel-collector -> ClickHouse -> Grafana :13000
+#
+# A one-shot `seed` copies examples/acme-corp + deploy/compose/demo/policy (overlay),
+# generates throwaway keys/tokens on the `demo` volume, publishes a signed release
+# per ring to a local registry:2 and compiles policy.json. Nothing it generates is
+# committed; `make demo-down` deletes the volumes.
+# Host ports bind to loopback; override with HALO_DEMO_*_PORT (HALO_OBS_*_PORT for the obs stack).
+name: halos-demo
+
+include:
+  - ../observability/docker-compose.yml # collector + ClickHouse + Grafana (needs HALO_OTELCOL_CONFIG; demo.sh sets it)
+
+x-svc: &svc
+  dockerfile: deploy/compose/Dockerfile.svc
+  context: ../..
+
+services:
+  registry:
+    image: registry:2
+
+  mock-idp:
+    build: {<<: *svc, args: {PKG: ./deploy/compose/mockidp}}
+    image: halos-demo/mockidp
+    environment:
+      ISSUER: http://mock-idp:8080 # what halo-server/halo-proxy verify (in-network)
+      PUBLIC_URL: ${HALO_DEMO_IDP_URL:-http://localhost:18081} # where the browser is sent to log in (demo.sh sets it)
+      AUDIENCE: halos-gateway
+    ports: ["127.0.0.1:${HALO_DEMO_IDP_PORT:-18081}:8080"]
+
+  orch-mock:
+    build: {<<: *svc, args: {PKG: ./deploy/compose/mockllm}}
+    image: halos-demo/mockllm
+    environment: {MOCK_NAME: orch}
+  anthropic-mock:
+    build: {<<: *svc, args: {PKG: ./deploy/compose/mockllm}}
+    image: halos-demo/mockllm
+    environment: {MOCK_NAME: anthropic}
+
+  seed:
+    build: {<<: *svc, args: {PKG: ./cmd/halo}}
+    image: halos-demo/halo
+    entrypoint: ["/bin/sh", "/seed.sh"]
+    restart: "no"
+    environment:
+      CONSOLE_URL: ${HALO_DEMO_CONSOLE_URL:-http://localhost:18080} # portal baseURL; OIDC redirect_uri is <it>/auth/callback
+    volumes:
+      - demo:/demo
+      - ./demo/seed.sh:/seed.sh:ro
+      - ../../examples/acme-corp:/src/acme-corp:ro
+      - ./demo/policy:/src/overlay:ro
+    depends_on: [registry]
+
+  halo-server:
+    build: {context: ../.., dockerfile: deploy/compose/demo/Dockerfile.console} # with the web console embedded
+    image: halos-demo/halo-server
+    command: ["--listen", ":8080", "--policy-dir", "/demo/policy", "--token-file", "/demo/fleet.token",
+              "--portal-config", "/demo/portal.json", "--data-dir", "/data",
+              "--killswitch-key-file", "/demo/keys/killswitch.key", "--gateway-token-file", "/demo/gateway.token"]
+    volumes: ["demo:/demo:ro", "server-data:/data"]
+    ports: ["127.0.0.1:${HALO_DEMO_CONSOLE_PORT:-18080}:8080"]
+    depends_on:
+      seed: {condition: service_completed_successfully}
+      mock-idp: {condition: service_started}
+
+  halo-proxy:
+    build: {<<: *svc, args: {PKG: ./cmd/halo-proxy}}
+    image: halos-demo/halo-proxy
+    command: ["--config", "/etc/halo-proxy.yaml", "--listen", ":8080", "--admin-listen", ":9090", "--policy", "/demo/policy.json",
+              "--halo-shadow-url", "http://halo-shadow:8090/mirror",
+              "--killswitch-url", "http://halo-server:8080/api/v1/gateway/killswitch",
+              "--killswitch-token-file", "/demo/gateway.token", "--killswitch-pubkey-file", "/demo/keys/killswitch.pub",
+              "--killswitch-interval", "2s",
+              "--telemetry-otlp-endpoint", "http://otel-collector:4319", "--telemetry-token-file", "/demo/otlp.token",
+              "--telemetry-unit-salt-file", "/demo/unit.salt", "--telemetry-interval", "5s"]
+    environment: {HALO_PROXY_HALO_SHADOW_TOKEN: dev-only-token}
+    volumes: ["demo:/demo:ro", "./demo/halo-proxy.yaml:/etc/halo-proxy.yaml:ro"]
+    ports: ["127.0.0.1:${HALO_DEMO_PROXY_PORT:-18088}:8080"]
+    depends_on:
+      seed: {condition: service_completed_successfully}
+      halo-server: {condition: service_started}
+      otel-collector: {condition: service_started}
+      orch-mock: {condition: service_started}
+      anthropic-mock: {condition: service_started}
+
+  halo-shadow:
+    build: {<<: *svc, args: {PKG: ./cmd/halo-shadow}}
+    image: halos-demo/halo-shadow
+    # Upstreams come from the policy snapshot, never from the mirror job.
+    command: ["-listen", ":8090", "-metrics-listen", ":9091", "-policy", "/demo/policy.json",
+              "-out", "/pairs/pairs.jsonl", "-budget-usd", "5"]
+    environment: {HALO_SHADOW_TOKEN: dev-only-token}
+    volumes: ["demo:/demo:ro", "pairs:/pairs"]
+    ports: ["127.0.0.1:${HALO_DEMO_SHADOW_METRICS_PORT:-18090}:9091"]
+    depends_on:
+      seed: {condition: service_completed_successfully}
+
+volumes: {demo: {}, server-data: {}, pairs: {}}

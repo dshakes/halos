@@ -59,7 +59,7 @@ sudo halod service install --start        # print the unit first: halod service 
 | OS | Registers | halod binary (default `--exe`) |
 |---|---|---|
 | macOS | launchd daemon `/Library/LaunchDaemons/dev.halos.halod.plist` | `/Library/Halos/bin/halod` |
-| Linux | systemd unit `/etc/systemd/system/halod.service` | `/usr/local/lib/halos/halod` |
+| Linux | systemd unit `/etc/systemd/system/halod.service` | `/usr/bin/halod` |
 | Windows | SYSTEM scheduled task `Halos`, at startup | `C:\Program Files\Halos\halod.exe` |
 
 `halod` refuses to start unless its binary directory, config and state are root-owned and not writable by group or others. Install it into a root-owned path; `~/.local` is fine for `halo` but not for `halod`. Enroll a machine through the [self-service portal](/halos/concepts/self-service-portal/), or push the config with your MDM: see [laptops and MDM](/halos/guides/laptops-mdm/).

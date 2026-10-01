@@ -277,27 +277,28 @@ func diffGrade(g GraderSpec, ch []string) (bool, string) {
 	return true, fmt.Sprintf("%d files changed", len(ch))
 }
 
-// judgeInput is the task prompt plus the changed paths and their new
-// contents, capped at judgeInputCap.
-func (t *Task) judgeInput(ctx context.Context, env Env, ch []string) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "## Task given to the coding agent\n\n%s\n\n## Files changed (%d)\n\n", strings.TrimSpace(t.Prompt), len(ch))
-	for _, p := range ch {
-		if b.Len() >= judgeInputCap {
-			fmt.Fprintf(&b, "\n[... truncated: remaining files omitted ...]\n")
+// judgeInput is the task prompt (operator-written, trusted) plus each
+// changed path and its new contents (agent-written, untrusted: fenced as data
+// by the judge), capped at judgeInputCap in total.
+func (t *Task) judgeInput(ctx context.Context, env Env, ch []string) []Part {
+	parts := []Part{{Title: "Task given to the coding agent", Body: t.Prompt},
+		{Title: "Change summary", Body: fmt.Sprintf("%d files changed; each follows as untrusted data.", len(ch))}}
+	used := 0
+	for i, p := range ch {
+		if used >= judgeInputCap {
+			parts = append(parts, Part{Title: "Truncated", Body: fmt.Sprintf("%d more changed files omitted.", len(ch)-i)})
 			break
 		}
-		res, err := env.Exec(ctx, Command{Args: []string{"cat", "--", p}})
-		switch {
-		case err != nil || res.ExitCode != 0:
-			fmt.Fprintf(&b, "### %s (deleted)\n\n", p)
-		default:
-			body := string(res.Stdout)
-			if room := judgeInputCap - b.Len(); len(body) > room {
-				body = body[:max(room, 0)] + "\n[... truncated ...]"
+		body := "path: " + p + "\n(deleted)"
+		if res, err := env.Exec(ctx, Command{Args: []string{"cat", "--", p}}); err == nil && res.ExitCode == 0 {
+			c := string(res.Stdout)
+			if room := judgeInputCap - used; len(c) > room {
+				c = c[:max(room, 0)] + "\n[... truncated ...]"
 			}
-			fmt.Fprintf(&b, "### %s\n\n```\n%s\n```\n\n", p, body)
+			body = "path: " + p + "\n\n" + c
 		}
+		used += len(body)
+		parts = append(parts, Part{Title: fmt.Sprintf("Changed file %d", i+1), Body: body, Untrusted: true})
 	}
-	return b.String()
+	return parts
 }

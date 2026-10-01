@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"flag"
+	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -15,8 +17,7 @@ var updateGolden = flag.Bool("update", false, "rewrite the shipped unit files fr
 // The shipped unit files are the golden files: they must equal the render.
 func TestPlanServiceGolden(t *testing.T) {
 	for _, tc := range []struct{ goos, exe, golden string }{
-		{"linux", "", "packaging/halod.service"},
-		{"linux", "/usr/bin/halod", "../../deploy/packaging/halod.service"}, // deb/rpm/apk
+		{"linux", "", "../../deploy/packaging/halod.service"}, // deb/rpm/apk: defaultExe is /usr/bin/halod
 		{"darwin", "", "packaging/dev.halos.halod.plist"},
 	} {
 		spec, err := planService(tc.goos, tc.exe)
@@ -73,8 +74,9 @@ func TestRunService(t *testing.T) {
 		return nil, nil
 	}
 	root := t.TempDir()
+	exe := trustedExe(t)
 	var out bytes.Buffer
-	if err := runService(context.Background(), "linux", root, "", "install", false, &out, run); err != nil {
+	if err := runService(context.Background(), "linux", root, exe, "install", false, &out, run); err != nil {
 		t.Fatal(err)
 	}
 	unit := filepath.Join(root, systemdPath)
@@ -85,7 +87,7 @@ func TestRunService(t *testing.T) {
 		t.Errorf("install without --start ran %q", got)
 	}
 	calls = nil
-	if err := runService(context.Background(), "linux", root, "", "install", true, &out, run); err != nil {
+	if err := runService(context.Background(), "linux", root, exe, "install", true, &out, run); err != nil {
 		t.Fatal(err)
 	}
 	if got := strings.Join(calls, "|"); got != "systemctl daemon-reload|systemctl enable --now halod" {
@@ -102,5 +104,103 @@ func TestRunService(t *testing.T) {
 	}
 	if err := runService(context.Background(), "windows", root, "", "print", false, &out, run); err == nil {
 		t.Error("windows print: want error")
+	}
+}
+
+// trustedExe is a file in a dir the test user owns (trusted via trustedUID in TestMain).
+func trustedExe(t *testing.T) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "halod")
+	if err := os.WriteFile(p, []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func TestCheckExe(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix ownership/mode semantics")
+	}
+	if err := checkExe(trustedExe(t)); err != nil {
+		t.Fatalf("trusted exe refused: %v", err)
+	}
+	if err := checkExe(filepath.Join(t.TempDir(), "missing")); err == nil {
+		t.Error("missing exe accepted")
+	}
+	// group/other-writable binary
+	loose := trustedExe(t)
+	if err := os.Chmod(loose, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkExe(loose); err == nil || !strings.Contains(err.Error(), "group/other-writable") {
+		t.Errorf("world-writable exe accepted: %v", err)
+	}
+	// world-writable parent dir
+	dir := filepath.Join(t.TempDir(), "w")
+	if err := os.Mkdir(dir, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	inLoose := filepath.Join(dir, "halod")
+	if err := os.WriteFile(inLoose, []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkExe(inLoose); err == nil {
+		t.Error("exe in world-writable dir accepted")
+	}
+	// a trusted-looking symlink to an exe in a loose dir is judged by its target
+	link := filepath.Join(t.TempDir(), "halod")
+	if err := os.Symlink(inLoose, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkExe(link); err == nil {
+		t.Error("symlink to untrusted exe accepted")
+	}
+	// owner is someone other than root
+	old := trustedUID
+	trustedUID = 4242424
+	defer func() { trustedUID = old }()
+	if err := checkExe(trustedExe(t)); err == nil || !strings.Contains(err.Error(), "owned by uid") {
+		t.Errorf("user-owned exe accepted: %v", err)
+	}
+}
+
+func TestServiceInstallRefusesUntrustedExe(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix ownership/mode semantics")
+	}
+	exe := trustedExe(t)
+	if err := os.Chmod(exe, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	var calls int
+	run := func(context.Context, string, ...string) ([]byte, error) { calls++; return nil, nil }
+	root := t.TempDir()
+	err := runService(context.Background(), runtime.GOOS, root, exe, "install", true, io.Discard, run)
+	if err == nil || !strings.Contains(err.Error(), "insecure halod binary") {
+		t.Fatalf("untrusted --exe accepted: %v", err)
+	}
+	if calls != 0 {
+		t.Errorf("ran %d commands despite refusal", calls)
+	}
+	if _, serr := os.Stat(filepath.Join(root, systemdPath)); serr == nil {
+		t.Error("unit written despite refusal")
+	}
+}
+
+func TestRunRefusesUntrustedSelf(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix ownership/mode semantics")
+	}
+	old := trustedUID
+	trustedUID = 4242424 // the test binary is owned by the test user, not "root"
+	defer func() { trustedUID = old }()
+	for _, cmd := range []string{"run", "once"} {
+		err := run([]string{cmd, "-config", filepath.Join(t.TempDir(), "halod.yaml")}, io.Discard, io.Discard)
+		if err == nil || !strings.Contains(err.Error(), "insecure halod binary") {
+			t.Errorf("%s: untrusted halod binary accepted: %v", cmd, err)
+		}
 	}
 }

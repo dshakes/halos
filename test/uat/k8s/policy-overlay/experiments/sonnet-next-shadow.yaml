@@ -1,0 +1,18 @@
+# UAT: every first-turn sonnet request from ring2 is mirrored to mock-b.
+apiVersion: halos.dev/v1alpha1
+kind: Experiment
+name: sonnet-next-shadow
+type: shadow
+axis: traffic
+status: running
+rings: [ring2-early]
+sampleRate: 1
+variants:
+  - {name: primary, weight: 1, control: true}
+  - name: sonnet-next
+    weight: 1
+    routes:
+      sonnet: {upstream: mock-b, model: claude-sonnet-next}
+metrics:
+  primary: {metric: halo.task.success, direction: increase}
+stopping: {method: msprt, alpha: 0.05, minSamples: 20, maxDays: 14, maxSpendUSD: 5}

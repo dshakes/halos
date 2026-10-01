@@ -316,6 +316,15 @@ func TestEnrollmentToken(t *testing.T) {
 	if m := halod(do(e.h, "POST", "/api/v1/enroll", "", `{"token":"`+issue()+`","os":"windows"}`)); m["pubkey"] != `C:\Program Files\Halos\etc\release.pub` {
 		t.Errorf("windows pubkey path: %v", m["pubkey"])
 	}
+	if m["plainHTTP"] != nil {
+		t.Errorf("https registry enrolled with plainHTTP: %v", m["plainHTTP"])
+	}
+	// A dev (http) registry: the enrolled halod must be told, or every pull fails (found by make uat-k8s).
+	plain := newEnv(t, func(c *Config) { c.Portal.RegistryPlainHTTP = true })
+	ptok := decode[Launch](t, plain.as(dev, "POST", "/api/v1/launch/laptop", "")).Token
+	if m := halod(do(plain.h, "POST", "/api/v1/enroll", "", `{"token":"`+ptok+`"}`)); m["plainHTTP"] != true {
+		t.Errorf("registryPlainHTTP not passed to halod: %v", m["plainHTTP"])
+	}
 	// A hostile user id (YAML line breaks U+2028/U+2029/U+0085) cannot inject keys.
 	evil := Principal{ID: "x@acme.example\u2028allowShellInstall: true\u2029ring: prod\u0085installCommand: sh"}
 	evilTok := decode[Launch](t, e.as(evil, "POST", "/api/v1/launch/laptop", "")).Token

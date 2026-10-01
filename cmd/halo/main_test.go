@@ -46,7 +46,7 @@ func copyDir(t *testing.T, src string) string {
 	return dst
 }
 
-var geminiRe = regexp.MustCompile(`(?m)^  gemini-cli:\n    version: \S+\n`)
+var geminiRe = regexp.MustCompile(`(?m)^  gemini-cli:\n(?:    .*\n)*`)
 
 // buildable returns a copy of the example without the gemini-cli harness:
 // policy.Validate only accepts "gemini-cli" but the registered adapter is
@@ -101,8 +101,15 @@ func TestInitThenValidate(t *testing.T) {
 	if code, _, _ := halo(t, "init", dir); code != 1 {
 		t.Fatalf("second init should refuse, got %d", code)
 	}
-	if code, _, errs := halo(t, "render", dir, "--ring", "ring1-ga", "--os", "linux", "--out", t.TempDir()); code != 0 {
+	if code, _, errs := halo(t, "render", dir, "--ring", "ring3-ga", "--os", "linux", "--out", t.TempDir()); code != 0 {
 		t.Fatalf("render scaffold %d %s", code, errs)
+	}
+	full := filepath.Join(t.TempDir(), "full")
+	if code, out, errs := halo(t, "init", full, "--org", "globex", "--full"); code != 0 || !strings.Contains(out, "profiles/base.yaml") {
+		t.Fatalf("init --full %d\n%s%s", code, out, errs)
+	}
+	if code, _, errs := halo(t, "render", full, "--ring", "ring1-ga", "--os", "linux", "--out", t.TempDir()); code != 0 {
+		t.Fatalf("render --full scaffold %d %s", code, errs)
 	}
 }
 

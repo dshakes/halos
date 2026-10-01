@@ -203,6 +203,11 @@ func (a *app) cmdToggleKill() *cobra.Command {
 }
 
 func postToggleKill(ctx context.Context, hc *http.Client, server, session, name, verb, reason string) (map[string]any, error) {
+	return postKill(ctx, hc, server, session, "toggle", name, verb, reason)
+}
+
+// postKill calls halo-server's kill|unkill endpoint for kind "toggle" or "experiment".
+func postKill(ctx context.Context, hc *http.Client, server, session, kind, name, verb, reason string) (map[string]any, error) {
 	base, err := url.Parse(server)
 	if err != nil || base.Host == "" {
 		return nil, fmt.Errorf("invalid --server %q", server)
@@ -216,31 +221,31 @@ func postToggleKill(ctx context.Context, hc *http.Client, server, session, name,
 	if err != nil {
 		return nil, err
 	}
-	u := base.JoinPath("api", "v1", "toggles", url.PathEscape(name), verb)
+	u := base.JoinPath("api", "v1", kind+"s", url.PathEscape(name), verb)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), bytes.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("toggle %s: %w", verb, err)
+		return nil, fmt.Errorf("%s %s: %w", kind, verb, err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.AddCookie(&http.Cookie{Name: "halo_session", Value: session})
+	req.AddCookie(&http.Cookie{Name: "halo_session", Value: session}) //nolint:gosec // outgoing request cookie; Secure/HttpOnly only apply to Set-Cookie
 	cl := *hc
 	cl.Timeout = 15 * time.Second
 	cl.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	resp, err := cl.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("toggle %s: %w", verb, err)
+		return nil, fmt.Errorf("%s %s: %w", kind, verb, err)
 	}
 	defer func() { _ = resp.Body.Close() }() // read-only
 	b, err := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
 	if err != nil {
-		return nil, fmt.Errorf("toggle %s: read response: %w", verb, err)
+		return nil, fmt.Errorf("%s %s: read response: %w", kind, verb, err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("toggle %s %q: server answered %d: %s", verb, name, resp.StatusCode, strings.TrimSpace(string(b)))
+		return nil, fmt.Errorf("%s %s %q: server answered %d: %s", kind, verb, name, resp.StatusCode, strings.TrimSpace(string(b)))
 	}
 	var out map[string]any
 	if err := json.Unmarshal(b, &out); err != nil {
-		return nil, fmt.Errorf("toggle %s: decode response: %w", verb, err)
+		return nil, fmt.Errorf("%s %s: decode response: %w", kind, verb, err)
 	}
 	return out, nil
 }

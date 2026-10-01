@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -100,5 +101,76 @@ func TestLoadRolloutStrict(t *testing.T) {
 	dir := writeRepo(t, map[string]string{"halos.yaml": "org: x\n", "r.yaml": hdr + "kind: Rollout\nname: r\naxis: client\nchange: {}\nsteps: []\nbogus: 1\n"})
 	if _, err := Load(dir); err == nil || !strings.Contains(err.Error(), "bogus") {
 		t.Fatalf("unknown field not rejected: %v", err)
+	}
+}
+
+func TestEffectiveGuardrails(t *testing.T) {
+	g := func(m string, r float64) MetricGoal {
+		return MetricGoal{Metric: m, Direction: "decrease", MaxRegression: r}
+	}
+	exp := &Experiment{Metrics: Metrics{Guardrails: []MetricGoal{g("halo.a", 0.1), g("halo.b", 0.1)}}}
+	judge := MetricGoal{Metric: "halo.eval.judge.score", Direction: "increase", MaxRegression: 0.05}
+	judgeExp := &Experiment{Metrics: Metrics{Guardrails: []MetricGoal{g("halo.a", 0.1), judge}}}
+	tests := []struct {
+		name string
+		step RolloutStep
+		exp  *Experiment
+		want []MetricGoal
+	}{
+		{"experiment's apply when the step has none", RolloutStep{Strategy: StrategyCanary}, exp, []MetricGoal{g("halo.a", 0.1), g("halo.b", 0.1)}},
+		{"step overrides per metric and adds its own", RolloutStep{Strategy: StrategyHoldout, Gates: RolloutGates{Guardrails: []MetricGoal{g("halo.b", 0.02), g("halo.c", 0.05)}}}, exp,
+			[]MetricGoal{g("halo.a", 0.1), g("halo.b", 0.02), g("halo.c", 0.05)}},
+		{"dark-launch inherits too", RolloutStep{Strategy: StrategyDarkLaunch}, exp, []MetricGoal{g("halo.a", 0.1), g("halo.b", 0.1)}},
+		{"shadow-only metrics are inherited by dark-launch only", RolloutStep{Strategy: StrategyCanary}, judgeExp, []MetricGoal{g("halo.a", 0.1)}},
+		{"dark-launch inherits a shadow-only metric", RolloutStep{Strategy: StrategyDarkLaunch}, judgeExp, []MetricGoal{g("halo.a", 0.1), judge}},
+		{"ring-wide steps have no control arm", RolloutStep{Strategy: StrategyProgressive}, exp, nil},
+		{"no experiment", RolloutStep{Strategy: StrategyCanary, Gates: RolloutGates{Guardrails: []MetricGoal{g("halo.c", 0.05)}}}, nil, []MetricGoal{g("halo.c", 0.05)}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.step.EffectiveGuardrails(tc.exp); fmt.Sprint(got) != fmt.Sprint(tc.want) {
+				t.Fatalf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// A canary/holdout step must end up with some guardrail, from the step or
+// from its experiment: otherwise nothing could ever auto-roll it back.
+func TestValidateRolloutNeedsGuardrails(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		stepOnly bool // strip only the step's guardrails
+		want     bool // error expected
+	}{
+		{"inherits the experiment's", true, false},
+		{"none anywhere", false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			o, err := Load(exampleDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, r := range o.Rollouts {
+				if r.Name != "claude-code-2.1.300" {
+					continue
+				}
+				r.Steps[0].Gates.Guardrails = nil
+				if !tc.stepOnly {
+					for _, e := range o.Experiments {
+						if e.Name == r.Experiment {
+							e.Metrics.Guardrails = nil
+						}
+					}
+				}
+			}
+			found := false
+			for _, i := range o.Validate() {
+				found = found || strings.HasSuffix(i.Path, ".steps[0].gates.guardrails") && strings.Contains(i.Message, "no guardrails")
+			}
+			if found != tc.want {
+				t.Fatalf("error reported = %v, want %v: %v", found, tc.want, o.Validate())
+			}
+		})
 	}
 }

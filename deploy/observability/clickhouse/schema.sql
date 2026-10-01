@@ -217,9 +217,11 @@ TTL toDateTime(ts) + INTERVAL 30 DAY;
 
 -- Online eval quality (`halo eval online`): LLM-judge rubric scores of
 -- halo-shadow pairs, emitted as halo.eval.judge.score gauges (one per arm) and
--- landed in halo_metrics by the gauge view above. Trust: only rows with
--- source = 'gateway' came through the authenticated receiver; the CLI receiver
--- is client-reachable, so a 'cli' row is not evidence.
+-- landed in halo_metrics by the gauge view above. Trust: rows with
+-- source = 'eval' came through the collector's authenticated eval receiver
+-- (its own token; halo.eval.* only); 'gateway' rows came with the halo-proxy
+-- token. A 'cli' row came through the client-reachable receiver and is not
+-- evidence: filter on source IN ('eval', 'gateway').
 CREATE VIEW IF NOT EXISTS halo.halo_eval_quality AS
 SELECT
     toStartOfHour(ts)            AS hour,

@@ -272,3 +272,128 @@ func TestTimeline(t *testing.T) {
 		t.Fatalf("holdout exposure %q", tl.Steps[5].Exposure)
 	}
 }
+
+// Completing a traffic rollout in simple mode leaves the policy clean:
+// halos.yaml models.<alias> names the new model and the gateway.yaml override
+// generated for the rollout is gone; anything hand-written is kept in step.
+func TestPlanCompleteSimpleMode(t *testing.T) {
+	const generated = "labels:\n  halos.dev/generated-by: rollout/opus-next\n"
+	override := func(labels, extra, route string) string {
+		return "apiVersion: halos.dev/v1alpha1\nkind: Gateway\nname: acme-gateway\n" + labels + extra + "models:\n  opus:\n" + route
+	}
+	single := "    upstream: anthropic\n    model: claude-opus-4-1\n"
+	tests := []struct {
+		name       string
+		opus       string // halos.yaml models.opus
+		candidate  string // the experiment's treatment route for opus
+		gateway    string // gateway.yaml; "" = none
+		wantRoot   string // halos.yaml models.opus after; "" = unchanged
+		wantGW     string // "deleted", "kept" or "" (no file)
+		wantManual bool
+	}{
+		{name: "generated override is deleted", opus: "claude-opus-4-1", candidate: "{upstream: anthropic, model: claude-opus-5-5}",
+			gateway: override(generated, "", single), wantRoot: "opus: claude-opus-5-5", wantGW: "deleted"},
+		{name: "no override: halos.yaml only", opus: "claude-opus-4-1", candidate: "{upstream: anthropic, model: claude-opus-5-5}",
+			wantRoot: "opus: claude-opus-5-5"},
+		{name: "another provider is prefixed", opus: "claude-opus-4-1", candidate: "{upstream: bedrock, model: anthropic.claude-opus-5-5}",
+			gateway: override(generated, "", single), wantRoot: "opus: bedrock/anthropic.claude-opus-5-5", wantGW: "deleted"},
+		{name: "hand-written override is kept in step", opus: "claude-opus-4-1", candidate: "{upstream: anthropic, model: claude-opus-5-5}",
+			gateway: override("", "", single), wantRoot: "opus: claude-opus-5-5", wantGW: "kept"},
+		{name: "override generated for another rollout is kept", opus: "claude-opus-4-1", candidate: "{upstream: anthropic, model: claude-opus-5-5}",
+			gateway: override("labels:\n  halos.dev/generated-by: rollout/other\n", "", single), wantRoot: "opus: claude-opus-5-5", wantGW: "kept"},
+		{name: "generated override with more in it is kept", opus: "claude-opus-4-1", candidate: "{upstream: anthropic, model: claude-opus-5-5}",
+			gateway: override(generated, "baseURL: https://ai.acme.example\n", single), wantRoot: "opus: claude-opus-5-5", wantGW: "kept"},
+		{name: "failover list is a manual step", opus: "[claude-opus-4-1, bedrock/anthropic.claude-opus-4-1]", candidate: "{upstream: anthropic, model: claude-opus-5-5}",
+			gateway: override(generated, "", "    targets:\n      - {upstream: anthropic, model: claude-opus-4-1}\n      - {upstream: bedrock, model: anthropic.claude-opus-4-1, priority: 1}\n"),
+			wantGW:  "kept", wantManual: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			mustWrite(t, filepath.Join(dir, "halos.yaml"), "org: acme\ntools:\n  claude-code: 2.1.300\nprovider: anthropic\nmodels:\n"+
+				"  default: claude-sonnet-4-5\n  opus: "+tc.opus+"\n  haiku: bedrock/anthropic.claude-haiku-4-5\ngateway: https://ai.acme.example\n")
+			mustWrite(t, filepath.Join(dir, "experiments/opus-next.yaml"), `apiVersion: halos.dev/v1alpha1
+kind: Experiment
+name: opus-next
+type: canary
+axis: traffic
+status: running
+rings: [ring1-canary]
+variants:
+  - {name: control, weight: 50, control: true}
+  - {name: candidate, weight: 50, routes: {opus: `+tc.candidate+`}}
+metrics:
+  primary: {metric: halo.api.error_rate, direction: decrease}
+  guardrails: [{metric: halo.latency.p95_ms, direction: decrease, maxRegression: 0.15}]
+stopping: {method: msprt, alpha: 0.05}
+`)
+			mustWrite(t, filepath.Join(dir, "rollouts/opus-next.yaml"), `apiVersion: halos.dev/v1alpha1
+kind: Rollout
+name: opus-next
+axis: traffic
+status: active
+step: c50
+experiment: opus-next
+change: {alias: opus}
+steps:
+  - {name: c50, strategy: canary, percent: 50}
+`)
+			if tc.gateway != "" {
+				mustWrite(t, filepath.Join(dir, "gateway.yaml"), tc.gateway)
+			}
+			org := load(t, dir)
+			r := rolloutOf(t, org, "opus-next")
+			if got := ManualSteps(org, r, Complete) != nil; got != tc.wantManual {
+				t.Fatalf("manual = %v", got)
+			}
+			ch, err := Plan(dir, org, r, Complete, -1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			again, err := ch.Edit(func(f string) ([]byte, error) { return os.ReadFile(filepath.Join(dir, f)) })
+			if err != nil {
+				t.Fatal(err)
+			}
+			for f, b := range ch.Files {
+				if (b == nil) != (again[f] == nil) || string(b) != string(again[f]) {
+					t.Fatalf("Edit disagrees with Files for %s", f)
+				}
+				if b == nil {
+					if err := os.Remove(filepath.Join(dir, f)); err != nil {
+						t.Fatal(err)
+					}
+					continue
+				}
+				mustWrite(t, filepath.Join(dir, f), string(b))
+			}
+			root := mustRead(t, filepath.Join(dir, "halos.yaml"))
+			if tc.wantRoot != "" && !strings.Contains(root, "  "+tc.wantRoot+"\n") {
+				t.Fatalf("halos.yaml:\n%s", root)
+			} else if tc.wantRoot == "" && !strings.Contains(root, "  opus: "+tc.opus+"\n") {
+				t.Fatalf("halos.yaml changed:\n%s", root)
+			}
+			_, statErr := os.Stat(filepath.Join(dir, "gateway.yaml"))
+			switch tc.wantGW {
+			case "deleted":
+				if b, ok := ch.Files["gateway.yaml"]; !ok || b != nil || !os.IsNotExist(statErr) {
+					t.Fatalf("override not deleted (%v)", statErr)
+				}
+			case "kept":
+				if statErr != nil {
+					t.Fatalf("override removed: %v", statErr)
+				}
+			}
+			after := load(t, dir) // the completed policy still validates
+			if !tc.wantManual {
+				up, model, _ := strings.Cut(strings.Trim(tc.candidate, "{}"), ", ")
+				want := policy.ModelRoute{Upstream: strings.TrimPrefix(up, "upstream: "), Model: strings.TrimPrefix(model, "model: ")}
+				if got := after.Gateway.Models["opus"]; got.Upstream != want.Upstream || got.Model != want.Model || len(got.Targets) != 0 {
+					t.Fatalf("opus routes to %+v, want %+v", got, want)
+				}
+			}
+			if r := rolloutOf(t, after, "opus-next"); r.Status != policy.RolloutCompleted {
+				t.Fatalf("status %q", r.Status)
+			}
+		})
+	}
+}

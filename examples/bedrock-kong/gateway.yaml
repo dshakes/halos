@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=../../schemas/gateway.schema.json
+# Claude Code -> Kong (halo-kong plugin) -> your auth gateway -> orchestrator -> Bedrock.
+# halo-kong does not sign SigV4: the orchestrator holds the AWS identity.
+apiVersion: halos.dev/v1alpha1
+kind: Gateway
+name: corp-gateway
+engine: kong
+baseURL: https://ai.corp.example
+protocols:
+  claude-code: anthropic-messages
+auth:
+  helperCommand: /usr/local/bin/corp-sso-token --audience halos-gateway
+  ttlSeconds: 900
+upstreams:
+  orchestrator:
+    url: https://orchestrator.internal.corp.example
+    kind: orchestrator
+models:
+  # Bedrock application inference profile ARNs (placeholders).
+  sonnet:
+    upstream: orchestrator
+    model: arn:aws:bedrock:us-east-1:111122223333:application-inference-profile/exampleSonnet
+  opus:
+    upstream: orchestrator
+    model: arn:aws:bedrock:us-east-1:111122223333:application-inference-profile/exampleOpus
+  haiku:
+    upstream: orchestrator
+    model: arn:aws:bedrock:us-east-1:111122223333:application-inference-profile/exampleHaiku

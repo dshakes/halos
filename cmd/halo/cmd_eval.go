@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/dshakes/halos/internal/eval"
+	"github.com/dshakes/halos/internal/telemetry"
 )
 
 // evalRunFlags are `halo eval run`'s matrix/report/gate flags.
@@ -91,7 +92,7 @@ func (a *app) writeScorecard(sc *eval.Scorecard, f evalRunFlags) error {
 }
 
 func (a *app) cmdEvalOnline() *cobra.Command {
-	var pairs, rubric, history, experiment, otlp, otlpTokenFile string
+	var pairs, rubric, history, experiment, otlp, otlpTokenFile, polDir string
 	var keyFiles []string
 	var jc eval.JudgeConfig
 	var sample int
@@ -123,9 +124,23 @@ func (a *app) cmdEvalOnline() *cobra.Command {
 					return err
 				}
 			}
+			controls := map[string]string{}
+			if polDir != "" {
+				org, err := a.load(polDir)
+				if err != nil {
+					return err
+				}
+				for _, e := range org.Experiments {
+					for _, v := range e.Variants {
+						if v.Control {
+							controls[e.Name] = v.Name
+						}
+					}
+				}
+			}
 			start := time.Now()
 			rs, err := eval.RunOnline(cmd.Context(), eval.FilePairs{Path: pairs, Keys: keys}, eval.OnlineOptions{
-				Judge: j, Rubric: r, Sample: sample, Seed: seed, Experiment: experiment, Skip: skip,
+				Judge: j, Rubric: r, Sample: sample, Seed: seed, Experiment: experiment, Skip: skip, ControlNames: controls,
 			})
 			if err != nil {
 				return err
@@ -166,9 +181,10 @@ func (a *app) cmdEvalOnline() *cobra.Command {
 	c.Flags().IntVar(&sample, "sample", 50, "max pairs graded per experiment (0 = all)")
 	c.Flags().Uint64Var(&seed, "seed", 1, "sampling and bootstrap seed")
 	c.Flags().StringVar(&experiment, "experiment", "", "only this experiment")
+	c.Flags().StringVar(&polDir, "policy-dir", "", "policy repo: labels each experiment's control arm with its control variant name, so `halo exp analyze` matches the arms (default label: control)")
 	c.Flags().StringVar(&history, "history", "", "scorecard history JSONL: skip already-graded pairs and append results")
-	c.Flags().StringVar(&otlp, "otlp", "", "OTel collector OTLP/HTTP base URL for halo.eval.* metrics (prefer the gateway receiver, :4319)")
-	c.Flags().StringVar(&otlpTokenFile, "otlp-token-file", "", "bearer token file for the collector's gateway receiver")
+	c.Flags().StringVar(&otlp, "otlp", "", "OTel collector OTLP/HTTP base URL for halo.eval.* metrics: the eval receiver (collector-config --eval-receiver, :4320)")
+	c.Flags().StringVar(&otlpTokenFile, "otlp-token-file", "", "bearer token file for the collector's eval receiver ("+telemetry.EvalTokenEnv+"); never the gateway token, which would let eval jobs write trusted gateway evidence")
 	for _, f := range []string{"pairs", "rubric", "judge-url", "judge-model"} {
 		_ = c.MarkFlagRequired(f)
 	}

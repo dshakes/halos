@@ -136,3 +136,18 @@ func TestKillListTogglesSignedFreshMonotonic(t *testing.T) {
 		t.Fatalf("unkill: %v %+v", err, k.Killed())
 	}
 }
+
+// percent: 0 must route nobody, not everybody (it once meant "no condition").
+func TestTrafficTogglePercentZeroRoutesNobody(t *testing.T) {
+	org := orgWithRouteToggle()
+	zero := 0.0
+	org.Toggles[0].Rules = []policy.ToggleRule{{Rings: []string{"ring0"}, Percent: &zero}, {Percent: &zero}}
+	for _, req := range []RequestInfo{
+		{UserID: "alice", Groups: []string{"ai-platform"}, ModelAlias: "sonnet"},
+		{ModelAlias: "sonnet"}, // anonymous
+	} {
+		if d := Decide(org, req); d.UpstreamModel == "claude-sonnet-5-5" {
+			t.Fatalf("%+v routed by a percent:0 toggle", req)
+		}
+	}
+}

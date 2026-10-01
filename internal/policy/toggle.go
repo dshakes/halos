@@ -53,8 +53,9 @@ type ToggleRule struct {
 	Rings  []string `yaml:"rings,omitempty" json:"rings,omitempty"`
 	Groups []string `yaml:"groups,omitempty" json:"groups,omitempty"`
 	Users  []string `yaml:"users,omitempty" json:"users,omitempty"`
-	// Percent (0-100] of the matching subjects, hashed with the toggle's own salt.
-	Percent float64 `yaml:"percent,omitempty" json:"percent,omitempty"`
+	// Percent (0-100) of the matching subjects, hashed with the toggle's own
+	// salt. Omitted = no percent condition; an explicit 0 matches nobody.
+	Percent *float64 `yaml:"percent,omitempty" json:"percent,omitempty"`
 	// Effect is the state when the rule matches: "on" (default) or "off".
 	Effect string `yaml:"effect,omitempty" json:"effect,omitempty"`
 }
@@ -165,8 +166,10 @@ func guardToggles(o *Org) []Issue {
 			if r.Effect != "" && r.Effect != EffectOn && r.Effect != EffectOff {
 				out = append(out, gi(SeverityError, rp+".effect", "%q must be %q or %q", r.Effect, EffectOn, EffectOff))
 			}
-			if r.Percent < 0 || r.Percent > 100 {
-				out = append(out, gi(SeverityError, rp+".percent", "%v must be within 0-100", r.Percent))
+			if p := r.Percent; p != nil && (*p < 0 || *p > 100) {
+				out = append(out, gi(SeverityError, rp+".percent", "%v must be within 0-100", *p))
+			} else if p != nil && *p == 0 {
+				out = append(out, gi(SeverityWarning, rp+".percent", "percent 0 matches nobody: this rule can never fire"))
 			}
 			for _, ring := range r.Rings {
 				if !rings[ring] {

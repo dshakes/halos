@@ -20,7 +20,7 @@ upstreams:
     url: https://orchestrator.internal.acme.example
     kind: orchestrator
   orchestrator-responses:
-    url: https://orchestrator.internal.acme.example/v1/responses
+    url: https://orchestrator.internal.acme.example # base URL: halo-proxy appends /v1/responses
     kind: openai
   anthropic-direct:
     url: https://api.anthropic.com

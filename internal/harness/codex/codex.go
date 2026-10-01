@@ -24,7 +24,8 @@ func (Adapter) Name() string { return name }
 // Meta implements harness.Describer.
 func (Adapter) Meta() harness.Meta {
 	return harness.Meta{Binary: "codex", Installer: harness.InstallerNPM, NPMPackage: "@openai/codex", UAPrefixes: []string{"codex"},
-		ManagedDirs: map[harness.OS][]string{harness.Darwin: {"/etc/codex"}, harness.Linux: {"/etc/codex"}, harness.Windows: {`C:\ProgramData\OpenAI\Codex`}}}
+		ManagedDirs:  map[harness.OS][]string{harness.Darwin: {"/etc/codex"}, harness.Linux: {"/etc/codex"}, harness.Windows: {`C:\ProgramData\OpenAI\Codex`}},
+		ManagedFiles: map[harness.OS][]string{harness.Linux: {profileD}}}
 }
 
 func (Adapter) Capabilities() []harness.Capability {
@@ -46,6 +47,7 @@ const (
 	managedConfigPath   = "/etc/codex/managed_config.toml"
 	requirementsPath    = "/etc/codex/requirements.toml"
 	requirementsPathWin = `C:\ProgramData\OpenAI\Codex\requirements.toml`
+	profileD            = "/etc/profile.d/halos-codex.sh"
 )
 
 // approval maps profile permission mode to Codex approval_policy. Codex now
@@ -61,19 +63,16 @@ var approval = map[string]string{
 func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []string, error) {
 	warns := hutil.WarnUnsupported(name, p,
 		"models.default", "permissions.mode", "permissions.sandbox", "permissions.disableBypass",
-		"mcp.servers", "telemetry.enabled", "telemetry.logPrompts")
+		"mcp.servers", "telemetry.enabled", "telemetry.logPrompts", "telemetry.attributes")
 	warns = append(warns, "codex cannot self-enforce version; halod enforces")
-	if c.Experiment != "" {
-		warns = append(warns, name+": no telemetry resource-attribute setting; CLI metrics are not attributed to experiment "+c.Experiment+" (the gateway still attributes its own metrics)")
-	}
 	win := c.OS == harness.Windows
 	if win {
 		warns = append(warns, "codex: Windows has no system-wide managed_config.toml (only ~/.codex); model, gateway, telemetry and MCP server definitions are not rendered, only requirements.toml")
 	}
 
 	cfg := map[string]any{}
-	if p.Models.Default != "" {
-		cfg["model"] = p.Models.Default
+	if m := hutil.Model(p, name); m != "" {
+		cfg["model"] = m
 	}
 	if g := c.Gateway; g != nil {
 		if proto := hutil.Protocol(g, name, "openai-responses"); proto != "openai-responses" {
@@ -151,13 +150,21 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 	}
 
 	if t := p.Telemetry; t.Enabled {
-		exp := map[string]any{"otlp-grpc": map[string]any{"endpoint": t.OTLPEndpoint}}
+		// headers is required by codex <= 0.58 ("missing field `headers`" and
+		// codex refuses to start; seen in test/uat); an empty table is valid everywhere.
+		exp := map[string]any{"otlp-grpc": map[string]any{"endpoint": t.OTLPEndpoint, "headers": map[string]any{}}}
 		if t.Protocol != "" && t.Protocol != "grpc" {
 			proto := "binary" // otlp-http requires protocol: binary | json
 			if strings.Contains(t.Protocol, "json") {
 				proto = "json"
 			}
-			exp = map[string]any{"otlp-http": map[string]any{"endpoint": t.OTLPEndpoint, "protocol": proto}}
+			// Codex POSTs OTLP/HTTP logs to the endpoint verbatim (0.58.0 hit the
+			// bare collector URL and got 404; test/uat), so name the signal path.
+			ep := strings.TrimRight(t.OTLPEndpoint, "/")
+			if !strings.HasSuffix(ep, "/v1/logs") {
+				ep += "/v1/logs"
+			}
+			exp = map[string]any{"otlp-http": map[string]any{"endpoint": ep, "protocol": proto, "headers": map[string]any{}}}
 		}
 		otel := map[string]any{
 			"exporter":        exp,
@@ -178,13 +185,29 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 	if !win {
 		files = append(files, harness.File{Path: managedConfigPath, Mode: 0o644, Data: data})
 	}
+	// codex config has no resource-attribute key (only otel.environment).
+	if p.Telemetry.Enabled {
+		if c.OS == harness.Linux {
+			files = append(files, harness.File{Path: profileD, Mode: 0o644,
+				Data: []byte(hutil.OTELShellWrapper("codex", hutil.OTELResourceAttributes(name, p.Telemetry, c)))})
+		} else {
+			warns = append(warns, name+": no telemetry resource-attribute setting off Linux (no profile.d); CLI telemetry carries no halo.ring/halo.release")
+		}
+	}
 
 	req := map[string]any{}
 	if policyName != "" {
 		req["allowed_approval_policies"] = []string{policyName}
 	}
 	if sandbox != "" {
-		req["allowed_sandbox_modes"] = []string{sandbox}
+		// codex refuses to start unless the list includes read-only ("must
+		// include 'read-only' to allow any SandboxPolicy"; 0.77.0 in test/uat).
+		// read-only is stricter than any mode we render, so allowing it is safe.
+		modes := []string{"read-only"}
+		if sandbox != "read-only" {
+			modes = append(modes, sandbox)
+		}
+		req["allowed_sandbox_modes"] = modes
 	} else if p.Permissions.DisableBypass {
 		req["allowed_sandbox_modes"] = []string{"read-only", "workspace-write"}
 	}
@@ -216,6 +239,14 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 			return nil, nil, fmt.Errorf("codex: encode requirements.toml: %w", err)
 		}
 		files = append(files, harness.File{Path: rp, Mode: 0o644, Data: rd})
+		switch v := p.Harnesses[name].Version; {
+		case v != "" && hutil.VersionBefore(v, 0, 77):
+			warns = append(warns, fmt.Sprintf("codex: %s does not enforce requirements.toml (allowed_sandbox_modes needs codex >= 0.77.0; 0.58.0 reads no requirements.toml at all), so sandbox, approval and MCP limits are defaults the user can override", v))
+		case v != "" && policyName != "never" && hutil.VersionBefore(v, 0, 99):
+			// codex exec forces approval_policy=never; before 0.99.0 that is a hard
+			// error under requirements, later it falls back to the allowed value (test/uat).
+			warns = append(warns, fmt.Sprintf("codex: %s refuses to run `codex exec` (headless, CI, evals) when allowed_approval_policies excludes never (\"Never is not in the allowed set\"); use codex >= 0.99.0", v))
+		}
 	}
 	return files, warns, nil
 }

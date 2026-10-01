@@ -110,7 +110,7 @@ E
 }
 
 evals() { # real DockerRunner path against Docker with a stub `claude`; real CLIs only --version
-  for h in claude:2.1.280 codex:0.58.0 gemini:0.12.0; do
+  for h in claude:2.1.280 codex:0.99.0 gemini:0.34.0; do
     n=${h%%:*}; v=${h##*:}
     docker build -q --label $L --build-arg CLI_VERSION="$v" -t "ghcr.io/dshakes/eval-$n:$v" "evals/images/$n" >/dev/null
     echo "SIZE eval-$n:$v $(docker image inspect "ghcr.io/dshakes/eval-$n:$v" --format '{{.Size}}') bytes"

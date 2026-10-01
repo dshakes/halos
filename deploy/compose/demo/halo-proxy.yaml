@@ -1,0 +1,5 @@
+# make demo only: halo-server is reached over the compose network without TLS,
+# so the kill-list poll needs the in-cluster opt-in. Everything else is flags
+# in docker-compose.demo.yml. Never set this for a URL that leaves the host.
+killSwitch:
+  allowInsecureInCluster: true

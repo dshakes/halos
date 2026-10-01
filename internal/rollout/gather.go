@@ -15,19 +15,34 @@ import (
 	"github.com/dshakes/halos/internal/promote"
 )
 
-// GateExperiment is exp as step s's gates see it: the step's guardrails and
-// minSamples replace the experiment's own, and budgets are dropped (a rollout
-// does not expire), so promote.EvaluateAt reports exactly the step's evidence.
+// Effective is r with every step's guardrails resolved against its backing
+// experiment (policy.RolloutStep.EffectiveGuardrails). Decide on this, never
+// on the raw document. Idempotent; r is not modified.
+func Effective(org *policy.Org, r *policy.Rollout) *policy.Rollout {
+	exp := findExp(org, r.Experiment)
+	c := *r
+	c.Steps = append([]policy.RolloutStep(nil), r.Steps...)
+	for i, s := range c.Steps {
+		c.Steps[i].Gates.Guardrails = s.EffectiveGuardrails(exp)
+	}
+	return &c
+}
+
+// GateExperiment is exp as step s's gates see it: the step's effective
+// guardrails (see Effective) and minSamples, without budgets (a rollout does
+// not expire), so promote.EvaluateAt reports exactly the step's evidence.
 func GateExperiment(exp *policy.Experiment, s policy.RolloutStep) *policy.Experiment {
 	c := *exp
-	c.Metrics.Guardrails = s.Gates.Guardrails
+	c.Metrics.Guardrails = s.EffectiveGuardrails(exp)
 	c.Stopping.MinSamples = s.MinSamples
 	c.Stopping.MaxDays, c.Stopping.MaxSpendUSD = 0, 0
 	return &c
 }
 
-// NeedsMetrics reports whether step s is judged on experiment evidence.
-func NeedsMetrics(s policy.RolloutStep) bool { return s.MinSamples > 0 || len(s.Gates.Guardrails) > 0 }
+// NeedsMetrics reports whether step s is judged on experiment evidence: every
+// step that exposes the backing experiment's arms is (its guardrails and
+// primary metric can roll it back), ring-wide steps are not.
+func NeedsMetrics(s policy.RolloutStep) bool { return !s.RingWide() }
 
 // Gather collects the live step's evidence: the backing experiment from
 // metrics (nil = none; only queried when the step has metric gates) and the
@@ -38,6 +53,7 @@ func Gather(ctx context.Context, dir string, org *policy.Org, r *policy.Rollout,
 	if st.Step < 0 || st.Step >= len(r.Steps) {
 		return ev, nil
 	}
+	r = Effective(org, r)
 	s := r.Steps[st.Step]
 	if metrics != nil && NeedsMetrics(s) {
 		exp := findExp(org, r.Experiment)

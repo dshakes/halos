@@ -16,7 +16,7 @@
 //
 // Fail closed on the model allowlist: model paths the gateway doesn't know
 // (404), bodies Kong spooled to disk (413; set nginx_http_client_body_buffer_size
-// to 32m), and models that are not a policy alias (403) are answered here with
+// to 32m), and models that are not a policy alias (400) are answered here with
 // kong.response.exit and never forwarded. A trusted identity header sent twice
 // is a 400.
 //

@@ -1,4 +1,4 @@
-.PHONY: build test lint vuln docs compose-up e2e obs-e2e smoke
+.PHONY: build test lint vuln docs compose-up e2e obs-e2e smoke demo demo-down
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 
@@ -45,3 +45,27 @@ images:
 # Dev Container Feature end to end (local TLS registry, signed release, firewall).
 feature-test:
 	./scripts/package-check.sh feature
+
+# Regenerate the CLI and policy reference pages (CI fails if they drift).
+.PHONY: docs-gen
+docs-gen:
+	go run ./internal/tools/gendocs --out docs/src/content/docs/reference
+
+# Whole stack on Docker (console + mock OIDC, proxy, shadow, mock models, obs), seeded from examples/acme-corp.
+demo:
+	./scripts/demo.sh
+
+demo-down:
+	./scripts/demo.sh down
+
+# Real CLIs (claude/codex/gemini/copilot at the acme pins) via the Dev Container Feature,
+# halo-proxy and mock upstreams, plus halo eval run with real drivers (Docker + network).
+.PHONY: uat-clis
+uat-clis:
+	./scripts/uat-clis.sh
+
+# Helm chart UAT on a throwaway kind cluster (halos-uat): user stories end to end,
+# report in test/uat/REPORT.md (Docker, kind, kubectl, helm). UAT_KEEP=1 keeps the cluster.
+.PHONY: uat-k8s
+uat-k8s:
+	./scripts/uat-k8s.sh

@@ -29,6 +29,7 @@ var DefaultGuardrails = []Guardrail{
 	guardSecrets,
 	guardEnvKeys,
 	guardToggles,
+	guardTrafficOverlap,
 }
 
 func gi(sev Severity, path, format string, a ...any) Issue {

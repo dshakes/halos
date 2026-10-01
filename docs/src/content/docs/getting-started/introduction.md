@@ -7,7 +7,7 @@ Halos (`halo`) is a control plane for AI developer tools in organizations. It tr
 
 ## The problem
 
-It is Tuesday morning and a CLI update reaches 300 developers. Something breaks behind your gateway. You cannot say who is on which version, whether the new one is worse, or how to undo it without asking everyone to downgrade.
+AI coding CLIs have become production infrastructure, but they are still managed like personal tools. A vendor release or a model change reaches the whole engineering organization at once, unmeasured. When behaviour regresses behind a corporate gateway, platform teams lack three answers: who is running which version, whether the change made outcomes worse, and how to reverse it without asking every engineer to act.
 
 - **Settings sprawl.** Each harness has its own config format and enforcement knobs.
 - **No central channel on gateways.** Claude Code's server-managed settings are not fetched with Bedrock or a custom `ANTHROPIC_BASE_URL`, so config must be delivered as files, MDM profiles or environment definitions.
@@ -18,7 +18,7 @@ It is Tuesday morning and a CLI update reaches 300 developers. Something breaks 
 
 | Need | Halos feature |
 |---|---|
-| One source of truth | [Policy repo](/halos/concepts/policy-model/) validated by JSON Schema and Go guardrails |
+| One source of truth | [Policy repo](/halos/concepts/policy-model/) validated by strict typed decoding and Go guardrails (JSON Schemas are for editors and CI) |
 | Safe rollout | [Rings and releases](/halos/concepts/rings-and-releases/) with signed pointers |
 | Prove a model or CLI change | [Experiments](/halos/concepts/experiments/), [shadow](/halos/concepts/shadow-traffic/), [evals](/halos/guides/writing-evals/) |
 | Enforce on every machine | [Delivery](/halos/concepts/delivery/): dev containers first, `halod` and MDM for laptops |

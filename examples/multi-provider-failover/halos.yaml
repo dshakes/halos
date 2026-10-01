@@ -1,0 +1,9 @@
+# yaml-language-server: $schema=../../schemas/halos.schema.json
+apiVersion: halos.dev/v1alpha1
+kind: Halos
+org: multi-provider-failover
+identity:
+  issuer: https://login.multi.example/oauth2/default
+  clientID: halos-portal
+  audience: halos-gateway
+  adminGroups: [ai-platform]

@@ -2256,7 +2256,82 @@ def more_diagrams():
     d.write()
 
 
+def how_it_works():
+    d = D(
+        "how-it-works",
+        880,
+        368,
+        "How Halos works",
+        "The platform team owns a git policy repo of Halos YAML. A change is a pull request: CI validates, "
+        "plans and evals it, a human merges, and halo publishes a signed, immutable release. Rings point at "
+        "releases; halod applies them on every machine and the gateway routes model traffic. Developers keep "
+        "running their CLI as usual and never touch the repo.",
+        out=("assets", "docs"),
+    )
+    d.zone(24, 24, 832, 128, "Platform team · owns the policy repo")
+    r = hrow(
+        d,
+        60,
+        76,
+        [
+            dict(
+                title="Policy repo", subs=["git · Halos YAML", "halo init"], kicker="01"
+            ),
+            dict(
+                title="Pull request",
+                subs=["edit rings,", "profiles, models"],
+                kicker="02",
+            ),
+            dict(title="CI checks", subs=["validate · plan", "eval gate"], kicker="03"),
+            dict(title="Human merges", subs=["no auto-merge", "ever"], kicker="04"),
+            dict(
+                title="Signed release",
+                subs=["OCI, immutable", "halo release"],
+                kicker="05",
+                kind="accent",
+            ),
+        ],
+        x0=40,
+        x1=840,
+        gap=28,
+    )
+    d.zone(24, 176, 832, 168, "Fleet · developers never touch the repo")
+    px = r[4][0] + r[4][2] / 2
+    p = d.path([(px, 142), (px, 206)], "accent", flow=True)
+    d.packet(p, dur=2.4)
+    d.card(
+        672,
+        212,
+        168,
+        112,
+        "Rings",
+        ["ring0 → ring1 → GA", "point at releases", "rollback = re-point"],
+        kind="accent",
+    )
+    d.card(
+        372, 212, 252, 52, "halod on every machine", ["laptops · dev containers · CI"]
+    )
+    d.card(372, 272, 252, 52, "Gateway", ["halo-proxy · halo-kong route models"])
+    d.card(
+        40,
+        212,
+        280,
+        112,
+        "Developer",
+        [
+            "runs claude, codex or gemini",
+            "as usual; gets the ring's config",
+            "and models automatically",
+        ],
+    )
+    for y in (238, 298):
+        d.path([(666, y), (630, y)], "accent")
+        d.path([(366, y), (326, y)], "line")
+    d.write()
+
+
 def main():
+    how_it_works()
     hero()
     architecture()
     rollout_strategies()

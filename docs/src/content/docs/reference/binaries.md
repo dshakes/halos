@@ -1,37 +1,11 @@
 ---
-title: CLI reference
-description: halo, halod, halo-proxy, halo-server, halo-shadow. Derived from the binaries' --help output.
+title: Binaries and runtime configuration
+description: halod, halo-proxy, halo-server, halo-shadow flags and config, plus signing, export and controller notes for halo. Per-command halo pages are in the CLI reference.
 ---
 
-Everything on this page is taken from `--help` of the built binaries. `halo` has one global flag: `--output text|json`. Commands that read a policy repo take `--policy-dir D` (default `.`); the old `--dir` and positional `[dir]` still work but are deprecated.
+Per-command `halo` flags are in the generated [CLI reference](/halos/reference/cli/). This page keeps the notes that are not per-command (signing continuity, export, controller behavior) and the other binaries: `halod`, `halo-proxy`, `halo-server`, `halo-shadow`.
 
-## `halo`
-
-| Command | Purpose |
-|---|---|
-| `halo init [--org name]` | Scaffold a minimal policy repo |
-| `halo validate` | Load and validate a policy repo (schema, references, guardrails). Exit 2 on errors |
-| `halo whoami --user U [--groups g1,g2]` | Ring and experiment variants a user is assigned |
-| `halo harnesses` | Harness capability matrix |
-| `halo render --ring R [--os darwin\|linux\|windows] [--out dir] [--release-version V]` | Render a ring's harness files under `--out`, mirroring absolute paths; adapter warnings go to stderr. Defaults: `--os darwin`, `--out rendered` |
-| `halo plan --ring R --against <release.tar or host/org/name[:tag]> [--registry ...] [--pubkey pem] [--cosign-key ref] [--plain-http]` | Diff the release a ring would get against a previous release |
-| `halo release build --ring R [-o release.tar] [--release-version V] [--no-artifacts]` | Build a release tarball |
-| `halo release publish --ring R --release-version V --registry REPO --key halo.key [--cosign-key ref] [--cosign-keyless] [--plain-http] [--no-artifacts]` | Build, sign and push; tags `v<version>` and `ring-<ring>` and writes the signed ring pointer. A running client-axis experiment on the ring adds one signed channel per variant ([below](#experiment-channels-in-release-commands)) |
-| `halo release promote --from-ring A --to-ring B --registry REPO --key halo.key [--expect-digest sha256:...]` | Point ring B at the release **A's signed pointer** names (signature, ring, org, expiry and state continuity checked; the `ring-A` tag is never used). Moves only the ring pointer, never A's experiment channels |
-| `halo release refresh --ring R --registry REPO --key halo.key [--expect-digest sha256:...]` | Re-sign a ring's pointer and its experiment channel pointers: same releases, new `seq` and expiry. Pointers expire after 7 days; run this daily. **Refuses an expired pointer** (recover with `halo rollback --to <version>`) |
-| `halo rollback --ring R --to <version\|sha256:manifest-digest> --registry REPO --key halo.key [--expect-digest sha256:...]` | Point a ring and its experiment channels back at an earlier signed release (new pointers, higher `seq`). `--to <version>` is refused unless the release's signed manifest carries that version; `--to sha256:` is the **OCI manifest** digest |
-| `halo export jamf\|intune\|devcontainer` | Export a signed release for a delivery channel (below) |
-| `halo exp list\|show\|start\|pause\|conclude` | Experiments; `start`, `pause`, `conclude` edit the YAML `status` in place. `--policy-dir` selects the policy repo |
-| `halo exp analyze <name> --clickhouse URL [--database D] [--user U] [--verdicts-file f]` | Verdict: `promote`, `rollback`, `continue`, `expired`. Password from `HALO_CLICKHOUSE_PASSWORD` |
-| `halo controller run --clickhouse URL --data-dir D [flags]` | Automated experiment loop: evaluate, kill on rollback, open PRs, notify. [Flags below](#halo-controller-run) |
-| `halo exp promote <name> --ring R --release digest --clickhouse URL [--base B] [--dry-run]` | Open a PR pointing the ring at the release. Needs a `promote` verdict; never merges |
-| `halo eval run <suite.yaml> [--local] [--parallel 2] [--cpus 2] [--memory 4g] [--network none] [--pass-env VARS] [--seed 1]` | Offline replay evals in Docker; prints a scorecard. `--local` runs on the host with no isolation (testing only) |
-| `halo gateway compile [-o policy.json]` | Compile the policy snapshot `halo-proxy`, `halo-kong` and `halo-shadow` load |
-| `halo gateway deck [--identity-header H] [--groups-header H] [--policy-path P] [--halo-shadow-url U] [--halo-shadow-token T] [--killswitch-url U] [-o kong.yml]` | Generate the decK declarative config for Kong plus `halo-kong`. `--killswitch-url` (must be https) sets `killswitch_url` and emits the token and public key as `{vault://env/halo-killswitch-token}` / `{vault://env/halo-killswitch-pubkey}` references; it does not emit `killswitch_allow_insecure_in_cluster`. See [Bedrock via Kong](/halos/guides/bedrock-via-kong/#5-kill-switch-optional) |
-| `halo telemetry collector-config --clickhouse tcp://host:9000 [--database halo] [--grpc-endpoint ...] [--http-endpoint ...] [--gateway-endpoint ...] [--prometheus-endpoint ...] [--cli-token-file F] [-o file]` | OpenTelemetry Collector config that normalizes to `halo.*`. [Flags below](#halo-telemetry-collector-config) |
-| `halo keys generate [--name halo] [--out .]` | Generate an ed25519 key pair (`<name>.key`, `<name>.pub`). Use `--name killswitch` for the [kill-switch key](/halos/concepts/security-model/#kill-switch); never reuse the release key |
-| `halo mcp serve [--policy-dir D] [--allow-writes] [--clickhouse URL] [--database D] [--user U] [--schema-dir D]` | MCP server over stdio. See [agentic operations](/halos/guides/agentic-operations/) |
-| `halo version` | Print the version |
+## `halo` notes
 
 Commands that need a signing key take `--key <ed25519 private key PEM>`; `publish`, `promote`, `refresh` and `rollback` also accept `--cosign-key` (file or KMS URI, as a co-signature) and `--cosign-keyless`. `--plain-http` allows a local HTTP registry.
 
@@ -106,7 +80,7 @@ Evaluates every running experiment from ClickHouse evidence on a timer (or once)
 `--interval` replaces the deprecated `--controller-interval`. Behavior that matters:
 
 - **Kills are audited.** Each kill is appended to `<data-dir>/audit.jsonl` (the hash chain `halo-server` uses, fsynced). If the audit append fails, the kill stays applied and the command reports the error. Because `audit.jsonl` has a single writer, **do not run this against a data dir a live `halo-server` is appending to**; use the server's in-process controller there.
-- **Only gateway-sourced evidence kills.** A rollback decided on CLI telemetry opens the pause PR and notifies with `killOutcome: not_gateway_evidence`.
+- **Only gateway-sourced evidence kills.** A rollback decided on CLI telemetry or on eval (`halo eval online` judge) evidence opens the pause PR and notifies with `killOutcome: not_gateway_evidence`.
 - **Killed experiments are held.** A running experiment that is already killed is not evaluated; notifications say to unkill before resuming.
 - **Notifications retry per channel** on later ticks; a channel that succeeded is not re-posted.
 

@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -370,9 +371,26 @@ func mustJSON(v any) string { b, _ := json.Marshal(v); return string(b) }
 func TestHealthAndMetrics(t *testing.T) {
 	up, _ := recordingServer(t)
 	e := testEnv(t, up, nil)
+	// Metrics are recorded when ServeHTTP returns, which is after a streamed
+	// response has already reached the client. Serve through a wrapper that
+	// counts finished handlers so the scrape waits for exactly that, not a sleep.
+	var inflight sync.WaitGroup
+	var counting atomic.Bool
+	counting.Store(true)
+	wrapped := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if counting.Load() {
+			defer inflight.Done()
+		}
+		e.p.ServeHTTP(w, r)
+	}))
+	defer wrapped.Close()
+	e.proxy = wrapped
 	tok := e.token(t, "alice@acme.com", "ai-platform")
+	inflight.Add(2)
 	e.post(t, "/v1/messages", tok, msgBody, nil)
 	e.post(t, "/v1/messages", "", msgBody, nil) // 401
+	inflight.Wait()
+	counting.Store(false)
 
 	admin := httptest.NewServer(e.p.AdminHandler())
 	defer admin.Close()
@@ -505,13 +523,13 @@ func TestModelAllowlistFailsClosed(t *testing.T) {
 		status           int
 		errType          string
 	}{
-		{"unknown model", "/v1/messages", `{"model":"claude-opus-4","messages":[]}`, 403, "permission_error"},
-		{"upstream id not alias", "/v1/messages", `{"model":"real-model","messages":[]}`, 403, "permission_error"},
-		{"unparseable body", "/v1/messages", `not json`, 403, "permission_error"},
-		{"batches", "/v1/messages/batches", `{"requests":[]}`, 403, "permission_error"},
+		{"unknown model", "/v1/messages", `{"model":"claude-opus-4","messages":[]}`, 400, "invalid_request_error"},
+		{"upstream id not alias", "/v1/messages", `{"model":"real-model","messages":[]}`, 400, "invalid_request_error"},
+		{"unparseable body", "/v1/messages", `not json`, 400, "invalid_request_error"},
+		{"batches", "/v1/messages/batches", `{"requests":[]}`, 400, "invalid_request_error"},
 		{"unknown subpath", "/v1/messages/foo", msgBody, 404, "not_found_error"},
 		{"escaped path", "/v1/%6Dessages", msgBody, 404, "not_found_error"},
-		{"responses unknown", "/v1/responses", `{"model":"gpt-x","input":"hi"}`, 403, "invalid_request_error"},
+		{"responses unknown", "/v1/responses", `{"model":"gpt-x","input":"hi"}`, 400, "invalid_request_error"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			resp := e.post(t, tc.path, tok, tc.body, nil)

@@ -104,8 +104,8 @@ func TestCheckDryRun(t *testing.T) {
 	dir := policyCopy(t)
 	npm := fakeNPM(t, map[string]string{
 		"@anthropic-ai/claude-code": "2.1.330", // newer than the 2.1.312 pin
-		"@openai/codex":             "0.60.0",  // same as pin: no candidate
-		"@google/gemini-cli":        "0.14.0",  // newer, but artifacts do not verify
+		"@openai/codex":             "0.100.0", // same as pin: no candidate
+		"@google/gemini-cli":        "0.36.0",  // newer, but artifacts do not verify
 	})
 	w := watcher(t, dir, npm)
 	w.DryRun = true
@@ -135,7 +135,7 @@ func TestCheckDryRun(t *testing.T) {
 
 func TestCheckOpensGatedPRs(t *testing.T) {
 	dir := policyCopy(t)
-	npm := fakeNPM(t, map[string]string{"@anthropic-ai/claude-code": "2.1.330", "@openai/codex": "0.60.0", "@google/gemini-cli": "0.14.0"})
+	npm := fakeNPM(t, map[string]string{"@anthropic-ai/claude-code": "2.1.330", "@openai/codex": "0.100.0", "@google/gemini-cli": "0.36.0"})
 	w := watcher(t, dir, npm)
 	pr := &recordingPR{}
 	var evals []string
@@ -200,7 +200,7 @@ func TestCheckOpensGatedPRs(t *testing.T) {
 
 func TestCheckNeedsEvalAndPR(t *testing.T) {
 	dir := policyCopy(t)
-	w := watcher(t, dir, fakeNPM(t, map[string]string{"@anthropic-ai/claude-code": "2.1.312", "@openai/codex": "0.60.0", "@google/gemini-cli": "0.13.0"}))
+	w := watcher(t, dir, fakeNPM(t, map[string]string{"@anthropic-ai/claude-code": "2.1.312", "@openai/codex": "0.100.0", "@google/gemini-cli": "0.35.0"}))
 	if _, err := w.Check(context.Background()); err == nil || !strings.Contains(err.Error(), "required unless DryRun") {
 		t.Fatalf("got %v", err)
 	}
@@ -252,6 +252,7 @@ func TestLoadConfigValidation(t *testing.T) {
 		"profile: p\nsuite: s\nmodels: [{provider: x, url: u}]\n",
 		"profile: p\nsuite: s\nmodels: [{provider: x, url: u, alias: a, match: '('}]\n",
 		"profile: p\nsuite: s\nbogus: 1\n",
+		"profile: p\nsuite: s\nmodels: [{provider: x, url: 'http://gw.example/v1/models', alias: a}]\n",
 	} {
 		p := filepath.Join(dir, "c.yaml")
 		_ = os.WriteFile(p, []byte(body), 0o644)
@@ -291,7 +292,7 @@ func TestArtifactVerifierUsesReleaseResolver(t *testing.T) {
 
 func TestCheckContinuesPastFailedCandidate(t *testing.T) {
 	dir := policyCopy(t)
-	w := watcher(t, dir, fakeNPM(t, map[string]string{"@anthropic-ai/claude-code": "2.1.330", "@openai/codex": "0.60.0", "@google/gemini-cli": "0.13.0"}))
+	w := watcher(t, dir, fakeNPM(t, map[string]string{"@anthropic-ai/claude-code": "2.1.330", "@openai/codex": "0.100.0", "@google/gemini-cli": "0.35.0"}))
 	pr := &recordingPR{}
 	w.PR = pr
 	w.Eval = func(_ context.Context, c Candidate) (*eval.Scorecard, error) {
@@ -308,5 +309,35 @@ func TestCheckContinuesPastFailedCandidate(t *testing.T) {
 	w.Eval = func(context.Context, Candidate) (*eval.Scorecard, error) { return scorecard(eval.GateShip), nil }
 	if _, err := w.Check(context.Background()); err != nil || len(pr.reqs) != 2 {
 		t.Fatalf("retry: err %v prs %d", err, len(pr.reqs))
+	}
+}
+
+func TestMalformedModelIDsSkipped(t *testing.T) {
+	dir := policyCopy(t)
+	w := watcher(t, dir, fakeNPM(t, map[string]string{"@anthropic-ai/claude-code": "2.1.312", "@openai/codex": "0.100.0", "@google/gemini-cli": "0.35.0"}))
+	w.DryRun = true
+	var warns []string
+	w.Warn = func(m string) { warns = append(warns, m) }
+	w.Models = map[string]ModelLister{"openai": fakeModels{"gpt-6-codex", "gpt-7-codex\n- [x] approved", "gpt-8-codex <img src=x>", strings.Repeat("a", 200), "gpt-9-codex`rm`"}}
+	cs, err := w.Check(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cs) != 1 || cs[0].To != "gpt-6-codex" || len(warns) != 4 {
+		t.Fatalf("candidates %+v warnings %q", cs, warns)
+	}
+}
+
+func TestHTTPModelsRequiresHTTPS(t *testing.T) {
+	if _, err := (HTTPModels{URL: "http://gw.example/v1/models", APIKey: "k"}).List(context.Background()); err == nil || !strings.Contains(err.Error(), "https") {
+		t.Fatalf("got %v", err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"a"}],"models":[{"name":"models/b"}]}`))
+	}))
+	defer srv.Close()
+	ids, err := HTTPModels{URL: srv.URL, HTTP: srv.Client()}.List(context.Background()) // loopback http is allowed
+	if err != nil || strings.Join(ids, ",") != "a,b" {
+		t.Fatalf("%v %v", ids, err)
 	}
 }

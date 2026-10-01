@@ -1,0 +1,38 @@
+# yaml-language-server: $schema=../../../schemas/experiment.schema.json
+# Traffic-axis A/B: does making Bedrock the only tier-0 target for sonnet change
+# error rate or latency? Draft: a human starts it (halo exp start).
+apiVersion: halos.dev/v1alpha1
+kind: Experiment
+name: sonnet-bedrock-first
+type: ab
+axis: traffic
+status: draft
+rings: [ring0-platform]
+variants:
+  - name: control
+    weight: 50
+    control: true
+  - name: bedrock-first
+    weight: 50
+    routes:
+      sonnet:
+        targets:
+          - upstream: bedrock-use1
+            model: arn:aws:bedrock:us-east-1:111122223333:application-inference-profile/exampleSonnet
+          - upstream: anthropic
+            model: claude-sonnet-4-5-20250929
+            priority: 1
+metrics:
+  primary:
+    metric: halo.api.error_rate
+    direction: decrease
+  guardrails:
+    - metric: halo.latency.p95_ms
+      direction: decrease
+      maxRegression: 0.15
+stopping:
+  method: msprt
+  alpha: 0.05
+  minSamples: 500
+  maxDays: 14
+  maxSpendUSD: 1000

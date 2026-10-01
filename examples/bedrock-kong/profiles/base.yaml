@@ -1,0 +1,42 @@
+# yaml-language-server: $schema=../../../schemas/profile.schema.json
+apiVersion: halos.dev/v1alpha1
+kind: Profile
+name: base
+labels:
+  owner: ai-platform
+models:
+  default: sonnet
+  allowed: [sonnet, opus, haiku]
+  enforce: true
+permissions:
+  mode: default
+  disableBypass: true
+  sandbox: workspace-write
+  deny:
+    - Read(./.env)
+    - Read(./.env.*)
+    - Read(~/.aws/**)
+    - Read(~/.ssh/**)
+mcp:
+  managedOnly: true
+  servers:
+    - name: corp-docs
+      url: https://mcp-docs.internal.corp.example/mcp
+hooks:
+  managedOnly: true
+telemetry:
+  enabled: true
+  otlpEndpoint: https://otel.internal.corp.example:4318
+  protocol: http/protobuf
+  logPrompts: false
+egress:
+  allowedDomains:
+    - ai.corp.example
+    - mcp-docs.internal.corp.example
+    - otel.internal.corp.example
+    - github.com
+    - registry.npmjs.org
+instructions: |
+  # Corp engineering
+  - Run the repo's tests before proposing a commit.
+  - Never paste secrets or customer data into prompts.

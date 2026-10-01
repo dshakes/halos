@@ -1,0 +1,15 @@
+# yaml-language-server: $schema=../../schemas/halos.schema.json
+apiVersion: halos.dev/v1alpha1
+kind: Halos
+org: regulated
+identity:
+  issuer: https://login.regulated.example/oauth2/default
+  clientID: halos-portal
+  audience: halos-gateway
+  userClaim: email
+  groupsClaim: groups
+  adminGroups: [security-engineering]
+# Developers cannot self-enrol into rings or request new MCP servers here;
+# every access change goes through a reviewed policy PR.
+selfService:
+  enabled: false

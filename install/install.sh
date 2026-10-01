@@ -5,6 +5,7 @@
 # Verifies checksums.txt against its cosign signature when cosign is on PATH
 # (else warns loudly and trusts the sha256 only), then each archive against
 # checksums.txt. Never uses sudo; pick a prefix you can write, or run it as root.
+# --with-agent runs as root, so it needs a root-owned prefix: sudo sh install.sh --prefix /usr/local --with-agent
 set -eu
 
 REPO=dshakes/halos
@@ -23,6 +24,25 @@ while [ $# -gt 0 ]; do
     *) die "unknown flag $1" ;;
   esac
 done
+
+# root_owned_chain DIR: DIR (or its nearest existing ancestor) and every parent is
+# root-owned and not group/other-writable, so no other user can swap what we install.
+root_owned_chain() {
+  d=$1
+  while [ ! -e "$d" ]; do d=$(dirname "$d"); done
+  while :; do
+    [ -n "$(find -H "$d" -maxdepth 0 -user root ! -perm -020 ! -perm -002 2>/dev/null)" ] || return 1
+    [ "$d" = / ] && return 0
+    d=$(dirname "$d")
+  done
+}
+if [ "$WITH_AGENT" = 1 ]; then
+  # halod runs as root and refuses (and so would we) a binary a non-root user could replace.
+  case $PREFIX in /*) ;; *) die "--prefix must be an absolute path" ;; esac
+  if [ "$(id -u)" != 0 ] || ! root_owned_chain "$PREFIX"; then
+    die "--with-agent needs a root-owned prefix; run: sudo sh $0 --prefix /usr/local --with-agent"
+  fi
+fi
 
 case $(uname -s) in
   Darwin) OS=darwin ;;
@@ -92,5 +112,5 @@ for b in $BINS; do
   echo "install.sh: installed $PREFIX/bin/$b ($VERSION)"
 done
 case ":$PATH:" in *":$PREFIX/bin:"*) ;; *) echo "install.sh: add $PREFIX/bin to your PATH" >&2 ;; esac
-[ "$WITH_AGENT" = 1 ] && echo "install.sh: halod is not enrolled or started; see 'halod service install --help' (root)"
+[ "$WITH_AGENT" = 1 ] && echo "install.sh: halod is not enrolled or started; next: sudo $PREFIX/bin/halod service install --help"
 exit 0

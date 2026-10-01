@@ -8,15 +8,18 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"text/template"
 )
 
-// defaultExe is where each OS's package/MDM installs halod itself. halod
-// refuses to run from a non-root-owned directory, so --exe must be one too.
+// defaultExe is where each OS's package/MDM installs halod itself (deb/rpm/apk:
+// /usr/bin; MDM: /Library/Halos/bin; install.ps1: Program Files). halod refuses
+// to run, and `service install` refuses to register, a binary that is not
+// root-owned in a root-owned directory chain.
 var defaultExe = map[string]string{
 	"darwin":  "/Library/Halos/bin/halod",
-	"linux":   "/usr/local/lib/halos/halod",
+	"linux":   "/usr/bin/halod",
 	"windows": `C:\Program Files\Halos\halod.exe`,
 }
 
@@ -86,6 +89,7 @@ const (
 // serviceSpec is what `service install` does on one OS: an optional unit
 // file to write plus the commands that register (and, with --start, start) it.
 type serviceSpec struct {
+	Exe           string
 	Path, Content string
 	Install       [][]string
 	Start         [][]string
@@ -108,6 +112,7 @@ func planService(goos, exe string) (serviceSpec, error) {
 	if goos == "windows" {
 		tr := fmt.Sprintf(`"%s" run --config "%s" --state "%s"`, exe, lay.Config, lay.State)
 		return serviceSpec{
+			Exe:       exe,
 			Install:   [][]string{{"schtasks", "/Create", "/F", "/TN", winTask, "/RU", "SYSTEM", "/SC", "ONSTART", "/TR", tr}},
 			Start:     [][]string{{"schtasks", "/Run", "/TN", winTask}},
 			Uninstall: [][]string{{"schtasks", "/End", "/TN", winTask}, {"schtasks", "/Delete", "/F", "/TN", winTask}},
@@ -119,13 +124,13 @@ func planService(goos, exe string) (serviceSpec, error) {
 	}
 	if goos == "darwin" {
 		return serviceSpec{
-			Path: launchdPath, Content: b.String(),
+			Exe: exe, Path: launchdPath, Content: b.String(),
 			Install:   [][]string{{"launchctl", "bootstrap", "system", launchdPath}},
 			Uninstall: [][]string{{"launchctl", "bootout", "system/dev.halos.halod"}},
 		}, nil
 	}
 	return serviceSpec{
-		Path: systemdPath, Content: b.String(),
+		Exe: exe, Path: systemdPath, Content: b.String(),
 		Install:   [][]string{{"systemctl", "daemon-reload"}},
 		Start:     [][]string{{"systemctl", "enable", "--now", "halod"}},
 		Uninstall: [][]string{{"systemctl", "disable", "--now", "halod"}},
@@ -157,6 +162,11 @@ func runService(ctx context.Context, goos, root, exe, action string, start bool,
 		_, err = io.WriteString(stdout, spec.Content)
 		return err
 	case "install":
+		if goos == runtime.GOOS { // a rendered plan for another OS (tests) has no binary to check
+			if err := checkExe(spec.Exe); err != nil {
+				return fmt.Errorf("service install: %w (install halod root-owned, e.g. `sudo sh install.sh --prefix /usr/local --with-agent`, or use the deb/rpm package)", err)
+			}
+		}
 		if spec.Path != "" {
 			if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil { //nolint:gosec // system unit dir
 				return fmt.Errorf("service install: %w", err)

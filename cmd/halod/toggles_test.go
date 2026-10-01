@@ -127,9 +127,10 @@ func serveRing(t *testing.T, body string) string {
 // follows the same bucket the gateway computes.
 func TestTogglePercentNeedsSubject(t *testing.T) {
 	ctx := context.Background()
+	hundred := 100.0
 	e := newEnv(t)
 	e.a.Install, e.a.Log = false, quietLog()
-	e.publishToggles(t, envToggle("everyone", policy.ToggleRule{Percent: 100}))
+	e.publishToggles(t, envToggle("everyone", policy.ToggleRule{Percent: &hundred}))
 	if _, err := e.a.Once(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -161,5 +162,23 @@ func TestToggleGroupsFromRingEndpoint(t *testing.T) {
 	}
 	if g := e.a.loadState().Groups; len(g) != 2 {
 		t.Fatalf("groups not persisted for offline fallback: %v", g)
+	}
+}
+
+// percent: 0 matches nobody, anonymous devices included (it once meant "no condition").
+func TestTogglePercentZeroMatchesNobody(t *testing.T) {
+	ctx := context.Background()
+	zero := 0.0
+	e := newEnv(t)
+	e.a.Install, e.a.Log = false, quietLog()
+	e.publishToggles(t, envToggle("nobody", policy.ToggleRule{Percent: &zero}))
+	for _, subject := range []string{"", "u"} {
+		e.a.Cfg.Subject = subject
+		if _, err := e.a.Once(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := settingsEnv(t, e)["TOG_nobody"]; ok {
+			t.Fatalf("subject %q got a percent:0 toggle", subject)
+		}
 	}
 }

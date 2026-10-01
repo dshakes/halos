@@ -1,0 +1,25 @@
+# yaml-language-server: $schema=../../schemas/gateway.schema.json
+# Claude Code -> halo-proxy (inside the VPC) -> Bedrock in one region, signed with
+# the proxy's own AWS identity. No direct-to-provider path exists for developers.
+apiVersion: halos.dev/v1alpha1
+kind: Gateway
+name: regulated-gateway
+engine: halo-proxy
+baseURL: https://ai.regulated.example
+protocols:
+  claude-code: anthropic-messages
+auth:
+  helperCommand: /usr/local/bin/regulated-sso-token --audience halos-gateway
+  ttlSeconds: 600
+upstreams:
+  bedrock-euw1:
+    url: https://bedrock-runtime.eu-west-1.amazonaws.com
+    kind: bedrock
+    region: eu-west-1
+models:
+  sonnet:
+    upstream: bedrock-euw1
+    model: arn:aws:bedrock:eu-west-1:111122223333:application-inference-profile/exampleSonnet
+  haiku:
+    upstream: bedrock-euw1
+    model: arn:aws:bedrock:eu-west-1:111122223333:application-inference-profile/exampleHaiku

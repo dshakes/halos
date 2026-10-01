@@ -1,0 +1,316 @@
+# UAT infrastructure around the halos chart (scripts/uat-k8s.sh applies it).
+# uat-infra: OCI registry, git remote, mock OIDC issuer, mock model upstreams,
+#            halod download server and the TLS ingress (nginx) in front of the chart.
+# halos-uat: the helm release + ClickHouse (the evidence store the chart expects at clickhouse:9000).
+# uat-device: the "laptop" (halod). uat-outsider: a pod the NetworkPolicies must keep out.
+apiVersion: v1
+kind: Namespace
+metadata: {name: uat-infra}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: halos-uat}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: uat-device}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: uat-outsider}
+---
+# ---------------- OCI registry (release bundles) ----------------
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: registry, namespace: uat-infra}
+spec:
+  selector: {matchLabels: {app: registry}}
+  template:
+    metadata: {labels: {app: registry}}
+    spec:
+      containers:
+        - name: registry
+          image: registry:2
+          imagePullPolicy: Never
+          ports: [{containerPort: 5000}]
+          readinessProbe: {httpGet: {path: /v2/, port: 5000}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: registry, namespace: uat-infra}
+spec:
+  type: NodePort
+  selector: {app: registry}
+  ports: [{port: 5000, targetPort: 5000, nodePort: 30500}]
+---
+# ---------------- git remote (policy repo; controller PR branches land here) ----------------
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: git, namespace: uat-infra}
+spec:
+  selector: {matchLabels: {app: git}}
+  template:
+    metadata: {labels: {app: git}}
+    spec:
+      initContainers:
+        - name: init
+          image: halos-uat/infra:uat
+          imagePullPolicy: Never
+          command: [sh, -ec, 'git init --bare -b main /srv/git/policy.git && git -C /srv/git/policy.git config daemon.receivepack true']
+          volumeMounts: [{name: git, mountPath: /srv/git}]
+      containers:
+        - name: git
+          image: halos-uat/infra:uat
+          imagePullPolicy: Never
+          command: [git, daemon, --reuseaddr, --base-path=/srv/git, --export-all, --enable=receive-pack, --listen=0.0.0.0, --port=9418]
+          ports: [{containerPort: 9418}]
+          readinessProbe: {tcpSocket: {port: 9418}}
+          volumeMounts: [{name: git, mountPath: /srv/git}]
+      volumes: [{name: git, emptyDir: {}}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: git, namespace: uat-infra}
+spec:
+  type: NodePort
+  selector: {app: git}
+  ports: [{port: 9418, targetPort: 9418, nodePort: 30418}]
+---
+# ---------------- mock OIDC issuer ----------------
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: uatidp, namespace: uat-infra}
+spec:
+  selector: {matchLabels: {app: uatidp}}
+  template:
+    metadata: {labels: {app: uatidp}}
+    spec:
+      containers:
+        - name: uatidp
+          image: halos-uat/infra:uat
+          imagePullPolicy: Never
+          command: [uatidp]
+          env:
+            - {name: ISSUER, value: "http://uatidp.uat-infra.svc.cluster.local:8080"}
+            - {name: AUDIENCE, value: halos-gateway}
+          ports: [{containerPort: 8080}]
+          readinessProbe: {httpGet: {path: /.well-known/openid-configuration, port: 8080}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: uatidp, namespace: uat-infra}
+spec:
+  type: NodePort
+  selector: {app: uatidp}
+  ports: [{port: 8080, targetPort: 8080, nodePort: 30808}]
+---
+# ---------------- mock model upstreams (Anthropic / Bedrock / OpenAI-responses shapes) ----------------
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: mock-a, namespace: uat-infra}
+spec:
+  selector: {matchLabels: {app: mock-a}}
+  template:
+    metadata: {labels: {app: mock-a, role: upstream}}
+    spec:
+      containers:
+        - name: mockllm
+          image: halos-uat/infra:uat
+          imagePullPolicy: Never
+          command: [mockllm]
+          env: [{name: MOCK_NAME, value: mock-a}]
+          ports: [{containerPort: 9000}]
+          readinessProbe: {httpGet: {path: /v1/models, port: 9000}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: mock-a, namespace: uat-infra}
+spec:
+  selector: {app: mock-a}
+  ports: [{port: 9000, targetPort: 9000}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: mock-b, namespace: uat-infra}
+spec:
+  selector: {matchLabels: {app: mock-b}}
+  template:
+    metadata: {labels: {app: mock-b, role: upstream}}
+    spec:
+      containers:
+        - name: mockllm
+          image: halos-uat/infra:uat
+          imagePullPolicy: Never
+          command: [mockllm]
+          env: [{name: MOCK_NAME, value: mock-b}]
+          ports: [{containerPort: 9000}]
+          readinessProbe: {httpGet: {path: /v1/models, port: 9000}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: mock-b, namespace: uat-infra}
+spec:
+  selector: {app: mock-b}
+  ports: [{port: 9000, targetPort: 9000}]
+---
+# A Service with no endpoints: connections are refused, so failover must kick in.
+apiVersion: v1
+kind: Service
+metadata: {name: mock-down, namespace: uat-infra}
+spec:
+  selector: {app: nothing-runs-here}
+  ports: [{port: 9000, targetPort: 9000}]
+---
+# ---------------- halod download (enroll.sh fetches and checksums it) ----------------
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: dl, namespace: uat-infra}
+spec:
+  selector: {matchLabels: {app: dl}}
+  template:
+    metadata: {labels: {app: dl}}
+    spec:
+      containers:
+        - name: httpd
+          image: halos-uat/infra:uat
+          imagePullPolicy: Never
+          command: [busybox-extras, httpd, -f, -p, "8080", -h, /srv]
+          ports: [{containerPort: 8080}]
+          readinessProbe: {tcpSocket: {port: 8080}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: dl, namespace: uat-infra}
+spec:
+  selector: {app: dl}
+  ports: [{port: 80, targetPort: 8080}]
+---
+# ---------------- ingress: TLS portal/API, proxy, OTLP (nginx; cert from scripts/uat-k8s.sh) ----------------
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: ingress, namespace: uat-infra}
+data:
+  default.conf: |
+    resolver kube-dns.kube-system.svc.cluster.local valid=5s;
+    client_max_body_size 32m;   # OTLP batches and model requests (halo-proxy allows 32MiB)
+    server {
+      listen 8443 ssl;
+      server_name portal.uat-infra.svc.cluster.local;
+      ssl_certificate /tls/tls.crt;
+      ssl_certificate_key /tls/tls.key;
+      location / {
+        set $up halos-server.halos-uat.svc.cluster.local;
+        proxy_pass http://$up:80;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+      }
+    }
+    server {
+      listen 8088;
+      location / {
+        set $up halos-proxy.halos-uat.svc.cluster.local;
+        proxy_pass http://$up:80;
+        proxy_http_version 1.1;
+        proxy_buffering off;
+        proxy_read_timeout 300s;
+      }
+    }
+    server {
+      listen 4318;
+      location / { set $up halos-otel.halos-uat.svc.cluster.local; proxy_pass http://$up:4318; }
+    }
+    server {
+      listen 4319;
+      location / { set $up halos-otel.halos-uat.svc.cluster.local; proxy_pass http://$up:4319; }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: ingress, namespace: uat-infra}
+spec:
+  selector: {matchLabels: {app: ingress}}
+  template:
+    metadata: {labels: {app: ingress}}
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:alpine
+          imagePullPolicy: Never
+          ports: [{containerPort: 8443}, {containerPort: 8088}, {containerPort: 4318}, {containerPort: 4319}]
+          readinessProbe: {tcpSocket: {port: 8088}}
+          volumeMounts:
+            - {name: conf, mountPath: /etc/nginx/conf.d}
+            - {name: tls, mountPath: /tls, readOnly: true}
+      volumes:
+        - {name: conf, configMap: {name: ingress}}
+        - {name: tls, secret: {secretName: portal-tls}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: portal, namespace: uat-infra}
+spec:
+  type: NodePort
+  selector: {app: ingress}
+  ports:
+    - {name: https, port: 443, targetPort: 8443, nodePort: 30443}
+    - {name: proxy, port: 8088, targetPort: 8088, nodePort: 30088}
+    - {name: otlp, port: 4318, targetPort: 4318, nodePort: 30318}
+    - {name: otlp-gw, port: 4319, targetPort: 4319, nodePort: 30319}
+---
+# ---------------- ClickHouse (evidence store; collector writes, controller/analyze read) ----------------
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: clickhouse, namespace: halos-uat}
+spec:
+  selector: {matchLabels: {app: clickhouse}}
+  template:
+    metadata: {labels: {app: clickhouse}}
+    spec:
+      containers:
+        - name: clickhouse
+          image: clickhouse/clickhouse-server:26.9.7.9
+          imagePullPolicy: Never
+          env:
+            - {name: CLICKHOUSE_USER, value: halo}
+            - {name: CLICKHOUSE_PASSWORD, valueFrom: {secretKeyRef: {name: clickhouse, key: password}}}
+            - {name: CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT, value: "1"}
+          ports: [{containerPort: 8123}, {containerPort: 9000}]
+          readinessProbe: {httpGet: {path: /ping, port: 8123}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: clickhouse, namespace: halos-uat}
+spec:
+  type: NodePort
+  selector: {app: clickhouse}
+  ports:
+    - {name: http, port: 8123, targetPort: 8123, nodePort: 30123}
+    - {name: native, port: 9000, targetPort: 9000}
+---
+# ---------------- an unauthorised pod (NetworkPolicy checks) ----------------
+apiVersion: v1
+kind: Pod
+metadata: {name: outsider, namespace: uat-outsider}
+spec:
+  containers:
+    - name: sh
+      image: halos-uat/infra:uat
+      imagePullPolicy: Never
+      command: [sleep, infinity]
+---
+# ---------------- the developer "laptop": a Linux box that enrolls and runs halod as root ----------------
+apiVersion: v1
+kind: Pod
+metadata: {name: laptop, namespace: uat-device}
+spec:
+  containers:
+    - name: laptop
+      image: halos-uat/infra:uat
+      imagePullPolicy: Never
+      command: [sleep, infinity]
+      env:
+        # Trust the uat ingress CA (curl in enroll.sh, Go TLS in halod).
+        - {name: SSL_CERT_FILE, value: /uat-ca/ca.crt}
+        - {name: CURL_CA_BUNDLE, value: /uat-ca/ca.crt}
+      volumeMounts: [{name: ca, mountPath: /uat-ca, readOnly: true}]
+  volumes: [{name: ca, configMap: {name: uat-ca}}]

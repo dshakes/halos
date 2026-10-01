@@ -90,3 +90,35 @@ func TestSecret(t *testing.T) {
 		}
 	}
 }
+
+func TestClientCredentialsNeverSurviveAuthSetters(t *testing.T) {
+	all := func() http.Header {
+		h := http.Header{}
+		for _, n := range ClientCredentialHeaders {
+			h.Set(n, "client")
+		}
+		return h
+	}
+	check := func(name string, h http.Header, keep string) {
+		for _, n := range ClientCredentialHeaders {
+			if v := h.Get(n); v != "" && http.CanonicalHeaderKey(n) != http.CanonicalHeaderKey(keep) {
+				t.Errorf("%s: %s=%q survived", name, n, v)
+			}
+		}
+		if keep != "" && (h.Get(keep) == "" || h.Get(keep) == "client") {
+			t.Errorf("%s: %s=%q is not the gateway credential", name, keep, h.Get(keep))
+		}
+	}
+	h := all()
+	StripClientCredentials(h)
+	check("strip", h, "")
+	h = all()
+	SetBearer(h, "tok")
+	check("SetBearer", h, "Authorization")
+	h = all()
+	SetAuth(h, "azure-openai", &policy.Credential{}, "k")
+	check("SetAuth api-key", h, "Api-Key")
+	h = all()
+	SetAuth(h, "openai", &policy.Credential{}, "k")
+	check("SetAuth bearer", h, "Authorization")
+}

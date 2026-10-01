@@ -130,10 +130,10 @@ func TestCheckRendered(t *testing.T) {
 		{"codex trusted project", "codex", []harness.File{{Path: codexPath, Data: []byte(goodCodex + "[projects.\"/\"]\ntrust_level = \"trusted\"\n")}}, nil, checkGateway(), "trust_level"},
 		{"codex named profile provider", "codex", []harness.File{{Path: codexPath, Data: []byte(goodCodex + "[profiles.p]\nmodel_provider = \"openai\"\n")}}, nil, checkGateway(), "profiles.p.model_provider"},
 
-		{"gemini logPrompts forced", "gemini-cli", []harness.File{{Path: geminiPath, Data: []byte(`{"admin": {"secureModeEnabled": true}, "telemetry": {"logPrompts": true}}`)}}, nil, nil, "logPrompts"},
-		{"gemini logPrompts allowed", "gemini-cli", []harness.File{{Path: geminiPath, Data: []byte(`{"admin": {"secureModeEnabled": true}, "telemetry": {"logPrompts": true}}`)}}, func(p *policy.Profile) { p.Telemetry.LogPrompts = true }, nil, ""},
-		{"gemini secure mode off (N1)", "gemini-cli", []harness.File{{Path: geminiPath, Data: []byte(`{"admin": {"secureModeEnabled": false}}`)}}, nil, nil, "admin.secureModeEnabled"},
-		{"gemini secure mode missing", "gemini-cli", []harness.File{{Path: geminiPath, Data: []byte(`{}`)}}, nil, nil, "admin.secureModeEnabled"},
+		{"gemini logPrompts forced", "gemini-cli", []harness.File{{Path: geminiPath, Data: []byte(`{"security": {"disableYoloMode": true}, "telemetry": {"logPrompts": true}}`)}}, nil, nil, "logPrompts"},
+		{"gemini logPrompts allowed", "gemini-cli", []harness.File{{Path: geminiPath, Data: []byte(`{"security": {"disableYoloMode": true}, "telemetry": {"logPrompts": true}}`)}}, func(p *policy.Profile) { p.Telemetry.LogPrompts = true }, nil, ""},
+		{"gemini YOLO allowed (N1)", "gemini-cli", []harness.File{{Path: geminiPath, Data: []byte(`{"security": {"disableYoloMode": false}}`)}}, nil, nil, "security.disableYoloMode"},
+		{"gemini disableYoloMode missing", "gemini-cli", []harness.File{{Path: geminiPath, Data: []byte(`{}`)}}, nil, nil, "security.disableYoloMode"},
 		{"gemini secure mode not required", "gemini-cli", []harness.File{{Path: geminiPath, Data: []byte(`{}`)}}, func(p *policy.Profile) { p.Permissions.DisableBypass = false }, nil, ""},
 
 		{"unknown harness tolerates non-json", "fake", []harness.File{{Path: "/x.json", Data: []byte("nope")}}, nil, nil, ""},
@@ -167,7 +167,7 @@ func TestBuildBackstop(t *testing.T) {
 		{"claude-code", []harness.File{{Path: claudePath, Data: []byte(strings.Replace(goodClaude, `"default"`, `"bypassPermissions"`, 1))}}, "bypassPermissions"},
 		{"codex", []harness.File{{Path: codexPath, Data: []byte(strings.Replace(goodCodex, "workspace-write", "danger-full-access", 1))}}, "danger-full-access"},
 		// Auditor's attacks with the guardrails bypassed (Build is called directly).
-		{"gemini-cli", []harness.File{{Path: geminiPath, Data: []byte(`{"admin": {"secureModeEnabled": false}}`)}}, "admin.secureModeEnabled"},
+		{"gemini-cli", []harness.File{{Path: geminiPath, Data: []byte(`{"security": {"disableYoloMode": false}}`)}}, "security.disableYoloMode"},
 		{"codex", []harness.File{{Path: codexPath, Data: []byte(goodCodex + "[sandbox_workspace_write]\nwritable_roots = [\"/\"]\nnetwork_access = true\n")}}, "writable_roots"},
 	}
 	for _, tt := range tests {

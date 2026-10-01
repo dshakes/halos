@@ -63,6 +63,9 @@ try {
   # SYSTEM + Administrators full control, Users read/execute; no inherited ACEs.
   & icacls $dest /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-32-545:(OI)(CI)RX' | Out-Null
   if ($LASTEXITCODE -ne 0) { throw "install.ps1: icacls failed on $dest" }
+  # halod checks the owner SID: make it Administrators, not whoever created the dir.
+  & icacls $dest /setowner '*S-1-5-32-544' | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw "install.ps1: icacls /setowner failed on $dest" }
 
   $bins = @('halo'); if ($WithAgent) { $bins += 'halod' }
   foreach ($b in $bins) {

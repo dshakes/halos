@@ -47,22 +47,22 @@ func settingsPath(os harness.OS) string {
 
 func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []string, error) {
 	warns := hutil.WarnUnsupported(name, p,
-		"models.default", "permissions.disableBypass", "mcp.servers", "telemetry.enabled", "telemetry.logPrompts")
+		"models.default", "permissions.disableBypass", "mcp.servers", "telemetry.enabled", "telemetry.logPrompts", "telemetry.attributes")
 	warns = append(warns, "gemini: cannot self-enforce version; halod enforces")
 	if c.Ring != "" || c.Release != "" {
 		warns = append(warns, "gemini: ring/release request headers are not supported")
 	}
 
-	if c.Experiment != "" {
-		warns = append(warns, name+": no telemetry resource-attribute setting; CLI metrics are not attributed to experiment "+c.Experiment+" (the gateway still attributes its own metrics)")
-	}
-
 	s := map[string]any{}
-	if p.Models.Default != "" {
-		s["model"] = map[string]any{"name": p.Models.Default}
+	if m := hutil.Model(p, name); m != "" {
+		s["model"] = map[string]any{"name": m}
 	}
 	if p.Permissions.DisableBypass {
-		s["admin"] = map[string]any{"secureModeEnabled": true} // disallows YOLO mode and "Always allow"
+		// security.disableYoloMode refuses --yolo / YOLO approval mode (in every
+		// version since at least 0.12.0). admin.secureModeEnabled is not used: on
+		// 0.34.0 the admin block comes only from Google's remote admin controls, so
+		// the system settings file's copy is ignored (verified in test/uat).
+		s["security"] = map[string]any{"disableYoloMode": true}
 	}
 	if len(p.MCP.Servers) > 0 {
 		servers := map[string]any{}
@@ -94,10 +94,19 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 		if t.Protocol != "" && t.Protocol != "grpc" {
 			proto = "http"
 		}
+		if v := p.Harnesses[name].Version; proto == "http" && hutil.VersionBefore(v, 0, 34) {
+			warns = append(warns, fmt.Sprintf("gemini: %s posts every OTLP/HTTP signal to otlpEndpoint verbatim (no /v1/logs|metrics|traces; fixed in gemini-cli 0.34.0), so a standard collector rejects it; use grpc or gemini-cli >= 0.34.0", v))
+		}
 		s["telemetry"] = map[string]any{
 			"enabled": true, "target": "local", "otlpEndpoint": t.OTLPEndpoint,
 			"otlpProtocol": proto, "logPrompts": t.LogPrompts,
 		}
+	}
+	if c.Gateway != nil {
+		// GOOGLE_GEMINI_BASE_URL only applies to gemini-api-key auth; enforcing
+		// that type stops a Google-login session from bypassing the gateway
+		// (gemini refuses to start with another type; verified on 0.12.0 in test/uat).
+		hutil.DeepMerge(s, map[string]any{"security": map[string]any{"auth": map[string]any{"enforcedType": "gemini-api-key"}}})
 	}
 	hutil.DeepMerge(s, p.Harnesses[name].Overrides)
 	data, err := hutil.JSON(s)
@@ -106,16 +115,23 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 	}
 	files := []harness.File{{Path: settingsPath(c.OS), Mode: 0o644, Data: data}}
 
+	script := ""
 	if g := c.Gateway; g != nil {
 		if proto := hutil.Protocol(g, name, "gemini"); proto != "gemini" {
 			return nil, nil, fmt.Errorf("gemini: unsupported gateway protocol %q", proto)
 		}
 		switch c.OS {
 		case harness.Linux:
-			files = append(files, harness.File{
-				Path: "/etc/profile.d/halos-gemini.sh", Mode: 0o644,
-				Data: []byte("export GOOGLE_GEMINI_BASE_URL=" + shQuote(g.BaseURL) + "\n"),
-			})
+			script += "export GOOGLE_GEMINI_BASE_URL=" + hutil.ShQuote(g.BaseURL) + "\n"
+			if h := g.Auth.HelperCommand; h != "" {
+				// gemini-cli reads its credential from GEMINI_API_KEY and sends it as
+				// x-goog-api-key, which halo-proxy verifies like a bearer token. The
+				// token is minted at shell start (never written to disk) and is
+				// short-lived: open a new shell when it expires.
+				script += "export GEMINI_API_KEY=\"$(sh -c " + hutil.ShQuote(h) + " 2>/dev/null)\"\n"
+			} else {
+				warns = append(warns, "gemini: gateway.auth.helperCommand is unset, so GEMINI_API_KEY is not rendered; set it to a Halos token yourself")
+			}
 			warns = append(warns, "gemini: settings cannot set env; gateway is applied via /etc/profile.d (login shells only); GOOGLE_GEMINI_BASE_URL is only honored with gemini-api-key auth and must be HTTPS or localhost")
 		default:
 			warns = append(warns, "gemini: settings cannot set env and no profile.d equivalent is rendered for "+string(c.OS)+"; set GOOGLE_GEMINI_BASE_URL="+g.BaseURL+" yourself")
@@ -123,17 +139,15 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 	} else {
 		warns = append(warns, name+": no gateway configured; traffic is not routed through Halos")
 	}
-	return files, warns, nil
-}
-
-func shQuote(s string) string {
-	out := "'"
-	for _, r := range s {
-		if r == '\'' {
-			out += `'\''`
-			continue
+	if p.Telemetry.Enabled {
+		if c.OS == harness.Linux {
+			script += hutil.OTELShellWrapper("gemini", hutil.OTELResourceAttributes(name, p.Telemetry, c))
+		} else {
+			warns = append(warns, name+": no telemetry resource-attribute setting off Linux (no profile.d); CLI telemetry carries no halo.ring/halo.release")
 		}
-		out += string(r)
 	}
-	return out + "'"
+	if script != "" {
+		files = append(files, harness.File{Path: "/etc/profile.d/halos-gemini.sh", Mode: 0o644, Data: []byte(script)})
+	}
+	return files, warns, nil
 }

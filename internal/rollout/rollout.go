@@ -10,6 +10,7 @@ package rollout
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -73,6 +74,8 @@ type Evidence struct {
 }
 
 // Evaluate decides what to do with r now. It is pure: same inputs, same output.
+// r must be resolved with Effective so the backing experiment's guardrails
+// count.
 //
 // Order: (1) policy status and controller halts hold; (2) not started ->
 // advance to step 0; (3) a failed guardrail or scorecard -> the step's
@@ -207,6 +210,11 @@ func gates(s policy.RolloutStep, st State, ev Evidence, now time.Time) []GateRes
 			}
 		}
 		out = append(out, g)
+	}
+	// The experiment loop rolls back on a significantly worse primary metric;
+	// an owned experiment must not lose that.
+	if rep != nil && rep.Verdict == promote.Rollback && !slices.ContainsFunc(rep.Guardrails, func(g promote.GuardrailReport) bool { return g.Result.Status == stats.Fail }) {
+		out = append(out, GateResult{Gate: "primary", Status: GateFail, Value: rep.Reason, Threshold: "not significantly worse"})
 	}
 	if sc := s.Gates.Scorecard; sc != nil {
 		out = append(out, scorecardGate(sc, ev))

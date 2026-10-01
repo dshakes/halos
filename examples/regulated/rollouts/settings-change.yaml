@@ -1,0 +1,29 @@
+# yaml-language-server: $schema=../../../schemas/rollout.schema.json
+# Every step past the security ring needs a recorded human approval.
+# Digests are placeholders; `halo release build` produces the real ones.
+apiVersion: halos.dev/v1alpha1
+kind: Rollout
+name: settings-change-example
+axis: client
+status: draft
+change:
+  version: 2026.10.1
+  release: sha256:1111111111111111111111111111111111111111111111111111111111111111
+baseline:
+  release: sha256:2222222222222222222222222222222222222222222222222222222222222222
+steps:
+  - name: security
+    strategy: blue-green
+    ring: ring0-security
+    bake: 1d
+  - name: pilot
+    strategy: blue-green
+    ring: ring1-pilot
+    bake: 3d
+    gates:
+      approval: true
+  - name: ga
+    strategy: blue-green
+    ring: ring2-ga
+    gates:
+      approval: true

@@ -14,6 +14,7 @@ export HALO_OBS_CH_HTTP_PORT="${HALO_OBS_CH_HTTP_PORT:-$(free_port)}"
 export HALO_OBS_OTLP_HTTP_PORT="${HALO_OBS_OTLP_HTTP_PORT:-$(free_port)}"
 export HALO_OBS_OTLP_GRPC_PORT="${HALO_OBS_OTLP_GRPC_PORT:-$(free_port)}"
 export HALO_OBS_OTLP_GATEWAY_PORT="${HALO_OBS_OTLP_GATEWAY_PORT:-$(free_port)}"
+export HALO_OBS_OTLP_EVAL_PORT="${HALO_OBS_OTLP_EVAL_PORT:-$(free_port)}"
 export HALO_OBS_GRAFANA_PORT="${HALO_OBS_GRAFANA_PORT:-$(free_port)}"
 export HALO_OBS_E2E=1
 
@@ -26,9 +27,9 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-go run ./cmd/halo telemetry collector-config --clickhouse tcp://clickhouse:9000 -o "$HALO_OTELCOL_CONFIG" >/dev/null
+go run ./cmd/halo telemetry collector-config --clickhouse tcp://clickhouse:9000 --eval-receiver -o "$HALO_OTELCOL_CONFIG" >/dev/null
 # Fail fast on a config the collector cannot load.
-docker run --rm -e CLICKHOUSE_USER=x -e CLICKHOUSE_PASSWORD=x -e HALO_OTLP_GATEWAY_TOKEN=x -v "$HALO_OTELCOL_CONFIG:/c.yaml:ro" \
+docker run --rm -e CLICKHOUSE_USER=x -e CLICKHOUSE_PASSWORD=x -e HALO_OTLP_GATEWAY_TOKEN=x -e HALO_OTLP_EVAL_TOKEN=x -v "$HALO_OTELCOL_CONFIG:/c.yaml:ro" \
   "$(sed -n 's/^ *image: \(otel\/[^ ]*\)$/\1/p' deploy/observability/docker-compose.yml)" validate --config=/c.yaml
 
 compose up -d

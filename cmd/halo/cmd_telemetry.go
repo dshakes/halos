@@ -26,6 +26,8 @@ func (a *app) cmdTelemetry() *cobra.Command {
 	f.StringVar(&o.GRPCEndpoint, "grpc-endpoint", "", "OTLP/gRPC listen address (default 0.0.0.0:4317)")
 	f.StringVar(&o.HTTPEndpoint, "http-endpoint", "", "OTLP/HTTP listen address (default 0.0.0.0:4318)")
 	f.StringVar(&o.GatewayHTTPEndpoint, "gateway-endpoint", "", "halo-proxy OTLP/HTTP listen address, bearer token from env "+telemetry.GatewayTokenEnv+" (default 0.0.0.0:4319)")
+	f.BoolVar(&o.EvalReceiver, "eval-receiver", false, "add the online-eval OTLP/HTTP receiver (halo.eval.* only, stamped halo.source=eval), bearer token from env "+telemetry.EvalTokenEnv)
+	f.StringVar(&o.EvalHTTPEndpoint, "eval-endpoint", "", "eval receiver listen address (default 0.0.0.0:4320)")
 	f.StringVar(&o.CLITokenFile, "cli-token-file", "", "require per-device bearer tokens (one per line in this file, as seen by the collector) on the CLI receiver")
 	f.StringVar(&o.PrometheusEndpoint, "prometheus-endpoint", "", "Prometheus scrape listen address (default 0.0.0.0:8889)")
 	f.StringVarP(&out, "out", "o", "-", "output file ('-' = stdout)")

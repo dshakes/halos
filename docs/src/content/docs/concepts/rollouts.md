@@ -67,7 +67,7 @@ All gates must pass before a step advances:
 1. **A failed gate acts immediately**, before bake or samples finish. `rollback` on a traffic-axis rollout trips the experiment's signed kill switch, so gateways send everyone to control. It only does that when the breach comes from gateway-sourced evidence; CLI-reported metrics or a scorecard never auto-kill. `pause` stops further steps without changing exposure. Both open a PR that records the halt, and the rollout holds until the policy leaves `active`.
 2. **Advance and complete only open a PR**, once per step. A merged PR moves `step:`; the controller never merges.
 
-State lives in `<data-dir>/rollouts/<name>.json`. The step, entry time and halt are derived by replaying a **hash-chained history**: each entry is a sha256 over its fields and the previous hash. An edited file fails verification and is rejected rather than trusted. Actions carry idempotency keys per step, so a retried tick does not open a second PR or trip the kill twice.
+State lives in `<data-dir>/rollouts/<name>.json`. The step, entry time and halt are derived by replaying a **hash-chained history**: each entry is a sha256 over its fields and the previous hash. A partially edited file fails verification and is rejected. The chain is unkeyed, so it detects edits, not a complete rewrite of the file: protect the data dir. Actions carry idempotency keys per step, so a retried tick does not open a second PR or trip the kill twice.
 
 ## Plan it
 
@@ -75,34 +75,41 @@ State lives in `<data-dir>/rollouts/<name>.json`. The step, entry time and halt 
 $ halo rollout plan opus-5-5-upgrade --policy-dir examples/acme-corp
 Rollout opus-5-5-upgrade  (traffic axis, active)
 Change:     gateway alias opus -> treatment route of experiment opus-5-5-canary
+Experiment: opus-5-5-canary
 
-  #  START    STEP         STRATEGY     TREATMENT          BAKE  MIN N  GATES                                              ON FAIL
-  1  T+0      dark-launch  dark-launch  [#.........]  10%  2d    500    latency.p95_ms<=15%, eval:opus-5-5                 pause
-  2  T+2d     canary-1     canary       [#.........]   1%  6h    200    api.error_rate<=5%, latency.p95_ms<=15%            rollback
-> 3  T+2d6h   canary-5     canary       [#.........]   5%  12h   500    api.error_rate<=5%, latency.p95_ms<=15%            rollback
-  4  T+2d18h  canary-25    canary       [###.......]  25%  1d    2000   api.error_rate<=5%, latency.p95_ms<=15%            rollback
-  5  T+3d18h  canary-50    canary       [#####.....]  50%  1d    4000   api.error_rate<=5%, latency.p95_ms<=15%, approval  rollback
-  6  T+4d18h  holdout      holdout      [##########]  95%  14d   1000   api.error_rate<=5%, latency.p95_ms<=15%, approval  rollback
+  #  START    STEP         STRATEGY     TREATMENT          EXPOSURE                                            BAKE  MIN N  GATES                                                                   ON FAIL
+  1  T+0      dark-launch  dark-launch  [#.........]  10%  10% of ring1-canary requests mirrored, none served  2d    500    latency.p50_ms<=10%, latency.p95_ms<=15%, eval:opus-5-5                 pause
+  2  T+2d     canary-1     canary       [#.........]   1%  1% of ring1-canary on treatment                     6h    200    latency.p50_ms<=10%, latency.p95_ms<=15%, api.error_rate<=5%            rollback
+> 3  T+2d6h   canary-5     canary       [#.........]   5%  5% of ring1-canary on treatment                     12h   500    latency.p50_ms<=10%, latency.p95_ms<=15%, api.error_rate<=5%            rollback
+  4  T+2d18h  canary-25    canary       [###.......]  25%  25% of ring1-canary on treatment                    1d    2000   latency.p50_ms<=10%, latency.p95_ms<=15%, api.error_rate<=5%            rollback
+  5  T+3d18h  canary-50    canary       [#####.....]  50%  50% of ring1-canary on treatment                    1d    4000   latency.p50_ms<=10%, latency.p95_ms<=15%, api.error_rate<=5%, approval  rollback
+  6  T+4d18h  holdout      holdout      [##########]  95%  5% of ring1-canary held on control                  14d   1000   latency.p50_ms<=10%, latency.p95_ms<=15%, api.error_rate<=5%, approval  rollback
 
 Earliest completion: T+18d18h (sum of bakes; samples and approvals add time). Every step is a PR a human merges.
+On completion: gateway.models.opus has failover targets: re-point it to orchestrator/arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/z9w5opus55dd by hand in this PR
 ```
 
-The `EXPOSURE` column (for example "10% of ring1-canary requests mirrored, none served") is trimmed here.
+The GATES column is what each step is judged on: the backing experiment's guardrails (here `latency.p50_ms` and `latency.p95_ms`), each overridden by the step's own guardrail on the same metric, plus the step's other guardrails. An active rollout owns its experiment, so dropping the experiment's guardrails would silently disable their auto-rollback. Shadow-only metrics count only on a dark-launch step.
 
 ## Rehearse a regression
 
 ```console
-$ halo rollout simulate opus-5-5-upgrade --policy-dir examples/acme-corp --scenario regression
+$ halo rollout simulate opus-5-5-upgrade --scenario regression --policy-dir examples/acme-corp
+Simulating opus-5-5-upgrade (scenario regression, tick 1h, 1000 users/h, seed 1; PRs assumed merged at once)
+
 AT       STEP         DECISION  WHY
 T+0      -            advance   not started: propose step dark-launch
+T+1h     dark-launch  hold      bake: baking, 1d23h left; samples: 100/100 of 500 per arm; guardrail:halo.latency.p50_ms: inconclusive, upp...
+T+5h     dark-launch  hold      bake: baking, 1d19h left
 T+2d     dark-launch  advance   all gates passed: propose step canary-1
-T+2d20h  canary-1     hold      guardrail:halo.api.error_rate: inconclusive, upper bound +15.3% vs limit 5.0%
-T+3d1h   canary-1     rollback  guardrail:halo.api.error_rate failed: +10.2% [+5.1%, +15.2%] (threshold regression <= 5.0%)
+T+2d1h   canary-1     hold      bake: baking, 5h left; samples: 990/10 of 200 per arm; guardrail:halo.latency.p50_ms: inconclusive, upper b...
+T+2d6h   canary-1     hold      samples: 5940/60 of 200 per arm; guardrail:halo.latency.p50_ms: inconclusive, upper bound +34.1% vs limit 1...
+T+2d20h  canary-1     rollback  guardrail:halo.latency.p50_ms failed: +21.3% [+14.8%, +27.9%] (threshold regression <= 10.0%)
 
-Outcome: rollback after 3d1h
+Outcome: rollback after 2d20h
 ```
 
-`simulate` runs the same state machine on synthetic evidence (or recorded evidence) and writes nothing. In `regression`, the first guardrail is twice its limit worse from `--breach-step` on (default: the second guardrailed step). Hold rows are trimmed above.
+`simulate` runs the same state machine on synthetic evidence (or recorded evidence) and writes nothing. In `regression`, the first guardrail is twice its limit worse from `--breach-step` on (default: the second guardrailed step).
 
 ## Commands
 

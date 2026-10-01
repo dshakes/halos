@@ -56,7 +56,7 @@ Privileged actions append to the hash-chained `audit.jsonl` in `--data-dir`, fsy
 On every tick the controller evaluates each `status: running` experiment
 against ClickHouse evidence and then:
 
-- **rollback**: kills the experiment at once **if** the deciding evidence is gateway-sourced and a kill key is configured, opens a PR that sets `status: paused` with the evidence in the body, and notifies. Rollbacks decided on CLI telemetry are not auto-killed (`killOutcome: not_gateway_evidence`); without a kill key the notification says to merge urgently.
+- **rollback**: kills the experiment at once **if** the deciding evidence is gateway-sourced and a kill key is configured, opens a PR that sets `status: paused` with the evidence in the body, and notifies. Rollbacks decided on CLI telemetry or eval (LLM-judge) evidence are not auto-killed (`killOutcome: not_gateway_evidence`); without a kill key the notification says to merge urgently.
 - **promote**: opens a PR that concludes the experiment and notifies. Before merging, a human adds the rollout change (ring release or model route).
 - **expired**: opens a PR that concludes the experiment and notifies.
 

@@ -19,3 +19,6 @@ coverage.out
 # eval judge cache and upgrade watcher state
 .judge-cache/
 .halos/upgrade-state.json
+
+# make demo: generated collector config
+deploy/compose/demo/.otelcol.yaml

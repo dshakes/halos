@@ -1,0 +1,18 @@
+# yaml-language-server: $schema=../../schemas/halos.schema.json
+# Simple mode: this one file is the whole policy repo. `halo explain` prints
+# the Gateway, Profile and Rings it expands to; `halo eject` writes them out.
+apiVersion: halos.dev/v1alpha1
+kind: Halos
+org: acme
+tools:
+  claude-code: 2.1.280
+  codex: {version: 0.99.0, model: codex}   # codex speaks the OpenAI wire: start it on an OpenAI model
+provider: anthropic
+models:
+  default: claude-sonnet-4-5
+  strong: claude-opus-4-1
+  codex: openai/gpt-5-codex
+gateway: https://ai.acme.example
+identity: {issuer: https://login.acme.example, audience: halos, adminGroups: [ai-platform]}
+safety: standard
+rollout: standard

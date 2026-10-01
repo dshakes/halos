@@ -1,6 +1,6 @@
 # Halos evidence plane: OTLP -> otel-collector-contrib -> ClickHouse -> Grafana.
 #
-#   go run ./cmd/halo telemetry collector-config --clickhouse tcp://clickhouse:9000 -o otelcol.yaml
+#   go run ./cmd/halo telemetry collector-config --clickhouse tcp://clickhouse:9000 --eval-receiver -o otelcol.yaml
 #   HALO_OTELCOL_CONFIG=./otelcol.yaml docker compose up -d
 #
 # `make obs-e2e` does all of that plus a synthetic-telemetry assertion run.
@@ -32,6 +32,9 @@ services:
       CLICKHOUSE_PASSWORD: halo-dev-only
       # Bearer token halo-proxy presents on the gateway receiver (4319); local dev stack only.
       HALO_OTLP_GATEWAY_TOKEN: halo-dev-gateway-token
+      # Separate token for `halo eval online` on the eval receiver (4320, only with
+      # collector-config --eval-receiver); never the gateway token. Local dev only.
+      HALO_OTLP_EVAL_TOKEN: halo-dev-eval-token
     volumes:
       - type: bind
         source: ${HALO_OTELCOL_CONFIG:?set HALO_OTELCOL_CONFIG to the output of halo telemetry collector-config}
@@ -41,6 +44,7 @@ services:
       - "127.0.0.1:${HALO_OBS_OTLP_HTTP_PORT:-14318}:4318"
       - "127.0.0.1:${HALO_OBS_OTLP_GRPC_PORT:-14317}:4317"
       - "127.0.0.1:${HALO_OBS_OTLP_GATEWAY_PORT:-14319}:4319"
+      - "127.0.0.1:${HALO_OBS_OTLP_EVAL_PORT:-14320}:4320"
     depends_on:
       clickhouse: {condition: service_healthy}
 

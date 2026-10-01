@@ -1,0 +1,24 @@
+// Halos dev container (Codespaces / VS Code Dev Containers).
+// Try the whole stack: `make demo` (console, mock OIDC, proxy, shadow, Grafana),
+// then open the forwarded "Halos console" port; `make demo-down` tears it down.
+// Docs: docs/src/content/docs/getting-started/playground.md
+{
+  "name": "halos",
+  "image": "mcr.microsoft.com/devcontainers/base:bookworm",
+  "features": {
+    // go.mod: go 1.25.0, toolchain go1.26.6; install the toolchain so nothing downloads at build time.
+    "ghcr.io/devcontainers/features/go:1": { "version": "1.26.6" },
+    "ghcr.io/devcontainers/features/node:1": { "version": "lts" },
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+  },
+  "postCreateCommand": "make build",
+  "remoteEnv": { "PATH": "${containerWorkspaceFolder}/bin:${containerEnv:PATH}" },
+  "forwardPorts": [18080, 18081, 18088, 18090, 13000],
+  "portsAttributes": {
+    "18080": { "label": "Halos console + portal", "onAutoForward": "openBrowser" },
+    "18081": { "label": "Mock IdP (OIDC, dev only)" },
+    "18088": { "label": "halo-proxy (model API)" },
+    "18090": { "label": "halo-shadow metrics" },
+    "13000": { "label": "Grafana (admin / halo-dev-only)" }
+  }
+}

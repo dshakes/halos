@@ -85,7 +85,7 @@
           },
           "percent": {
             "type": "number",
-            "description": "Percent (0-100) of matching subjects, hashed under the salt halos/toggles/<name>.",
+            "description": "Percent (0-100) of matching subjects, hashed under the salt halos/toggles/<name>. Omitted = no percent condition; an explicit 0 matches nobody.",
             "minimum": 0,
             "maximum": 100
           },

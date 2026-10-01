@@ -50,7 +50,7 @@ func TestSamplesDerivedMetrics(t *testing.T) {
 // or an experiment using it can never decide (the gap `make obs-e2e` found).
 func TestRegistryOnlineMetricsAreDerived(t *testing.T) {
 	for _, m := range policy.MetricRegistry {
-		online := m.HasSource(policy.SourceOnlineCLI) || m.HasSource(policy.SourceOnlineGateway)
+		online := m.HasSource(policy.SourceOnlineCLI) || m.HasSource(policy.SourceOnlineGateway) || m.HasSource(policy.SourceOnlineEval)
 		if _, ok := derivedSamples[m.Name]; online != ok {
 			t.Errorf("%s: online source=%v but derived query=%v", m.Name, online, ok)
 		}
@@ -76,6 +76,7 @@ func TestSamplesSourcePrecedence(t *testing.T) {
 		{"p95 cli fallback", "halo.latency.p95_ms", false, 2, "quantileExactIf(0.95)", SourceCLI},
 		{"tool errors cli only", "halo.tool.error_rate", false, 1, "'halo.tool.call'", SourceCLI},
 		{"plain metric is client-supplied", "halo.task.success", false, 1, "{metric:String}", SourceCLI},
+		{"judge score is eval-sourced only", "halo.eval.judge.score", false, 1, "attrs['halo.source'] = 'eval' AND metric = 'halo.eval.judge.score'", SourceEval},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var qs []string
@@ -124,5 +125,22 @@ func TestSamplesErrorAndEmpty(t *testing.T) {
 	s, _, err := (&ClickHouse{URL: empty.URL}).Samples(context.Background(), "e", "halo.api.error_rate")
 	if err != nil || len(s) != 0 {
 		t.Fatalf("no data from any source: %v %v", s, err)
+	}
+}
+
+// Judge scores: only halo.source=eval rows, never a CLI fallback.
+func TestJudgeScoreReadsOnlyEvalRows(t *testing.T) {
+	var qs []string
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		qs = append(qs, string(b))
+	}))
+	defer srv.Close()
+	s, src, err := (&ClickHouse{URL: srv.URL}).Samples(context.Background(), "e", "halo.eval.judge.score")
+	if err != nil || len(s) != 0 || src != "" || len(qs) != 1 {
+		t.Fatalf("no eval rows must mean no samples and no fallback: %v %q %v queries=%d", s, src, err, len(qs))
+	}
+	if strings.Count(qs[0], "metric = 'halo.eval.judge.score'") != strings.Count(qs[0], evalScore) {
+		t.Fatalf("judge rows read without the halo.source=eval filter: %q", qs[0])
 	}
 }

@@ -109,6 +109,10 @@ stopping: {method: msprt, alpha: 0.05, minSamples: 10, maxDays: 14, maxSpendUSD:
 			"--key", key, "--registry", repo, "--plain-http", "--no-artifacts", "--output", "json")
 	}
 	out := publish("1.0.0", filepath.Join(keys, "halo.key"), repo).stdout
+	var published struct{ Digest string } // the ring release
+	if err := json.Unmarshal([]byte(out), &published); err != nil || published.Digest == "" {
+		t.Fatalf("publish output: %v\n%s", err, out)
+	}
 	for _, ch := range []string{"ring1-ga.x-cli-upgrade.control", "ring1-ga.x-cli-upgrade.treatment"} {
 		if !strings.Contains(out, ch) {
 			t.Fatalf("publish did not write channel %s:\n%s", ch, out)
@@ -230,6 +234,13 @@ stopping: {method: msprt, alpha: 0.05, minSamples: 10, maxDays: 14, maxSpendUSD:
 		return s.Status
 	}
 
+	digestOf := func(d device) string {
+		var s struct{ Digest string }
+		if err := json.Unmarshal([]byte(readFile(t, filepath.Join(d.root, "var/lib/halos/state.json"))), &s); err != nil {
+			t.Fatal(err)
+		}
+		return s.Digest
+	}
 	pins := map[string]string{"control": pin, "treatment": pinNext}
 	for variant, d := range devices {
 		if r := halod(d); r.code != 0 {
@@ -305,6 +316,10 @@ stopping: {method: msprt, alpha: 0.05, minSamples: 10, maxDays: 14, maxSpendUSD:
 			// one kill-poll tick, plus slack for process scheduling
 			waitFor(t, killPoll+3*time.Second, what, want)
 		}
+		treatCh := digestOf(d) // the treatment channel's release
+		if treatCh == "" || treatCh == published.Digest {
+			t.Fatalf("treatment device digest %q must be its channel release, not the ring release %s", treatCh, published.Digest)
+		}
 		if code, body := post(admin, "/api/v1/experiments/cli-upgrade/kill", `{"reason":"e2e"}`); code != 200 {
 			t.Fatalf("kill: %d %s", code, body)
 		}
@@ -314,6 +329,10 @@ stopping: {method: msprt, alpha: 0.05, minSamples: 10, maxDays: 14, maxSpendUSD:
 			return lo == pin && hi == pin && !strings.Contains(attrs, "halo.variant=treatment") &&
 				s.Experiment == "cli-upgrade" && s.Variant == "" && s.Killed && s.ErrorCode == ""
 		})
+		// back on the ring release itself, from the kill list alone: nothing was republished
+		if got := digestOf(d); got != published.Digest {
+			t.Fatalf("killed device digest %s, want the ring release %s", got, published.Digest)
+		}
 		if code, body := post(admin, "/api/v1/experiments/cli-upgrade/unkill", `{"reason":"e2e done"}`); code != 200 {
 			t.Fatalf("unkill: %d %s", code, body)
 		}
@@ -323,6 +342,9 @@ stopping: {method: msprt, alpha: 0.05, minSamples: 10, maxDays: 14, maxSpendUSD:
 			return lo == pinNext && hi == pinNext && strings.Contains(attrs, "halo.variant=treatment") &&
 				s.Variant == "treatment" && !s.Killed
 		})
+		if got := digestOf(d); got != treatCh {
+			t.Fatalf("unkilled device digest %s, want the treatment channel release %s", got, treatCh)
+		}
 	})
 
 	t.Run("paused experiment converges to the ring release", func(t *testing.T) {

@@ -39,7 +39,7 @@ sudo halod once --config /etc/halos/halod.yaml     # one verified cycle
 halod status --state /var/lib/halos/state.json   # last status as JSON
 ```
 
-**Check:** `halod status` prints the ring, the release `digest`, per-harness `want` and `installed` versions, and an empty `drift` list. Full field list: [CLI reference](/halos/reference/cli/#halod).
+**Check:** `halod status` prints the ring, the release `digest`, per-harness `want` and `installed` versions, and an empty `drift` list. Full field list: [CLI reference](/halos/reference/binaries/#halod).
 
 Claude Code paths are OS-protected, so a non-admin user cannot edit them. See [delivery](/halos/concepts/delivery/#where-the-files-land) for every harness and OS. Windows: config, key, token and state live under `C:\Program Files\Halos\`, never `C:\ProgramData` (whose default ACL lets any user pre-seed a config); verified binaries go to `C:\Program Files\Halos\bin`, which you add to the machine PATH via MDM.
 

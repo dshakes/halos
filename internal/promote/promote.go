@@ -39,7 +39,8 @@ type MetricSource interface {
 	// Window reports when data first appeared and total spend so far.
 	Window(ctx context.Context, experiment string) (Window, error)
 	// Samples returns per-unit (user) observations of a halo.* metric, by
-	// variant name, and their evidence source (SourceGateway | SourceCLI; ""
+	// variant name, and their evidence source (SourceGateway | SourceCLI |
+	// SourceEval; ""
 	// = unknown, treated as untrusted).
 	Samples(ctx context.Context, experiment, metric string) (map[string][]float64, string, error)
 }

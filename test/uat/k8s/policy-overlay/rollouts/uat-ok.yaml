@@ -1,0 +1,11 @@
+apiVersion: halos.dev/v1alpha1
+kind: Rollout
+name: uat-ok
+axis: traffic
+status: active
+step: canary-25
+experiment: uat-ok
+change: {alias: fast}
+steps:
+  - {name: canary-25, strategy: canary, percent: 25, minSamples: 20}
+  - {name: canary-50, strategy: canary, percent: 50, minSamples: 20}

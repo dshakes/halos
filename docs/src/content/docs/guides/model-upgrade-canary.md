@@ -37,17 +37,16 @@ variants:
     routes:
       opus: {upstream: orchestrator, model: us.anthropic.claude-opus-5-5-v1:0}
 metrics:
-  primary: {metric: halo.task.success, direction: increase}
+  primary: {metric: halo.api.error_rate, direction: decrease}
   guardrails:
-    - {metric: halo.api.error_rate, direction: decrease, maxRegression: 0.02}
-    - {metric: halo.cost.usd_per_session, direction: decrease, maxRegression: 0.25}
+    - {metric: halo.latency.p50_ms, direction: decrease, maxRegression: 0.10}
     - {metric: halo.latency.p95_ms, direction: decrease, maxRegression: 0.15}
 stopping: {method: msprt, alpha: 0.05, minSamples: 500, maxDays: 14, maxSpendUSD: 2000}
 ```
 
 Start it with `halo exp start opus-5-5-canary --policy-dir policy-repo` (edits `status: running`), commit and merge, then `halo gateway compile --policy-dir policy-repo -o policy.json` so the gateway picks it up.
 
-Assignment is sticky per user: an agent never changes model mid-task, and the variant comes from the verified identity, not a header.
+Online metrics on the traffic axis come from the gateway, so task success is not one of them: `halo validate` rejects `halo.task.success` here. Judge it offline with the replay evals above. Assignment is sticky per user: an agent never changes model mid-task, and the variant comes from the verified identity, not a header. `halo gateway routes --user U --session S` shows which route a user would hit. Walkthrough: [Canary a new model](/halos/tutorials/canary-a-model/).
 
 ## 4. Conclude or roll back
 
@@ -59,7 +58,7 @@ halo exp promote opus-5-5-canary --policy-dir policy-repo --clickhouse http://cl
 
 `halo exp promote` opens a PR (human merges); for a traffic change that PR changes the alias route in the Gateway document.
 
-Rollback at any point, without touching a client: `halo exp pause opus-5-5-canary --policy-dir policy-repo`, commit, and recompile the snapshot. `halo-proxy` and `halo-kong` hot-reload the compiled policy (about a second), so users return to the control route. This is the fastest rollback Halos has, but it is only as fast as your policy pipeline: keep an on-call path that can compile and deploy the snapshot without a full review.
+Rollback at any point, without touching a client: `halo exp pause opus-5-5-canary --policy-dir policy-repo`, commit, and recompile the snapshot. `halo-proxy` and `halo-kong` hot-reload the compiled policy (about a second), so users return to the control route. This is only as fast as your policy pipeline: keep an on-call path that can compile and deploy the snapshot without a full review. The faster path needs no pipeline: `halo kill opus-5-5-canary --reason "..."` trips the signed kill list ([walkthrough](/halos/tutorials/kill-a-bad-change/)).
 
 ## Timeline
 

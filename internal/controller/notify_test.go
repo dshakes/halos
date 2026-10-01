@@ -227,7 +227,7 @@ func TestKillOutcomeWording(t *testing.T) {
 		not  string
 	}{
 		{"enforced", Event{KillOutcome: KillEnforced, Killed: true}, "Kill switch tripped: gateways route everyone to control", "FAILED"},
-		{"not gateway", Event{KillOutcome: KillNotGateway, KillError: "x"}, "Not auto-killed: rollback decided on CLI telemetry; merge the pause PR", "FAILED"},
+		{"not gateway", Event{KillOutcome: KillNotGateway, KillError: "x"}, "Not auto-killed: rollback decided on non-gateway (CLI or eval) evidence; merge the pause PR", "FAILED"},
 		{"not configured", Event{KillOutcome: KillNotConfigured, KillError: "x"}, "Kill switch not configured \u2014 merge the pause PR urgently", "FAILED"},
 		{"recorded only", Event{KillOutcome: KillRecorded, KillError: "no gateway ack"}, "Kill recorded only, not enforced by a gateway (no gateway ack)", "FAILED"},
 		{"failed", Event{KillOutcome: KillFailed, KillError: "boom"}, "KILL SWITCH FAILED: boom", "Not auto-killed"},

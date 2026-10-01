@@ -75,7 +75,7 @@ func TestCandidateSuite(t *testing.T) {
 func TestUpgradeCheckDryRun(t *testing.T) {
 	npm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/@openai/codex/latest" {
-			_, _ = w.Write([]byte(`{"name":"@openai/codex","version":"0.61.0"}`))
+			_, _ = w.Write([]byte(`{"name":"@openai/codex","version":"0.101.0"}`))
 			return
 		}
 		http.NotFound(w, r)
@@ -85,7 +85,7 @@ func TestUpgradeCheckDryRun(t *testing.T) {
 	cfg := filepath.Join(dir, ".halos", "codex-only.yaml")
 	_ = os.WriteFile(cfg, []byte("profile: engineering-next\nsuite: x.yaml\nharnesses: [codex]\n"), 0o644)
 	code, out, e := halo(t, "upgrade", "check", "--dry-run", "--policy-dir", dir, "--config", cfg, "--npm-registry", npm.URL)
-	if code != 0 || !strings.Contains(out, "codex") || !strings.Contains(out, "0.61.0") || !strings.Contains(out, "UNVERIFIED") {
+	if code != 0 || !strings.Contains(out, "codex") || !strings.Contains(out, "0.101.0") || !strings.Contains(out, "UNVERIFIED") {
 		t.Fatalf("code %d\nstdout:\n%s\nstderr:\n%s", code, out, e)
 	}
 	t.Logf("halo upgrade check --dry-run:\n%s", out)

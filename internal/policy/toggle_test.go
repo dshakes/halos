@@ -92,7 +92,8 @@ func TestGuardToggles(t *testing.T) {
 		}, SeverityError, "owner is required"},
 		{"bad percent", func() *Toggle {
 			tg := clientToggle(TogglePatch{Env: map[string]string{"A": "b"}})
-			tg.Rules = []ToggleRule{{Percent: 150}}
+			p := 150.0
+			tg.Rules = []ToggleRule{{Percent: &p}}
 			return tg
 		}, SeverityError, "0-100"},
 		{"unknown ring", func() *Toggle {
@@ -125,6 +126,12 @@ func TestGuardToggles(t *testing.T) {
 			tg.Expires = "2026-09-30"
 			return tg
 		}, SeverityWarning, ""},
+		{"percent 0 warns it can never fire", func() *Toggle {
+			tg := clientToggle(TogglePatch{Env: map[string]string{"A": "b"}})
+			z := 0.0
+			tg.Rules = []ToggleRule{{Percent: &z}}
+			return tg
+		}, SeverityWarning, "matches nobody"},
 		{"no expiry warns", func() *Toggle {
 			tg := clientToggle(TogglePatch{Env: map[string]string{"A": "b"}})
 			tg.Expires = ""

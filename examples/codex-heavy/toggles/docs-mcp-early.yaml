@@ -1,0 +1,21 @@
+# yaml-language-server: $schema=../../../schemas/toggle.schema.json
+# A second MCP server for half of ring1-early. Kill it fleet-wide with
+#   halo toggle kill docs-mcp-early --reason "..."
+apiVersion: halos.dev/v1alpha1
+kind: Toggle
+name: docs-mcp-early
+description: API-reference MCP server for part of the early ring
+owner: ai-platform
+expires: "2027-03-31"
+default: false
+axis: client
+rules:
+  - name: early-half
+    rings: [ring1-early]
+    percent: 50
+client:
+  harnesses:
+    codex:
+      mcpServers:
+        - name: api-reference
+          url: https://mcp-api.internal.codex.example/mcp

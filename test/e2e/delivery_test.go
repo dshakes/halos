@@ -17,11 +17,11 @@ import (
 
 const pin = "2.1.280" // claude-code version pinned by the test policy
 
-// newPolicy scaffolds a policy repo with `halo init` and shapes it into
+// newPolicy scaffolds a policy repo with `halo init --full` and shapes it into
 // ring0-canary (50%) + ring1-ga (default), claude-code pinned.
 func newPolicy(t *testing.T, dir string) {
 	t.Helper()
-	must(t, nil, "halo", "init", dir, "--org", "acme")
+	must(t, nil, "halo", "init", dir, "--org", "acme", "--full")
 	replaceIn(t, filepath.Join(dir, "rings/ring0-canary.yaml"), "percent: 5\n", "percent: 50\n")
 	base := readFile(t, filepath.Join(dir, "profiles/base.yaml"))
 	if !strings.Contains(base, "claude-code:\n    version: "+pin+"\n") {

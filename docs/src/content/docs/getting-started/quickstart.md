@@ -12,15 +12,27 @@ Every command on this page was run against this repository. Upstreams are mocks;
 - `curl`
 - Free host ports 8080 (Kong), 8081 (mock IdP), 8090 (halo-shadow) and 5055 (local registry, part 2). If 8080 or 8081 are taken, set `HALO_PORT` / `HALO_IDP_PORT` and use those numbers below.
 
-## Part 1: the traffic plane
-
-### 1. Build and inspect the policy
+## Part 0: your policy in one file
 
 ```bash
 git clone https://github.com/dshakes/halos && cd halos
 make build
 export PATH="$PWD/bin:$PATH"
 
+halo init --policy-dir /tmp/my-policy --org acme
+halo validate --policy-dir /tmp/my-policy
+halo explain --policy-dir /tmp/my-policy --kind ring
+```
+
+**Check:** `halo init` prints `create /tmp/my-policy/halos.yaml` (plus two `next:` hints) and writes no other file: that one file is the whole policy ([simple mode](/halos/concepts/simple-mode/)). `halo validate` prints `OK: policy valid (0 warnings)`. `halo explain` prints the four rings the `standard` rollout preset expands to (`ring0-team`, `ring1-canary` 5%, `ring2-early` 25%, `ring3-ga`), each marked `# source: halos.yaml (simple mode)`.
+
+The rest of this page uses `examples/acme-corp`, a full-mode repo with every document written out, because it exercises more of the stack. `halo init --full` scaffolds that style.
+
+## Part 1: the traffic plane
+
+### 1. Build and inspect the policy
+
+```bash
 halo validate --policy-dir examples/acme-corp
 halo whoami --policy-dir examples/acme-corp --user alice@acme.com --groups ai-platform
 halo exp list --policy-dir examples/acme-corp

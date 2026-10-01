@@ -1,0 +1,37 @@
+# yaml-language-server: $schema=../../../schemas/profile.schema.json
+apiVersion: halos.dev/v1alpha1
+kind: Profile
+name: base
+models:
+  default: codex-default
+  allowed: [codex-default, codex-mini]
+  enforce: true
+permissions:
+  mode: default
+  disableBypass: true
+  sandbox: workspace-write
+  deny:
+    - Read(./.env)
+    - Read(~/.ssh/**)
+mcp:
+  managedOnly: true
+  servers:
+    - name: codex-docs
+      url: https://mcp-docs.internal.codex.example/mcp
+telemetry:
+  enabled: true
+  otlpEndpoint: https://otel.internal.codex.example:4318
+  protocol: http/protobuf
+egress:
+  allowedDomains:
+    - ai.codex.example
+    - mcp-docs.internal.codex.example
+    - mcp-api.internal.codex.example
+    - otel.internal.codex.example
+    - github.com
+    - pypi.org
+    - registry.npmjs.org
+instructions: |
+  # Codex house rules
+  - Run the test suite before proposing a change.
+  - Never paste secrets or customer data into prompts.

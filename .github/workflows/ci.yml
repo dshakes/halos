@@ -122,3 +122,35 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with: {go-version-file: go.mod}
       - run: make smoke
+  uat-k8s:
+    # Helm chart UAT on kind (scripts/uat-k8s.sh). No SHA-pinned helm/kind-action exists in this repo,
+    # so kind is installed with `go install` at a fixed version; helm and kubectl ship on ubuntu-latest.
+    runs-on: ubuntu-latest
+    needs: [test]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with: {go-version-file: go.mod}
+      - run: go install sigs.k8s.io/kind@v0.27.0
+      - run: make uat-k8s
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with: {name: uat-k8s-report, path: test/uat/REPORT.md, if-no-files-found: ignore}
+  uat-clis:
+    # Real Claude Code / Codex / Gemini / Copilot CLIs (scripts/uat-clis.sh) on a Landlock-capable
+    # kernel, so the codex eval arm and the codex sandbox probe must pass here (not known gaps).
+    # Network-bound (npm, downloads.claude.ai); no API keys or secrets.
+    runs-on: ubuntu-latest
+    needs: [test]
+    timeout-minutes: 40
+    env:
+      UAT_REQUIRE_LANDLOCK: "1"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with: {go-version-file: go.mod}
+      - run: make uat-clis
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with: {name: uat-clis-report, path: "test/uat/CLI-REPORT.md\ntest/uat/cli-results.md", if-no-files-found: ignore}

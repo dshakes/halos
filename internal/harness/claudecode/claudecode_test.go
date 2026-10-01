@@ -253,3 +253,26 @@ func TestOverridesCaughtByReleaseChecks(t *testing.T) {
 		})
 	}
 }
+
+// Real Claude Code 2.1.280 sends `model: sonnet` as claude-sonnet-5, which the
+// gateway's alias allowlist rejects (test/uat); aliases the gateway routes are pinned.
+func TestGatewayAliasesPinned(t *testing.T) {
+	files, _, err := render(func(_ *policy.Profile, g *policy.Gateway) {
+		g.Models = map[string]policy.ModelRoute{"sonnet": {}, "haiku": {}, "codex-default": {}}
+	}, harness.Linux)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := settings(t, files)["env"].(map[string]any)
+	for k, want := range map[string]any{"ANTHROPIC_DEFAULT_SONNET_MODEL": "sonnet", "ANTHROPIC_DEFAULT_HAIKU_MODEL": "haiku", "ANTHROPIC_DEFAULT_OPUS_MODEL": nil} {
+		if env[k] != want {
+			t.Errorf("%s = %v, want %v", k, env[k], want)
+		}
+	}
+	// Claude's fallback for a disallowed --model ignores the env pins; only
+	// modelOverrides maps its built-in ID back to an alias (test/uat).
+	mo := settings(t, files)["modelOverrides"].(map[string]any)
+	if len(mo) != 2 || mo["claude-sonnet-5"] != "sonnet" || mo["claude-haiku-4-5-20251001"] != "haiku" {
+		t.Errorf("modelOverrides = %v", mo)
+	}
+}

@@ -74,8 +74,8 @@ func (ClaudeDriver) Name() string { return "claude" }
 // SettingsPath is Claude Code's Linux managed-settings location.
 func (ClaudeDriver) SettingsPath() string { return "/etc/claude-code/managed-settings.json" }
 
-// Command: UNVERIFIED against a real CLI: --restricted is taken from the
-// design notes, and stream-json in print mode is believed to require --verbose.
+// Command: verified against claude 2.1.280 in test/uat (`halo eval run` with
+// the DockerRunner): --restricted keeps Write/Edit, stream-json needs --verbose.
 func (ClaudeDriver) Command(t *Task, v Variant) Command {
 	turns := t.MaxTurns
 	if turns == 0 {
@@ -139,8 +139,11 @@ func (CodexDriver) Name() string { return "codex" }
 // SettingsPath is the verified Unix managed_config.toml location (internal/harness/FACTS.md).
 func (CodexDriver) SettingsPath() string { return "/etc/codex/managed_config.toml" }
 
+// Command: --skip-git-repo-check is required because the trial's /work is
+// not a trusted git repo (codex 0.58.0 exits 1 "Not inside a trusted
+// directory" without it; seen in test/uat).
 func (CodexDriver) Command(t *Task, v Variant) Command {
-	args := []string{"codex", "exec", "--json", "--sandbox", "workspace-write"}
+	args := []string{"codex", "exec", "--json", "--skip-git-repo-check", "--sandbox", "workspace-write"}
 	if v.Model != "" {
 		args = append(args, "-m", v.Model)
 	}
@@ -149,9 +152,28 @@ func (CodexDriver) Command(t *Task, v Variant) Command {
 
 // Parse reads JSONL events. Codex reports no cost, so CostUSD stays 0.
 // Event shapes verified against codex-rs/exec/src/exec_events.rs (FACTS.md).
+//
+// Tool errors: a command_execution item that completed with a non-zero
+// exit_code or status failed/declined (codex 0.99 emits both, e.g. exit_code 1
+// + status "failed"; test/uat/testdata), a failed MCP/other tool item, or a
+// tool item that started but never completed (cut off by a timeout).
+//
+// Not countable here: a call whose sandbox cannot start at all. On a kernel
+// without Landlock, codex 0.99 emits NOTHING for the exec_command (no
+// item.started, no error item; it exits 0) and only the model sees
+// "Sandbox(LandlockRestrict)". DockerRunner's sandbox preflight catches that
+// case instead and marks the cell unavailable.
 func (CodexDriver) Parse(out []byte) (Usage, error) {
 	var u Usage
 	seen := false
+	open := map[string]bool{} // started tool items, by id
+	tool := func(it map[string]any) bool {
+		switch str(it, "type") {
+		case "command_execution", "file_change", "mcp_tool_call", "web_search":
+			return true
+		}
+		return false
+	}
 	jsonLines(out, func(m map[string]any) {
 		switch str(m, "type") {
 		case "thread.started":
@@ -169,17 +191,27 @@ func (CodexDriver) Parse(out []byte) (Usage, error) {
 			} else if msg := str(m, "message"); msg != "" {
 				u.Error = msg
 			}
+		case "item.started":
+			if it := obj(m, "item"); tool(it) && str(it, "id") != "" {
+				open[str(it, "id")] = true
+			}
 		case "item.completed":
 			it := obj(m, "item")
-			switch str(it, "type") {
-			case "command_execution", "file_change", "mcp_tool_call", "web_search":
-				u.ToolCalls++
+			delete(open, str(it, "id"))
+			if !tool(it) {
+				return
 			}
-			if str(it, "type") == "command_execution" && num(it, "exit_code") != 0 {
+			u.ToolCalls++
+			st := str(it, "status")
+			if str(it, "type") == "command_execution" && (num(it, "exit_code") != 0 || st == "failed" || st == "declined") ||
+				str(it, "type") != "command_execution" && st == "failed" {
 				u.ToolErrors++
 			}
 		}
 	})
+	// Started but never completed: the call failed before codex could report it.
+	u.ToolCalls += len(open)
+	u.ToolErrors += len(open)
 	if !seen {
 		return u, fmt.Errorf("codex: no recognised events in output")
 	}

@@ -1,0 +1,94 @@
+apiVersion: halos.dev/v1alpha1
+kind: Gateway
+name: acme-gateway
+baseURL: https://ai.acme.example
+protocols:
+  claude-code: anthropic-messages
+  codex: openai-responses
+auth: {}
+models:
+  codex:
+    upstream: openai
+    model: gpt-5-codex
+  default:
+    upstream: anthropic
+    model: claude-sonnet-4-5
+  strong:
+    upstream: anthropic
+    model: claude-opus-4-1
+upstreams:
+  anthropic:
+    url: https://api.anthropic.com
+    kind: anthropic
+  openai:
+    url: https://api.openai.com
+    kind: openai
+    credential:
+      env: OPENAI_API_KEY
+---
+apiVersion: halos.dev/v1alpha1
+kind: Profile
+name: default
+harnesses:
+  claude-code:
+    version: 2.1.280
+  codex:
+    version: 0.99.0
+    model: codex
+models:
+  default: default
+  allowed:
+    - codex
+    - default
+    - strong
+  enforce: true
+permissions:
+  mode: default
+  deny:
+    - Read(./.env)
+    - Read(./.env.*)
+    - Read(./secrets/**)
+    - Read(~/.aws/**)
+    - Read(~/.ssh/**)
+  disableBypass: true
+  sandbox: workspace-write
+mcp:
+  managedOnly: true
+hooks:
+  managedOnly: true
+telemetry:
+  enabled: true
+egress: {}
+---
+apiVersion: halos.dev/v1alpha1
+kind: Ring
+name: ring0-team
+order: 0
+profile: default
+membership:
+  groups:
+    - ai-platform
+---
+apiVersion: halos.dev/v1alpha1
+kind: Ring
+name: ring1-canary
+order: 1
+profile: default
+membership:
+  percent: 5
+---
+apiVersion: halos.dev/v1alpha1
+kind: Ring
+name: ring2-early
+order: 2
+profile: default
+membership:
+  percent: 25
+---
+apiVersion: halos.dev/v1alpha1
+kind: Ring
+name: ring3-ga
+order: 3
+profile: default
+membership:
+  default: true

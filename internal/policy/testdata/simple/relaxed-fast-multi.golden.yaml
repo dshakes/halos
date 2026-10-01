@@ -1,0 +1,81 @@
+apiVersion: halos.dev/v1alpha1
+kind: Gateway
+name: startup-gateway
+baseURL: https://ai.startup.example
+protocols:
+  claude-code: anthropic-messages
+  codex: openai-responses
+  gemini-cli: gemini
+auth: {}
+models:
+  codex:
+    upstream: openai
+    model: gpt-5-codex
+  default:
+    upstream: anthropic
+    model: claude-sonnet-4-5
+  gemini:
+    upstream: gemini
+    model: gemini-2.5-pro
+upstreams:
+  anthropic:
+    url: https://api.anthropic.com
+    kind: anthropic
+  gemini:
+    url: https://generativelanguage.googleapis.com
+    kind: gemini
+  openai:
+    url: https://api.openai.com
+    kind: openai
+    credential:
+      env: OPENAI_API_KEY
+---
+apiVersion: halos.dev/v1alpha1
+kind: Profile
+name: default
+harnesses:
+  claude-code:
+    version: 2.1.280
+  codex:
+    version: 0.58.0
+  gemini-cli:
+    version: 0.12.0
+models:
+  default: default
+  allowed:
+    - codex
+    - default
+    - gemini
+  enforce: true
+permissions:
+  mode: acceptEdits
+  deny:
+    - Read(./.env)
+    - Read(./.env.*)
+    - Read(./secrets/**)
+    - Read(~/.aws/**)
+    - Read(~/.ssh/**)
+  disableBypass: true
+  sandbox: workspace-write
+mcp: {}
+hooks: {}
+telemetry:
+  enabled: true
+egress: {}
+---
+apiVersion: halos.dev/v1alpha1
+kind: Ring
+name: ring0-team
+order: 0
+profile: default
+membership:
+  groups:
+    - startup-ai-platform
+---
+apiVersion: halos.dev/v1alpha1
+kind: Ring
+name: ring1-ga
+order: 1
+profile: default
+membership:
+  default: true

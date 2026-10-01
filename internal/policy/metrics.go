@@ -13,6 +13,12 @@ const (
 	SourceOnlineGateway SignalSource = "online-gateway"
 	// SourceEval: offline replay (`halo eval`) only; never observed on live traffic.
 	SourceEval SignalSource = "eval"
+	// SourceOnlineEval: `halo eval online` LLM-judge grades of halo-shadow
+	// pairs, received on the collector's authenticated eval receiver
+	// (halo.source=eval). Pairs exist only for shadow experiments (and the
+	// dark-launch steps of rollouts, which run their experiment as shadow).
+	// Trusted for verdicts and PRs; never for the kill switch (gateway only).
+	SourceOnlineEval SignalSource = "online-eval"
 )
 
 // MetricDef is a normalised halo.* metric. The telemetry collector maps each
@@ -31,6 +37,9 @@ type MetricDef struct {
 	// conversation.id; Gemini: installation.id); gateway unit = salted hash
 	// of the session id (else of the verified subject).
 	PerUnit string
+	// Better is the direction of improvement ("increase" | "decrease"); when
+	// set, goals on this metric must use it. Empty = not enforced.
+	Better string
 }
 
 // MetricRegistry lists every metric experiments may reference; Validate
@@ -63,6 +72,14 @@ var MetricRegistry = []MetricDef{
 	{Name: "halo.tool.error_rate", Unit: "ratio", Description: "Fraction of tool calls that errored.",
 		Sources: map[string]string{"claude-code": "claude_code.tool_result events (success)", "codex": "codex.tool_result events (success)", "gemini-cli": "gemini_cli.tool_call (success)"},
 		Source:  []SignalSource{SourceOnlineCLI}, PerUnit: "unit's failed / total tool calls"},
+	{Name: "halo.eval.judge.score", Unit: "ratio", Description: "LLM-judge rubric score (0..1, higher is better) of a model response, graded by `halo eval online` on halo-shadow pairs.",
+		Sources: map[string]string{"shadow": "halo eval online -> halo.eval.judge.score{halo.unit=<pair id>}, halo.source=eval"},
+		Source:  []SignalSource{SourceOnlineEval}, PerUnit: "mean judge score of one shadow pair's response for that arm (unit = pair)", Better: "increase"},
+}
+
+// ShadowOnly reports whether the metric is only measured on shadow pairs.
+func (m MetricDef) ShadowOnly() bool {
+	return m.HasSource(SourceOnlineEval) && !m.HasSource(SourceOnlineCLI) && !m.HasSource(SourceOnlineGateway)
 }
 
 // KnownMetric reports whether name is in MetricRegistry.

@@ -63,7 +63,7 @@ A rising `halo_controller_errors_total` with flat verdicts usually means ClickHo
 
 ## Metrics listeners
 
-Every Halos process exposes Prometheus text on a **separate, unauthenticated** address. None of them share the public listener.
+These processes expose Prometheus text on a **separate, unauthenticated** address. None of them share a public listener.
 
 | Process | Flag | Default | Metrics |
 |---|---|---|---|

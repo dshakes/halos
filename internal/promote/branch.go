@@ -28,7 +28,7 @@ type BranchCommit struct {
 	// Edit returns the new content (dir-relative, slash-separated path ->
 	// data) of every file to change. It is given the committed version of any
 	// file via read, so uncommitted edits in the user's checkout never land in
-	// the commit.
+	// the commit. A nil value deletes the file (an empty, non-nil one empties it).
 	Edit func(read ReadFunc) (map[string][]byte, error)
 }
 
@@ -91,13 +91,19 @@ func CommitOnBranch(ctx context.Context, run RunFunc, dir string, bc BranchCommi
 	for n, data := range files {
 		rel := path.Join(prefix, n)
 		p := filepath.Join(wt, filepath.FromSlash(rel))
+		names = append(names, rel)
+		if data == nil { // `git add` below stages the removal
+			if err := os.Remove(p); err != nil {
+				return "", "", fmt.Errorf("promote: delete %s: %w", n, err)
+			}
+			continue
+		}
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			return "", "", fmt.Errorf("promote: write %s: %w", n, err)
 		}
 		if err := fsutil.WriteAtomic(p, data, fsutil.ExistingPerm(p, 0o644)); err != nil {
 			return "", "", fmt.Errorf("promote: write %s: %w", n, err)
 		}
-		names = append(names, rel)
 	}
 	sort.Strings(names)
 	msg := []string{"commit", "-m", bc.Subject}

@@ -25,6 +25,12 @@ func RewriteRequest(protocol, path string, body []byte, model string) (string, [
 			return path, body, fmt.Errorf("gateway: not a bedrock model path: %q", path)
 		}
 		return "/model/" + escapeSegment(model) + "/" + m[2], body, nil
+	case ProtoGemini:
+		m := geminiPath.FindStringSubmatch(path)
+		if m == nil {
+			return path, body, fmt.Errorf("gateway: not a gemini model path: %q", path)
+		}
+		return "/" + m[1] + "/models/" + url.PathEscape(model) + ":" + m[3], body, nil
 	}
 	return path, body, nil
 }
@@ -35,6 +41,8 @@ func ForceNonStreaming(protocol, path string, body []byte) (string, []byte, erro
 	case ProtoAnthropic, ProtoResponses:
 		nb, err := setJSONField(body, "stream", false)
 		return path, nb, err
+	case ProtoGemini:
+		return strings.Replace(path, "streamGenerateContent", "generateContent", 1), body, nil
 	case ProtoBedrock:
 		if strings.HasSuffix(path, "-with-response-stream") {
 			return strings.TrimSuffix(path, "-with-response-stream"), body, nil

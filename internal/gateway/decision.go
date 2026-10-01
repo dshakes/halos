@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"slices"
+	"strings"
 
 	"github.com/dshakes/halos/internal/assign"
 	"github.com/dshakes/halos/internal/policy"
@@ -77,15 +78,19 @@ func Decide(org *policy.Org, req RequestInfo) Decision {
 		}
 	}
 	// No verified identity (or unknown ring) => default routing, no experiments.
-	// The first traffic-axis ab/canary experiment the subject is in routes and
-	// owns the x-halo-experiment/variant attribution. A client-axis experiment
+	// A traffic-axis ab/canary experiment claims only requests for an alias one of
+	// its variants routes: the first such experiment (by name, whatever the
+	// snapshot order) the subject is in routes the request and owns the
+	// x-halo-experiment/variant attribution, so canaries on different aliases
+	// share a ring and each request is attributed to the experiment that routed
+	// it. `halo validate` refuses two that route one alias on a ring. A client-axis experiment
 	// never routes (its variants are releases on the machine); the gateway
 	// computes the same variant halod applied (same ResolveVariant, same hash)
 	// and attributes the request to it only when no traffic-axis experiment
 	// did, so it can never displace a traffic experiment's routing.
 	var clientExp, clientVar string
 	if known && d.Ring != RingUnknown {
-		for _, e := range org.Experiments {
+		for _, e := range byName(org.Experiments) {
 			switch e.Type {
 			case policy.ExperimentAB, policy.ExperimentCanary:
 				if e.Axis == policy.AxisClient {
@@ -96,7 +101,7 @@ func Decide(org *policy.Org, req RequestInfo) Decision {
 					}
 					continue
 				}
-				if d.Experiment != "" {
+				if d.Experiment != "" || !routesAlias(e, req.ModelAlias) {
 					continue
 				}
 				v := e.ResolveVariant(sub, d.Ring)
@@ -182,4 +187,18 @@ func shadowTargets(org *policy.Org, e *policy.Experiment, ring string, req Reque
 		out = append(out, t)
 	}
 	return out
+}
+
+// routesAlias: some variant of e routes alias (the experiment's scope at the gateway).
+func routesAlias(e *policy.Experiment, alias string) bool {
+	return slices.ContainsFunc(e.Variants, func(v policy.Variant) bool { _, ok := v.Routes[alias]; return ok })
+}
+
+// byName returns exps in name order, copying only when they are not already sorted.
+func byName(exps []*policy.Experiment) []*policy.Experiment {
+	cmp := func(a, b *policy.Experiment) int { return strings.Compare(a.Name, b.Name) }
+	if slices.IsSortedFunc(exps, cmp) {
+		return exps
+	}
+	return slices.SortedFunc(slices.Values(exps), cmp)
 }

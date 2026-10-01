@@ -3,6 +3,46 @@ title: FAQ
 description: Common questions and honest answers.
 ---
 
+## What is a policy repo?
+
+A git repo of YAML documents (`Gateway`, `Profile`, `Ring`, plus optional `Experiment`, `Toggle`, `Rollout`) and a root `halos.yaml`. It is the single source of truth: Halos validates it, renders each harness's native config from it, signs the result as an immutable release, and points rings at releases. Start from an [example](/halos/examples/) or `halo init`, and read the [policy model](/halos/concepts/policy-model/).
+
+## Do developers need to install anything?
+
+Not by hand, in the usual setups. They keep using the vendor CLI. Config reaches the machine through a dev container Feature, a Coder or Codespaces prebuild, an MDM profile, or the `halod` agent that the [portal](/halos/concepts/self-service-portal/) enrolls. Developers do need a way to get a token for the gateway (an `apiKeyHelper` or equivalent that your IdP backs). See [delivery](/halos/concepts/delivery/).
+
+## Which CLIs are supported?
+
+Claude Code, Codex and Gemini CLI have adapters and are applied by `halod`. Copilot CLI is rendered by its adapter, but `halod` does not yet write its files, so use dev containers or MDM for it. `halo harnesses` prints the capability matrix, and an unsupported setting becomes a warning in the release manifest rather than being silently dropped. See the [harness matrix](/halos/reference/harness-matrix/).
+
+## Does it proxy my code?
+
+Only if you put a traffic plane in the path. `halo-proxy` (or the `halo-kong` plugin) is a gateway you run: model requests pass through it so it can verify identity, route, fail over and record metrics. It runs in your infrastructure; there is no Halos-hosted service that sees your prompts or code. Prompt logging is off unless a profile sets `telemetry.logPrompts`, and validation warns if you enable it on the default ring. `halo-shadow` mirrors single turns only when you configure a shadow experiment.
+
+## What does it cost?
+
+Halos is Apache-2.0 and free. You pay for what you already pay for (model usage) and for the small services you run: `halo-proxy` or `halo-kong`, optionally `halo-server`, a registry for releases, and a telemetry store such as ClickHouse if you want experiment analysis.
+
+## Can I use it without the gateway?
+
+Yes, for the config half. `halo render`, signed releases, rings, `halod` and MDM deliver pinned versions, permissions, MCP allowlists, hooks and telemetry settings with no traffic plane. What you lose is everything that needs one: traffic-axis experiments, weighted routes and failover, cohort derived from a verified token at request time, and shadowing. A direct-to-provider setup with client-side delivery is a legitimate starting point.
+
+## Is it self-hosted only?
+
+Yes. Everything runs where you run it, and the policy repo is yours. There is no hosted offering or vendor account to sign up for.
+
+## How does rollback work?
+
+Releases are immutable and content-addressed; a ring is a signed pointer to one. Rolling back means pointing the ring at an earlier release: `halo rollback --ring <R> --to <version>`. For traffic-axis changes the gateway reverts a cohort to control immediately, and a signed kill switch turns off experiments and [toggles](/halos/concepts/toggles/) without a release. Rollback is the only direction that can be automatic; promotion is always a PR a human merges.
+
+## How is this different from managed settings?
+
+Managed settings are a vendor's way to enforce configuration for that vendor's CLI. Halos writes them (for Claude Code it renders `managed-settings.json`) and adds what they do not: one policy across several CLIs, signed rings and rollback, pinned versions with drift reporting, experiments and eval-gated promotion. If one vendor's console covers your needs, use it. See the [comparison](/halos/reference/comparison/).
+
+## What license is it under?
+
+Apache-2.0, see `LICENSE` in the repo.
+
 ## Does this replace my LLM gateway?
 
 No. `halo-proxy` runs in front of, behind or instead of Kong, LiteLLM, Envoy, nginx or AWS API Gateway (or as a Kong plugin, `halo-kong`). Gateways route and meter traffic; Halos adds cross-harness config releases, rings, sticky experiments, shadowing and eval-gated promotion. See [stack-agnostic](/halos/concepts/stack-agnostic/).

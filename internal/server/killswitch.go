@@ -19,8 +19,10 @@ import (
 )
 
 // KillExperiment trips the kill switch as actor (the in-process controller)
-// and audit-logs it. changed is false when it was already killed.
-func (s *Server) KillExperiment(ctx context.Context, actor, name, reason string) (bool, error) {
+// and audit-logs it. changed is false when it was already killed. The argument
+// order is controller.Killer's (experiment, then actor): main wires it as a
+// controller.KillFunc, where swapped strings would still compile.
+func (s *Server) KillExperiment(ctx context.Context, name, actor, reason string) (bool, error) {
 	changed, err := s.kills.Kill(ctx, name, actor, reason)
 	if err == nil && changed {
 		// The kill stays applied (fail safe) but the gap is surfaced to the caller.
@@ -65,6 +67,12 @@ func (s *Server) killHandler(kill bool, kind string) authedHandler {
 			return
 		}
 		name := r.PathValue("name")
+		// ValidName forbids ':', so an experiment endpoint can never reach a
+		// "toggle:<name>" store key (and vice versa), kill or unkill.
+		if !policy.ValidName(name) {
+			apiErr(w, http.StatusBadRequest, "invalid "+kind+" name")
+			return
+		}
 		org, _, err := s.pol.Get()
 		if org == nil {
 			apiErr(w, http.StatusServiceUnavailable, "policy not loaded: "+err.Error())

@@ -228,7 +228,7 @@ func (s *Server) resolve(j Job) (task, int, error) {
 		return bad("method %q not allowed", j.Method)
 	}
 	// Exact protocol paths only; the path is never a URL fragment we trust.
-	if proto := gateway.ProtocolForPath(j.Path); proto == "" || proto != j.Protocol || j.Path == gateway.PathCountTokens {
+	if proto := gateway.ProtocolForPath(j.Path); proto == "" || proto != j.Protocol || gateway.IsCountTokens(j.Path) {
 		return bad("path %q is not a %q model call", j.Path, j.Protocol)
 	}
 	if len(j.Body) == 0 {

@@ -102,16 +102,16 @@ func (c *Controller) rolloutStep(ctx context.Context, org *policy.Org, r *policy
 	}
 
 	var d rollout.Decision
-	if st.Halted != "" && st.Last != nil {
-		d = *st.Last // finish the halt's pending actions; never re-evaluate
-	} else if st.Halted != "" {
-		d = rollout.Decision{Action: rollout.Action(st.Halted), Step: st.Step, Next: -1, Reasons: []string{"recorded " + st.Halted}}
+	if st.Halted != "" {
+		// Finish the halt's pending actions from the recorded (hash-chained)
+		// halt event; never re-evaluate, never trust the display-only Last.
+		d = rollout.Decision{Action: rollout.Action(st.Halted), Step: st.Step, Next: -1, Reasons: []string{st.HaltReason}, Source: st.HaltSource}
 	} else {
 		ev, err := rollout.Gather(ctx, c.PolicyDir, org, r, st, c.Metrics, now)
 		if err != nil {
 			return save(c.fail(fmt.Errorf("controller: %w", err)))
 		}
-		d = rollout.Evaluate(r, st, ev, now)
+		d = rollout.Evaluate(rollout.Effective(org, r), st, ev, now)
 		st.Last, st.LastAt = &d, now
 		c.log().Info("rollout evaluated", "rollout", r.Name, "step", st.StepName, "action", d.Action, "reasons", strings.Join(d.Reasons, "; "))
 	}
@@ -119,7 +119,7 @@ func (c *Controller) rolloutStep(ctx context.Context, org *policy.Org, r *policy
 	switch d.Action {
 	case rollout.Rollback, rollout.Pause:
 		if st.Halted == "" {
-			st.Record(rollout.EventHalt, st.Step, st.StepName, string(d.Action), now)
+			st.Halt(string(d.Action), d.Source, strings.Join(d.Reasons, "; "), now)
 			if err := save(); err != nil { // the halt must stick before anything else happens
 				return err
 			}

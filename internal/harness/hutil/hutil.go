@@ -131,3 +131,69 @@ func CheckHeaderValues(h map[string]string) error {
 	}
 	return nil
 }
+
+// VersionBefore reports whether a "major.minor[.patch...]" version is below
+// major.minor. Unparseable versions report false (nothing to warn about).
+func VersionBefore(v string, major, minor int) bool {
+	var a, b int
+	if _, err := fmt.Sscanf(v, "%d.%d", &a, &b); err != nil {
+		return false
+	}
+	return a < major || (a == major && b < minor)
+}
+
+// Model is the default model alias for harness name: its own harnesses.<name>.model,
+// else the profile's models.default.
+func Model(p *policy.Profile, name string) string {
+	if m := p.Harnesses[name].Model; m != "" {
+		return m
+	}
+	return p.Models.Default
+}
+
+// OTELResourceAttributes is the OTEL_RESOURCE_ATTRIBUTES value for harness
+// name: the profile's telemetry.attributes plus halo.harness, halo.ring,
+// halo.release and, for a variant release, halo.experiment/halo.variant.
+// halo.* are set last so a profile attribute cannot spoof them.
+func OTELResourceAttributes(name string, t policy.Telemetry, c harness.Context) string {
+	attrs := map[string]string{}
+	for k, v := range t.Attributes {
+		attrs[k] = v
+	}
+	attrs["halo.harness"] = name
+	if c.Ring != "" {
+		attrs["halo.ring"] = c.Ring
+	}
+	if c.Release != "" {
+		attrs["halo.release"] = c.Release
+	}
+	// Client-axis variant release: CLI metrics (cost, tokens, tool calls)
+	// carry the variant, so client-axis analysis and maxSpendUSD see them.
+	// Only a variant release may claim them; a profile attribute cannot.
+	delete(attrs, "halo.experiment")
+	delete(attrs, "halo.variant")
+	if c.Experiment != "" {
+		attrs["halo.experiment"], attrs["halo.variant"] = c.Experiment, c.Variant
+	}
+	var kv []string
+	for _, k := range SortedKeys(attrs) {
+		kv = append(kv, PctEncode(k)+"="+PctEncode(attrs[k]))
+	}
+	return strings.Join(kv, ",")
+}
+
+// ShQuote single-quotes s for POSIX sh.
+func ShQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+
+// OTELShellWrapper is a /etc/profile.d function that runs binary with the
+// release's OTEL_RESOURCE_ATTRIBUTES, for CLIs whose config has no
+// resource-attribute key (they all honor the env var; test/uat). A function,
+// not an export: every harness sets halo.harness, so one global variable would
+// mislabel the others. Like other profile.d settings it reaches login shells
+// (and, exported, their bash children); an exec that bypasses the shell
+// (timeout, env, xargs) runs the CLI unlabeled.
+func OTELShellWrapper(binary, attrs string) string {
+	return "# Halos: label this CLI's telemetry with the release (login shells).\n" +
+		binary + "() { OTEL_RESOURCE_ATTRIBUTES=" + ShQuote(attrs) + " command " + binary + " \"$@\"; }\n" +
+		"[ -z \"${BASH_VERSION:-}\" ] || export -f " + binary + "\n"
+}

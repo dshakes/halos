@@ -19,6 +19,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/dshakes/halos/internal/bundle"
+	"github.com/dshakes/halos/internal/controller"
 	"github.com/dshakes/halos/internal/gateway"
 	"github.com/dshakes/halos/internal/policy"
 )
@@ -128,13 +129,18 @@ func TestKillEndpointsAuthz(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &list); err != nil || len(list.Killed) != 1 || list.Killed[0].By != "alice@test" || list.Killed[0].Reason != "again" || list.Version != 3 {
 		t.Fatalf("list: %v %s", err, w.Body)
 	}
-	// The in-process controller path is audited too.
-	if ch, err := s.KillExperiment(context.Background(), "halo-controller", "claude-cli-2.1.3xx-ab", "rollback: guardrail"); err != nil || !ch {
+	// The in-process controller path, wired exactly as cmd/halo-server does, kills the
+	// experiment (not one named after the actor: found by make uat-k8s) and is audited.
+	if ch, err := controller.KillFunc(s.KillExperiment).Kill(context.Background(), "claude-cli-2.1.3xx-ab", controller.Actor, "rollback: guardrail"); err != nil || !ch {
 		t.Fatalf("KillExperiment: %v %v", ch, err)
 	}
 	entries, _ = s.auditLog.all()
-	if e := entries[len(entries)-1]; e.Actor != "halo-controller" || e.Action != "experiment.kill" {
+	if e := entries[len(entries)-1]; e.Actor != controller.Actor || e.Action != "experiment.kill" {
 		t.Fatalf("controller kill not audited: %+v", e)
+	}
+	w = do(h, "GET", "/api/v1/killswitch", "", "")
+	if !strings.Contains(w.Body.String(), `"experiment":"claude-cli-2.1.3xx-ab"`) || strings.Contains(w.Body.String(), `"experiment":"`+controller.Actor+`"`) {
+		t.Fatalf("controller kill list: %s", w.Body)
 	}
 }
 
@@ -164,7 +170,7 @@ func TestKillWithoutKeyNotImplemented(t *testing.T) {
 
 func TestGatewayKillswitchEndpoint(t *testing.T) {
 	s, h, pub := newKillServer(t, true)
-	if _, err := s.KillExperiment(context.Background(), "halo-controller", "opus-5-5-canary", "r"); err != nil {
+	if _, err := s.KillExperiment(context.Background(), "opus-5-5-canary", "halo-controller", "r"); err != nil {
 		t.Fatal(err)
 	}
 	for _, tc := range []struct {
@@ -288,7 +294,7 @@ func TestFleetKillswitchEndpoint(t *testing.T) {
 	}
 	e := newEnv(t, func(c *Config) { c.KillKey, c.GatewayToken = priv, gwTok })
 	dt := enrollDevice(t, e, dev)
-	if _, err := e.s.KillExperiment(context.Background(), "halo-controller", "cli-ab", "r"); err != nil {
+	if _, err := e.s.KillExperiment(context.Background(), "cli-ab", "halo-controller", "r"); err != nil {
 		t.Fatal(err)
 	}
 	for _, tc := range []struct {
@@ -410,5 +416,32 @@ func TestToggleKillEndpoints(t *testing.T) {
 	}
 	if l := fetch(); len(l.Toggles) != 0 {
 		t.Fatalf("after unkill: %+v", l)
+	}
+}
+
+// The experiment endpoints cannot reach toggle kills (or any malformed key).
+func TestKillRejectsInvalidNames(t *testing.T) {
+	_, h, pub := newKillServer(t, true)
+	if w := do(h, "POST", "/api/v1/toggles/github-mcp/kill", "", `{"reason":"x"}`); w.Code != 200 {
+		t.Fatalf("setup kill: %d", w.Code)
+	}
+	for _, path := range []string{
+		"/api/v1/experiments/toggle:github-mcp/unkill",
+		"/api/v1/experiments/toggle:github-mcp/kill",
+		"/api/v1/toggles/toggle:github-mcp/unkill",
+		"/api/v1/toggles/Bad%20Name/unkill",
+		"/api/v1/experiments/Bad%20Name/unkill",
+	} {
+		if w := do(h, "POST", path, "", `{"reason":"x"}`); w.Code != http.StatusBadRequest {
+			t.Fatalf("%s: %d, want 400", path, w.Code)
+		}
+	}
+	w := do(h, "GET", "/api/v1/gateway/killswitch", "Bearer "+gwTok, "")
+	var env gateway.KillEnvelope
+	if err := json.Unmarshal(w.Body.Bytes(), &env); err != nil {
+		t.Fatal(err)
+	}
+	if l, err := gateway.VerifyKillList(pub, env, ksNow, time.Minute); err != nil || !slices.Equal(l.Toggles, []string{"github-mcp"}) {
+		t.Fatalf("toggle kill was removed: %+v %v", l, err)
 	}
 }

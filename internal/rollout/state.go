@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"time"
@@ -18,9 +19,9 @@ import (
 // History events.
 const (
 	EventEnter  = "enter"  // a merged step was observed live (Index, Step)
-	EventHalt   = "halt"   // the controller rolled back or paused (Detail = action)
+	EventHalt   = "halt"   // the controller rolled back or paused (Detail = action, Source, Reason)
 	EventResume = "resume" // the policy left "active"; the halt is acknowledged
-	EventAction = "action" // something was done (Detail: e.g. "pr advance https://...")
+	EventAction = "action" // Key was done at step Index (Detail: e.g. a PR URL)
 )
 
 // Entry is one hash-chained history record.
@@ -31,14 +32,22 @@ type Entry struct {
 	Index  int       `json:"index"` // step index for enter
 	Step   string    `json:"step,omitempty"`
 	Detail string    `json:"detail,omitempty"`
-	Prev   string    `json:"prev"` // previous entry's Hash ("" for the first)
-	Hash   string    `json:"hash"` // sha256 over this entry with Hash empty
+	Key    string    `json:"key,omitempty"`    // action entries: what was done
+	Source string    `json:"source,omitempty"` // halt entries: evidence source of the breach
+	Reason string    `json:"reason,omitempty"` // halt entries: why
+	Prev   string    `json:"prev"`             // previous entry's Hash ("" for the first)
+	Hash   string    `json:"hash"`             // sha256 over this entry with Hash empty
 }
 
-// State is a rollout's controller state. Step, StepName, EnteredAt and Halted
-// are derived by replaying History, whose hash chain Load verifies, so an
-// edited file is rejected rather than silently trusted. Done and Last are
-// caches.
+// State is a rollout's controller state. Everything the controller acts on
+// (Step, StepName, EnteredAt, Halted, HaltSource, HaltReason, Done) is derived
+// by replaying History; the header copies are only checked against it. Last
+// is display-only and never acted on.
+//
+// The hash chain is unkeyed: it detects partial edits (a changed, dropped or
+// reordered entry, or a header that disagrees with the history), not an
+// attacker who can rewrite the whole file and recompute every hash. Protect
+// the data dir like the kill switch and audit log it sits next to.
 type State struct {
 	Rollout   string    `json:"rollout"`
 	Step      int       `json:"step"` // -1 = not started
@@ -46,10 +55,12 @@ type State struct {
 	EnteredAt time.Time `json:"enteredAt"`
 	// Halted is "rollback" or "pause" once the controller acted on a breach;
 	// it holds the rollout until the policy leaves "active".
-	Halted string `json:"halted,omitempty"`
+	Halted     string `json:"halted,omitempty"`
+	HaltSource string `json:"haltSource,omitempty"`
+	HaltReason string `json:"haltReason,omitempty"`
 	// Done maps idempotency keys (see Key) to details such as PR URLs.
 	Done    map[string]string `json:"done,omitempty"`
-	Last    *Decision         `json:"last,omitempty"` // last decision, for status views
+	Last    *Decision         `json:"last,omitempty"` // last decision: status views only
 	LastAt  time.Time         `json:"lastAt"`
 	History []Entry           `json:"history"`
 }
@@ -66,7 +77,17 @@ func (e Entry) sum() string {
 
 // Record appends a chained entry and applies it.
 func (s *State) Record(event string, index int, step, detail string, at time.Time) {
-	e := Entry{Seq: len(s.History) + 1, At: at.UTC(), Event: event, Index: index, Step: step, Detail: detail}
+	s.add(Entry{At: at, Event: event, Index: index, Step: step, Detail: detail})
+}
+
+// Halt records that the controller rolled back or paused (action) at the
+// current step, on evidence from source.
+func (s *State) Halt(action, source, reason string, at time.Time) {
+	s.add(Entry{At: at, Event: EventHalt, Index: s.Step, Step: s.StepName, Detail: action, Source: source, Reason: reason})
+}
+
+func (s *State) add(e Entry) {
+	e.Seq, e.At = len(s.History)+1, e.At.UTC()
 	if n := len(s.History); n > 0 {
 		e.Prev = s.History[n-1].Hash
 	}
@@ -78,11 +99,17 @@ func (s *State) Record(event string, index int, step, detail string, at time.Tim
 func (s *State) apply(e Entry) {
 	switch e.Event {
 	case EventEnter:
-		s.Step, s.StepName, s.EnteredAt, s.Halted, s.Done = e.Index, e.Step, e.At, "", nil
+		s.Step, s.StepName, s.EnteredAt, s.Done = e.Index, e.Step, e.At, nil
+		s.Halted, s.HaltSource, s.HaltReason = "", "", ""
 	case EventHalt:
-		s.Halted = e.Detail
+		s.Halted, s.HaltSource, s.HaltReason = e.Detail, e.Source, e.Reason
 	case EventResume:
-		s.Halted, s.Done = "", nil
+		s.Halted, s.HaltSource, s.HaltReason, s.Done = "", "", "", nil
+	case EventAction:
+		if s.Done == nil {
+			s.Done = map[string]string{}
+		}
+		s.Done[fmt.Sprintf("%d/%s", e.Index, e.Key)] = e.Detail
 	}
 }
 
@@ -91,11 +118,7 @@ func (s *State) Key(action string) string { return fmt.Sprintf("%d/%s", s.Step, 
 
 // Mark records an action as done (once per step) with its detail.
 func (s *State) Mark(action, detail string, at time.Time) {
-	if s.Done == nil {
-		s.Done = map[string]string{}
-	}
-	s.Done[s.Key(action)] = detail
-	s.Record(EventAction, s.Step, s.StepName, action+" "+detail, at)
+	s.add(Entry{At: at, Event: EventAction, Index: s.Step, Step: s.StepName, Key: action, Detail: detail})
 }
 
 // Did reports whether action was done at the current step, and its detail.
@@ -155,10 +178,10 @@ func LoadState(dir, name string) (State, error) {
 		st.History = append(st.History, e)
 		st.apply(e)
 	}
-	if st.Halted != disk.Halted || st.Step != disk.Step {
+	if st.Halted != disk.Halted || st.HaltSource != disk.HaltSource || st.Step != disk.Step || !maps.Equal(st.Done, disk.Done) {
 		return State{}, fmt.Errorf("%w: %s header disagrees with history", ErrTampered, StatePath(dir, name))
 	}
-	st.Done, st.Last, st.LastAt = disk.Done, disk.Last, disk.LastAt
+	st.Last, st.LastAt = disk.Last, disk.LastAt // display only
 	return st, nil
 }
 

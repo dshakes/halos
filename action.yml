@@ -57,8 +57,8 @@ runs:
       run: |
         args=(--version "$VERSION")
         if [ "$WITH_AGENT" = true ] || [ "$APPLY" = true ]; then args+=(--with-agent); fi
-        if [ "$APPLY" = true ]; then
-          # halod must be root-owned: it is run via sudo and trusts its own directory.
+        if [ "$WITH_AGENT" = true ] || [ "$APPLY" = true ]; then
+          # halod must be root-owned (it runs as root and refuses anything else).
           sudo sh "$GITHUB_ACTION_PATH/install/install.sh" --prefix /usr/local "${args[@]}"
         else
           sh "$GITHUB_ACTION_PATH/install/install.sh" --prefix "$HOME/.local" "${args[@]}"

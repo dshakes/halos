@@ -1,0 +1,56 @@
+# DEMO OVERLAY (make demo): acme-corp's gateway with every upstream pointed at
+# the compose mockllm containers, so no real model or cloud credential is used.
+apiVersion: halos.dev/v1alpha1
+kind: Gateway
+name: acme-gateway
+baseURL: https://ai.acme.example # what rendered client configs point at; the demo curls halo-proxy directly
+protocols:
+  claude-code: anthropic-messages
+  codex: openai-responses
+  gemini-cli: gemini
+auth:
+  helperCommand: /usr/local/bin/acme-token
+  ttlSeconds: 3300
+  identityHeader: x-acme-user
+upstreams:
+  orchestrator:
+    url: http://orch-mock:9000
+    kind: orchestrator
+  orchestrator-responses:
+    url: http://orch-mock:9000/v1/responses
+    kind: openai
+  anthropic-direct:
+    url: http://anthropic-mock:9000
+    kind: anthropic
+  gemini-proxy: # mockllm has no Gemini API; the alias exists so the profiles validate
+    url: http://orch-mock:9000
+    kind: gemini
+models:
+  sonnet:
+    upstream: orchestrator
+    model: us.anthropic.claude-sonnet-4-5-v1:0
+  opus:
+    targets:
+      - upstream: orchestrator
+        model: us.anthropic.claude-opus-4-1-v1:0
+        timeoutSeconds: 30
+      - upstream: anthropic-direct
+        model: claude-opus-4-1-20250805
+        priority: 1
+  default:
+    targets:
+      - upstream: anthropic-direct
+        model: claude-sonnet-4-5-20250929
+        weight: 90
+      - upstream: anthropic-direct
+        model: claude-opus-4-1-20250805
+        weight: 10
+  haiku:
+    upstream: orchestrator
+    model: us.anthropic.claude-haiku-4-5-v1:0
+  codex-default:
+    upstream: orchestrator-responses
+    model: gpt-5-codex
+  gemini-default:
+    upstream: gemini-proxy
+    model: gemini-2.5-pro

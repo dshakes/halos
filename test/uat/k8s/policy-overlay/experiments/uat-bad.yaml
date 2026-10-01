@@ -1,0 +1,18 @@
+# UAT traffic canary on alias "slow" (ring3-ga), backing rollout uat-bad.
+apiVersion: halos.dev/v1alpha1
+kind: Experiment
+name: uat-bad
+type: canary
+axis: traffic
+status: running
+rings: [ring3-ga]
+variants:
+  - {name: control, weight: 75, control: true}
+  - name: treatment
+    weight: 25
+    routes:
+      slow: {upstream: mock-b, model: slow-next}
+metrics:
+  primary: {metric: halo.api.error_rate, direction: decrease}
+  guardrails: [{metric: halo.latency.p95_ms, direction: decrease, maxRegression: 0.15}]
+stopping: {method: msprt, alpha: 0.05, minSamples: 20, maxDays: 14}

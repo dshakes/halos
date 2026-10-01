@@ -84,6 +84,18 @@ func TestProposeToggleChange(t *testing.T) {
 	}
 }
 
+// Ramping down to 0 must leave a rule that matches nobody, not everybody.
+func TestProposeToggleChangePercentZero(t *testing.T) {
+	cs := connect(t, Options{PolicyDir: copyExample(t), AllowWrites: true})
+	out, err := call(t, cs, "propose_toggle_change", map[string]any{"name": "github-mcp", "reason": "ramp down", "rule": "ring1-ten-percent", "percent": 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p, _ := out["patch"].(string); !strings.Contains(p, "+    percent: 0\n") {
+		t.Fatalf("patch:\n%s", p)
+	}
+}
+
 func TestProposeToggleChangeErrors(t *testing.T) {
 	cs := connect(t, Options{PolicyDir: copyExample(t), AllowWrites: true})
 	for name, args := range map[string]map[string]any{

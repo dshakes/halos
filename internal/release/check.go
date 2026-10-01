@@ -194,11 +194,12 @@ func tmpRoot(v any) bool {
 	return c == "/tmp" || strings.HasPrefix(c, "/tmp/")
 }
 
-// checkGemini: admin.secureModeEnabled disables YOLO mode and "Always allow"
-// (https://github.com/google-gemini/gemini-cli/blob/main/docs/reference/configuration.md).
+// checkGemini: security.disableYoloMode refuses YOLO mode. (admin.secureModeEnabled
+// in the system file is ignored by gemini-cli: the admin block is remote-only;
+// verified in test/uat.)
 func checkGemini(d map[string]any, p *policy.Profile, fail func(string, ...any) error) error {
-	if a, _ := d["admin"].(map[string]any); p.Permissions.DisableBypass && a["secureModeEnabled"] != true {
-		return fail("profile sets permissions.disableBypass but admin.secureModeEnabled = %v, want true", a["secureModeEnabled"])
+	if sec, _ := d["security"].(map[string]any); p.Permissions.DisableBypass && sec["disableYoloMode"] != true {
+		return fail("profile sets permissions.disableBypass but security.disableYoloMode = %v, want true", sec["disableYoloMode"])
 	}
 	t, _ := d["telemetry"].(map[string]any)
 	if t["logPrompts"] == true && !p.Telemetry.LogPrompts {

@@ -31,7 +31,8 @@ type Result struct {
 
 // Rejection is a request the gateway answers itself. Fail closed: unknown
 // model endpoints (404), unreadable/oversize bodies (413), models that are
-// not a configured alias (403).
+// not a configured alias (400: a permanent client error, which the CLIs do
+// not retry, unlike 403/5xx/429).
 type Rejection struct {
 	Status   int
 	Protocol string // selects the error body shape
@@ -45,10 +46,16 @@ func (r *Rejection) JSON() []byte {
 	var v any
 	switch r.Protocol {
 	case ProtoResponses:
-		code := map[int]string{403: "model_not_allowed", 404: "unknown_url", 413: "request_too_large"}[r.Status]
+		code := map[int]string{400: "model_not_allowed", 403: "model_not_allowed", 404: "unknown_url", 413: "request_too_large"}[r.Status]
 		v = map[string]any{"error": map[string]any{"message": r.Message, "type": "invalid_request_error", "param": nil, "code": code}}
 	case ProtoBedrock:
 		v = map[string]any{"message": r.Message}
+	case ProtoGemini:
+		status := map[int]string{400: "INVALID_ARGUMENT", 403: "PERMISSION_DENIED", 404: "NOT_FOUND", 413: "INVALID_ARGUMENT", 503: "UNAVAILABLE"}[r.Status]
+		if status == "" {
+			status = "UNKNOWN"
+		}
+		v = map[string]any{"error": map[string]any{"code": r.Status, "message": r.Message, "status": status}}
 	default:
 		typ := map[int]string{400: "invalid_request_error", 403: "permission_error", 404: "not_found_error", 413: "request_too_large", 503: "api_error"}[r.Status]
 		if typ == "" {
@@ -84,7 +91,8 @@ func passthrough(p string) bool {
 		return false
 	}
 	id, ok := strings.CutPrefix(p, "/v1/models/")
-	return p == "/v1/models" || (ok && id != "" && id != "." && id != ".." && !strings.Contains(id, "/"))
+	// ":" is excluded: /v1/models/x:generateContent-style calls are model calls, never a model lookup.
+	return p == "/v1/models" || (ok && id != "" && id != "." && id != ".." && !strings.ContainsAny(id, "/:"))
 }
 
 // admit enforces the model allowlist and the non-model passthrough allowlist.
@@ -98,7 +106,7 @@ func admit(org *policy.Org, req RequestInfo, d Decision, path string) *Rejection
 			return &Rejection{Status: http.StatusNotFound, Protocol: ProtoAnthropic, Message: fmt.Sprintf("path %q is not served by the Halos gateway", path)}
 		case strings.HasPrefix(strings.ToLower(path), pathBatches):
 			// ponytail: batches carry a model per item; strict until someone needs them.
-			return &Rejection{Status: http.StatusForbidden, Protocol: proto, Message: "the message batches API is not enabled on this Halos gateway"}
+			return &Rejection{Status: http.StatusBadRequest, Protocol: proto, Message: "the message batches API is not permitted by the Halos gateway policy"}
 		}
 		return &Rejection{Status: http.StatusNotFound, Protocol: proto, Message: fmt.Sprintf("unknown model endpoint %q", path)}
 	}
@@ -113,8 +121,8 @@ func admit(org *policy.Org, req RequestInfo, d Decision, path string) *Rejection
 			}
 		}
 		sort.Strings(allowed)
-		return &Rejection{Status: http.StatusForbidden, Protocol: req.Protocol,
-			Message: fmt.Sprintf("model %q is not allowed by the Halos gateway policy; allowed models: %s", req.ModelAlias, strings.Join(allowed, ", "))}
+		return &Rejection{Status: http.StatusBadRequest, Protocol: req.Protocol,
+			Message: fmt.Sprintf("model %q is not permitted by the Halos gateway policy; allowed models: %s", req.ModelAlias, strings.Join(allowed, ", "))}
 	}
 	return nil
 }

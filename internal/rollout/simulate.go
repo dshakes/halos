@@ -76,7 +76,7 @@ func Simulate(ctx context.Context, dir string, org *policy.Org, r *policy.Rollou
 			return SimResult{}, fmt.Errorf("simulate %s: experiment %q needs one control and one treatment", r.Name, exp.Name)
 		}
 	}
-	ro := *r
+	ro := *Effective(org, r)
 	ro.Status, ro.Step = policy.RolloutActive, ""
 	res := SimResult{Rollout: r.Name, Scenario: o.Scenario, Outcome: Hold, Events: []SimEvent{}}
 	start := time.Date(2026, 1, 5, 9, 0, 0, 0, time.UTC) // fixed: output is reproducible

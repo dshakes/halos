@@ -32,6 +32,9 @@ func (p *policyHolder) Invalidate() { p.mu.Lock(); p.force = true; p.mu.Unlock()
 func dirSig(dir string) string {
 	var latest time.Time
 	var n, size int64
+	if r, err := filepath.EvalSymlinks(dir); err == nil { // git-sync: dir is a symlink to the current worktree
+		dir = r
+	}
 	_ = filepath.WalkDir(dir, func(_ string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return nil

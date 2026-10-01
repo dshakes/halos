@@ -230,6 +230,26 @@ func TestDockerRunArgs(t *testing.T) {
 	}
 }
 
+// LoadSuite hands runArgs symlink-resolved settings while Variant.Dir may be a
+// symlink (macOS /var -> /private/var); found by test/uat.
+func TestDockerSettingsSymlinkedSuiteDir(t *testing.T) {
+	real := t.TempDir()
+	link := filepath.Join(t.TempDir(), "suites")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skip(err)
+	}
+	if err := os.WriteFile(filepath.Join(real, "s.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := filepath.EvalSymlinks(filepath.Join(link, "s.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (&DockerRunner{}).runArgs(Job{Variant: Variant{Dir: link}, Settings: resolved, SettingsDest: "/x"}, "n"); err != nil {
+		t.Errorf("settings inside a symlinked suite dir rejected: %v", err)
+	}
+}
+
 func TestDockerSettingsOutsideSuiteRejected(t *testing.T) {
 	suite, other := t.TempDir(), t.TempDir()
 	f := filepath.Join(other, "s.json")

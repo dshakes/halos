@@ -2,6 +2,7 @@ package eval
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -25,6 +26,10 @@ type Trial struct {
 	Seed uint64 `json:"seed,omitempty"`
 	// Grades are the task's graders' results (absent for check-only tasks).
 	Grades []Grade `json:"grades,omitempty"`
+	// Unavailable is set when the cell could not be measured on this host
+	// (ErrSandboxUnavailable): the trial never ran, is excluded from every
+	// statistic, and makes the gate hold. Never a failure.
+	Unavailable string `json:"unavailable,omitempty"`
 	// GraderError is set when a grader could not produce a verdict (e.g. the
 	// judge's reply failed schema validation). The trial does not pass.
 	GraderError string `json:"graderError,omitempty"`
@@ -66,6 +71,11 @@ func runTrial(ctx context.Context, r Runner, d Driver, t *Task, v Variant, repea
 		timeout = DefaultTimeout
 	}
 	env, err := r.Start(ctx, Job{Task: t, Variant: v, Settings: v.Settings, SettingsDest: d.SettingsPath()})
+	if errors.Is(err, ErrSandboxUnavailable) {
+		tr.Unavailable = ErrSandboxUnavailable.Error()
+		tr.Error = "error: " + ErrSandboxUnavailable.Error() + " (" + err.Error() + ")"
+		return tr
+	}
 	if err != nil {
 		tr.Error = fmt.Sprintf("start: %v", err)
 		return tr

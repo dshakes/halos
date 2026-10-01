@@ -42,6 +42,10 @@
             "type": "string",
             "description": "Exact CLI version pin such as 2.1.280 (no ranges or latest); required for profiles used by rings."
           },
+          "model": {
+            "type": "string",
+            "description": "This harness's default model alias, replacing models.default for it (e.g. codex-default). Must be a gateway.models alias, and in models.allowed when enforce is set."
+          },
           "overrides": {
             "type": "object",
             "description": "Raw harness-native keys merged last (escape hatch; guardrails still apply)."

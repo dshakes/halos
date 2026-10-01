@@ -32,3 +32,5 @@ log_user_prompt = true
 [otel.exporter]
 [otel.exporter.otlp-grpc]
 endpoint = 'https://otel.example.com:4317'
+
+[otel.exporter.otlp-grpc.headers]

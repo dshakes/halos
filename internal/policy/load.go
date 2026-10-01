@@ -27,12 +27,12 @@ type Root struct {
 	Identity Identity `yaml:"identity,omitempty" json:"identity,omitempty"`
 	// SelfService configures the developer portal (kiosk).
 	SelfService SelfService `yaml:"selfService,omitempty" json:"selfService,omitempty"`
+	// Simple mode fields (tools, provider, models, ...): see simple.go.
+	Simple `yaml:",inline"`
 }
 
-// Load reads every *.yaml/*.yml under dir (multi-document files supported),
-// dispatches by kind, and returns the assembled Org. Decoding is strict:
-// unknown fields are errors, reported with the yaml line ("line N") and file.
-func Load(dir string) (*Org, error) {
+// ReadRoot strictly decodes dir's halos.yaml.
+func ReadRoot(dir string) (*Root, error) {
 	rootPath := filepath.Join(dir, RootFile)
 	rb, err := os.ReadFile(rootPath)
 	if err != nil {
@@ -45,18 +45,40 @@ func Load(dir string) (*Org, error) {
 	if root.Org == "" {
 		return nil, fmt.Errorf("policy: %s: org is required", rootPath)
 	}
+	return &root, nil
+}
+
+// Load reads every *.yaml/*.yml under dir (multi-document files supported),
+// dispatches by kind, and returns the assembled Org. Decoding is strict:
+// unknown fields are errors, reported with the yaml line ("line N") and file.
+func Load(dir string) (*Org, error) {
+	rootPath := filepath.Join(dir, RootFile)
+	root, err := ReadRoot(dir)
+	if err != nil {
+		return nil, err
+	}
 
 	org := &Org{Name: root.Org, Identity: root.Identity, SelfService: root.SelfService, Profiles: map[string]*Profile{}}
 	var files []string
-	err = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+	// WalkDir does not descend into a symlinked root, and git-sync (the Helm chart's
+	// --policy-dir=/policy/current) serves the repo through exactly that: walk the
+	// target, but keep reporting paths under dir.
+	walkRoot := dir
+	if r, err := filepath.EvalSymlinks(dir); err == nil {
+		walkRoot = r
+	}
+	err = filepath.WalkDir(walkRoot, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if d.IsDir() {
-			if p != dir && strings.HasPrefix(d.Name(), ".") {
+			if p != walkRoot && strings.HasPrefix(d.Name(), ".") {
 				return filepath.SkipDir
 			}
 			return nil
+		}
+		if rel, err := filepath.Rel(walkRoot, p); err == nil {
+			p = filepath.Join(dir, rel)
 		}
 		if p == rootPath {
 			return nil
@@ -74,6 +96,11 @@ func Load(dir string) (*Org, error) {
 	for _, f := range files {
 		if err := loadFile(org, f); err != nil {
 			return nil, err
+		}
+	}
+	if root.Enabled() {
+		if err := overlaySimple(root, org); err != nil {
+			return nil, fmt.Errorf("policy: %s: %w", rootPath, err)
 		}
 	}
 	sort.SliceStable(org.Rings, func(i, j int) bool { return org.Rings[i].Order < org.Rings[j].Order })

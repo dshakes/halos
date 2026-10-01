@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
@@ -12,51 +11,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/dshakes/halos/cmd/halo/scaffold"
 	"github.com/dshakes/halos/internal/harness"
 	_ "github.com/dshakes/halos/internal/harness/all" // register adapters
 	"github.com/dshakes/halos/internal/policy"
 	"github.com/dshakes/halos/internal/release"
 )
-
-func (a *app) cmdInit() *cobra.Command {
-	var org string
-	c := &cobra.Command{
-		Use:         "init",
-		Annotations: policyDirAnno,
-		Short:       "Scaffold a minimal policy repo",
-		Args:        cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			dir, err := policyDir(cmd, args)
-			if err != nil {
-				return err
-			}
-			if _, err := os.Stat(filepath.Join(dir, policy.RootFile)); err == nil {
-				return fmt.Errorf("%s already exists in %s; refusing to overwrite", policy.RootFile, dir)
-			}
-			files, err := scaffold.Files(org)
-			if err != nil {
-				return err
-			}
-			names := make([]string, 0, len(files))
-			for n, data := range files {
-				names = append(names, n)
-				if err := writeFile(filepath.Join(dir, n), data, 0o644); err != nil {
-					return fmt.Errorf("write %s: %w", n, err)
-				}
-			}
-			sort.Strings(names)
-			return a.emit(map[string]any{"dir": dir, "files": names}, func() {
-				for _, n := range names {
-					fmt.Fprintln(a.out, a.green("create"), filepath.Join(dir, n))
-				}
-				fmt.Fprintf(a.out, "next: halo validate %s\n", dir)
-			})
-		},
-	}
-	c.Flags().StringVar(&org, "org", "my-org", "organization name")
-	return c
-}
 
 func (a *app) cmdValidate() *cobra.Command {
 	return &cobra.Command{

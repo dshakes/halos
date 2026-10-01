@@ -299,7 +299,7 @@ func TestPrepareRewrites(t *testing.T) {
 	}
 	// Unparseable body: no alias can be read, so it is refused, never forwarded as-is.
 	res = PrepareVerified(org, ic, h, "/v1/messages", []byte(`not json`))
-	if res.Rewritten || res.Reject == nil || res.Reject.Status != http.StatusForbidden {
+	if res.Rewritten || res.Reject == nil || res.Reject.Status != http.StatusBadRequest {
 		t.Fatalf("bad body: %+v", res)
 	}
 	res = PrepareVerified(org, ic, h, PathCountTokens, []byte(`{"model":"sonnet","messages":[{"role":"user","content":"hi"}]}`))
@@ -325,15 +325,15 @@ func TestPrepareRejects(t *testing.T) {
 		shape      string // substring of the error body
 	}{
 		{"configured alias", "/v1/messages", org, first("sonnet"), 0, ""},
-		{"unknown model", "/v1/messages", org, first("claude-opus-4"), 403, `"permission_error"`},
-		{"upstream id is not an alias", "/v1/messages", org, first("us.anthropic.claude-sonnet-4-5"), 403, "allowed models: sonnet"},
-		{"no model", "/v1/messages", org, []byte(`{"messages":[]}`), 403, `"type":"error"`},
-		{"nil body", "/v1/messages", org, nil, 403, ""},
-		{"count_tokens unknown model", PathCountTokens, org, first("opus"), 403, ""},
-		{"responses unknown model", "/v1/responses", org, []byte(`{"model":"gpt-5","input":"hi"}`), 403, `"code":"model_not_allowed"`},
-		{"bedrock unknown model", "/model/claude-opus/invoke", org, []byte(`{}`), 403, `{"message":`},
-		{"batches", "/v1/messages/batches", org, first("sonnet"), 403, "batches"},
-		{"batch results", "/v1/messages/batches/b1/results", org, nil, 403, ""},
+		{"unknown model", "/v1/messages", org, first("claude-opus-4"), 400, `"invalid_request_error"`},
+		{"upstream id is not an alias", "/v1/messages", org, first("us.anthropic.claude-sonnet-4-5"), 400, "allowed models: sonnet"},
+		{"no model", "/v1/messages", org, []byte(`{"messages":[]}`), 400, `"type":"error"`},
+		{"nil body", "/v1/messages", org, nil, 400, ""},
+		{"count_tokens unknown model", PathCountTokens, org, first("opus"), 400, ""},
+		{"responses unknown model", "/v1/responses", org, []byte(`{"model":"gpt-5","input":"hi"}`), 400, `"code":"model_not_allowed"`},
+		{"bedrock unknown model", "/model/claude-opus/invoke", org, []byte(`{}`), 400, `{"message":`},
+		{"batches", "/v1/messages/batches", org, first("sonnet"), 400, "batches"},
+		{"batch results", "/v1/messages/batches/b1/results", org, nil, 400, ""},
 		{"unknown messages subpath", "/v1/messages/foo", org, first("sonnet"), 404, `"not_found_error"`},
 		{"trailing slash", "/v1/messages/", org, first("sonnet"), 404, ""},
 		{"double slash", "/v1//messages", org, first("sonnet"), 404, ""},
@@ -345,7 +345,7 @@ func TestPrepareRejects(t *testing.T) {
 		{"model detail passes", "/v1/models/claude-sonnet-4-5", org, nil, 0, ""},
 		{"chat completions refused", "/v1/chat/completions", org, []byte(`{"model":"gpt-5"}`), 404, `"not_found_error"`},
 		{"legacy complete refused", "/v1/complete", org, nil, 404, ""},
-		{"gemini refused", "/v1beta/models/gemini-2.5-pro:generateContent", org, nil, 404, ""},
+		{"gemini model call is allowlisted (unlisted alias 400)", "/v1beta/models/gemini-2.5-pro:generateContent", org, nil, 400, "INVALID_ARGUMENT"},
 		{"models traversal refused", "/v1/models/..", org, nil, 404, ""},
 		{"models escaped refused", "/v1/models/%2e%2e", org, nil, 404, ""},
 		{"models subpath refused", "/v1/models/x/y", org, nil, 404, ""},

@@ -6,7 +6,7 @@ description: What each harness adapter renders, what Halos enforces instead, and
 The capability sets below are what `halo harnesses` prints (from each adapter's `Capabilities()`); the mechanisms and paths come from [`internal/harness/FACTS.md`](https://github.com/dshakes/halos/blob/main/internal/harness/FACTS.md), which cites the vendor page for every claim. Facts were last verified against vendor documentation on 2026-09-30.
 
 :::caution[Nothing here was executed against a real CLI]
-Every cell was read from vendor documentation or schemas. No adapter output has been loaded by the real Claude Code, Codex, Gemini CLI or Copilot CLI. Golden tests check the *rendered bytes*, not the CLI's behavior.
+Every cell was read from vendor documentation or schemas. No adapter output has been loaded by the real Claude Code, Codex, Gemini CLI or Copilot CLI (UNVERIFIED against the real CLIs; `internal/harness/FACTS.md` currently records documentation-sourced facts only). Golden tests check the *rendered bytes*, not the CLI's behavior.
 :::
 
 Legend: **Rendered** = the adapter writes the harness's native enforcement. **`halod`** = the CLI cannot enforce it, so Halos's agent installs the pinned version and reports drift (a local admin can defeat it). **No** = not rendered; the adapter emits a warning in the release manifest rather than dropping the setting silently.
@@ -19,10 +19,10 @@ halo harnesses --output json   # machine-readable
 | Capability | Claude Code | Codex | Gemini CLI | Copilot CLI |
 |---|---|---|---|---|
 | Version pin | Rendered (`requiredMinimumVersion` / `requiredMaximumVersion`; the CLI refuses to start outside the range) | `halod` | `halod` | `halod` |
-| Model lock | Rendered (`availableModels`, `enforceAvailableModels`) | Rendered | Rendered (`model.name`) | No: `models.default` only, users may override (warns) |
+| Model lock | Rendered (`availableModels`, `enforceAvailableModels`; with a gateway, `modelOverrides` maps the built-in fallback for a disallowed `--model` to an alias. The CLI drops a disallowed `--model` silently, with no setting to refuse it) | Rendered | Rendered (`model.name`) | No: `models.default` only, users may override (warns) |
 | MCP allowlist | Rendered (`allowManagedMcpServersOnly`) | Rendered (`requirements.toml` `mcp_servers.<id>.identity`; verified against OpenAI docs and schema) | Rendered (`mcp.allowed`) | Rendered (`allowedMcpServers`) |
 | Hooks lock | Rendered (`allowManagedHooksOnly`) | No | No | No |
-| Permissions | Rendered (`disableBypassPermissionsMode` plus rules) | Rendered (`allowed_approval_policies`, `allowed_sandbox_modes`) | Partial: `admin.secureModeEnabled` for `disableBypass`; not a declared capability in `halo harnesses` | Rendered (`permissions.disableBypassPermissionsMode: "disable"`); `permissions.mode` and `sandbox` are not (warns) |
+| Permissions | Rendered (`disableBypassPermissionsMode` plus rules) | Rendered (`allowed_approval_policies`, `allowed_sandbox_modes`) | Partial: `security.disableYoloMode` for `disableBypass`; not a declared capability in `halo harnesses` | Rendered (`permissions.disableBypassPermissionsMode: "disable"`); `permissions.mode` and `sandbox` are not (warns) |
 | Gateway | Rendered (`ANTHROPIC_BASE_URL` / Bedrock env) | Rendered (`model_providers.<id>`) | Rendered as env via `/etc/profile.d` (login shells only) | **No**: BYOK is env-only and managed settings cannot set env (warns) |
 | Request headers (ring stamps) | Rendered (`ANTHROPIC_CUSTOM_HEADERS`) | Rendered (`http_headers`) | No | No |
 | Telemetry (OTEL) | Rendered | Rendered (`[otel]`) | Rendered | Rendered (`http/json`, `http/protobuf`; `grpc` warns and is not rendered) |
@@ -39,7 +39,7 @@ Fields the adapters cannot render are listed by `halo render` and `halo release 
 | Gemini CLI | `/Library/Application Support/GeminiCli/settings.json` | `/etc/gemini-cli/settings.json` | `C:\ProgramData\gemini-cli\settings.json` |
 | Copilot CLI | `/Library/Application Support/GitHubCopilot/managed-settings.json` | `/etc/github-copilot/managed-settings.json` | `C:\Program Files\GitHubCopilot\managed-settings.json` |
 
-`halod` writes only under these directories per harness (see [delivery](/halos/concepts/delivery/)). Copilot CLI is not yet in `halod`'s allowlist.
+`halod` writes only under these directories per harness (see [delivery](/halos/concepts/delivery/)). Copilot CLI is in the allowlist too (from its adapter's `harness.Meta`). On Linux, codex, gemini-cli and copilot-cli each also own one `/etc/profile.d/halos-<harness>.sh`. All four were installed and applied by `halod` against the real CLIs in `make uat-clis`.
 
 ## Claude Code
 
@@ -61,18 +61,18 @@ Fields the adapters cannot render are listed by `halo render` and `halo release 
 | Managed defaults | `/etc/codex/managed_config.toml` on Unix. **Windows has no system-wide path** (only `~/.codex`), so the adapter renders only `requirements.toml` there and warns that model, gateway, telemetry and MCP definitions are not rendered |
 | Gateway | `model_providers.<id>` with `base_url`, `env_key`, `http_headers`. Codex speaks only the Responses wire API, so the gateway must too |
 | Permissions | `approval_policy`: `on-request`, `never`, or granular; `untrusted` is unsupported and `on-failure` deprecated. `sandbox_mode` never renders `danger-full-access`; `off` maps to `workspace-write` (warns). A `permissions.mode` with no Codex equivalent maps to `on-request` (warns) |
-| Telemetry | `[otel]` with `otlp-grpc` or `otlp-http` (protocol required for http) |
+| Telemetry | `[otel]` with `otlp-grpc` or `otlp-http` (protocol required for http; logs go to `<endpoint>/v1/logs`). No resource-attribute key, so on Linux `/etc/profile.d/halos-codex.sh` wraps `codex` with `OTEL_RESOURCE_ATTRIBUTES` (`halo.ring`, `halo.release`, `halo.harness`; login shells) |
 | MDM | macOS domain `com.openai.codex` (`requirements_toml_base64`); **not rendered** by Halos |
 | Headless (evals) | `codex exec --json` (JSONL events) |
-| Version pin | None in the CLI; `halod` enforces (warns at render) |
+| Version pin | None in the CLI; `halod` enforces (warns at render). requirements.toml is enforced from 0.77.0, and `codex exec` runs under it from 0.99.0 (warns below) |
 
 ## Gemini CLI
 
 | | |
 |---|---|
 | Settings | System `settings.json`; override path with `GEMINI_CLI_SYSTEM_SETTINGS_PATH` |
-| Keys | `model.name`, `mcp.allowed`, `telemetry.{enabled,target,otlpEndpoint,otlpProtocol,logPrompts}`, `admin.secureModeEnabled` (disallows YOLO and "Always allow") |
-| Gateway | `GOOGLE_GEMINI_BASE_URL`, honored **only with gemini-api-key auth** and only over HTTPS or localhost. Settings cannot set env, so the adapter writes `/etc/profile.d/halos-gemini.sh` (login shells only) and warns |
+| Keys | `model.name`, `mcp.allowed`, `telemetry.{enabled,target,otlpEndpoint,otlpProtocol,logPrompts}`, `security.disableYoloMode` (refuses YOLO), `security.auth.enforcedType: gemini-api-key` with a gateway. `admin.secureModeEnabled` in the system file is ignored (the admin block is remote-only) |
+| Gateway | `GOOGLE_GEMINI_BASE_URL`, honored **only with gemini-api-key auth** and only over HTTPS or localhost. Settings cannot set env, so the adapter writes `/etc/profile.d/halos-gemini.sh` (login shells only: `GOOGLE_GEMINI_BASE_URL`, `GEMINI_API_KEY` from `gateway.auth.helperCommand`, and a `gemini` wrapper setting `OTEL_RESOURCE_ATTRIBUTES`) and warns |
 | Headers | Not supported (warns) |
 | Headless (evals) | `gemini -p` with `--output-format json` |
 | Version pin | None in the CLI; `halod` enforces |
@@ -82,10 +82,10 @@ Fields the adapters cannot render are listed by `halo render` and `halo release 
 | | |
 |---|---|
 | File | `managed-settings.json` (regular, root-owned, not group or world writable, non-symlink on macOS and Linux). Precedence: MDM over server-managed over file over user |
-| Keys rendered | `model` (default only), `permissions.disableBypassPermissionsMode`, `allowedMcpServers`, `telemetry` |
+| Keys rendered | `model` (default only), `permissions.disableBypassPermissionsMode`, `allowedMcpServers`, `telemetry`. On Linux `/etc/profile.d/halos-copilot-cli.sh` wraps `copilot` with `OTEL_RESOURCE_ATTRIBUTES` |
 | Gateway | Not rendered: BYOK (`COPILOT_PROVIDER_BASE_URL`, `COPILOT_PROVIDER_API_KEY`, `COPILOT_MODEL`) is env-only. Traffic is not routed through Halos |
-| **UNVERIFIED** | Which `managed-settings.json` keys the *CLI* (rather than VS Code or the app) honors: the vendor support-matrix columns were unreadable. `allowedMcpServers` and `model` CLI support is assumed. Sandbox sub-keys are not mapped. Not executed against a real CLI |
-| Delivery gap | Rendered, but `halod`'s write allowlist does not include it yet |
+| Verified (`make uat-clis`, 1.0.90) | `telemetry` endpoint and `allowedMcpServers` are honored by the CLI. **UNVERIFIED:** whether `disableBypassPermissionsMode` changes tool approval (`--allow-all` still starts); `model`; sandbox sub-keys are not mapped |
+| `halod` delivery | Verified against the real Copilot CLI in `make uat-clis` |
 
 ## Kong notes
 

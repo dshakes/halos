@@ -1,0 +1,16 @@
+# yaml-language-server: $schema=../../schemas/gateway.schema.json
+# CLI -> halo-proxy -> Anthropic. One alias, one upstream.
+apiVersion: halos.dev/v1alpha1
+kind: Gateway
+name: startup-gateway
+baseURL: https://ai.startup.example
+protocols:
+  claude-code: anthropic-messages
+upstreams:
+  anthropic:
+    url: https://api.anthropic.com
+    kind: anthropic
+models:
+  sonnet:
+    upstream: anthropic
+    model: claude-sonnet-4-5-20250929

@@ -1,0 +1,115 @@
+apiVersion: halos.dev/v1alpha1
+kind: Gateway
+name: bank-gateway
+baseURL: https://ai.bank.example
+protocols:
+  claude-code: anthropic-messages
+auth: {}
+models:
+  default:
+    targets:
+      - upstream: bedrock
+        model: eu.anthropic.claude-sonnet-4-5-20250929-v1:0
+      - upstream: anthropic
+        model: claude-sonnet-4-5
+        priority: 1
+  strong:
+    upstream: bedrock
+    model: eu.anthropic.claude-opus-4-1-20250805-v1:0
+upstreams:
+  anthropic:
+    url: https://api.anthropic.com
+    kind: anthropic
+  bedrock:
+    url: https://bedrock-runtime.eu-west-1.amazonaws.com
+    kind: bedrock
+    region: eu-west-1
+---
+apiVersion: halos.dev/v1alpha1
+kind: Profile
+name: default
+harnesses:
+  claude-code:
+    version: 2.1.280
+models:
+  default: default
+  allowed:
+    - default
+    - strong
+  enforce: true
+permissions:
+  mode: default
+  deny:
+    - Read(./.env)
+    - Read(./.env.*)
+    - Read(./secrets/**)
+    - Read(~/.aws/**)
+    - Read(~/.ssh/**)
+    - Read(~/.kube/**)
+    - Read(~/.config/gcloud/**)
+    - Read(**/*.pem)
+    - Read(**/*.key)
+  disableBypass: true
+  sandbox: workspace-write
+  sandboxRequired: true
+mcp:
+  managedOnly: true
+hooks:
+  managedOnly: true
+telemetry:
+  enabled: true
+  otlpEndpoint: https://otel.bank.example:4318
+  protocol: http/protobuf
+egress:
+  allowedDomains:
+    - ai.bank.example
+    - otel.bank.example
+    - github.com
+    - '*.githubusercontent.com'
+    - registry.npmjs.org
+    - proxy.golang.org
+    - pypi.org
+    - files.pythonhosted.org
+---
+apiVersion: halos.dev/v1alpha1
+kind: Ring
+name: ring0-team
+order: 0
+profile: default
+membership:
+  users:
+    - alice@bank.example
+  groups:
+    - ai-platform
+---
+apiVersion: halos.dev/v1alpha1
+kind: Ring
+name: ring1-canary
+order: 1
+profile: default
+membership:
+  percent: 1
+---
+apiVersion: halos.dev/v1alpha1
+kind: Ring
+name: ring2-early
+order: 2
+profile: default
+membership:
+  percent: 5
+---
+apiVersion: halos.dev/v1alpha1
+kind: Ring
+name: ring3-broad
+order: 3
+profile: default
+membership:
+  percent: 25
+---
+apiVersion: halos.dev/v1alpha1
+kind: Ring
+name: ring4-ga
+order: 4
+profile: default
+membership:
+  default: true

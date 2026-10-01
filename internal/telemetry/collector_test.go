@@ -207,3 +207,61 @@ func TestGenerateRequiresClickHouse(t *testing.T) {
 		t.Fatal("want error when ClickHouseEndpoint is empty")
 	}
 }
+
+// The eval receiver is opt-in, has its own token (never the gateway's), keeps
+// only halo.eval.* and stamps halo.source=eval.
+func TestGenerateEvalReceiver(t *testing.T) {
+	off, err := Generate(Options{ClickHouseEndpoint: "tcp://ch:9000"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(off), "otlp/eval") || strings.Contains(string(off), EvalTokenEnv) {
+		t.Fatal("eval receiver must be opt-in")
+	}
+	b, err := Generate(Options{ClickHouseEndpoint: "tcp://ch:9000", EvalReceiver: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var c struct {
+		Extensions map[string]map[string]any `yaml:"extensions"`
+		Receivers  map[string]struct {
+			Protocols map[string]map[string]any `yaml:"protocols"`
+		} `yaml:"receivers"`
+		Processors map[string]map[string]any `yaml:"processors"`
+		Service    struct {
+			Extensions []string `yaml:"extensions"`
+			Pipelines  map[string]struct {
+				Receivers  []string `yaml:"receivers"`
+				Processors []string `yaml:"processors"`
+			} `yaml:"pipelines"`
+		} `yaml:"service"`
+	}
+	if err := yaml.Unmarshal(b, &c); err != nil {
+		t.Fatal(err)
+	}
+	ev := c.Receivers["otlp/eval"].Protocols["http"]
+	if ev["endpoint"] != "0.0.0.0:4320" || ev["auth"].(map[string]any)["authenticator"] != "bearertokenauth/eval" || ev["max_request_body_size"] == nil {
+		t.Fatalf("eval receiver: %v", ev)
+	}
+	if tok := c.Extensions["bearertokenauth/eval"]["token"]; tok != "${env:"+EvalTokenEnv+"}" || tok == c.Extensions["bearertokenauth/gateway"]["token"] {
+		t.Fatalf("eval token %v must be its own env", tok)
+	}
+	if !strings.Contains(strings.Join(c.Service.Extensions, ","), "bearertokenauth/eval") {
+		t.Error("eval auth extension not enabled")
+	}
+	p := c.Service.Pipelines["metrics/eval"]
+	if strings.Join(p.Receivers, ",") != "otlp/eval" || strings.Join(p.Processors, ",") != "memory_limiter,filter/eval-only,transform/source-eval,batch" {
+		t.Fatalf("eval pipeline: %+v", p)
+	}
+	for name, pl := range c.Service.Pipelines {
+		if name != "metrics/eval" && strings.Contains(strings.Join(pl.Receivers, ","), "otlp/eval") {
+			t.Errorf("%s mixes the eval receiver with others", name)
+		}
+	}
+	s := string(b)
+	for _, want := range []string{`not IsMatch(name, "^halo\\.eval\\.")`, `set(datapoint.attributes["halo.source"], "eval")`} {
+		if !strings.Contains(s, want) {
+			t.Errorf("config lacks %s", want)
+		}
+	}
+}

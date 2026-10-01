@@ -75,7 +75,7 @@ func (s *srv) evaluate(ctx context.Context, org *policy.Org, r *policy.Rollout) 
 	if err != nil {
 		return ev, rollout.Decision{}, err
 	}
-	return ev, rollout.Evaluate(r, st, ev, now), nil
+	return ev, rollout.Evaluate(rollout.Effective(org, r), st, ev, now), nil
 }
 
 func (s *srv) rolloutStatus(ctx context.Context, _ *mcp.CallToolRequest, in rolloutIn) (*mcp.CallToolResult, map[string]any, error) {

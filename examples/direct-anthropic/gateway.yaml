@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=../../schemas/gateway.schema.json
+# Claude Code -> halo-proxy -> api.anthropic.com. halo-proxy verifies the caller's
+# OIDC token, assigns cohort, and injects the org's Anthropic key on the proxy
+# host, so developers never hold one.
+apiVersion: halos.dev/v1alpha1
+kind: Gateway
+name: direct-gateway
+engine: halo-proxy
+baseURL: https://ai.direct.example
+protocols:
+  claude-code: anthropic-messages
+auth:
+  helperCommand: /usr/local/bin/direct-sso-token --audience halos-gateway
+  ttlSeconds: 900
+upstreams:
+  anthropic:
+    url: https://api.anthropic.com
+    kind: anthropic
+models:
+  sonnet:
+    upstream: anthropic
+    model: claude-sonnet-4-5-20250929
+  opus:
+    upstream: anthropic
+    model: claude-opus-4-1-20250805
+  haiku:
+    upstream: anthropic
+    model: claude-haiku-4-5-20251001

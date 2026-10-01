@@ -30,6 +30,13 @@ metrics:
     - metric: halo.latency.p95_ms
       direction: decrease
       maxRegression: 0.15
+    # Quality, not just cost/latency: `halo eval online --policy-dir .` grades
+    # the mirrored pairs with an LLM-judge rubric (eval receiver, source=eval).
+    # A breach opens the pause PR and notifies; judge evidence never trips the
+    # kill switch (only gateway evidence does).
+    - metric: halo.eval.judge.score
+      direction: increase
+      maxRegression: 0.05
 stopping:
   method: msprt
   alpha: 0.05

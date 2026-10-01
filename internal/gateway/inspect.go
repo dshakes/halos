@@ -21,6 +21,7 @@ const (
 	ProtoAnthropic = "anthropic-messages"
 	ProtoBedrock   = "bedrock-invoke"
 	ProtoResponses = "openai-responses"
+	ProtoGemini    = "gemini"
 )
 
 // Exact model-call paths. Anything else under a model-bearing prefix
@@ -31,6 +32,10 @@ const (
 	PathResponses   = "/v1/responses"
 	pathBatches     = "/v1/messages/batches"
 )
+
+// geminiPath matches the Gemini API model calls gemini-cli makes (":" may
+// arrive percent-encoded). Other operations (embedContent, batch*) are refused.
+var geminiPath = regexp.MustCompile(`^/(v1beta|v1)/models/([^/:%]+)(?::|%3[Aa])(generateContent|streamGenerateContent|countTokens)$`)
 
 var bedrockPath = regexp.MustCompile(`^/model/([^/]+)/(invoke|invoke-with-response-stream|converse|converse-stream)$`)
 
@@ -44,8 +49,20 @@ func ProtocolForPath(p string) string {
 		return ProtoResponses
 	case bedrockPath.MatchString(p):
 		return ProtoBedrock
+	case geminiPath.MatchString(p):
+		return ProtoGemini
 	}
 	return ""
+}
+
+// IsCountTokens reports whether p is a token-counting call (never mirrored,
+// excluded from request metrics).
+func IsCountTokens(p string) bool {
+	if p == PathCountTokens {
+		return true
+	}
+	m := geminiPath.FindStringSubmatch(p)
+	return m != nil && m[3] == "countTokens"
 }
 
 // modelPrefix returns the protocol whose model-bearing prefix p falls under
@@ -57,7 +74,7 @@ func modelPrefix(p string) string {
 		return ProtoAnthropic // undecodable: treat as suspicious, never forward
 	}
 	c := strings.ToLower(path.Clean("/" + u))
-	for pre, proto := range map[string]string{PathMessages: ProtoAnthropic, PathResponses: ProtoResponses, "/model": ProtoBedrock} {
+	for pre, proto := range map[string]string{PathMessages: ProtoAnthropic, PathResponses: ProtoResponses, "/model": ProtoBedrock, "/v1beta/models": ProtoGemini} {
 		if c == pre || strings.HasPrefix(c, pre+"/") {
 			return proto
 		}
@@ -97,21 +114,34 @@ func Inspect(protocol, path string, body []byte) (model string, firstTurn bool) 
 			model, _ = url.PathUnescape(m[1])
 		}
 	}
+	if protocol == ProtoGemini {
+		if m := geminiPath.FindStringSubmatch(path); m != nil {
+			model, _ = url.PathUnescape(m[2])
+		}
+	}
 	var b struct {
 		Model          string          `json:"model"`
 		Messages       []turn          `json:"messages"`
+		Contents       []turn          `json:"contents"`
 		Input          json.RawMessage `json:"input"`
 		PreviousRespID string          `json:"previous_response_id"`
 	}
 	if json.Unmarshal(body, &b) != nil {
 		return model, false
 	}
-	if protocol != ProtoBedrock {
+	if protocol != ProtoBedrock && protocol != ProtoGemini {
 		model = b.Model
 	}
 	switch protocol {
 	case ProtoAnthropic, ProtoBedrock:
 		return model, firstTurnOf(b.Messages)
+	case ProtoGemini:
+		for i := range b.Contents {
+			if b.Contents[i].Role == "model" || b.Contents[i].Role == "function" { // gemini's assistant/tool turns
+				b.Contents[i].Role = "assistant"
+			}
+		}
+		return model, firstTurnOf(b.Contents)
 	case ProtoResponses:
 		if b.PreviousRespID != "" {
 			return model, false
@@ -155,7 +185,7 @@ func firstTurnOf(ts []turn) bool {
 func NewRequestInfo(h http.Header, path string, body []byte) RequestInfo {
 	proto := ProtocolForPath(path)
 	model, first := Inspect(proto, path, body)
-	if path == PathCountTokens {
+	if IsCountTokens(path) {
 		first = false // never mirror token counting
 	}
 	return RequestInfo{

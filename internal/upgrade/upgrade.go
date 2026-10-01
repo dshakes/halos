@@ -91,6 +91,9 @@ func LoadConfig(path string) (*Config, error) {
 		if m.Provider == "" || m.URL == "" || m.Alias == "" {
 			return nil, fmt.Errorf("%s: models: provider, url and alias are required", path)
 		}
+		if err := eval.CheckSecureURL(m.URL); err != nil {
+			return nil, fmt.Errorf("%s: models %s: %w", path, m.Provider, err)
+		}
 		if _, err := regexp.Compile(m.Match); err != nil {
 			return nil, fmt.Errorf("%s: models %s: match: %w", path, m.Provider, err)
 		}
@@ -189,6 +192,9 @@ func (h HTTPModels) List(ctx context.Context) ([]string, error) {
 		Data   []struct{ ID string }   `json:"data"`
 		Models []struct{ Name string } `json:"models"`
 	}
+	if err := eval.CheckSecureURL(h.URL); err != nil { // the gateway token rides along
+		return nil, fmt.Errorf("list models: %w", err)
+	}
 	hdr := map[string]string{"anthropic-version": "2023-06-01"}
 	if h.APIKey != "" {
 		hdr["Authorization"] = "Bearer " + h.APIKey
@@ -225,6 +231,10 @@ func (a ArtifactVerifier) Verify(ctx context.Context, h, ver string) (int, error
 	}
 	return n, nil
 }
+
+// modelIDRe bounds what an upstream model list may put into a policy file,
+// a branch name, a PR title and a PR body.
+var modelIDRe = regexp.MustCompile(`^[A-Za-z0-9._:@/-]{1,128}$`)
 
 var semverRe = regexp.MustCompile(`^(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z.-]+)?$`)
 
@@ -297,6 +307,14 @@ type Watcher struct {
 	Eval      EvalFunc         // required unless DryRun
 	PR        promote.PROpener // required unless DryRun
 	DryRun    bool
+	// Warn receives non-fatal notices (e.g. a skipped malformed model id); nil = discard.
+	Warn func(string)
+}
+
+func (w *Watcher) warn(format string, args ...any) {
+	if w.Warn != nil {
+		w.Warn(fmt.Sprintf(format, args...))
+	}
 }
 
 func (w *Watcher) statePath() string {
@@ -411,6 +429,10 @@ func (w *Watcher) Candidates(ctx context.Context) ([]Candidate, error) {
 		re := regexp.MustCompile(src.Match) // validated by LoadConfig
 		sort.Strings(ids)
 		for _, id := range ids {
+			if !modelIDRe.MatchString(id) {
+				w.warn("upgrade: %s: skipping malformed model id %q", src.Provider, truncate(id, 64))
+				continue
+			}
 			if !re.MatchString(id) || slices.Contains(src.Known, id) || id == route.Model {
 				continue
 			}
@@ -612,6 +634,13 @@ func Table(cs []Candidate) string {
 		fmt.Fprintf(&b, "%-5s  %-22s  %-14s  %-14s  %-10s  %-5s  %s\n", c.Kind, c.target(), c.From, c.To, arts, or(c.Verdict, "-"), or(c.PR, c.Note))
 	}
 	return b.String()
+}
+
+func truncate(s string, n int) string {
+	if len(s) > n {
+		return s[:n] + "..."
+	}
+	return s
 }
 
 func or(a, b string) string {

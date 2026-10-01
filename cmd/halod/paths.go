@@ -139,3 +139,27 @@ func checkChain(p string) error {
 	}
 	return nil
 }
+
+// selfExe is the running halod, symlinks resolved.
+func selfExe() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("locate halod binary: %w", err)
+	}
+	return filepath.EvalSymlinks(exe)
+}
+
+// checkExe refuses an exe that exists on any path a non-root user could
+// replace it: the resolved binary and every ancestor must be root/SYSTEM-owned
+// and not group/other-writable. Same rules (and test escape hatch) as checkChain.
+// halod runs as root, so a user-writable binary would be a local privilege escalation.
+func checkExe(exe string) error {
+	real, err := filepath.EvalSymlinks(exe)
+	if err != nil {
+		return fmt.Errorf("halod binary %s: %w", exe, err)
+	}
+	if err := checkChain(real); err != nil {
+		return fmt.Errorf("insecure halod binary %s: %w", real, err)
+	}
+	return nil
+}

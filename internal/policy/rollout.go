@@ -12,6 +12,14 @@ import (
 // KindRollout is a phased rollout of one change (see Rollout).
 const KindRollout Kind = "Rollout"
 
+// LabelGeneratedBy marks a document a tool generated for one owner, with the
+// value GeneratedFor(rollout): `halo model switch --canary` labels the
+// gateway.yaml override it writes, and the rollout's completion deletes it.
+const LabelGeneratedBy = "halos.dev/generated-by"
+
+// GeneratedFor is the LabelGeneratedBy value of documents generated for rollout.
+func GeneratedFor(rollout string) string { return "rollout/" + rollout }
+
 // RolloutStrategy is how one step exposes the change.
 type RolloutStrategy string
 
@@ -130,6 +138,34 @@ func (s RolloutStep) EffectivePercent() float64 {
 // RingWide reports whether the step moves a ring pointer instead of experiment weights.
 func (s RolloutStep) RingWide() bool {
 	return s.Strategy == StrategyProgressive || s.Strategy == StrategyBlueGreen
+}
+
+// EffectiveGuardrails is what step s is judged on: the backing experiment's
+// guardrails, each overridden by the step's guardrail on the same metric, then
+// the step's other guardrails. An active rollout owns its experiment (the
+// experiment loop skips it), so dropping the experiment's guardrails here
+// would silently disable their auto-rollback. Ring-wide steps have no control
+// arm and keep only their own (none: validated).
+func (s RolloutStep) EffectiveGuardrails(exp *Experiment) []MetricGoal {
+	if exp == nil || s.RingWide() {
+		return s.Gates.Guardrails
+	}
+	out := make([]MetricGoal, 0, len(exp.Metrics.Guardrails)+len(s.Gates.Guardrails))
+	for _, g := range exp.Metrics.Guardrails {
+		if m, ok := LookupMetric(g.Metric); ok && m.ShadowOnly() && s.Strategy != StrategyDarkLaunch {
+			continue // graded on halo-shadow pairs, which only a dark-launch step produces
+		}
+		if i := slices.IndexFunc(s.Gates.Guardrails, func(o MetricGoal) bool { return o.Metric == g.Metric }); i >= 0 {
+			g = s.Gates.Guardrails[i]
+		}
+		out = append(out, g)
+	}
+	for _, g := range s.Gates.Guardrails {
+		if !slices.ContainsFunc(exp.Metrics.Guardrails, func(o MetricGoal) bool { return o.Metric == g.Metric }) {
+			out = append(out, g)
+		}
+	}
+	return out
 }
 
 // FailureAction is OnFailure with its default.
@@ -332,6 +368,9 @@ func (v *validator) rolloutSteps(p string, r *Rollout, exp *Experiment) {
 			} else if exp != nil && s.Ring != "" && len(exp.Rings) > 1 {
 				v.issues = append(v.issues, Issue{SeverityWarning, sp + ".ring", fmt.Sprintf("percent applies to every ring of experiment %q %v, not only %q; omit ring or narrow the experiment", exp.Name, exp.Rings, s.Ring)})
 			}
+			if (s.Strategy == StrategyCanary || s.Strategy == StrategyHoldout) && exp != nil && len(s.EffectiveGuardrails(exp)) == 0 {
+				v.errf(sp+".gates.guardrails", "%s step exposes users with no guardrails (neither the step nor experiment %q has any): nothing could auto-roll it back", s.Strategy, exp.Name)
+			}
 			if s.Strategy == StrategyCanary {
 				if pct < lastCanary {
 					v.errf(sp+".percent", "canary percent %v below the earlier %v: users would flip back to control", pct, lastCanary)
@@ -342,6 +381,9 @@ func (v *validator) rolloutSteps(p string, r *Rollout, exp *Experiment) {
 		for j, g := range s.Gates.Guardrails {
 			gp := fmt.Sprintf("%s.gates.guardrails[%d]", sp, j)
 			v.metric(gp, g)
+			if m, ok := LookupMetric(g.Metric); ok && m.ShadowOnly() && s.Strategy != StrategyDarkLaunch {
+				v.errf(gp+".metric", "%s is graded on halo-shadow pairs: only a dark-launch step (which runs the experiment as shadow) produces them", g.Metric)
+			}
 			if g.MaxRegression < 0 {
 				v.errf(gp+".maxRegression", "must be >= 0")
 			}

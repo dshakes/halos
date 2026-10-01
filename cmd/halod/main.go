@@ -107,6 +107,14 @@ func run(args []string, stdout, stderr io.Writer) error {
 		_, err = fmt.Fprintln(stdout, string(out))
 		return err
 	}
+	// halod runs as root: refuse to run if anyone but root could have replaced this binary.
+	self, err := selfExe()
+	if err != nil {
+		return err
+	}
+	if err := checkExe(self); err != nil {
+		return err
+	}
 	// halod runs as root and trusts these files: refuse if anyone but root could
 	// have written them (or swapped a parent directory).
 	if err := checkChain(*cfgPath); err != nil {
@@ -221,13 +229,20 @@ func serviceCmd(args []string, stdout io.Writer) error {
 	}
 	fl := flag.NewFlagSet("service", flag.ContinueOnError)
 	fl.SetOutput(stdout)
-	exe := fl.String("exe", "", "halod binary path in the unit (default: the OS's packaged location)")
+	exe := fl.String("exe", "", "halod binary path in the unit (default: this binary; it must be root-owned)")
 	start := fl.Bool("start", false, "install: also enable and start the service")
 	if err := fl.Parse(args[1:]); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
 		}
 		return err
+	}
+	if *exe == "" && args[0] == "install" {
+		self, err := selfExe()
+		if err != nil {
+			return err
+		}
+		*exe = self
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()

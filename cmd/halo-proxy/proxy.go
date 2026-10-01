@@ -253,7 +253,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	d := res.Decision
 	ring, variant, experiment, upstream, model = d.Ring, d.Variant, d.Experiment, d.UpstreamName, d.UpstreamModel
 	rewriteErr = res.RewriteErr
-	if res.Protocol != "" && escPath != gateway.PathCountTokens { // model calls only; token counting would skew latency
+	if res.Protocol != "" && !gateway.IsCountTokens(escPath) { // model calls only; token counting would skew latency
 		gw = &gwmetrics.Request{Ring: d.Ring, Release: d.Release, Experiment: d.Experiment, Variant: d.Variant,
 			Harness: gateway.HarnessFromUA(r.Header.Get("User-Agent")), Model: d.UpstreamModel} // unit = verified subject only, never the client session header
 		if sub != nil {
@@ -321,9 +321,16 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	for k, v := range d.Headers {
 		r.Header.Set(k, v)
 	}
+	if res.Protocol == gateway.ProtoGemini {
+		r.Header.Del("x-gemini-api-privileged-user-id") // per-install id gemini-cli sends; not for the provider
+	}
 	if !p.cfg.ForwardAuth {
-		r.Header.Del("Authorization")
-		r.Header.Del("x-api-key")
+		upstreamauth.StripClientCredentials(r.Header)
+		if res.Protocol == gateway.ProtoGemini { // the Gemini API also takes the key as ?key=
+			q := r.URL.Query()
+			q.Del("key")
+			r.URL.RawQuery = q.Encode()
+		}
 	}
 	for k, v := range headers {
 		r.Header.Set(k, os.ExpandEnv(v))
@@ -357,7 +364,17 @@ func (p *Proxy) authenticate(w http.ResponseWriter, r *http.Request, org *policy
 	if v == nil { // mode none
 		return nil, true
 	}
-	sub, err := v.Verify(r)
+	vr := r
+	if gateway.ProtocolForPath(r.URL.EscapedPath()) == gateway.ProtoGemini && identity.BearerToken(r.Header) == "" {
+		// gemini-cli cannot send Authorization to a custom base URL: its
+		// GEMINI_API_KEY arrives as x-goog-api-key. Accepted on this wire only,
+		// verified exactly like a bearer token, and stripped before forwarding.
+		if k := strings.TrimSpace(r.Header.Get("x-goog-api-key")); k != "" {
+			vr = r.Clone(r.Context())
+			vr.Header.Set("Authorization", "Bearer "+k)
+		}
+	}
+	sub, err := v.Verify(vr)
 	if err == nil {
 		return &sub, true
 	}

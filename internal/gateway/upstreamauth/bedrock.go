@@ -138,6 +138,7 @@ func (b *Bedrock) Sign(req *http.Request, region string) error {
 
 func (b *Bedrock) sign(req *http.Request, region, service string) error {
 	ctx := req.Context()
+	StripClientCredentials(req.Header)
 	for _, h := range clientAuth {
 		req.Header.Del(h)
 	}

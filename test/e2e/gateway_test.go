@@ -187,9 +187,9 @@ func TestGatewayTrafficPlane(t *testing.T) {
 	ga := users["ring1-ga"]
 	auth := map[string]string{"Authorization": "Bearer " + mint(t, iss, ga)}
 
-	t.Run("unknown model 403", func(t *testing.T) {
+	t.Run("unknown model 400", func(t *testing.T) {
 		resp, body := send("/v1/messages", msg("gpt-4o", false), auth)
-		if resp.StatusCode != 403 || !strings.Contains(body, "permission_error") || resp.Header.Get("X-Mock-Served-By") != "" {
+		if resp.StatusCode != 400 || !strings.Contains(body, "invalid_request_error") || !strings.Contains(body, "not permitted by the Halos gateway policy") || resp.Header.Get("X-Mock-Served-By") != "" {
 			t.Fatalf("status %d served-by %q: %s", resp.StatusCode, resp.Header.Get("X-Mock-Served-By"), body)
 		}
 	})

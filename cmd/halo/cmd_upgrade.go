@@ -75,6 +75,7 @@ func (a *app) cmdUpgrade() *cobra.Command {
 			Registry: upgrade.NPM{URL: npmURL},
 			Verifier: upgrade.ArtifactVerifier{Resolver: release.ArtifactResolver{NPMRegistry: npmURL}},
 			PR:       promote.GHOpener{},
+			Warn:     func(m string) { fmt.Fprintln(a.errw, "warning:", m) },
 		}
 		w.Eval = func(ctx context.Context, cand upgrade.Candidate) (*eval.Scorecard, error) {
 			s, err := eval.LoadSuite(filepath.Join(dir, cfg.Suite))
@@ -139,6 +140,6 @@ func (a *app) cmdUpgrade() *cobra.Command {
 		sub.Flags().IntVar(&parallel, "parallel", 2, "concurrent eval trials")
 	}
 	watch.Flags().DurationVar(&every, "every", 6*time.Hour, "check interval")
-	c.AddCommand(check, watch)
+	c.AddCommand(check, watch, a.cmdUpgradeStart(), a.cmdUpgradePublish())
 	return c
 }

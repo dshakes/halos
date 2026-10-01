@@ -1,0 +1,6 @@
+{"type":"thread.started","thread_id":"01a0f7ec-686f-7482-bbd1-f570dc0b0bcc"}
+{"type":"turn.started"}
+{"type":"item.started","item":{"id":"item_0","type":"command_execution","command":"/bin/bash -lc 'echo 42 > answer.txt'","aggregated_output":"","exit_code":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_0","type":"command_execution","command":"/bin/bash -lc 'echo 42 > answer.txt'","aggregated_output":"/bin/bash: line 1: answer.txt: Is a directory\n","exit_code":1,"status":"failed"}}
+{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"UAT-MOCK-ANSWER tool step done"}}
+{"type":"turn.completed","usage":{"input_tokens":24,"cached_input_tokens":0,"output_tokens":14}}

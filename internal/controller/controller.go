@@ -193,9 +193,10 @@ func (c *Controller) rollback(ctx context.Context, e *policy.Experiment, rep pro
 	} else if rep.Source != promote.SourceGateway {
 		// Only the authenticated gateway receiver's evidence may auto-kill: CLI
 		// telemetry is client-controlled (anyone who can reach the collector can
-		// forge it), so it opens the pause PR and notifies, and a human decides.
+		// forge it), and eval (LLM-judge) evidence is a model's opinion; both
+		// open the pause PR and notify, and a human decides.
 		ev.KillOutcome = KillNotGateway
-		ev.KillError = fmt.Sprintf("not auto-killed: the deciding evidence is %q-sourced (client-controlled telemetry); only gateway-sourced evidence may trip the kill switch", rep.Source)
+		ev.KillError = fmt.Sprintf("not auto-killed: the deciding evidence is %q-sourced; only gateway-sourced evidence may trip the kill switch", rep.Source)
 		c.log().Warn("rollback verdict on non-gateway evidence; kill switch not tripped", "experiment", e.Name, "source", rep.Source, "reason", rep.Reason)
 	} else if c.Kill == nil {
 		ev.KillOutcome = KillNotConfigured

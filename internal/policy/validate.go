@@ -146,8 +146,8 @@ func (v *validator) upstreamKind(p string, up Upstream) {
 		}
 		return
 	}
-	if up.Kind != "azure-openai" && up.Kind != "openai" {
-		v.errf(p+".credential", "credential is only valid on kinds openai and azure-openai")
+	if up.Kind != "azure-openai" && up.Kind != "openai" && up.Kind != "gemini" {
+		v.errf(p+".credential", "credential is only valid on kinds openai, azure-openai and gemini")
 	}
 	if (c.Env == "") == (c.File == "") {
 		v.errf(p+".credential", "set exactly one of env or file")
@@ -213,6 +213,20 @@ func (v *validator) profiles() {
 		}
 		if p.Models.Enforce && !slices.Contains(p.Models.Allowed, p.Models.Default) {
 			v.errf(path+".models.default", "default %q must be in models.allowed when enforce is set", p.Models.Default)
+		}
+		for _, h := range sortedKeys(p.Harnesses) {
+			m := p.Harnesses[h].Model
+			if m == "" {
+				continue
+			}
+			if p.Models.Enforce && !slices.Contains(p.Models.Allowed, m) {
+				v.errf(path+".harnesses."+h+".model", "model %q must be in models.allowed when enforce is set", m)
+			}
+			if g := v.org.Gateway; g != nil {
+				if _, ok := g.Models[m]; !ok {
+					v.errf(path+".harnesses."+h+".model", "model %q is not a gateway.models alias", m)
+				}
+			}
 		}
 		if g := v.org.Gateway; g != nil {
 			for _, m := range append([]string{p.Models.Default}, p.Models.Allowed...) {
@@ -408,6 +422,9 @@ func (v *validator) metric(path string, m MetricGoal) {
 		v.errf(path+".metric", "unknown metric %q (see MetricRegistry)", m.Metric)
 	}
 	v.oneOf(path+".direction", "direction", m.Direction, directions)
+	if def, ok := LookupMetric(m.Metric); ok && def.Better != "" && m.Direction != "" && m.Direction != def.Better {
+		v.errf(path+".direction", "%s improves in direction %q; %q would treat a regression as a win", m.Metric, def.Better, m.Direction)
+	}
 }
 
 func sortedKeys[V any](m map[string]V) []string {

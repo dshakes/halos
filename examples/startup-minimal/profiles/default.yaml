@@ -1,0 +1,19 @@
+# yaml-language-server: $schema=../../../schemas/profile.schema.json
+apiVersion: halos.dev/v1alpha1
+kind: Profile
+name: default
+harnesses:
+  claude-code:
+    version: 2.1.280
+models:
+  default: sonnet
+  allowed: [sonnet]
+  enforce: true
+permissions:
+  mode: default
+  disableBypass: true
+  deny:
+    - Read(./.env)
+    - Read(~/.ssh/**)
+telemetry:
+  enabled: true

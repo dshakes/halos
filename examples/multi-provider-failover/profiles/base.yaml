@@ -1,0 +1,25 @@
+# yaml-language-server: $schema=../../../schemas/profile.schema.json
+apiVersion: halos.dev/v1alpha1
+kind: Profile
+name: base
+models:
+  default: sonnet
+  allowed: [sonnet, opus, haiku]
+  enforce: true
+permissions:
+  mode: default
+  disableBypass: true
+  sandbox: workspace-write
+  deny:
+    - Read(./.env)
+    - Read(~/.aws/**)
+    - Read(~/.ssh/**)
+telemetry:
+  enabled: true
+  otlpEndpoint: https://otel.multi.example:4318
+  protocol: http/protobuf
+egress:
+  allowedDomains:
+    - ai.multi.example
+    - otel.multi.example
+    - github.com

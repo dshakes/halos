@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://halos.dev/schemas/halos.schema.json",
   "title": "Halos root",
-  "description": "The policy repo root document (halos.yaml).",
+  "description": "The policy repo root document (halos.yaml). The simple-mode keys (tools, provider, models, gateway, telemetry, team, safety, rollout) expand into the Gateway, the default Profile and the Rings; see `halo explain`.",
   "type": "object",
   "properties": {
     "apiVersion": {
@@ -126,6 +126,148 @@
         }
       },
       "additionalProperties": false
+    },
+    "tools": {
+      "type": "object",
+      "description": "Simple mode: harnesses to enable, each pinned to an exact CLI version: a bare version, or {version, model} where model is a models alias the tool starts on instead of default.",
+      "propertyNames": {
+        "enum": [
+          "claude-code",
+          "codex",
+          "gemini-cli",
+          "copilot-cli"
+        ]
+      },
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "string",
+            "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?$"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "version": {
+                "type": "string",
+                "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?$"
+              },
+              "model": {
+                "type": "string",
+                "minLength": 1,
+                "description": "A models alias this tool starts on instead of default."
+              }
+            },
+            "required": [
+              "version"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "provider": {
+      "description": "Simple mode: where models run. A name, or a mapping with its settings.",
+      "oneOf": [
+        {
+          "enum": [
+            "anthropic",
+            "bedrock",
+            "vertex",
+            "openai",
+            "gemini",
+            "multi"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "enum": [
+                "anthropic",
+                "bedrock",
+                "vertex",
+                "openai",
+                "gemini",
+                "multi"
+              ]
+            },
+            "region": {
+              "type": "string",
+              "description": "AWS region (bedrock, default us-east-1) or Vertex region (default global)."
+            },
+            "project": {
+              "type": "string",
+              "description": "Google Cloud project (vertex, required)."
+            },
+            "url": {
+              "type": "string",
+              "format": "uri",
+              "description": "Override the provider's base URL (e.g. an internal orchestrator)."
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "models": {
+      "type": "object",
+      "description": "Simple mode: model alias -> provider model id, or a list of ids in failover order. An id may be prefixed <provider>/ (required with provider multi). The default alias is required.",
+      "required": [
+        "default"
+      ],
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "string",
+            "minLength": 1
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 1
+          }
+        ]
+      }
+    },
+    "gateway": {
+      "type": "string",
+      "format": "uri",
+      "description": "Simple mode: the gateway base URL clients are pointed at."
+    },
+    "telemetry": {
+      "type": "string",
+      "format": "uri",
+      "description": "Simple mode: OTLP/HTTP endpoint. Telemetry is always on."
+    },
+    "team": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Simple mode: ring0 members, IdP groups or user ids (containing @). Default: identity.adminGroups, else <org>-ai-platform."
+    },
+    "safety": {
+      "enum": [
+        "strict",
+        "standard",
+        "relaxed"
+      ],
+      "description": "Simple mode: safety preset (default standard). No preset bypasses permissions."
+    },
+    "rollout": {
+      "enum": [
+        "fast",
+        "standard",
+        "careful"
+      ],
+      "description": "Simple mode: rollout preset (rings and step template; default standard)."
     }
   },
   "required": [

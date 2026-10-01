@@ -58,6 +58,10 @@ State-changing Session and Admin requests (anything but `GET`) are rejected with
 | `POST /api/v1/experiments/{name}/status` | Admin | Body `{"status": "running\|paused\|concluded"}`. **Opens a policy-repo PR**; nothing changes until a human merges. Returns `{"prURL"}`. 409 if already in that status, 501 if no policy writer is configured. Audited as `experiment.status` |
 | `POST /api/v1/experiments/{name}/kill` | Admin | Kill switch on. Body `{"reason": "..."}` (required, at most 500 characters; 422 otherwise). 404 for a name not in policy. 501 when the server has no kill-list signing key (nothing would be enforced). Audited as `experiment.kill` |
 | `POST /api/v1/experiments/{name}/unkill` | Admin | Kill switch off. Also works for names no longer in policy, so stale kills can be cleared. Optional `{"reason"}`. 501 without a signing key. Audited as `experiment.unkill` |
+| `POST /api/v1/toggles/{name}/kill` | Admin | Kill a feature toggle (fleet-wide off). Body `{"reason": "..."}` (required; 422 otherwise). Same signed kill list as experiments. Audited as `toggle.kill` |
+| `POST /api/v1/toggles/{name}/unkill` | Admin | Kill switch off for the toggle. Optional `{"reason"}`. Audited as `toggle.unkill` |
+| `GET /api/v1/rollouts` | Admin | Rollouts from policy, with saved controller state when the server runs with `--controller` and a data dir |
+| `GET /api/v1/rollouts/{name}` | Admin | One rollout, same shape |
 | `GET /api/v1/killswitch` | Admin | Active kills with who, when and why, and the list `version` |
 | `GET /api/v1/gateway/killswitch` | Gateway token | The signed kill list for `halo-proxy` and `halo-kong` |
 | `GET /api/v1/fleet/killswitch` | Device token | The same signed list for `halod` (client-axis devices; opt-in via `killSwitch` in `halod.yaml`). 404 when the server has no kill key |
@@ -77,6 +81,7 @@ State-changing Session and Admin requests (anything but `GET`) are rejected with
 
 | Method and path | Auth | Purpose |
 |---|---|---|
+| `GET /enroll/killswitch.pub` | Public | The kill-list verification public key (PEM) that the enroll scripts install. 404 when the kill switch is not configured |
 | `GET /enroll.sh`, `GET /enroll.ps1` | Public | Enrollment scripts. They pin the `halod` checksum from server config |
 | `GET /enroll/release.pub` | Public | Release public key |
 | `POST /api/v1/enroll` | Public (enrollment token in the body) | Exchange a single-use token for a device token and `halod.yaml`. A bad, expired or used token is 401 |
@@ -115,4 +120,4 @@ curl -X POST https://halo.acme.example/api/v1/experiments/opus-5-5-canary/kill \
 
 ### Audit actions
 
-`login`, `logout`, `request.create`, `request.approve`, `request.deny`, `device.enroll`, `device.revoke`, `session.revoke`, `experiment.status`, `experiment.kill`, `experiment.unkill`. The controller's kills are recorded with actor `halo-controller`.
+`login`, `logout`, `request.create`, `request.approve`, `request.deny`, `device.enroll`, `device.revoke`, `session.revoke`, `experiment.status`, `experiment.kill`, `experiment.unkill`, `toggle.kill`, `toggle.unkill`. The controller's kills are recorded with actor `halo-controller`.

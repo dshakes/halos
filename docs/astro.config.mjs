@@ -22,6 +22,7 @@ export default defineConfig({
           label: 'Getting started',
           items: [
             'getting-started/introduction',
+            'getting-started/playground',
             'getting-started/install',
             'getting-started/quickstart',
             'getting-started/installation',
@@ -30,7 +31,9 @@ export default defineConfig({
         {
           label: 'Concepts',
           items: [
+            'concepts/how-it-works',
             'concepts/architecture',
+            'concepts/simple-mode',
             'concepts/policy-model',
             'concepts/rings-and-releases',
             'concepts/rollouts',
@@ -44,6 +47,22 @@ export default defineConfig({
             'concepts/evidence-plane',
             'concepts/security-model',
           ],
+        },
+        {
+          label: 'Tutorials',
+          items: [
+            { slug: 'tutorials', label: 'All tutorials' },
+            'tutorials/first-10-minutes',
+            'tutorials/claude-code-upgrade',
+            'tutorials/canary-a-model',
+            'tutorials/kill-a-bad-change',
+            'tutorials/add-a-toggle',
+            'tutorials/gate-upgrades-on-evals',
+          ],
+        },
+        {
+          label: 'Examples',
+          items: [{ slug: 'examples', label: 'Example policy repos' }],
         },
         {
           label: 'Guides',
@@ -65,14 +84,25 @@ export default defineConfig({
         {
           label: 'Reference',
           items: [
-            'reference/cli',
+            {
+              label: 'CLI',
+              collapsed: true,
+              items: [{ autogenerate: { directory: 'reference/cli' } }],
+            },
+            {
+              label: 'Policy files',
+              collapsed: true,
+              items: [{ autogenerate: { directory: 'reference/policy' } }],
+            },
             'reference/api',
+            'reference/binaries',
             'reference/policy-schema',
             'reference/harness-matrix',
             'reference/metrics',
             'reference/gateway-headers',
             'reference/threat-model',
             'reference/faq',
+            'reference/comparison',
           ],
         },
         {
@@ -88,6 +118,7 @@ export default defineConfig({
             'adr/0007-guardrails-in-go-not-opa',
             'adr/0008-signed-ring-pointers-and-verified-artifacts',
             'adr/0009-signed-kill-switch',
+            'adr/0010-release-channels-for-client-experiments',
           ],
         },
       ],

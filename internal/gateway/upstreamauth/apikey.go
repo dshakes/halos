@@ -37,28 +37,42 @@ func Secret(c *policy.Credential, getenv func(string) string) (string, error) {
 	return v, nil
 }
 
+// ClientCredentialHeaders are the headers a caller can use to present a
+// credential. None of them is ever a gateway-to-provider credential: they are
+// dropped before the gateway installs its own (or none).
+var ClientCredentialHeaders = []string{"Authorization", "X-Api-Key", "Api-Key", "X-Goog-Api-Key", "Proxy-Authorization"}
+
+// StripClientCredentials removes every ClientCredentialHeaders entry from h.
+func StripClientCredentials(h http.Header) {
+	for _, n := range ClientCredentialHeaders {
+		h.Del(n)
+	}
+}
+
 // SetAuth replaces the client's credentials on h with the provider's: Azure
 // OpenAI takes api-key by default, OpenAI a bearer token; Credential.Scheme overrides.
 func SetAuth(h http.Header, kind string, c *policy.Credential, secret string) {
-	for _, n := range []string{"Authorization", "X-Api-Key", "Api-Key"} {
-		h.Del(n)
-	}
+	StripClientCredentials(h)
 	scheme := c.Scheme
 	if scheme == "" && kind == "azure-openai" {
 		scheme = "api-key"
 	}
-	if scheme == "api-key" {
+	switch {
+	case scheme == "bearer":
+		h.Set("Authorization", "Bearer "+secret)
+	case kind == "gemini":
+		h.Set("X-Goog-Api-Key", secret)
+	case scheme == "api-key":
 		h.Set("api-key", secret)
-		return
+	default:
+		h.Set("Authorization", "Bearer "+secret)
 	}
-	h.Set("Authorization", "Bearer "+secret)
 }
 
 // SetBearer replaces the client's credentials on h with a bearer token.
 func SetBearer(h http.Header, token string) {
-	for _, n := range []string{"X-Api-Key", "Api-Key", "Anthropic-Version"} {
-		h.Del(n)
-	}
+	StripClientCredentials(h)
+	h.Del("Anthropic-Version")
 	h.Set("Authorization", "Bearer "+token)
 }
 
@@ -67,13 +81,14 @@ func SetBearer(h http.Header, token string) {
 var providerHosts = map[string][]string{
 	"vertex":       {".googleapis.com"},
 	"openai":       {"api.openai.com"},
+	"gemini":       {"generativelanguage.googleapis.com"},
 	"azure-openai": {".openai.azure.com", ".cognitiveservices.azure.com", ".services.ai.azure.com"},
 }
 
 // Credentialed reports whether halo-proxy attaches its own credential to
 // requests for up (and so must restrict where they can go).
 func Credentialed(up policy.Upstream) bool {
-	return up.Kind == "vertex" || up.Kind == "azure-openai" || (up.Kind == "openai" && up.Credential != nil)
+	return up.Kind == "vertex" || up.Kind == "azure-openai" || ((up.Kind == "openai" || up.Kind == "gemini") && up.Credential != nil)
 }
 
 // CheckURL is the SSRF guard for credentialed upstreams: https only (http only

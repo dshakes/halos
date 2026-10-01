@@ -62,7 +62,7 @@ func (f *rolloutEvidence) decide(cmd *cobra.Command, dir string, org *policy.Org
 		return st, ev, rollout.Decision{}, err
 	}
 	ev.Approved = approved
-	return st, ev, rollout.Evaluate(r, st, ev, now), nil
+	return st, ev, rollout.Evaluate(rollout.Effective(org, r), st, ev, now), nil
 }
 
 func rolloutStateDir(dataDir string) string { return filepath.Join(dataDir, "rollouts") }

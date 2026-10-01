@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // DockerRunner isolates each trial in hardened containers by shelling out to
@@ -52,6 +53,74 @@ type DockerRunner struct {
 	// Memory (default "4g"), CPUs (default "2") and User (default
 	// "1000:1000", non-root) bound each container.
 	Memory, CPUs, User string
+	// SandboxProbes maps harness -> a command that must exit 0 inside a
+	// container hardened like the trials before any trial of that harness
+	// runs (once per runner and image). nil = DefaultSandboxProbes; an empty
+	// map disables probing.
+	SandboxProbes map[string][]string
+
+	probeMu sync.Mutex
+	probed  map[string]error // image -> probe outcome (nil = sandbox works)
+}
+
+// ErrSandboxUnavailable marks a cell the host cannot measure: the harness's
+// own sandbox does not work here (codex workspace-write needs Landlock, which
+// e.g. Docker Desktop's linuxkit kernel lacks). Such trials are never run and
+// never scored as failures; the gate holds instead (see Trial.Unavailable).
+var ErrSandboxUnavailable = errors.New("sandbox unavailable (Landlock)")
+
+// DefaultSandboxProbes: codex runs `true` under the same workspace-write
+// (Landlock + seccomp) sandbox `codex exec --sandbox workspace-write` uses.
+// Never danger-full-access (AGENTS.md invariant 1): a host that cannot
+// sandbox codex is reported, not worked around. Verified against codex-cli
+// 0.99.0 without Landlock (Docker Desktop): exit 101, "Sandbox(LandlockRestrict)"
+// (testdata/codex/sandbox-probe-no-landlock.txt). The exit-0 case on a
+// Landlock host is not yet recorded.
+var DefaultSandboxProbes = map[string][]string{"codex": {"codex", "sandbox", "linux", "--full-auto", "true"}}
+
+// hardening is every trial container's isolation flags.
+func (d *DockerRunner) hardening() []string {
+	return []string{"--cap-drop=ALL", "--security-opt=no-new-privileges", "--pids-limit=512",
+		"--memory=" + or(d.Memory, "4g"), "--cpus=" + or(d.CPUs, "2"), "--user=" + or(d.User, "1000:1000"),
+		"--network", or(d.Network, "none")}
+}
+
+// preflight runs v's sandbox probe once per image. It returns an error
+// wrapping ErrSandboxUnavailable when the probe ran and failed; docker's own
+// failures (exit 125-127: daemon, image, command not found) are ordinary
+// errors and are not cached, so they are retried.
+func (d *DockerRunner) preflight(ctx context.Context, v Variant) error {
+	probes := d.SandboxProbes
+	if probes == nil {
+		probes = DefaultSandboxProbes
+	}
+	probe := probes[v.Harness]
+	if len(probe) == 0 {
+		return nil
+	}
+	img := d.image(v)
+	d.probeMu.Lock()
+	defer d.probeMu.Unlock() // one probe per image even under parallel trials
+	if err, ok := d.probed[img]; ok {
+		return err
+	}
+	args := append(append([]string{"run", "--rm"}, d.hardening()...), append([]string{img}, probe...)...)
+	res, err := runCmd(ctx, exec.CommandContext(ctx, d.bin(), args...))
+	switch {
+	case err != nil:
+		return fmt.Errorf("sandbox preflight %s: %w", img, err)
+	case res.ExitCode >= 125 && res.ExitCode <= 127:
+		return fmt.Errorf("sandbox preflight %s: docker exit %d: %s", img, res.ExitCode, tail(res.Stderr))
+	}
+	var out error
+	if res.ExitCode != 0 {
+		out = fmt.Errorf("%w: %s probe exit %d: %s", ErrSandboxUnavailable, v.Harness, res.ExitCode, tail(append(res.Stderr, res.Stdout...)))
+	}
+	if d.probed == nil {
+		d.probed = map[string]error{}
+	}
+	d.probed[img] = out
+	return out
 }
 
 type dockerEnv struct {
@@ -97,13 +166,16 @@ func or(v, def string) string {
 
 // runArgs builds the `docker run` argv for a job. No env is set here.
 func (d *DockerRunner) runArgs(j Job, name string) ([]string, error) {
-	args := []string{"run", "-d", "--rm", "--name", name, "-w", "/work",
-		"--cap-drop=ALL", "--security-opt=no-new-privileges", "--pids-limit=512",
-		"--memory=" + or(d.Memory, "4g"), "--cpus=" + or(d.CPUs, "2"), "--user=" + or(d.User, "1000:1000"),
-		"--network", or(d.Network, "none")}
+	args := append([]string{"run", "-d", "--rm", "--name", name, "-w", "/work"}, d.hardening()...)
 	if j.Settings != "" && j.SettingsDest != "" {
 		// Defense in depth: LoadSuite already enforces this.
-		rel, err := filepath.Rel(j.Variant.Dir, j.Settings)
+		// LoadSuite symlink-resolves Settings, so compare against the resolved
+		// dir (a suite under /var/folders -> /private/var on macOS broke here; test/uat).
+		dir, err := filepath.EvalSymlinks(j.Variant.Dir)
+		var rel string
+		if err == nil {
+			rel, err = filepath.Rel(dir, j.Settings)
+		}
 		if j.Variant.Dir == "" || err != nil {
 			return nil, fmt.Errorf("settings %s: no suite dir to check against", j.Settings)
 		}
@@ -116,6 +188,9 @@ func (d *DockerRunner) runArgs(j Job, name string) ([]string, error) {
 }
 
 func (d *DockerRunner) Start(ctx context.Context, j Job) (Env, error) {
+	if err := d.preflight(ctx, j.Variant); err != nil {
+		return nil, fmt.Errorf("docker runner: %w", err)
+	}
 	tmp, err := os.MkdirTemp("", "halo-eval-*")
 	if err != nil {
 		return nil, fmt.Errorf("docker runner: %w", err)

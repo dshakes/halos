@@ -81,9 +81,9 @@ This table is the renderer's real output for the matrix test fixture (`internal/
 $ halo eval online --pairs /var/lib/halo-shadow/pairs.jsonl --pair-key-file key.b64 \
     --rubric evals/rubrics/code-change-quality.yaml \
     --judge-url https://ai.acme.example --judge-model claude-sonnet-5-5 \
-    --history scorecards.jsonl --otlp https://otel.acme.example:4319
+    --history scorecards.jsonl --otlp https://otel.acme.example:4320 --otlp-token-file eval-token
 ```
 
-This samples [halo-shadow](/halos/concepts/shadow-traffic/) pairs per experiment (a seeded shuffle, so reruns grade the same pairs) and judges both sides. For each experiment it reports the candidate − control score delta with a bootstrap CI, plus a win rate. Results go to the scorecard history (already-graded pairs are skipped) and are emitted as `halo.eval.*` metrics to the authenticated gateway receiver, so `halo exp analyze` and the [controller](/halos/concepts/experiments/) can read them next to latency and cost. Pairs where either side errored are skipped: that is a reliability signal, not a quality one.
+This samples [halo-shadow](/halos/concepts/shadow-traffic/) pairs per experiment (a seeded shuffle, so reruns grade the same pairs) and judges both sides. For each experiment it reports the candidate − control score delta with a bootstrap CI, plus a win rate. Results go to the scorecard history (already-graded pairs are skipped) and are emitted as `halo.eval.*` metrics to the collector's dedicated eval receiver (`halo telemetry collector-config --eval-receiver`, port 4320, bearer token from `HALO_OTLP_EVAL_TOKEN` via `--otlp-token-file`). They are stamped `halo.source=eval`, which nothing auto-kills on. `halo exp analyze` and the [controller](/halos/concepts/experiments/) do not read `halo.eval.*` today; the scorecard history is the record. Pairs where either side errored are skipped: that is a reliability signal, not a quality one.
 
 Related: [writing evals](/halos/guides/writing-evals/), [reliable upgrades](/halos/guides/reliable-upgrades/), [evidence plane](/halos/concepts/evidence-plane/), [metrics reference](/halos/reference/metrics/).

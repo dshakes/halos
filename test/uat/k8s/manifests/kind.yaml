@@ -1,0 +1,18 @@
+# kind cluster for `make uat-k8s` (scripts/uat-k8s.sh). The host reaches the
+# cluster only through these loopback NodePorts (manifests/infra.yaml); chart
+# traffic enters via the uat ingress (nginx), as it would behind a real ingress.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: halos-uat
+# kindnet enforces NetworkPolicy (kind >= v0.24), so the chart's policies are really tested.
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - {containerPort: 30443, hostPort: 30443, listenAddress: 127.0.0.1}   # ingress: portal/API (TLS)
+      - {containerPort: 30088, hostPort: 30088, listenAddress: 127.0.0.1}   # ingress: halo-proxy
+      - {containerPort: 30318, hostPort: 30318, listenAddress: 127.0.0.1}   # ingress: OTLP CLI receiver
+      - {containerPort: 30319, hostPort: 30319, listenAddress: 127.0.0.1}   # ingress: OTLP gateway receiver
+      - {containerPort: 30500, hostPort: 30500, listenAddress: 127.0.0.1}   # OCI registry
+      - {containerPort: 30808, hostPort: 30808, listenAddress: 127.0.0.1}   # mock OIDC issuer
+      - {containerPort: 30123, hostPort: 30123, listenAddress: 127.0.0.1}   # ClickHouse HTTP
+      - {containerPort: 30418, hostPort: 30418, listenAddress: 127.0.0.1}   # git daemon (policy repo)

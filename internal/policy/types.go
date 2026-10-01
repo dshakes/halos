@@ -151,7 +151,7 @@ type Upstream struct {
 	// versionless /openai/v1 surface.
 	APIVersion string `yaml:"apiVersion,omitempty" json:"apiVersion,omitempty"`
 	// Credential names where halo-proxy reads the provider key (kinds openai,
-	// azure-openai). Policy never holds the secret itself.
+	// azure-openai, gemini). Policy never holds the secret itself.
 	Credential *Credential `yaml:"credential,omitempty" json:"credential,omitempty"`
 	// Region is the AWS SigV4 region for kind bedrock. halo-proxy signs a
 	// bedrock upstream only if its host ends in an AWS suffix (.amazonaws.com,
@@ -161,7 +161,8 @@ type Upstream struct {
 	Region string `yaml:"region,omitempty" json:"region,omitempty"`
 }
 
-// Credential locates a secret on the halo-proxy host: an environment variable
+// Credential locates a secret on the halo-proxy host (kinds openai,
+// azure-openai, gemini): an environment variable
 // name or a file path (exactly one). Scheme is api-key (default for
 // azure-openai) or bearer (default for openai).
 type Credential struct {
@@ -186,8 +187,12 @@ func (u Upstream) Endpoint() string {
 // proto. Pass-through kinds (orchestrator, anthropic, openai, gemini) keep the
 // client's wire as-is. bedrock additionally serves anthropic-messages clients
 // (the request is translated and the event stream converted back); vertex
-// serves only anthropic-messages; azure-openai only openai-responses.
+// serves only anthropic-messages; azure-openai only openai-responses; gemini
+// clients are served only by kinds gemini and orchestrator.
 func KindServes(kind, proto string) bool {
+	if proto == "gemini" { // gemini-cli's wire: only a Gemini API (or an orchestrator in front of one)
+		return kind == "gemini" || kind == "orchestrator"
+	}
 	switch kind {
 	case "vertex":
 		return proto == "anthropic-messages"
@@ -222,6 +227,10 @@ type Profile struct {
 type HarnessSpec struct {
 	// Version is an exact CLI version pin (e.g. "2.1.280"). Required for rings.
 	Version string `yaml:"version" json:"version"`
+	// Model is this harness's default model alias, replacing models.default
+	// for it (e.g. codex-default, so codex does not ask for a Claude alias).
+	// Must be a gateway.models alias, and in models.allowed when enforced.
+	Model string `yaml:"model,omitempty" json:"model,omitempty"`
 	// Overrides are raw, harness-native keys merged last. Escape hatch; OPA still checks them.
 	Overrides map[string]any `yaml:"overrides,omitempty" json:"overrides,omitempty"`
 }

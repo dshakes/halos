@@ -3,6 +3,8 @@ title: Policy model
 description: Gateway, Profile, Ring and Experiment documents, and how they compose.
 ---
 
+Most repos start in [simple mode](/halos/concepts/simple-mode/): `halo init` writes one `halos.yaml` (tools, provider, models, gateway, a safety preset and a rollout preset), and Halos generates the documents on this page from it. `halo explain` prints them; `halo eject` writes them out. This page describes those documents, which you can also write yourself, alongside simple mode or instead of it.
+
 A policy repo is a directory of YAML documents plus one root file, `halos.yaml`. Every other document has the common header:
 
 ```yaml
@@ -16,7 +18,7 @@ The Go types in `internal/policy/types.go` are the source of truth. Full field l
 
 ## Root: `halos.yaml`
 
-The root file names the org and configures identity and the developer portal. It is required; `halo validate` fails without `org`.
+The root file names the org and configures identity and the developer portal. It is required; `halo validate` fails without `org`. It may also carry the simple-mode keys (`tools`, `provider`, `models`, `gateway`, `telemetry`, `team`, `safety`, `rollout`); see [simple mode](/halos/concepts/simple-mode/). The example below is a full-mode root without them.
 
 ```yaml
 apiVersion: halos.dev/v1alpha1

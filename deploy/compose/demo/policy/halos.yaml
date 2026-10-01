@@ -1,0 +1,20 @@
+# DEMO OVERLAY (make demo): examples/acme-corp with identity pointed at the
+# compose mock IdP. Dev only; never use the mock IdP outside a laptop demo.
+apiVersion: halos.dev/v1alpha1
+kind: Halos
+org: acme-corp
+identity:
+  issuer: http://mock-idp:8080
+  clientID: halos-portal
+  audience: halos-gateway
+  userClaim: email
+  groupsClaim: groups
+  adminGroups: [ai-platform]
+selfService:
+  enabled: true
+  launchers: [devcontainer, codespaces, laptop]
+  requestable: [mcp-server, ring-opt-in]
+  catalog:
+    - name: linear
+      url: https://mcp.linear.app/sse
+  enrollmentTTLSeconds: 900

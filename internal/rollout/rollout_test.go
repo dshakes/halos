@@ -1,6 +1,8 @@
 package rollout
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -69,7 +71,7 @@ func TestEvaluate(t *testing.T) {
 	}{
 		{name: "draft holds", mut: func(r *policy.Rollout) { r.Status = "" }, st: NewState("r"), now: t0, want: Hold, next: -1, reason: "rollout is draft"},
 		{name: "paused in policy holds", mut: func(r *policy.Rollout) { r.Status = policy.RolloutPaused }, st: at(1, t0), now: t0, want: Hold, next: -1, reason: "paused"},
-		{name: "halted holds", st: func() State { s := at(1, t0); s.Record(EventHalt, 1, "canary-5", "rollback", t0); return s }(), now: t0.Add(time.Hour), want: Hold, next: -1, reason: "halted by rollback"},
+		{name: "halted holds", st: func() State { s := at(1, t0); s.Halt("rollback", "gateway", "x", t0); return s }(), now: t0.Add(time.Hour), want: Hold, next: -1, reason: "halted by rollback"},
 		{name: "not started advances to step 0", st: NewState("r"), now: t0, want: Advance, next: 0},
 
 		// dark-launch
@@ -152,7 +154,7 @@ func TestStateChain(t *testing.T) {
 		t.Fatalf("reset not followed: %+v", c)
 	}
 	st.Mark("pr:advance", "https://pr/1", t0)
-	st.Record(EventHalt, st.Step, st.StepName, "rollback", t0)
+	st.Halt("rollback", "gateway", "guardrail failed", t0)
 	if err := st.Save(dir); err != nil {
 		t.Fatal(err)
 	}
@@ -199,5 +201,101 @@ func TestStateChain(t *testing.T) {
 	}
 	if _, err := LoadState(dir, "../x"); err == nil {
 		t.Fatal("path-like rollout name accepted")
+	}
+}
+
+// M1: a step without its own guardrails is still judged (and rolled back) on
+// the backing experiment's, and on a significantly worse primary metric.
+func TestInheritedGuardrailsRollBack(t *testing.T) {
+	cost := policy.MetricGoal{Metric: "halo.cost.usd_per_session", Direction: "decrease", MaxRegression: 0.10}
+	exp := &policy.Experiment{Meta: policy.Meta{Name: "e"}, Axis: policy.AxisTraffic, Status: "running",
+		Variants: []policy.Variant{{Name: "control", Control: true}, {Name: "treatment"}},
+		Metrics:  policy.Metrics{Primary: policy.MetricGoal{Metric: "halo.task.success", Direction: "increase"}, Guardrails: []policy.MetricGoal{cost}},
+		Stopping: policy.Stopping{Method: "msprt", Alpha: 0.05}}
+	org := &policy.Org{Experiments: []*policy.Experiment{exp}}
+	r := &policy.Rollout{Meta: policy.Meta{Name: "r"}, Axis: policy.AxisTraffic, Status: policy.RolloutActive, Step: "c", Experiment: "e",
+		Steps: []policy.RolloutStep{{Name: "c", Strategy: policy.StrategyCanary, Percent: 5, Gates: policy.RolloutGates{Approval: true}}}}
+	if NeedsMetrics(r.Steps[0]) != true {
+		t.Fatal("a canary step must always gather metrics")
+	}
+	if got := Effective(org, r).Steps[0].Gates.Guardrails; len(got) != 1 || got[0] != cost || len(r.Steps[0].Gates.Guardrails) != 0 {
+		t.Fatalf("Effective = %v (raw %v)", got, r.Steps[0].Gates.Guardrails)
+	}
+	samples := func(succT, costT float64) *promote.MemorySource {
+		n := 2000
+		mk := func(mean float64, k int) []float64 {
+			x := make([]float64, n)
+			for i := range x {
+				x[i] = mean + 0.2*float64((i*k)%7-3)/3
+			}
+			return x
+		}
+		return &promote.MemorySource{Source: promote.SourceGateway, Start: t0, Data: map[string]map[string][]float64{
+			"halo.task.success":         {"control": mk(0.6, 3), "treatment": mk(succT, 5)},
+			"halo.cost.usd_per_session": {"control": mk(5, 3), "treatment": mk(costT, 5)},
+		}}
+	}
+	st := PolicyState(r)
+	st.EnteredAt = t0
+	for _, tc := range []struct {
+		name       string
+		src        *promote.MemorySource
+		want       Action
+		gate       string
+		approvalOK bool
+	}{
+		{"experiment guardrail breach", samples(0.6, 6.5), Rollback, "guardrail:halo.cost.usd_per_session", false},
+		{"primary significantly worse", samples(0.4, 5), Rollback, "primary", false},
+		{"healthy waits for approval only", samples(0.6, 5), Hold, "", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ev, err := Gather(context.Background(), t.TempDir(), org, r, st, tc.src, t0.Add(time.Hour))
+			if err != nil || ev.Report == nil {
+				t.Fatalf("gather: %v %v", ev.Report, err)
+			}
+			d := Evaluate(Effective(org, r), st, ev, t0.Add(time.Hour))
+			if d.Action != tc.want || (tc.gate != "" && !strings.Contains(strings.Join(d.Reasons, ";"), tc.gate+" failed")) || d.AwaitingApproval != tc.approvalOK {
+				t.Fatalf("decision %+v", d)
+			}
+			if tc.want == Rollback && d.Source != promote.SourceGateway {
+				t.Fatalf("source %q", d.Source)
+			}
+		})
+	}
+}
+
+// L1: header copies of derived fields are checked; Done comes from history.
+func TestStateHeaderForgery(t *testing.T) {
+	st := at(1, t0)
+	st.Halt("rollback", "cli", "guardrail failed", t0)
+	st.Mark("pr:rollback", "https://pr/9", t0)
+	dir := t.TempDir()
+	if err := st.Save(dir); err != nil {
+		t.Fatal(err)
+	}
+	got, err := LoadState(dir, "r")
+	if err != nil || got.HaltSource != "cli" || got.HaltReason != "guardrail failed" {
+		t.Fatalf("load: %+v %v", got, err)
+	}
+	if u, ok := got.Did("pr:rollback"); !ok || u != "https://pr/9" {
+		t.Fatalf("Done not rebuilt from history: %v", got.Done)
+	}
+	for name, forge := range map[string]func(string) string{
+		"forged kill in done":   func(s string) string { return strings.Replace(s, `"done": {`, `"done": {"1/kill": "",`, 1) },
+		"forged gateway source": func(s string) string { return strings.Replace(s, `"haltSource": "cli"`, `"haltSource": "gateway"`, 1) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			p := StatePath(dir, "r")
+			b := mustRead(t, p)
+			if f := forge(b); f == b {
+				t.Fatal("forgery did not apply")
+			} else {
+				mustWrite(t, p, f)
+			}
+			defer mustWrite(t, p, b)
+			if _, err := LoadState(dir, "r"); !errors.Is(err, ErrTampered) {
+				t.Fatalf("forged header loaded: %v", err)
+			}
+		})
 	}
 }
