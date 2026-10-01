@@ -1,0 +1,88 @@
+---
+// Replays a real recorded halo session (docs/src/data/terminal.json, written by
+// docs/scripts/record-site-data.sh). Output is shown byte for byte; only the
+// typing is animated. Without JS, or with reduced motion, the full transcript renders.
+import rec from '../../data/terminal.json';
+
+const lines = rec.steps.flatMap((s) => [
+  { k: 'cmd', t: s.cmd },
+  ...s.out.split('\n').map((t) => ({ k: 'out', t })),
+]);
+const cls = (t: string) =>
+  /rollback/.test(t) ? 'bad' : /^(ok |create |Outcome)/.test(t) ? 'good' : /^(next:|Signing)/.test(t) ? 'dim' : '';
+---
+
+<figure class="term" data-term aria-label="Recorded terminal session: halo init, halo upgrade start, halo rollout simulate">
+  <div class="term-bar">
+    <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
+    <span class="term-title">~/acme-policy</span>
+    <button type="button" class="term-replay" data-replay aria-label="Replay the terminal session">Replay</button>
+  </div>
+  <pre class="term-body" data-body tabindex="0">{
+    lines.map((l) =>
+      l.k === 'cmd' ? (
+        <span class="ln cmd"><span class="ps" aria-hidden="true">$ </span>{l.t}{'\n'}</span>
+      ) : (
+        <span class={`ln ${cls(l.t)}`}>{l.t}{'\n'}</span>
+      )
+    )
+  }</pre>
+  <figcaption class="term-cap">
+    Real output, recorded {rec.recorded} with halo <code>{rec.halo}</code> against a local registry.
+    <a href="https://github.com/dshakes/halos/blob/main/docs/src/data/terminal.json">Transcript</a>
+  </figcaption>
+  <script type="application/json" data-steps set:html={JSON.stringify(rec.steps)} />
+</figure>
+
+<script>
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  for (const fig of document.querySelectorAll<HTMLElement>('[data-term]')) {
+    const body = fig.querySelector<HTMLElement>('[data-body]')!;
+    const steps: { cmd: string; out: string }[] = JSON.parse(fig.querySelector('[data-steps]')!.textContent!);
+    const full = body.innerHTML;
+    let run = 0;
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    const add = (cls: string, html: string) => {
+      const s = document.createElement('span');
+      s.className = 'ln ' + cls;
+      s.innerHTML = html;
+      body.appendChild(s);
+      body.scrollTop = body.scrollHeight;
+      return s;
+    };
+    const esc = (t: string) => t.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!);
+    const kind = (t: string) =>
+      /rollback/.test(t) ? 'bad' : /^(ok |create |Outcome)/.test(t) ? 'good' : /^(next:|Signing)/.test(t) ? 'dim' : '';
+    async function play() {
+      const id = ++run;
+      body.innerHTML = '';
+      body.classList.add('playing');
+      for (const s of steps) {
+        const ln = add('cmd', '<span class="ps">$ </span><span class="cur"></span>');
+        const cur = ln.querySelector('.cur')!;
+        for (const ch of s.cmd) {
+          if (id !== run) return;
+          cur.textContent += ch;
+          await sleep(26 + Math.random() * 30);
+        }
+        ln.insertAdjacentText('beforeend', '\n');
+        await sleep(380);
+        for (const t of s.out.split('\n')) {
+          if (id !== run) return;
+          add(kind(t), esc(t) + '\n');
+          await sleep(t ? 70 : 30);
+        }
+        await sleep(700);
+      }
+      body.classList.remove('playing');
+    }
+    fig.querySelector('[data-replay]')!.addEventListener('click', () => (reduce ? (body.innerHTML = full) : play()));
+    if (reduce) continue;
+    new IntersectionObserver((es, o) => {
+      if (es.some((e) => e.isIntersecting)) {
+        o.disconnect();
+        play();
+      }
+    }).observe(fig);
+  }
+</script>

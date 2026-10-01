@@ -1,0 +1,125 @@
+---
+// Plays real `halo rollout simulate` output (docs/src/data/simulator.json): the
+// state machine's own decisions, step by step. Nothing here is computed or invented.
+import sim from '../../data/simulator.json';
+
+const steps = sim.plan.timeline.steps;
+// Share of users on the treatment while a step is live.
+const exposure = (s: (typeof steps)[number]) =>
+  s.strategy === 'holdout' ? 100 - s.percent : s.percent;
+const data = {
+  steps: steps.map((s) => ({ name: s.name, strategy: s.strategy, exposure: exposure(s), gates: s.gates, bake: s.bake, onFailure: s.onFailure })),
+  healthy: sim.healthy,
+  regression: sim.regression,
+};
+---
+
+<div class="sim" data-sim>
+  <div class="sim-head">
+    <div>
+      <p class="sim-kicker">halo rollout simulate {sim.plan.timeline.rollout}</p>
+      <p class="sim-sub">{sim.plan.timeline.change}</p>
+    </div>
+    <div class="sim-ctl">
+      <div class="seg" role="radiogroup" aria-label="Scenario">
+        <button type="button" role="radio" aria-checked="true" data-sc="healthy">Healthy</button>
+        <button type="button" role="radio" aria-checked="false" data-sc="regression">Regression</button>
+      </div>
+      <button type="button" class="sim-play" data-play aria-label="Replay the simulation">Replay</button>
+    </div>
+  </div>
+
+  <ol class="sim-steps" aria-label="Rollout steps">
+    {data.steps.map((s, i) => (
+      <li class="sim-step" data-step={s.name}>
+        <div class="sim-step-top">
+          <span class="sim-n">{i + 1}</span>
+          <span class="sim-name">{s.name}</span>
+        </div>
+        <span class="sim-strat">{s.strategy} · bake {s.bake}</span>
+        <div class="bar" aria-hidden="true"><span style={`width:${s.exposure}%`}></span></div>
+        <span class="sim-exp">{s.strategy === 'dark-launch' ? `${s.exposure}% mirrored, none served` : `${s.exposure}% on treatment`}</span>
+        <ul class="gates">
+          {s.gates.map((g) => <li>{g}</li>)}
+        </ul>
+        <span class="sim-state" data-state>pending</span>
+      </li>
+    ))}
+  </ol>
+
+  <div class="sim-now" aria-live="polite">
+    <span class="clock" data-clock>T+0</span>
+    <span class="act" data-act>advance</span>
+    <span class="why" data-why></span>
+  </div>
+  <div class="sim-out" data-out hidden></div>
+  <p class="sim-src">
+    Decisions from <code>{sim.source}</code>, recorded {sim.recorded} (halo <code>{sim.halo}</code>). Synthetic evidence, real state machine.
+    <a href="https://github.com/dshakes/halos/blob/main/docs/src/data/simulator.json">Data</a>
+  </p>
+  <script type="application/json" data-simdata set:html={JSON.stringify(data)} />
+</div>
+
+<script>
+  type Ev = { at: string; step: string; action: string; reasons: string[] };
+  type Run = { outcome: string; duration: string; events: Ev[] };
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  for (const root of document.querySelectorAll<HTMLElement>('[data-sim]')) {
+    const d = JSON.parse(root.querySelector('[data-simdata]')!.textContent!);
+    const names: string[] = d.steps.map((s: { name: string }) => s.name);
+    const $ = <T extends HTMLElement>(q: string) => root.querySelector<T>(q)!;
+    const cards = [...root.querySelectorAll<HTMLElement>('[data-step]')];
+    let sc: 'healthy' | 'regression' = 'healthy';
+    let run = 0;
+
+    function show(ev: Ev, done: boolean, r: Run) {
+      const cur = names.indexOf(ev.step);
+      cards.forEach((c, i) => {
+        let st = 'pending';
+        if (i < cur || (done && r.outcome === 'complete')) st = 'passed';
+        else if (i === cur) st = ev.action === 'rollback' || ev.action === 'pause' ? 'failed' : ev.action === 'advance' ? 'passed' : 'live';
+        c.dataset.status = st;
+        c.querySelector('[data-state]')!.textContent = st === 'live' ? 'live · ' + ev.action : st;
+      });
+      $('[data-clock]').textContent = ev.at;
+      const act = $('[data-act]');
+      act.textContent = ev.action;
+      act.dataset.a = ev.action;
+      $('[data-why]').textContent = ev.reasons.join('; ');
+      const out = $('[data-out]');
+      out.hidden = !done;
+      if (done) {
+        out.dataset.o = r.outcome;
+        out.textContent =
+          r.outcome === 'complete'
+            ? `Outcome: complete after ${r.duration}. Every advance was a PR a human merged; completion is one more PR.`
+            : `Outcome: rollback after ${r.duration}. Live, a gateway-measured breach like this trips the signed kill switch and opens a rollback PR.`;
+      }
+    }
+    async function play() {
+      const id = ++run;
+      const r: Run = d[sc];
+      if (reduce) return show(r.events[r.events.length - 1], true, r);
+      for (let i = 0; i < r.events.length; i++) {
+        if (id !== run) return;
+        show(r.events[i], i === r.events.length - 1, r);
+        await new Promise((res) => setTimeout(res, sc === 'healthy' ? 650 : 1100));
+      }
+    }
+    root.querySelectorAll<HTMLButtonElement>('[data-sc]').forEach((b) =>
+      b.addEventListener('click', () => {
+        sc = b.dataset.sc as typeof sc;
+        root.querySelectorAll('[data-sc]').forEach((x) => x.setAttribute('aria-checked', String(x === b)));
+        play();
+      })
+    );
+    $('[data-play]').addEventListener('click', play);
+    show(d.healthy.events[0], false, d.healthy);
+    new IntersectionObserver((es, o) => {
+      if (es.some((e) => e.isIntersecting)) {
+        o.disconnect();
+        play();
+      }
+    }, { threshold: 0.35 }).observe(root);
+  }
+</script>
