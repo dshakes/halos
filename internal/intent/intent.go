@@ -107,13 +107,13 @@ func (c *Change) Load() (*policy.Org, error) {
 		if err != nil {
 			return err
 		}
-		return writeFile(filepath.Join(tmp, rel), b)
+		return writeFile(tmp, rel, b)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("intent: load: copy %s: %w", c.Dir, err)
 	}
 	for rel, b := range c.Files {
-		if err := writeFile(filepath.Join(tmp, filepath.FromSlash(rel)), b); err != nil {
+		if err := writeFile(tmp, filepath.FromSlash(rel), b); err != nil {
 			return nil, fmt.Errorf("intent: load: %w", err)
 		}
 	}
@@ -124,11 +124,16 @@ func (c *Change) Load() (*policy.Org, error) {
 	return org, nil
 }
 
-func writeFile(p string, b []byte) error {
+// writeFile writes rel under root, refusing any rel that escapes it.
+func writeFile(root, rel string, b []byte) error {
+	if !filepath.IsLocal(rel) {
+		return fmt.Errorf("path %q escapes the policy repo", rel)
+	}
+	p := filepath.Join(root, rel)
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(p, b, 0o644)
+	return os.WriteFile(p, b, 0o644) //nolint:gosec // rel is checked local to root above
 }
 
 // Repo is a loaded policy repo plus its root document.
