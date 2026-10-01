@@ -241,7 +241,7 @@ func (s *state) model(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	s.reqs = append(s.reqs, record{Time: time.Now(), Method: r.Method, Path: r.URL.Path, Query: r.URL.RawQuery, Headers: r.Header.Clone(), Body: string(b)})
 	s.mu.Unlock()
-	log.Printf("%s %s %s", r.Method, r.URL.Path, r.URL.RawQuery)
+	log.Printf("%q %q %q", r.Method, r.URL.Path, r.URL.RawQuery) //nolint:gosec // UAT mock; fields are %q-quoted
 	var body map[string]any
 	_ = json.Unmarshal(b, &body)
 	switch p := r.URL.Path; {

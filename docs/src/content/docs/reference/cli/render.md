@@ -15,7 +15,7 @@ halo render [flags]
 
 | Flag | Shorthand | Type | Default | Description |
 |---|---|---|---|---|
-| `--os` |  | string | darwin | target OS: darwin\|linux\|windows |
+| `--os` |  | string | host OS | target OS: darwin\|linux\|windows |
 | `--out` |  | string | rendered | output directory |
 | `--policy-dir` |  | string |  | policy repo directory (default ".") |
 | `--release-version` |  | string | 0.0.0-dev | release version label stamped into config |
