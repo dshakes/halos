@@ -62,6 +62,9 @@ func TestUpsertVerdict(t *testing.T) {
 	if err := os.WriteFile(p, []byte(other), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if err := fsutil.RestrictToOwner(p); err != nil { // 0600 means nothing to Windows; UpsertVerdict must keep it private
+		t.Fatal(err)
+	}
 	up := func(exp string, v promote.Verdict) {
 		t.Helper()
 		if err := promote.UpsertVerdict(p, exp, promote.Report{Verdict: v, NControl: 3}, at); err != nil {
