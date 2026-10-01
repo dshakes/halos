@@ -591,3 +591,59 @@ func TestIdentityHeadersNeverForwarded(t *testing.T) {
 		t.Fatalf("hits=%d", hits)
 	}
 }
+
+// A non-routed, allowlisted path (model listing) has no policy upstream, so it
+// goes to defaultUpstream: identity is still verified, client credentials and
+// x-halo-* are stripped, and cohort headers are the gateway's own.
+func TestDefaultUpstreamFallbackForNonRoutedPaths(t *testing.T) {
+	def, defSeen := recordingServer(t)
+	routed, routedSeen := recordingServer(t)
+	e := testEnv(t, routed, func(c *Config, _ *policy.Org) { c.DefaultUpstream = def.URL })
+	get := func(path, tok string, hdr map[string]string) *http.Response {
+		t.Helper()
+		req, _ := http.NewRequest(http.MethodGet, e.proxy.URL+path, nil)
+		if tok != "" {
+			req.Header.Set("Authorization", "Bearer "+tok)
+		}
+		for k, v := range hdr {
+			req.Header.Set(k, v)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { resp.Body.Close() })
+		return resp
+	}
+
+	tok := e.token(t, "alice@acme.com", "ai-platform")
+	resp := get("/v1/models", tok, map[string]string{
+		"x-api-key": "client-key", "x-goog-api-key": "k", "x-halo-ring": "ga", "x-halo-variant": "evil", "X-Halo-Custom": "1"})
+	if resp.StatusCode != 200 {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	hits, h, _, raw := defSeen.get()
+	if hits != 1 || raw != "/v1/models" || routedSeen.hitCount() != 0 {
+		t.Fatalf("default upstream hits %d path %q, policy upstream hits %d", hits, raw, routedSeen.hitCount())
+	}
+	for _, k := range []string{"Authorization", "X-Api-Key", "X-Goog-Api-Key", "X-Halo-Variant", "X-Halo-Custom"} {
+		if h.Get(k) != "" {
+			t.Errorf("%s reached the default upstream: %q", k, h.Get(k))
+		}
+	}
+	if h.Get("x-halo-ring") != "ring0" { // from the verified groups claim, not the client's "ga"
+		t.Errorf("x-halo-ring=%q, want ring0", h.Get("x-halo-ring"))
+	}
+
+	// Identity is verified on this path too, and nothing else is passed through.
+	before := defSeen.hitCount()
+	if r := get("/v1/models", "", nil); r.StatusCode != http.StatusUnauthorized {
+		t.Errorf("unauthenticated: status %d, want 401", r.StatusCode)
+	}
+	if r := get("/v1/admin/keys", tok, nil); r.StatusCode != http.StatusNotFound {
+		t.Errorf("non-allowlisted path: status %d, want 404", r.StatusCode)
+	}
+	if defSeen.hitCount() != before {
+		t.Fatal("a refused request reached the default upstream")
+	}
+}
