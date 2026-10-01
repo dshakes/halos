@@ -53,7 +53,7 @@ Most of the core is the Go standard library:
 <!-- check: go.mod -->
 | Module | Version | Used for | Used by |
 | --- | --- | --- | --- |
-| `gopkg.in/yaml.v3` | `v3.0.1` | Policy YAML with strict decoding and line-numbered errors ([`internal/policy/load.go:110-117`](https://github.com/dshakes/halos/blob/main/internal/policy/load.go#L110-L117)), binary configs, and comment-preserving YAML edits for PRs. | `cmd/halo`, `cmd/halo-proxy`, `cmd/halo-shadow`, `cmd/halod`, `internal/eval`, `internal/gateway/kong`, `internal/intent`, `internal/mcpserver`, `internal/policy`, `internal/rollout`, `internal/server`, `internal/telemetry`, `internal/upgrade`, `internal/yamledit`; tests: `internal/gateway/adapters` |
+| `gopkg.in/yaml.v3` | `v3.0.1` | Policy YAML with strict decoding and line-numbered errors ([`internal/policy/load.go:110-117`](https://github.com/dshakes/halos/blob/main/internal/policy/load.go#L110-L117)), binary configs, and comment-preserving YAML edits for PRs. | `cmd/halo`, `cmd/halo-proxy`, `cmd/halo-shadow`, `cmd/halod`, `internal/eval`, `internal/gateway/kong`, `internal/intent`, `internal/mcpserver`, `internal/policy`, `internal/promote`, `internal/rollout`, `internal/server`, `internal/telemetry`, `internal/upgrade`, `internal/yamledit`; tests: `internal/gateway/adapters` |
 | `github.com/pelletier/go-toml/v2` | `v2.4.3` | Codex `config.toml` rendering, the rendered-config backstop, and toggle fragment merges. | `internal/harness/codex`, `internal/release`, `internal/toggle` |
 | `github.com/santhosh-tekuri/jsonschema/v6` | `v6.0.3` | Tests that validate policy documents against `schemas/*.schema.json`. | tests: `internal/policy` |
 | `howett.net/plist` | `v1.0.1` | macOS MDM configuration profile export. | `internal/delivery/mdm` |

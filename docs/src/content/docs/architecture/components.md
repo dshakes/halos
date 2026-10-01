@@ -118,11 +118,11 @@ Halos ships six binaries from `cmd/`. Two more surfaces run inside one of them o
 - **State and storage:** none on disk. In memory it keeps the policy snapshot, the last accepted kill list, breaker state and per-target token caches.
 - **Trust boundary:**
   - Cohort comes only from the verified subject.
-  - Every client `x-halo-*` header and the identity and groups headers are dropped ([`cmd/halo-proxy/proxy.go:309-313`](https://github.com/dshakes/halos/blob/main/cmd/halo-proxy/proxy.go#L309-L313)).
-  - Client credentials are stripped unless `--forward-auth` is set ([`cmd/halo-proxy/proxy.go:327-334`](https://github.com/dshakes/halos/blob/main/cmd/halo-proxy/proxy.go#L327-L334)).
-  - Provider credentials come only from the gateway's own environment ([`cmd/halo-proxy/route.go:233-253`](https://github.com/dshakes/halos/blob/main/cmd/halo-proxy/route.go#L233-L253)).
-  - SigV4 signs only for AWS hosts or a `signHosts` allowlist ([`cmd/halo-proxy/proxy.go:292-298`](https://github.com/dshakes/halos/blob/main/cmd/halo-proxy/proxy.go#L292-L298)).
-- **Config:** YAML (`--config`, or env `HALO_PROXY_CONFIG`) plus flags ([`cmd/halo-proxy/config.go:144-181`](https://github.com/dshakes/halos/blob/main/cmd/halo-proxy/config.go#L144-L181)), including:
+  - Every client `x-halo-*` header and the identity and groups headers are dropped ([`cmd/halo-proxy/proxy.go:297-301`](https://github.com/dshakes/halos/blob/main/cmd/halo-proxy/proxy.go#L297-L301)).
+  - Client credentials are stripped unless `--forward-auth` is set ([`cmd/halo-proxy/proxy.go:312-319`](https://github.com/dshakes/halos/blob/main/cmd/halo-proxy/proxy.go#L312-L319)).
+  - Provider credentials come only from the gateway host, never from the client ([`cmd/halo-proxy/route.go:233-253`](https://github.com/dshakes/halos/blob/main/cmd/halo-proxy/route.go#L233-L253)). Vertex, Azure OpenAI, and OpenAI or Gemini upstreams with a policy `credential` get the gateway's credential. Bedrock is SigV4-signed. Anthropic and orchestrator upstreams get only the operator's `upstreamHeaders` (YAML, `${ENV}`-expanded), or the caller's own credential with `--forward-auth`.
+  - SigV4 signs only for AWS hosts or a `signHosts` allowlist ([`cmd/halo-proxy/route.go:77-89`](https://github.com/dshakes/halos/blob/main/cmd/halo-proxy/route.go#L77-L89)).
+- **Config:** precedence is defaults, then YAML (`--config`, or env `HALO_PROXY_CONFIG`), then `HALO_PROXY_<FLAG>` env vars, then flags ([`cmd/halo-proxy/config.go:115-208`](https://github.com/dshakes/halos/blob/main/cmd/halo-proxy/config.go#L115-L208)). Some keys are YAML only: `signHosts`, `upstreamHosts`, `allowInsecureUpstreams`, `upstreamHeaders`, `route.*` and `shadow.maxBytes`. The flags ([`cmd/halo-proxy/config.go:144-181`](https://github.com/dshakes/halos/blob/main/cmd/halo-proxy/config.go#L144-L181)), including:
   - `--policy`
   - `--identity-mode jwt|trusted_header|none`, `--issuer`, `--audience`, `--allow-anonymous`
   - `--killswitch-{url,token-file,pubkey-file,interval}` (interval default 10s)
@@ -132,7 +132,7 @@ Halos ships six binaries from `cmd/`. Two more surfaces run inside one of them o
   - `--upstream-header-timeout` (10m)
   - Routing defaults: 3 attempts, breaker opens after 5 failures, 30 s cooldown ([`cmd/halo-proxy/config.go:97-112`](https://github.com/dshakes/halos/blob/main/cmd/halo-proxy/config.go#L97-L112)).
 - **Ports:**
-  - `:8088`: model traffic only.
+  - `:8088`: model traffic only. Plain HTTP, so terminate TLS in front of it. No write timeout, so long SSE streams are not cut ([`cmd/halo-proxy/main.go:39-48`](https://github.com/dshakes/halos/blob/main/cmd/halo-proxy/main.go#L39-L48)).
   - `127.0.0.1:9090`: `/healthz` and `/metrics`, unauthenticated ([`cmd/halo-proxy/proxy.go:157-169`](https://github.com/dshakes/halos/blob/main/cmd/halo-proxy/proxy.go#L157-L169)).
 - **Tests:**
   - unit tests: `cmd/halo-proxy/{proxy,route,bedrock,gemini,killswitch,telemetry,config}_test.go`, `internal/gateway/*_test.go`, `internal/gateway/upstreamauth/*_test.go`
@@ -197,7 +197,7 @@ Halos ships six binaries from `cmd/`. Two more surfaces run inside one of them o
   - halod reports
   - ClickHouse evidence, when `--controller` is set
 - **Outputs:**
-  - JSON API (routes in [`internal/server/server.go:163-209`](https://github.com/dshakes/halos/blob/main/internal/server/server.go#L163-L209))
+  - JSON API (routes in [`internal/server/server.go:163-212`](https://github.com/dshakes/halos/blob/main/internal/server/server.go#L163-L212))
   - signed kill lists
   - policy PRs, from the portal writer and the controller
   - Slack and webhook notifications
@@ -220,7 +220,7 @@ Halos ships six binaries from `cmd/`. Two more surfaces run inside one of them o
   - Without `--data-dir`, reports are kept in memory only. Neither the kill switch nor the controller can run without it ([`cmd/halo-server/main.go:115-133`](https://github.com/dshakes/halos/blob/main/cmd/halo-server/main.go#L115-L133)).
 - **Trust boundary:**
   - Console users: OIDC login with state and nonce checks ([`internal/server/auth.go:318-386`](https://github.com/dshakes/halos/blob/main/internal/server/auth.go#L318-L386)).
-  - Devices: per-device tokens minted at enrollment and stored hashed ([`internal/server/devices.go:110-136`](https://github.com/dshakes/halos/blob/main/internal/server/devices.go#L110-L136)), or the shared fleet token for MDM and devcontainer fleets ([`internal/server/server.go:287-296`](https://github.com/dshakes/halos/blob/main/internal/server/server.go#L287-L296)).
+  - Devices: per-device tokens minted at enrollment and stored hashed ([`internal/server/devices.go:110-136`](https://github.com/dshakes/halos/blob/main/internal/server/devices.go#L110-L136)), or the shared fleet token for MDM and devcontainer fleets ([`internal/server/server.go:290-299`](https://github.com/dshakes/halos/blob/main/internal/server/server.go#L290-L299)).
   - Gateways: the gateway token, compared in constant time ([`internal/server/killswitch.go:130-148`](https://github.com/dshakes/halos/blob/main/internal/server/killswitch.go#L130-L148)).
   - Failed attempts are rate limited per IP.
   - halo-server holds the kill-list private key and never the release key.
@@ -248,7 +248,7 @@ This is the same loop as `halo controller run`. Every `--interval` it evaluates 
 
 ### Console
 
-`web/` is a React, Vite and TypeScript SPA ([tech stack](/halos/architecture/tech-stack/#web-console)), served by `halo-server` at `/` ([`internal/server/server.go:209`](https://github.com/dshakes/halos/blob/main/internal/server/server.go#L209)). Admin routes are wrapped in `s.admin(...)` and developer routes in `s.user(...)`.
+`web/` is a React, Vite and TypeScript SPA ([tech stack](/halos/architecture/tech-stack/#web-console)), served by `halo-server` at `/` ([`internal/server/server.go:212`](https://github.com/dshakes/halos/blob/main/internal/server/server.go#L212)). Admin routes are wrapped in `s.admin(...)` and developer routes in `s.user(...)`.
 
 ## MCP server
 
