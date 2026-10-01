@@ -108,6 +108,16 @@ try {
   await click('a', 'github-mcp');
   await until(`location.hash.includes('github-mcp') && document.body.innerText.toLowerCase().includes('who gets it?')`);
   await sleep(2200);
+  await click('aside button', 'Propose change');     // ramp it to 25%: a validated policy PR (a local branch in the demo)
+  await sleep(900);
+  await click('input', 'Rollout percent');
+  await type('25');
+  await click('input', 'Proposal reason');
+  await type('ramp the canary slice to 25 percent');
+  await sleep(400);
+  await click('button', 'Open PR');
+  await until(`document.body.innerText.includes('PR opened')`);
+  await sleep(2400);
   await click('aside button', 'Kill');                // opens the reason dialog
   await until(`!!document.querySelector('[role="dialog"][aria-modal="true"] input')`);
   await sleep(600);

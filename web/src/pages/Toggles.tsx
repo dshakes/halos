@@ -121,7 +121,7 @@ function ProposeForm({ t }: { t: Toggle }) {
             </select>
           </Field>
           <Field label="Rollout percent" hint="0 matches nobody (ramp down); leave empty to keep it">
-            <input type="number" min={0} max={100} step="any" className={`${input} w-28`} value={percent} onChange={(e) => setPercent(e.target.value)} />
+            <input type="number" aria-label="Rollout percent" min={0} max={100} step="any" className={`${input} w-28`} value={percent} onChange={(e) => setPercent(e.target.value)} />
           </Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Add rings"><input className={`${input} w-full`} placeholder="ring1-canary, …" value={addRings} onChange={(e) => setAddRings(e.target.value)} /></Field>
@@ -132,7 +132,7 @@ function ProposeForm({ t }: { t: Toggle }) {
         </div>
       )}
       <Field label="Reason (required; goes in the PR)">
-        <input className={`${input} w-full`} required value={reason} onChange={(e) => setReason(e.target.value)} />
+        <input aria-label="Proposal reason" className={`${input} w-full`} required value={reason} onChange={(e) => setReason(e.target.value)} />
       </Field>
       <div className="flex items-center gap-3">
         <button type="submit" className="rounded-md bg-accent px-3 py-1.5 font-medium text-white disabled:opacity-50" disabled={propose.isPending || !changed || reason.trim() === ""}>Open PR</button>
@@ -246,7 +246,7 @@ function Drawer({ name, onClose }: { name: string; onClose: () => void }) {
               </div>
             )}
 
-            <Card title="Actions" right={<span className="text-mute">kill is instant; changes go through a PR</span>}>
+            <Card title="Actions" right={<span className="ml-4 text-right text-mute">kill takes effect at the next poll (~10 s gateways, ~60 s devices); rule changes go through a PR</span>}>
               <div className="flex flex-wrap gap-2 p-4">
                 {list.data?.killEnabled && (
                   <button className={t.kill ? btn : "rounded-md bg-rose-600 px-3 py-1.5 font-medium text-white"} onClick={() => setDialog(true)}>{t.kill ? "Restore" : "Kill"}</button>
