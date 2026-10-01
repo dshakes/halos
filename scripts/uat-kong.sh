@@ -87,9 +87,11 @@ find "$POL" -name '*.bak' -delete
 
 # ---- decK config from the repo's own generator, plus what decK output does not carry ----
 "$WORK/halo" gateway deck --policy-dir "$POL" --policy-path /uat/policy.json \
-  --killswitch-url http://halo-server:8080/api/v1/gateway/killswitch --killswitch-allow-insecure-in-cluster --reject-unverified --strip-client-credentials -o "$WORK/kong.yml"
+  --killswitch-url http://halo-server:8080/api/v1/gateway/killswitch --killswitch-allow-insecure-in-cluster -o "$WORK/kong.yml"
 # UAT additions (not generator output), appended in decK's own layout:
-#  - halo-anon-default (Host: anon.kong.test): the plugin's default, anonymous routing for unverified callers;
+#  - halo-anon-default (Host: anon.kong.test): both secure-default opt-outs (allow_unverified,
+#    forward_client_credentials), written the way `halo gateway deck --allow-unverified
+#    --forward-client-credentials` would;
 #  - halo-bad-killswitch (Host: bad.kong.test): an unusable kill-switch public key (traffic must keep
 #    flowing but be flagged x-halo-killswitch: misconfigured);
 #  - Kong's prometheus plugin.
@@ -101,6 +103,8 @@ cat >> "$WORK/kong.yml" <<'EOF'
         - name: halo-kong
           config:
             identity_header: x-acme-user
+            allow_unverified: true
+            forward_client_credentials: true
             policy_path: /uat/policy.json
       routes:
         - name: anon-messages

@@ -351,7 +351,7 @@ func TestKong(t *testing.T) {
 		reset(t)
 		r = call(t, "/v1/messages", mint(t, plain), msg("sonnet"), map[string]string{"x-api-key": "k1", "api-key": "k2", "x-goog-api-key": "k3", "Proxy-Authorization": "Basic k4"})
 		_, got = who(t)
-		check(t, g, "strip_client_credentials: no caller credential header reaches the provider upstream",
+		check(t, g, "secure default: no caller credential header reaches the upstream (Authorization, x-api-key, api-key, x-goog-api-key, Proxy-Authorization)",
 			r.code == 200 && got.h("Authorization") == "" && got.h("x-api-key") == "" && got.h("api-key") == "" && got.h("x-goog-api-key") == "" && got.h("Proxy-Authorization") == "",
 			"upstream saw Authorization=%q x-api-key=%q api-key=%q x-goog-api-key=%q Proxy-Authorization=%q", got.h("Authorization"), got.h("x-api-key"), got.h("api-key"), got.h("x-goog-api-key"), got.h("Proxy-Authorization"))
 
@@ -395,14 +395,14 @@ func TestKong(t *testing.T) {
 			reset(t)
 			r := call(t, "/v1/messages", tc.tok, msg("sonnet"), map[string]string{"x-acme-user": "alice@acme.example", "x-halo-ring": "ring0-harness-team"})
 			a, b := seen(t, mockAURL), seen(t, mockBURL)
-			check(t, g, tc.name+" gets 401 (reject_unverified), upstream never hit",
+			check(t, g, tc.name+" gets 401 by default (JWT identity), upstream never hit",
 				r.code == 401 && strings.Contains(r.body, "authentication_error") && r.hdr.Get("WWW-Authenticate") != "" && len(a)+len(b) == 0,
 				"%s; WWW-Authenticate %q; upstream hits %d", r, r.hdr.Get("WWW-Authenticate"), len(a)+len(b))
 		}
 		reset(t)
 		r := callHost(t, "anon.kong.test", "/v1/messages", forged, msg("sonnet"), map[string]string{"x-acme-user": "alice@acme.example", "x-halo-ring": "ring0-harness-team"})
 		srv, got := who(t)
-		check(t, g, "default (no reject_unverified): unverified caller is routed anonymously, never into a cohort",
+		check(t, g, "opt-out allow_unverified: an unverified caller is routed anonymously, never into a cohort",
 			r.code == 200 && srv == "a" && got.h("x-halo-ring") == "unknown" && got.h("x-halo-experiment") == "",
 			"%d via mock-%s, x-halo-ring=%q x-halo-experiment=%q", r.code, srv, got.h("x-halo-ring"), got.h("x-halo-experiment"))
 
@@ -410,7 +410,7 @@ func TestKong(t *testing.T) {
 		tok := mint(t, plain)
 		callHost(t, "anon.kong.test", "/v1/messages", tok, msg("sonnet"), nil)
 		_, got = who(t)
-		check(t, g, "default (no strip_client_credentials): the caller's Authorization is forwarded (auth-gateway topology)", got.h("Authorization") == "Bearer "+tok,
+		check(t, g, "opt-out forward_client_credentials: the caller's Authorization is forwarded (auth-gateway topology)", got.h("Authorization") == "Bearer "+tok,
 			"upstream saw Authorization of length %d", len(got.h("Authorization")))
 	})
 

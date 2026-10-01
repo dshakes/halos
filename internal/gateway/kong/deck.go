@@ -35,12 +35,13 @@ type Options struct {
 	// pod network (an in-cluster halo-server Service) and sets the plugin's
 	// killswitch_allow_insecure_in_cluster. Default: https required.
 	KillswitchAllowInsecure bool
-	// RejectUnverified sets the plugin's reject_unverified: model calls without
-	// a verified identity get 401 instead of anonymous default routing.
-	RejectUnverified bool
-	// StripClientCredentials sets the plugin's strip_client_credentials: the
-	// caller's Authorization/x-api-key/... never reach the upstream.
-	StripClientCredentials bool
+	// AllowUnverified sets the plugin's allow_unverified, opting out of the
+	// default 401 for model calls without a verified identity (JWT mode).
+	AllowUnverified bool
+	// ForwardClientCredentials sets forward_client_credentials, opting out of
+	// the default removal of the caller's Authorization/x-api-key/... before the
+	// upstream. Leaks the developer's IdP token to whatever the upstream is.
+	ForwardClientCredentials bool
 }
 
 type config struct {
@@ -153,11 +154,11 @@ func Generate(org *policy.Org, o Options) ([]byte, error) {
 	if o.GroupsHeader != "" {
 		pc["groups_header"] = o.GroupsHeader
 	}
-	if o.RejectUnverified {
-		pc["reject_unverified"] = true
+	if o.AllowUnverified {
+		pc["allow_unverified"] = true
 	}
-	if o.StripClientCredentials {
-		pc["strip_client_credentials"] = true
+	if o.ForwardClientCredentials {
+		pc["forward_client_credentials"] = true
 	}
 	if o.ShadowURL != "" {
 		tok := o.ShadowToken
@@ -206,5 +207,26 @@ func Generate(org *policy.Org, o Options) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("kong: marshal decK config: %w", err)
 	}
-	return append([]byte(header), out...), nil
+	return append([]byte(header+Warnings(o)), out...), nil
+}
+
+// Warnings lists, as decK comment lines, the secure defaults that o opts out of.
+func Warnings(o Options) string {
+	var b strings.Builder
+	for _, w := range WarningList(o) {
+		b.WriteString("# WARNING: " + w + "\n")
+	}
+	return b.String()
+}
+
+// WarningList is the human-readable form of Warnings (also printed by `halo gateway deck`).
+func WarningList(o Options) []string {
+	var w []string
+	if o.AllowUnverified {
+		w = append(w, "allow_unverified: callers without a verified identity are routed anonymously (default routing, no experiments) instead of getting 401; the upstream or an auth gateway behind Kong must refuse them")
+	}
+	if o.ForwardClientCredentials {
+		w = append(w, "forward_client_credentials: the caller's Authorization/x-api-key/api-key/x-goog-api-key/Proxy-Authorization reach the upstream; with a provider upstream that leaks the developer's IdP token")
+	}
+	return w
 }

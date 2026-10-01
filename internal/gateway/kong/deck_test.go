@@ -47,13 +47,13 @@ func TestKillswitchURLMustBeHTTPS(t *testing.T) {
 	}
 }
 
-func TestRejectUnverifiedAndInsecureKillswitchOptions(t *testing.T) {
-	b, err := Generate(org(), Options{PolicyPath: "/p.json", RejectUnverified: true, StripClientCredentials: true,
+func TestOptOutAndInsecureKillswitchOptions(t *testing.T) {
+	b, err := Generate(org(), Options{PolicyPath: "/p.json", AllowUnverified: true, ForwardClientCredentials: true,
 		KillswitchURL: "http://halo-server:8080/api/v1/gateway/killswitch", KillswitchAllowInsecure: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"reject_unverified: true", "strip_client_credentials: true", "killswitch_allow_insecure_in_cluster: true", "killswitch_url: http://halo-server:8080/"} {
+	for _, want := range []string{"allow_unverified: true", "forward_client_credentials: true", "# WARNING: allow_unverified", "# WARNING: forward_client_credentials", "killswitch_allow_insecure_in_cluster: true", "killswitch_url: http://halo-server:8080/"} {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("missing %q in:\n%s", want, b)
 		}
@@ -62,7 +62,7 @@ func TestRejectUnverifiedAndInsecureKillswitchOptions(t *testing.T) {
 	if _, err := Generate(org(), Options{KillswitchURL: "ftp://halo/ks", KillswitchAllowInsecure: true}); err == nil {
 		t.Error("ftp must be refused")
 	}
-	if b, _ := Generate(org(), Options{PolicyPath: "/p.json"}); strings.Contains(string(b), "reject_unverified") || strings.Contains(string(b), "strip_client") || strings.Contains(string(b), "insecure") {
+	if b, _ := Generate(org(), Options{PolicyPath: "/p.json"}); strings.Contains(string(b), "allow_unverified") || strings.Contains(string(b), "forward_client") || strings.Contains(string(b), "WARNING") || strings.Contains(string(b), "insecure") {
 		t.Error("options must default off")
 	}
 }

@@ -10,10 +10,11 @@
 //     only when the TCP peer is inside trusted_proxy_cidrs (the auth gateway).
 //     Without CIDRs this mode fails closed (caller treated as anonymous).
 //
-// Unverified callers get default routing and no experiments; the request is
-// not rejected here (the auth gateway behind Kong decides that), unless
-// reject_unverified is set: then a model call without a verified identity is
-// answered 401 (use it when Kong is the only thing in front of the upstreams).
+// Secure defaults (opt out with allow_unverified / forward_client_credentials):
+// with JWT identity a model call without a verified caller is answered 401, and
+// the caller's credential headers are removed before the upstream. In
+// trusted_header mode, or with allow_unverified, unverified callers get default
+// routing and no experiments and the auth gateway behind Kong decides.
 // All client-supplied x-halo-* and identity/groups headers are dropped.
 //
 // Fail closed on the model allowlist: model paths the gateway doesn't know
@@ -77,19 +78,20 @@ type Config struct {
 	GroupsClaimName   string   `json:"groups_claim"`
 	TrustedProxyCIDRs []string `json:"trusted_proxy_cidrs"` // required for trusted_header
 
-	// RejectUnverified answers a model call whose caller could not be verified
-	// with 401 instead of routing it anonymously (default routing, no
-	// experiments). Default false: the auth gateway behind Kong decides. Set it
-	// when Kong is the only thing in front of the model upstreams.
-	RejectUnverified bool `json:"reject_unverified"`
+	// AllowUnverified opts out of the secure default. By default, when identity
+	// is verified by JWT (an issuer is configured), a model call whose caller
+	// cannot be verified is answered 401 (in the caller's wire format) instead
+	// of being routed anonymously. Set it only when an auth gateway behind Kong
+	// decides: unverified callers then get default routing and no experiments.
+	AllowUnverified bool `json:"allow_unverified"`
 
-	// StripClientCredentials removes the caller's Authorization, x-api-key,
-	// api-key, x-goog-api-key and Proxy-Authorization before the request goes
-	// upstream. Default false: Kong often sits in front of an auth gateway or
-	// orchestrator that needs the caller's token. Set it when the upstreams are
-	// providers and Kong (request-transformer, vault) adds their credential, so
-	// the caller's IdP token never reaches a provider.
-	StripClientCredentials bool `json:"strip_client_credentials"`
+	// ForwardClientCredentials opts out of the secure default. By default the
+	// caller's Authorization, x-api-key, api-key, x-goog-api-key and
+	// Proxy-Authorization are removed before the request goes upstream, so the
+	// developer's IdP token never reaches a provider (the same as halo-proxy).
+	// Set it only when the upstream is an auth gateway or orchestrator that
+	// needs the caller's token.
+	ForwardClientCredentials bool `json:"forward_client_credentials"`
 
 	// Kill switch: halo-server's signed kill list; killed experiments get
 	// control routing and no shadow. Empty URL disables.
@@ -216,6 +218,22 @@ func (c Config) identityOptions(org *policy.Org) identity.Options {
 	}
 }
 
+// rejectsUnverified reports whether an unverifiable caller is refused (401): the
+// default whenever identity is verified by JWT, unless allow_unverified. In
+// trusted_header mode the auth gateway that sets the identity header decides.
+func (c Config) rejectsUnverified(org *policy.Org) bool {
+	if c.AllowUnverified {
+		return false
+	}
+	switch c.IdentityMode {
+	case "jwt":
+		return true
+	case "":
+		return c.Issuer != "" || (org != nil && org.Identity.Issuer != "")
+	}
+	return false
+}
+
 // kongAPI is the slice of the Kong PDK the Access phase uses; pdkAPI adapts
 // the real *pdk.PDK and tests use a fake.
 type kongAPI interface {
@@ -320,7 +338,7 @@ func (c Config) access(kong kongAPI) {
 		exit(kong, &gateway.Rejection{Status: http.StatusBadRequest, Protocol: gateway.ProtocolForPath(path), Message: "identity header sent more than once"})
 		return
 	}
-	if sub == nil && enforced && c.RejectUnverified && gateway.ProtocolForPath(path) != "" {
+	if sub == nil && enforced && c.rejectsUnverified(org) && gateway.ProtocolForPath(path) != "" {
 		r := &gateway.Rejection{Status: http.StatusUnauthorized, Protocol: gateway.ProtocolForPath(path), Message: "invalid or missing credentials"}
 		kong.Exit(r.Status, r.JSON(), map[string][]string{"Content-Type": {"application/json"}, "WWW-Authenticate": {`Bearer realm="halos"`}})
 		return
@@ -346,7 +364,7 @@ func (c Config) access(kong kongAPI) {
 	for _, n := range append(res.ClearHeaders, c.identityOptions(org).HeaderNames(org)...) {
 		_ = kong.ClearHeader(n)
 	}
-	if c.StripClientCredentials {
+	if !c.ForwardClientCredentials {
 		for _, n := range identity.ClientCredentialHeaders {
 			_ = kong.ClearHeader(n)
 		}

@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dshakes/halos/internal/identity/identitytest"
 	"github.com/dshakes/halos/internal/policy"
 	"github.com/dshakes/halos/internal/shadow"
 )
@@ -238,72 +239,82 @@ func TestAccessMirrors(t *testing.T) {
 	}
 }
 
-// reject_unverified: a model call without a verified identity is a 401 (in the
-// caller's wire format), never anonymous routing; verified callers and
-// non-model paths are unaffected. Without it the default stays anonymous routing.
-func TestAccessRejectUnverified(t *testing.T) {
+// Secure defaults. With JWT identity a model call without a verified caller is a
+// 401 in the caller's wire format (never anonymous routing); verified callers and
+// non-model paths pass. trusted_header mode leaves the decision to the auth
+// gateway. allow_unverified opts out; a broken identity config fails closed.
+func TestAccessRejectsUnverifiedByDefault(t *testing.T) {
 	pol := testPolicy(t)
-	hdr := func(kv ...string) map[string][]string {
-		m := map[string][]string{}
-		for i := 0; i < len(kv); i += 2 {
-			m[kv[i]] = append(m[kv[i]], kv[i+1])
-		}
-		return m
+	iss, err := identitytest.NewIssuer("k1")
+	if err != nil {
+		t.Fatal(err)
 	}
-	strict := trustedCfg(pol)
-	strict.RejectUnverified = true
+	idp := iss.Serve()
+	defer idp.Close()
+	jwtCfg := func() Config { return Config{PolicyPath: pol, IdentityMode: "jwt", Issuer: iss.URL, Audience: "gw"} }
+	tok, _ := iss.Mint(map[string]any{"aud": "gw", "email": "alice@acme.com", "groups": []string{"ai-platform"}})
+	other, _ := identitytest.NewIssuer("k1") // same kid, different key
+	forged, _ := other.Mint(map[string]any{"aud": "gw", "email": "alice@acme.com"})
+	wrongAud, _ := iss.Mint(map[string]any{"aud": "elsewhere", "email": "alice@acme.com"})
+	bearer := func(t string) map[string][]string { return map[string][]string{"Authorization": {"Bearer " + t}} }
+
+	allow := jwtCfg()
+	allow.AllowUnverified = true
+	implicit := Config{PolicyPath: pol, Issuer: iss.URL, Audience: "gw"} // mode inferred from the issuer
 	for _, tc := range []struct {
 		name     string
 		cfg      Config
-		k        *fakeKong
+		path     string
+		body     string
+		hdrs     map[string][]string
 		wantExit int
 		wantBody string
 	}{
-		{"untrusted peer", strict, &fakeKong{peer: "192.0.2.1", path: "/v1/messages", body: []byte(firstTurn), hdrs: hdr("x-acme-user", "alice")}, 401, "authentication_error"},
-		{"no identity header", strict, &fakeKong{peer: "10.1.2.3", path: "/v1/messages", body: []byte(firstTurn), hdrs: hdr()}, 401, "authentication_error"},
-		{"responses wire", strict, &fakeKong{peer: "192.0.2.1", path: "/v1/responses", body: []byte(`{"model":"sonnet","input":"hi"}`), hdrs: hdr()}, 401, "invalid_api_key"},
-		{"verified caller", strict, &fakeKong{peer: "10.1.2.3", path: "/v1/messages", body: []byte(firstTurn), hdrs: hdr("x-acme-user", "alice")}, 0, ""},
-		{"non-model path is not gated", strict, &fakeKong{peer: "192.0.2.1", path: "/v1/models", hdrs: hdr()}, 0, ""},
-		{"default stays anonymous routing", trustedCfg(pol), &fakeKong{peer: "192.0.2.1", path: "/v1/messages", body: []byte(firstTurn), hdrs: hdr()}, 0, ""},
-		{"broken identity config fails closed", Config{PolicyPath: pol, IdentityMode: "trusted_header", RejectUnverified: true}, &fakeKong{peer: "10.1.2.3", path: "/v1/messages", body: []byte(firstTurn), hdrs: hdr("x-acme-user", "alice")}, 401, "authentication_error"},
+		{"no token", jwtCfg(), "/v1/messages", firstTurn, nil, 401, "authentication_error"},
+		{"forged token", jwtCfg(), "/v1/messages", firstTurn, bearer(forged), 401, "authentication_error"},
+		{"wrong audience", jwtCfg(), "/v1/messages", firstTurn, bearer(wrongAud), 401, "authentication_error"},
+		{"inferred jwt mode rejects too", implicit, "/v1/messages", firstTurn, nil, 401, "authentication_error"},
+		{"responses wire", jwtCfg(), "/v1/responses", `{"model":"sonnet","input":"hi"}`, nil, 401, "invalid_api_key"},
+		{"verified caller", jwtCfg(), "/v1/messages", firstTurn, bearer(tok), 0, ""},
+		{"non-model path is not gated", jwtCfg(), "/v1/models", "", nil, 0, ""},
+		{"allow_unverified routes anonymously", allow, "/v1/messages", firstTurn, nil, 0, ""},
+		{"trusted_header mode: the auth gateway decides", trustedCfg(pol), "/v1/messages", firstTurn, nil, 0, ""},
+		{"broken identity config fails closed", Config{PolicyPath: pol, IdentityMode: "jwt"}, "/v1/messages", firstTurn, bearer(tok), 401, "authentication_error"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			tc.cfg.access(tc.k)
-			if tc.k.exitStatus != tc.wantExit || (tc.wantBody != "" && !strings.Contains(string(tc.k.exitBody), tc.wantBody)) {
-				t.Fatalf("exit %d %s, want %d %q", tc.k.exitStatus, tc.k.exitBody, tc.wantExit, tc.wantBody)
+			k := &fakeKong{peer: "10.1.2.3", path: tc.path, body: []byte(tc.body), hdrs: tc.hdrs}
+			tc.cfg.access(k)
+			if k.exitStatus != tc.wantExit || (tc.wantBody != "" && !strings.Contains(string(k.exitBody), tc.wantBody)) {
+				t.Fatalf("exit %d %s, want %d %q", k.exitStatus, k.exitBody, tc.wantExit, tc.wantBody)
 			}
-			if tc.wantExit != 0 && (tc.k.set != nil || tc.k.newPath != "") {
+			if tc.wantExit != 0 && (k.set != nil || k.newPath != "") {
 				t.Fatal("rejected request was still mutated")
 			}
 		})
 	}
 }
 
-func TestAccessStripClientCredentials(t *testing.T) {
+func TestAccessStripsClientCredentialsByDefault(t *testing.T) {
 	pol := testPolicy(t)
-	run := func(strip bool) *fakeKong {
+	run := func(forward bool) *fakeKong {
 		c := trustedCfg(pol)
-		c.StripClientCredentials = strip
+		c.ForwardClientCredentials = forward
 		k := &fakeKong{peer: "10.1.2.3", path: "/v1/messages", body: []byte(firstTurn), hdrs: map[string][]string{
 			"x-acme-user": {"alice"}, "Authorization": {"Bearer idp"}, "x-api-key": {"k"}, "Api-Key": {"k"}, "x-goog-api-key": {"k"}, "Proxy-Authorization": {"p"}}}
 		c.access(k)
 		return k
 	}
 	creds := []string{"authorization", "x-api-key", "api-key", "x-goog-api-key", "proxy-authorization"}
-	if k := run(false); k.exitStatus != 0 || func() bool {
-		for _, n := range creds {
-			if contains(k.cleared, n) {
-				return true
-			}
-		}
-		return false
-	}() {
-		t.Fatalf("default must forward credentials: exit %d cleared %v", k.exitStatus, k.cleared)
-	}
-	k := run(true)
+	k := run(false)
 	for _, n := range creds {
 		if !contains(k.cleared, n) {
-			t.Errorf("%s not cleared: %v", n, k.cleared)
+			t.Errorf("default: %s not cleared: %v", n, k.cleared)
+		}
+	}
+	k = run(true)
+	for _, n := range creds {
+		if contains(k.cleared, n) {
+			t.Errorf("forward_client_credentials: %s was cleared", n)
 		}
 	}
 }

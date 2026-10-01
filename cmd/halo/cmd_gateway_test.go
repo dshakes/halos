@@ -173,3 +173,19 @@ func TestGatewayRoutes(t *testing.T) {
 		t.Errorf("text output: code %d\n%s%s", code, out, errs)
 	}
 }
+
+func TestGatewayDeckOptOutsWarn(t *testing.T) {
+	code, out, errs := halo(t, "gateway", "deck", example)
+	if code != 0 || strings.Contains(out, "allow_unverified") || strings.Contains(out, "forward_client_credentials") || strings.Contains(errs, "warning:") {
+		t.Fatalf("secure defaults must emit nothing: code %d\n%s%s", code, out, errs)
+	}
+	code, out, errs = halo(t, "gateway", "deck", example, "--allow-unverified", "--forward-client-credentials")
+	for _, want := range []string{"allow_unverified: true", "forward_client_credentials: true", "# WARNING: allow_unverified", "# WARNING: forward_client_credentials"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("deck output missing %q", want)
+		}
+	}
+	if code != 0 || strings.Count(errs, "warning:") != 2 {
+		t.Errorf("code %d, stderr should carry two warnings:\n%s", code, errs)
+	}
+}
