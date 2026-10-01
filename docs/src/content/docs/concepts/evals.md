@@ -53,7 +53,8 @@ matrix:
   baseline: claude@2.1.312/sonnet/orchestrator
   harnesses:
     - {harness: claude, version: "2.1.312", models: [sonnet]}
-    - {harness: codex,  version: "0.60.0",  models: [codex-default]}
+    - {harness: codex,  version: "0.100.0", models: [codex-default]}
+    - {harness: gemini, version: "0.35.0",  models: [gemini-default]}
   providers:
     - {name: orchestrator}
     - {name: anthropic-direct, aliases: {sonnet: sonnet-direct}}
@@ -68,8 +69,8 @@ $ halo eval run evals/suites/upgrade-gate.yaml --matrix --report report.md --fai
 VARIANT                                 PASS@1  PASS@2  PASS^2    $/TASK      P50  TOOLS  VERDICT
 claude@2.1.312/sonnet/anthropic            89%    100%     78%    $0.200    36.0s   13.0  baseline
 claude@2.1.312/sonnet/bedrock              89%    100%     78%    $0.210    36.0s   13.0  ship
-codex@0.60.0/gpt-5/anthropic               67%     67%     67%    $0.350    36.0s   13.0  block
-gemini@0.13.0/gemini-2.5-pro/anthropic    100%    100%    100%    $0.120    72.0s   13.0  ship
+codex@0.100.0/gpt-5/anthropic              67%     67%     67%    $0.350    36.0s   13.0  block
+gemini@0.35.0/gemini-2.5-pro/anthropic    100%    100%    100%    $0.120    72.0s   13.0  ship
 gate: BLOCK
 ```
 

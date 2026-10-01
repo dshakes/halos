@@ -94,7 +94,7 @@ import http.server, json
 class H(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         name = self.path.lstrip('/').replace('%2f','/').replace('%2F','/').removesuffix('/latest')
-        body = json.dumps({"name": name, "version": "2.1.330" if "claude" in name else "0.61.0"}).encode()
+        body = json.dumps({"name": name, "version": "2.1.330" if "claude" in name else "0.101.0"}).encode()
         self.send_response(200); self.send_header('content-type','application/json'); self.send_header('content-length',str(len(body))); self.end_headers(); self.wfile.write(body)
     def log_message(self,*a): pass
 http.server.HTTPServer(('127.0.0.1',8765),H).serve_forever()
@@ -105,7 +105,7 @@ $ printf 'profile: engineering-next\nsuite: ../../evals/suites/upgrade-gate.yaml
 $ halo upgrade check --dry-run --config ../stub-upgrade.yaml --npm-registry http://127.0.0.1:8765
 KIND   TARGET                  FROM            TO              ARTIFACTS   GATE   PR / NOTE
 cli    claude-code             2.1.312         2.1.330         UNVERIFIED  -      artifacts not verified: release: resolve claude-code@2.1.330 artifacts: GET https://downloads.claude.ai/claude-code-releases/2.1.330/manifest.json: status 404
-cli    codex                   0.60.0          0.61.0          UNVERIFIED  -      artifacts not verified: release: resolve codex@0.61.0 artifacts: npm returned @openai/codex/0.61.0@0.61.0, want @openai/codex@0.61.0
+cli    codex                   0.100.0         0.101.0         UNVERIFIED  -      artifacts not verified: release: resolve codex@0.101.0 artifacts: npm returned @openai/codex/0.101.0@0.101.0, want @openai/codex@0.101.0
 ```
 
 Both candidates are found from the pins in `engineering-next`. They show `UNVERIFIED` because the stub serves no real artifacts and `2.1.330` does not exist on the vendor's download host. A version with no verified artifacts is reported but never pinned, because `halod` would refuse those bytes. Stop the stub with `kill %1`.

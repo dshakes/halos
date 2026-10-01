@@ -97,10 +97,10 @@ const p = proof();
             <h1>Ship AI coding tools<br /> <span class="grad">like software.</span></h1>
             <p class="lede">
               One policy repo becomes signed releases, rolled out ring by ring, gated by evals and live telemetry,
-              and rolled back on its own when a gateway guardrail breaks.
+              and killed automatically when a guardrail measured at the gateway breaks (with halo-server's kill list on).
             </p>
             <div class="ctas">
-              <a class="btn primary" href={u('/getting-started/playground/')}>Try it in 60 seconds <span aria-hidden="true">→</span></a>
+              <a class="btn primary" href={u('/getting-started/playground/')}>Try the playground <span aria-hidden="true">→</span></a>
               <a class="btn ghost" href={u('/getting-started/introduction/')}>Read the docs</a>
             </div>
             <p class="works">Works with Claude Code · Codex · Gemini CLI · Copilot CLI</p>
@@ -196,7 +196,7 @@ const p = proof();
             <a class="stat" href={`${gh}/blob/main/docs/src/content/docs/tutorials/kill-a-bad-change.md`}>
               <span class="big" data-count>{p.kill}</span>
               <span class="lbl">from <code>halo toggle kill</code> to changed routing at the gateway</span>
-              <span class="src">demo stack polls every 2 s (default 10 s) · tutorials/kill-a-bad-change.md</span>
+              <span class="src">one recorded run; demo stack polls every 2 s, so expect 0-2 s (default 10 s) · tutorials/kill-a-bad-change.md</span>
             </a>
             <a class="stat" href={`${gh}/tree/main/test/e2e`}>
               <span class="big" data-count>{p.e2e}</span>
@@ -207,7 +207,7 @@ const p = proof();
           <p class="badges">
             <a href={`${gh}/actions/workflows/ci.yml`}><img src={`${gh}/actions/workflows/ci.yml/badge.svg`} alt="CI status" height="20" loading="lazy" /></a>
             <a href={`${gh}/actions/workflows/docs.yml`}><img src={`${gh}/actions/workflows/docs.yml/badge.svg`} alt="Docs build status" height="20" loading="lazy" /></a>
-            <span class="note">Not yet run against real Vertex, OpenAI, Azure, Windows, Codespaces or Coder: those paths are <strong>UNVERIFIED</strong>.</span>
+            <span class="note">Not yet run against real Bedrock, Vertex, OpenAI, Azure or Gemini accounts, Kong Enterprise, MDM-managed devices, <code>halod</code> as a Windows service, PowerShell scripts, Codespaces or Coder: those paths are <strong>UNVERIFIED</strong>.</span>
           </p>
         </div>
       </section>

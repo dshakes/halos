@@ -9,11 +9,11 @@ A git repo of YAML documents (`Gateway`, `Profile`, `Ring`, plus optional `Exper
 
 ## Do developers need to install anything?
 
-Not by hand, in the usual setups. They keep using the vendor CLI. Config reaches the machine through a dev container Feature, a Coder or Codespaces prebuild, an MDM profile, or the `halod` agent that the [portal](/halos/concepts/self-service-portal/) enrolls. Developers do need a way to get a token for the gateway (an `apiKeyHelper` or equivalent that your IdP backs). See [delivery](/halos/concepts/delivery/).
+Not by hand, in the usual setups. They keep using the vendor CLI. Config reaches the machine through a dev container Feature, a Coder or Codespaces prebuild (Coder and Codespaces: **UNVERIFIED**), an MDM profile, or the `halod` agent that the [portal](/halos/concepts/self-service-portal/) enrolls. Developers do need a way to get a token for the gateway (an `apiKeyHelper` or equivalent that your IdP backs). See [delivery](/halos/concepts/delivery/).
 
 ## Which CLIs are supported?
 
-Claude Code, Codex and Gemini CLI have adapters and are applied by `halod`. Copilot CLI is rendered by its adapter, but `halod` does not yet write its files, so use dev containers or MDM for it. `halo harnesses` prints the capability matrix, and an unsupported setting becomes a warning in the release manifest rather than being silently dropped. See the [harness matrix](/halos/reference/harness-matrix/).
+Claude Code, Codex and Gemini CLI have adapters and are applied by `halod`. Copilot CLI is rendered and applied by `halod` (Linux), but its gateway is not rendered: BYOK is env-only. `halo harnesses` prints the capability matrix, and an unsupported setting becomes a warning in the release manifest rather than being silently dropped. See the [harness matrix](/halos/reference/harness-matrix/).
 
 ## Does it proxy my code?
 

@@ -34,7 +34,7 @@ $ halo validate --policy-dir examples/startup-minimal
 OK: policy valid (0 warnings)
 ```
 
-Warnings are reported as `warning: <path>: <message>` and do not fail the command; errors exit with status 2. Then:
+Warnings are reported as `warning <path>  <message>` and do not fail the command; errors exit with status 2. Then:
 
 1. Replace the placeholder domains, ARNs and users with yours.
 2. Check what a user would get: `halo whoami --user you@example.com --policy-dir my-policy`, and for multi-target routes `halo gateway routes --user you@example.com --policy-dir my-policy`.
@@ -46,6 +46,6 @@ Warnings are reported as `warning: <path>: <message>` and do not fail the comman
 - `permissions.disableBypass: true` on every ring. Halos never renders `bypassPermissions` or `danger-full-access`.
 - Telemetry on for every ring (a guardrail requires it).
 - Exact CLI version pins, never ranges or `latest`.
-- Experiments and rollouts ship as `draft`: nothing is exposed until a human starts them, and promotion is a PR a human merges.
+- In the gallery examples (not acme-corp), experiments and rollouts ship as `draft`: nothing is exposed until a human starts them, and promotion is a PR a human merges.
 
 Examples are starting points, not endorsements of a model, a version or a provider order. Pins such as `2.1.280` and model ids age; update them before you ship.

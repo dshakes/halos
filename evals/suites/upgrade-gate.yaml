@@ -41,8 +41,8 @@ matrix:
   baseline: claude@2.1.312/sonnet/orchestrator
   harnesses:
     - {harness: claude, version: "2.1.312", models: [sonnet]}
-    - {harness: codex, version: "0.60.0", models: [codex-default]}
-    - {harness: gemini, version: "0.13.0", models: [gemini-default]}
+    - {harness: codex, version: "0.100.0", models: [codex-default]}
+    - {harness: gemini, version: "0.35.0", models: [gemini-default]}
   providers:
     - {name: orchestrator}
     - {name: anthropic-direct, aliases: {sonnet: sonnet-direct}}

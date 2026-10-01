@@ -88,10 +88,10 @@ More requests to try:
 | Try | Expect |
 |---|---|
 | Token for `bob@acme.com`, groups `eng` | GA ring; he lands in the `sonnet-direct-canary` experiment (`x-halo-variant:control` or the canary variant) |
-| `-d '{"model":"gpt-4o",...}'` (not a policy alias) | 403 `permission_error`: `model "gpt-4o" is not allowed by the Halos gateway policy; allowed models: haiku, sonnet`. Never forwarded |
+| `-d '{"model":"gpt-4o",...}'` (not a policy alias) | 400 `invalid_request_error`: `model "gpt-4o" is not permitted by the Halos gateway policy; allowed models: haiku, sonnet`. Never forwarded |
 | `curl -N` with `"stream":true` | Server-sent events arrive incrementally |
 | `POST /model/sonnet/invoke` | Path rewritten to the Bedrock model id |
-| No, forged or expired token | `halo-kong`: default routing, ring `unknown`. `halo-proxy`: 401 |
+| No, forged or expired token | Both gateways: 401 `authentication_error` (`halo-kong` falls back to default routing only with `allow_unverified`) |
 
 The compose policy (`deploy/compose/policy.json`) is hot-reloaded by mtime, so editing it moves users between rings without a restart. After editing routes or upstreams, regenerate Kong's config with `go run ./deploy/compose/gen` and `docker compose restart kong`.
 

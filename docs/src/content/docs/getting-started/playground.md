@@ -10,7 +10,7 @@ The playground runs every Halos component on Docker with a seeded policy repo: t
 
 ## Start it
 
-**In the browser:** [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/dshakes/halos). The dev container builds `bin/` and puts it on `PATH`; run `make demo` in its terminal and open the forwarded **Halos console** port.
+**In the browser:** [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/dshakes/halos). The dev container builds `bin/` and puts it on `PATH`; run `make demo` in its terminal and open the forwarded **Halos console** port (**UNVERIFIED**: not yet run in a real Codespace).
 
 **Locally** (Docker with Compose v2.20+):
 
@@ -71,7 +71,7 @@ The seeded repo has three running experiments, the `opus-5-5-upgrade` rollout ac
 
    Alice's `sonnet` goes to the next model because the `sonnet-next-route` toggle targets ring0.
 
-3. **Kill the toggle.** As alice in the console (or with her session cookie), kill `sonnet-next-route`. halo-proxy polls the signed kill list every 2s here, so alice's next request falls back to the default route with no release and no policy PR:
+3. **Kill the toggle.** With alice's session cookie, kill `sonnet-next-route` (`halo toggle kill`, or `POST /api/v1/toggles/sonnet-next-route/kill`; the console has no toggle page yet). halo-proxy polls the signed kill list every 2s here, so alice's next request falls back to the default route with no release and no policy PR:
 
    ```text
    POST /api/v1/toggles/sonnet-next-route/kill    -> 200

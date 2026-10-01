@@ -91,7 +91,7 @@ The paths mirror the target machine (macOS here; Linux and Windows get their own
 5. **Rings.** A ring is a signed pointer to a release. Promotion moves the pointer to the next ring; rollback moves it back. See [rings and releases](/halos/concepts/rings-and-releases/) and [rollouts](/halos/concepts/rollouts/).
 6. **Devices and gateway.** `halod`, the agent on each laptop, dev container or CI runner, verifies the signature and writes the managed config for its ring. The gateway (`halo-proxy` or Kong with `halo-kong`) loads the compiled policy and routes each model alias by the caller's verified identity, so experiments and canaries apply without touching the client.
 
-Telemetry from the gateway and the CLIs feeds back into experiment verdicts. A guardrail breach rolls back on its own; everything else waits for a PR.
+Telemetry from the gateway and the CLIs feeds back into experiment verdicts. A breach measured at the gateway trips the kill switch on its own; any other breach, and everything else, waits for a PR.
 
 ## What runs where
 

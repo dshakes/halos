@@ -4,14 +4,14 @@ description: Deliver releases to laptops with the halod agent, portal enrollment
 ---
 
 :::caution[UNVERIFIED on real devices]
-`halod` is unit-tested against a fake root but has not been run as root on real macOS, Linux or Windows hosts. MDM exports (Jamf, Kandji, Intune) are generated and unit-tested but were **not pushed to any real tenant or device**. The PowerShell they emit (and `enroll.ps1`) has not been executed.
+`halod` runs as root inside Linux containers in `make uat-clis`; it has not run on real macOS or Windows hosts or as a long-running service. MDM exports (Jamf, Kandji, Intune) are generated and unit-tested but were **not pushed to any real tenant or device**. The PowerShell they emit (and `enroll.ps1`) has not been executed.
 :::
 
 Laptops are the weakest delivery path: a local admin can stop an agent or edit files. Use them as the last ring, and rely on the gateway for authoritative cohort and model enforcement.
 
 ## Option A: `halod` agent
 
-`halod` runs as root under launchd (macOS) or systemd (Linux). On Windows it is a console binary; run it as SYSTEM via a scheduled task or NSSM (`cmd/halod/packaging/WINDOWS.md`; there is no native service). Each cycle it resolves the ring, verifies the signed ring pointer and release, applies files atomically, installs pinned CLIs from verified artifacts, and reports status.
+`halod` runs as root under launchd (macOS) or systemd (Linux). On Windows, `halod service install` registers a SYSTEM scheduled task at startup (there is no native Windows service; see `cmd/halod/packaging/WINDOWS.md`). Each cycle it resolves the ring, verifies the signed ring pointer and release, applies files atomically, installs pinned CLIs from verified artifacts, and reports status.
 
 Files (root-owned; `halod` refuses to start otherwise):
 
