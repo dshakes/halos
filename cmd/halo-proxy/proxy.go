@@ -181,8 +181,14 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			status = http.StatusOK
 		}
 		total := time.Since(start)
+		if a := rc.served; a != nil {
+			upstream, model = a.name, a.model // the target that answered, not the planned first
+		}
 		if gw != nil {
 			gw.Status, gw.Latency = status, total
+			if a := rc.served; a != nil { // routed call: provider kind and upstream/model are policy-bounded, never per-user
+				gw.Model, gw.Provider, gw.Target, gw.Failover = a.model, a.kind, a.key, rc.failover
+			}
 			p.otlp.Record(*gw)
 		}
 		ttfb := -1.0
@@ -201,6 +207,9 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if model != "" {
 			attrs = append(attrs, "upstream_model", model)
+		}
+		if a := rc.served; a != nil {
+			attrs = append(attrs, "provider", a.kind, "failover", rc.failover)
 		}
 		if rc.ttfb >= 0 {
 			attrs = append(attrs, "ttfb_ms", rc.ttfb.Milliseconds())
