@@ -1,0 +1,78 @@
+---
+// Recorded media: terminal clips made by docs/scripts/record-media.sh (vhs over
+// the real halo CLI) and the console walkthrough made by record-console.mjs on
+// `make demo`. Videos ship with controls and a poster; JS swaps in muted,
+// in-view autoplay unless the visitor prefers reduced motion.
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const m = (f: string) => `${base}/media/${f}`;
+const clips = [
+  { id: 'init', cmd: 'halo init', d: 'Scaffold a policy repo in simple mode, then validate it.' },
+  { id: 'upgrade', cmd: 'halo upgrade start', d: 'Sign a canary channel and generate the experiment, rings and rollout for a Claude Code upgrade.' },
+  { id: 'simulate', cmd: 'halo rollout simulate', d: 'Replay that rollout against an injected regression: it holds, then rolls back.' },
+  { id: 'toggle', cmd: 'halo toggle eval', d: 'Which toggles are on for alice, and why; then the same with one on the kill list.' },
+  { id: 'gateway', cmd: 'halo gateway routes', d: 'The model route table a verified user hits, in failover order.' },
+];
+const c0 = clips[0];
+---
+
+<div class="media">
+  <div class="clips">
+    <div class="clip-tabs" role="tablist" aria-label="Terminal recordings">
+      {clips.map((c, i) => (
+        <button type="button" role="tab" aria-selected={i === 0 ? 'true' : 'false'} data-clip={c.id} data-desc={c.d} data-poster={m(`${c.id}.jpg`)}>
+          <code>{c.cmd}</code>
+        </button>
+      ))}
+    </div>
+    <figure class="mv mv-term">
+      <video data-mv data-clip-player controls muted loop playsinline preload="none" poster={m(`${c0.id}.jpg`)} width="1280" height="400" aria-label="Terminal recording">
+        <source src={m(`${c0.id}.webm`)} type="video/webm" />
+        <source src={m(`${c0.id}.mp4`)} type="video/mp4" />
+      </video>
+      <figcaption data-clip-desc>{c0.d}</figcaption>
+    </figure>
+  </div>
+
+  <figure class="mv mv-console">
+    <div class="pbar"><span class="dots"><i></i><i></i><i></i></span><span class="url">localhost:18080 · Halos console (make demo)</span></div>
+    <video data-mv controls muted loop playsinline preload="none" poster={m('console.jpg')} width="1280" height="800" aria-label="Console walkthrough: sign in, open experiments, kill an experiment, see the kill and its audit entry">
+      <source src={m('console.webm')} type="video/webm" />
+      <source src={m('console.mp4')} type="video/mp4" />
+    </video>
+    <figcaption>Recorded on <code>make demo</code>: sign in as alice, kill the <code>opus-5-5-canary</code> experiment, and see the kill and its audit entry. Killed experiments fall back to control at the next gateway poll.</figcaption>
+  </figure>
+  <p class="media-src">Recorded from the real binaries; the orange cursor ring is the only overlay. Scripts: <a href="https://github.com/dshakes/halos/blob/main/docs/scripts/record-media.sh">record-media.sh</a> · <a href="https://github.com/dshakes/halos/blob/main/docs/scripts/record-console.mjs">record-console.mjs</a></p>
+</div>
+
+<script>
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const vids = [...document.querySelectorAll<HTMLVideoElement>('video[data-mv]')];
+  // Phones keep native controls so a clip can go fullscreen; terminal text is too small inline.
+  if (!reduce && matchMedia('(min-width: 861px)').matches) {
+    const io = new IntersectionObserver((es) => {
+      for (const e of es) {
+        const v = e.target as HTMLVideoElement;
+        if (e.isIntersecting) v.play().catch(() => (v.controls = true));
+        else v.pause();
+      }
+    }, { threshold: 0.4 });
+    for (const v of vids) { v.controls = false; v.preload = 'auto'; io.observe(v); }
+  }
+  const player = document.querySelector<HTMLVideoElement>('[data-clip-player]');
+  const tabs = [...document.querySelectorAll<HTMLButtonElement>('[data-clip]')];
+  for (const t of tabs) {
+    t.addEventListener('click', () => {
+      if (!player) return;
+      for (const x of tabs) x.setAttribute('aria-selected', String(x === t));
+      const dir = t.dataset.poster!.replace(/[^/]+$/, '');
+      player.poster = t.dataset.poster!;
+      const cap = document.querySelector('[data-clip-desc]');
+      if (cap) cap.textContent = t.dataset.desc!;
+      const [w, m4] = player.querySelectorAll('source');
+      w.src = `${dir}${t.dataset.clip}.webm`;
+      m4.src = `${dir}${t.dataset.clip}.mp4`;
+      player.load();
+      if (!reduce) player.play().catch(() => (player.controls = true));
+    });
+  }
+</script>

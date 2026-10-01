@@ -1,0 +1,74 @@
+---
+// The brand mark at hero scale: an eclipsed sun whose corona is the "halo".
+// Pure SVG + CSS keyframes (breathing corona, slowly turning rays, orbiting
+// beads); everything stops under prefers-reduced-motion. Rays are generated at
+// build time from a fixed seed, so the markup is stable between builds.
+let seed = 7;
+const rnd = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
+const lens = [18, 30, 46, 70, 96, 40, 24];
+const C = 260, R = 134;
+const rays = Array.from({ length: 90 }, (_, i) => {
+  const a = (i * Math.PI * 2) / 90 + (rnd() - 0.5) * 0.04;
+  const l = lens[Math.floor(rnd() * lens.length)];
+  const w = 0.6 + rnd() * 1.6;
+  const p = (r: number) => [(C + r * Math.cos(a)).toFixed(1), (C + r * Math.sin(a)).toFixed(1)];
+  const [x1, y1] = p(R - 2), [x2, y2] = p(R - 2 + l);
+  return { x1, y1, x2, y2, w: w.toFixed(1) };
+});
+const orbits = [
+  { r: 176, o: 0.35, d: 34, dl: 4 },
+  { r: 210, o: 0.2, d: 52, dl: 20 },
+  { r: 246, o: 0.12, d: 70, dl: 41 },
+];
+const bead = [(C + R * Math.cos(-0.9)).toFixed(1), (C + R * Math.sin(-0.9)).toFixed(1)];
+---
+
+<div class="eclipse" aria-hidden="true">
+  <svg viewBox="0 0 520 520">
+    <defs>
+      <radialGradient id="ec-cor" cx="50%" cy="50%" r="50%">
+        <stop offset="48%" stop-color="var(--h-a0)" />
+        <stop offset="58%" stop-color="var(--h-a1)" stop-opacity=".55" />
+        <stop offset="80%" stop-color="var(--h-a1)" stop-opacity="0" />
+      </radialGradient>
+      <radialGradient id="ec-ray" gradientUnits="userSpaceOnUse" cx="260" cy="260" r="240">
+        <stop offset=".52" stop-color="var(--h-a0)" stop-opacity=".95" />
+        <stop offset="1" stop-color="var(--h-a1)" stop-opacity="0" />
+      </radialGradient>
+      <radialGradient id="ec-bead">
+        <stop offset="0" stop-color="#fff" />
+        <stop offset=".25" stop-color="#fff4d6" />
+        <stop offset="1" stop-color="var(--h-a0)" stop-opacity="0" />
+      </radialGradient>
+      <filter id="ec-blur" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="16" /></filter>
+      <filter id="ec-soft" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="1.6" /></filter>
+    </defs>
+    <circle class="ec-corona" cx="260" cy="260" r="250" fill="url(#ec-cor)" filter="url(#ec-blur)" />
+    <g class="ec-spin" style="animation-duration:120s">
+      <g class="ec-corona ec-late" filter="url(#ec-soft)">
+        {rays.map((r) => <line x1={r.x1} y1={r.y1} x2={r.x2} y2={r.y2} stroke="url(#ec-ray)" stroke-width={r.w} stroke-linecap="round" />)}
+      </g>
+    </g>
+    {orbits.map((o) => <circle cx="260" cy="260" r={o.r} fill="none" stroke="var(--h-a0)" stroke-opacity={o.o} />)}
+    {orbits.map((o) => (
+      <g class="ec-spin" style={`animation-duration:${o.d}s;animation-delay:-${o.dl}s`}>
+        <circle cx={260 + o.r} cy="260" r="3" fill="var(--h-a0)" />
+      </g>
+    ))}
+    <circle cx="260" cy="260" r={R} fill="var(--h-disc)" />
+    <circle cx="260" cy="260" r={R + 0.5} fill="none" stroke="#ffe6a8" stroke-opacity=".9" stroke-width="1.2" />
+    <circle class="ec-corona" cx={bead[0]} cy={bead[1]} r="22" fill="url(#ec-bead)" />
+  </svg>
+</div>
+
+<style>
+  .eclipse { position: relative; width: min(520px, 92vw); aspect-ratio: 1; margin: -24px auto -112px; pointer-events: none; }
+  .eclipse svg { width: 100%; height: 100%; overflow: visible; }
+  .ec-corona { transform-box: view-box; transform-origin: 50% 50%; animation: ec-breathe 6s ease-in-out infinite; }
+  .ec-late { animation-delay: -3s; }
+  .ec-spin { transform-box: view-box; transform-origin: 50% 50%; animation: ec-spin 40s linear infinite; }
+  :global([data-theme='light']) .ec-corona { --ec-lo: 0.6; }
+  @keyframes ec-breathe { 0%, 100% { transform: scale(1); opacity: var(--ec-lo, 0.85); } 50% { transform: scale(1.06); opacity: 1; } }
+  @keyframes ec-spin { to { transform: rotate(360deg); } }
+  @media (max-width: 560px) { .eclipse { margin-bottom: -84px; } }
+</style>

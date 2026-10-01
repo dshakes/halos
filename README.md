@@ -9,7 +9,7 @@
   <a href="https://github.com/dshakes/halos/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/dshakes/halos/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://goreportcard.com/report/github.com/dshakes/halos"><img alt="Go Report Card" src="https://goreportcard.com/badge/github.com/dshakes/halos"></a>
   <a href="LICENSE"><img alt="Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue.svg"></a>
-  <a href="https://dshakes.github.io/halos/"><img alt="Docs" src="https://img.shields.io/badge/docs-dshakes.github.io%2Fhalos-0f766e.svg"></a>
+  <a href="https://dshakes.github.io/halos/"><img alt="Docs" src="https://img.shields.io/badge/docs-dshakes.github.io%2Fhalos-c93a12.svg"></a>
 </p>
 
 <p align="center">
@@ -137,7 +137,7 @@ Commands: `halo rollout plan | status | simulate | advance | rollback` ([docs](h
 - **Shadow** first-turn requests to a candidate model and grade the pairs with an LLM judge. Nothing from the candidate is served.
 - **Toggles** turn one capability (an MCP server, a hook, a model route) on for a ring, an IdP group or a percentage of users. The payload ships inside the signed release. A kill needs no new release and takes effect at the next poll: about 10 s at gateways, 60 s on devices.
 
-<img src="assets/toggles.gif" alt="halo toggle eval shows which toggles are on for a developer and why; halo gateway routes shows the model route table with weights and failover" width="880">
+<img src="assets/toggles.gif" alt="halo toggle eval shows which toggles are on for a developer and why; halo gateway routes shows each model alias and the upstream it routes to" width="880">
 
 ## Measure, don't guess
 

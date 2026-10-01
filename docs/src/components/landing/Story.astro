@@ -1,0 +1,147 @@
+---
+// "From one PR to every laptop": four steps whose visual sticks beside the text
+// and advances as you scroll. Every panel is built from real repo content at
+// build time: the example rollout YAML, the example ring files and the
+// recorded `halo` output in terminal.json. Without JS the steps read as a plain
+// list (the stage stays hidden); under reduced motion panels swap without movement.
+import { readFileSync, readdirSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import term from '../../data/terminal.json';
+
+const repo = resolve(process.cwd(), '..');
+const acme = join(repo, 'examples/acme-corp');
+
+// 1. The rollout YAML, minus comments and the long digest lines.
+const yaml = readFileSync(join(acme, 'rollouts/claude-code-2.1.300.yaml'), 'utf8')
+  .split('\n')
+  .filter((l) => l.trim() && !l.trim().startsWith('#') && !/^(apiVersion|status|experiment|baseline):|^\s+release:/.test(l));
+const cut = yaml.findIndex((l) => l.includes('- name: canary-5'));
+if (cut < 0) throw new Error('Story: rollout example changed (no canary-5 step)');
+const policy = [...yaml.slice(0, cut), '  # … canary-5, canary-25 (+ eval scorecard), canary-50, ring1, early, ga'];
+
+// 2. The recorded publish lines.
+const out = (cmd: string) => {
+  const s = (term.steps as { cmd: string; out: string }[]).find((x) => x.cmd.startsWith(cmd));
+  if (!s) throw new Error(`Story: terminal.json has no "${cmd}" step`);
+  return s;
+};
+const up = out('halo upgrade start');
+const pub = up.out.split('\n').find((l) => l.startsWith('ok published 127'));
+const m = pub?.match(/^ok published (\S+) (\S+) \((sha256:[0-9a-f]{64})\); (.+)$/);
+if (!m) throw new Error('Story: recorded publish line changed');
+const [, repoRef, ver, digest, note] = m;
+
+// 3. The rings, read from the example policy.
+const rings = readdirSync(join(acme, 'rings'))
+  .filter((f) => f.endsWith('.yaml'))
+  .sort()
+  .map((f) => {
+    const s = readFileSync(join(acme, 'rings', f), 'utf8');
+    const name = s.match(/^name: (\S+)/m)?.[1];
+    const pct = s.match(/percent: (\d+)/)?.[1];
+    const grp = s.match(/groups: \[([^\]]+)\]/)?.[1];
+    const who = grp ? `group ${grp}` : pct ? `${pct}%${/optIn: true/.test(s) ? ' opt-in' : ''}` : /default: true/.test(s) ? 'everyone else' : '';
+    if (!name || !who) throw new Error(`Story: cannot read ring ${f}`);
+    return { name, who };
+  });
+if (rings.length !== 4) throw new Error('Story: expected four example rings');
+
+// 4. The recorded regression simulation's rollback decision.
+const sim = out('halo rollout simulate');
+const rb = sim.out.split('\n').find((l) => /\srollback\s/.test(l));
+if (!rb) throw new Error('Story: recorded simulation has no rollback line');
+const [rbAt, rbStep] = rb.trim().split(/\s+/);
+const rbWhy = rb.replace(/^.*?rollback\s+/, '').replace(/\s*\(threshold.*$/, '');
+
+const steps = [
+  { t: 'Write policy', d: 'A git repo of Halos YAML: CLI versions, models, permissions, MCP servers, rings and rollouts. <code>halo init</code> scaffolds it; CI validates, plans and evals every PR.' },
+  { t: 'Ship a signed release', d: 'A human merges; <code>halo release publish</code> signs an immutable, content-addressed release into your OCI registry. Nothing moves until a ring points at it.' },
+  { t: 'Roll out by ring', d: 'Rings point at releases and <code>halod</code> applies its ring\'s release on every machine. Each rollout step bakes, counts samples, checks its gates and opens a PR a human merges.' },
+  { t: 'Roll back on its own', d: 'A gateway-measured breach trips the signed kill switch; gateways pick it up within ~10 s. Other breaches open a rollback PR.' },
+];
+// Rings centred left with a legend column on the right; each label has a leader to its ring.
+const R = [56, 90, 124, 158], CX = 170, CY = 210;
+const ang = [50, 20, -10, -40].map((d) => (d * Math.PI) / 180);
+const ly = [338, 262, 184, 104];
+const legend = rings.map((g, i) => ({ ...g, x: CX + R[i] * Math.cos(ang[i]), y: CY + R[i] * Math.sin(ang[i]), ly: ly[i] }));
+---
+
+<div class="story" data-story data-active="1">
+  <div class="stage" aria-hidden="true">
+    <div class="panel p-code" data-p="1">
+      <div class="pbar"><span class="dots"><i></i><i></i><i></i></span><span>examples/acme-corp/rollouts/claude-code-2.1.300.yaml</span></div>
+      <pre>{policy.map((l) => {
+        const k = l.match(/^(\s*-?\s*)([\w.]+):(.*)$/);
+        return k ? <span class="ln">{k[1]}<b>{k[2]}</b>:{k[3]}{'\n'}</span> : <span class="ln c">{l}{'\n'}</span>;
+      })}</pre>
+    </div>
+
+    <div class="panel p-rel" data-p="2">
+      <div class="seal">
+        <svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="44" class="seal-ring" /><circle cx="60" cy="60" r="34" class="seal-disc" /><path d="M46 61l10 10 19-22" class="seal-tick" /></svg>
+      </div>
+      <p class="rel-ver">{ver}</p>
+      <p class="rel-repo">{repoRef}</p>
+      <p class="rel-dig"><span>{digest.slice(0, 7 + 16)}</span><span class="dim">{digest.slice(23)}</span></p>
+      <ul class="chips"><li>ed25519-signed</li><li>immutable</li><li>{note}</li></ul>
+      <p class="rel-src">recorded output of <code>{up.cmd}</code></p>
+    </div>
+
+    <div class="panel p-rings" data-p="3">
+      <svg viewBox="0 0 490 420">
+        {R.map((r, i) => <circle cx={CX} cy={CY} r={r} class="rg" style={`--i:${i}`} />)}
+        <circle cx={CX} cy={CY} r="30" class="rg-core" />
+        <text x={CX} y={CY + 4} class="rg-core-t" text-anchor="middle">release</text>
+        {legend.map((g, i) => (
+          <g class="rg-l" style={`--i:${i}`}>
+            <path class="rg-lead" d={`M${g.x.toFixed(1)} ${g.y.toFixed(1)} L342 ${g.ly - 4}`} />
+            <circle class="rg-dot" cx={g.x.toFixed(1)} cy={g.y.toFixed(1)} r="3" />
+            <text x="348" y={g.ly - 2} class="rg-n">{g.name}</text>
+            <text x="348" y={g.ly + 13} class="rg-w">{g.who}</text>
+          </g>
+        ))}
+      </svg>
+    </div>
+
+    <div class="panel p-back" data-p="4">
+      <div class="lane hot">
+        <p class="lane-h">Gateway-measured breach</p>
+        <ol class="flow"><li>guardrail breached</li><li>signed kill switch</li><li>gateways pick it up within ~10 s</li></ol>
+      </div>
+      <div class="lane">
+        <p class="lane-h">Any other breach</p>
+        <ol class="flow"><li>step fails its gate</li><li>rollback PR</li><li>a human merges</li></ol>
+        <p class="sim-line"><span class="at">{rbAt}</span> <span>{rbStep}</span> <span class="rb">rollback</span><br /><span class="dim">{rbWhy}</span></p>
+        <p class="rel-src">recorded <code>halo rollout simulate --scenario regression</code></p>
+      </div>
+    </div>
+  </div>
+
+  <ol class="story-steps">
+    {steps.map((s, i) => (
+      <li data-step={i + 1}>
+        <span class="badge">{String(i + 1).padStart(2, '0')}</span>
+        <h3>{s.t}</h3>
+        <p set:html={s.d} />
+      </li>
+    ))}
+  </ol>
+</div>
+
+<script>
+  for (const root of document.querySelectorAll<HTMLElement>('[data-story]')) {
+    root.dataset.js = '';
+    const items = [...root.querySelectorAll<HTMLElement>('[data-step]')];
+    const set = (n: string) => {
+      root.dataset.active = n;
+      for (const li of items) li.classList.toggle('on', li.dataset.step === n);
+    };
+    set('1');
+    const io = new IntersectionObserver(
+      (es) => { for (const e of es) if (e.isIntersecting) set((e.target as HTMLElement).dataset.step!); },
+      // Phones: the stage sticks at the top, so trigger below it to keep the active text in view.
+      { rootMargin: matchMedia('(max-width: 860px)').matches ? '-78% 0px -21% 0px' : '-45% 0px -45% 0px' }
+    );
+    items.forEach((li) => io.observe(li));
+  }
+</script>

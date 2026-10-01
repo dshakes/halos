@@ -93,7 +93,7 @@ const data = {
         out.textContent =
           r.outcome === 'complete'
             ? `Outcome: complete after ${r.duration}. Every advance was a PR a human merged; completion is one more PR.`
-            : `Outcome: rollback after ${r.duration}. Live, a gateway-measured breach like this trips the signed kill switch and opens a rollback PR.`;
+            : `Outcome: rollback after ${r.duration}. Live, a gateway-measured breach like this trips the signed kill switch; gateways pick it up within ~10 s. Other breaches open a rollback PR.`;
       }
     }
     async function play() {

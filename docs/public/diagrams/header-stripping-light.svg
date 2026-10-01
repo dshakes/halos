@@ -2,37 +2,37 @@
 <title id="t">Gateway header handling</title>
 <desc id="d">The client sends a forged x-halo-ring header; the gateway deletes every x-halo header, verifies the JWT for user and groups, decides ring, release, experiment and variant, then sets x-halo stamps on the upstream request.</desc>
 <style>
-.cv{fill:#f7f8fa;stroke:#e4e7ed;stroke-width:1.5}
-.card{fill:#ffffff;stroke:#e2e8f0;stroke-width:1.5}
+.cv{fill:#f7f2e9;stroke:#e6ddcd;stroke-width:1.5}
+.card{fill:#fffdf9;stroke:#e3d9c8;stroke-width:1.5}
 .soft{fill:url(#gs)}
 .ring{fill:none;stroke:url(#ga);stroke-width:1.5}
-.dcard{fill:#fef2f2;stroke:#dc2626;stroke-width:1.5}
-.ghost{fill:none;stroke:#94a3b8;stroke-width:1.5;stroke-dasharray:4 4}
-.zone{fill:#f4f6f9;stroke:#dfe5ec;stroke-width:1.5}
-.chip{fill:#f1f5f9;stroke:#e2e8f0;stroke-width:1}
+.dcard{fill:#fbedea;stroke:#b42323;stroke-width:1.5}
+.ghost{fill:none;stroke:#a89f90;stroke-width:1.5;stroke-dasharray:4 4}
+.zone{fill:#f3ece0;stroke:#e0d5c2;stroke-width:1.5}
+.chip{fill:#f3ece0;stroke:#e3d9c8;stroke-width:1}
 text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
-.t{font-size:13.5px;font-weight:600;fill:#0b0d12}
-.tm{font:600 12.5px ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;fill:#0b0d12}
-.td{fill:#dc2626}
-.s{font-size:12px;fill:#475063}
-.m{font:11px ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;fill:#475063}
-.xs{font-size:10.5px;font-weight:500;fill:#667085}
+.t{font-size:13.5px;font-weight:600;fill:#16130f}
+.tm{font:600 12.5px ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;fill:#16130f}
+.td{fill:#b42323}
+.s{font-size:12px;fill:#4a443b}
+.m{font:11px ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;fill:#4a443b}
+.xs{font-size:10.5px;font-weight:500;fill:#655e52}
 .xm{font-family:ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;font-weight:400}
 .xa{fill:url(#ga);font-weight:600}
-.xd{fill:#dc2626;font-weight:600}
-.xw{fill:#ffffff;font-weight:600}
-.k{font-size:10.5px;font-weight:600;letter-spacing:.08em;fill:#667085}
+.xd{fill:#b42323;font-weight:600}
+.xw{fill:#fffdf9;font-weight:600}
+.k{font-size:10.5px;font-weight:600;letter-spacing:.08em;fill:#655e52}
 .ka{fill:url(#ga)}
-.h1{font-size:42px;font-weight:700;letter-spacing:-.02em;fill:#0b0d12}
+.h1{font-size:42px;font-weight:700;letter-spacing:-.02em;fill:#16130f}
 .ln,.la,.ld,.lm{fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
-.ln{stroke:#94a3b8}.la{stroke:url(#ga)}.ld{stroke:#dc2626}.lm{stroke:#e2e8f0}
-.lane{stroke:#e2e8f0;stroke-width:1.5;stroke-dasharray:3 4}
+.ln{stroke:#a89f90}.la{stroke:url(#ga)}.ld{stroke:#b42323}.lm{stroke:#e3d9c8}
+.lane{stroke:#e3d9c8;stroke-width:1.5;stroke-dasharray:3 4}
 .dash{stroke-dasharray:5 5}
-.dl{fill:#94a3b8}.da{fill:url(#ga)}.dd{fill:#dc2626}
-.pl{fill:#f7f8fa}.pa{fill:#f7f8fa;stroke:url(#ga);stroke-width:1}
-.pd{fill:#fef2f2;stroke:#dc2626;stroke-width:1}.ps{fill:url(#ga)}
-.fa{fill:url(#ga)}.fs{fill:url(#gs)}.fm{fill:#f1f5f9}.fd{fill:#dc2626}.ft{fill:#0b0d12}
-.bdg{fill:url(#ga)}.bn{font-size:9.5px;font-weight:700;fill:#ffffff}
+.dl{fill:#a89f90}.da{fill:url(#ga)}.dd{fill:#b42323}
+.pl{fill:#f7f2e9}.pa{fill:#f7f2e9;stroke:url(#ga);stroke-width:1}
+.pd{fill:#fbedea;stroke:#b42323;stroke-width:1}.ps{fill:url(#ga)}
+.fa{fill:url(#ga)}.fs{fill:url(#gs)}.fm{fill:#f3ece0}.fd{fill:#b42323}.ft{fill:#16130f}
+.bdg{fill:url(#ga)}.bn{font-size:9.5px;font-weight:700;fill:#fffdf9}
 .ic{fill:none;stroke:url(#ga);stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
 .pkt{fill:url(#ga)}
 .grow{transform-box:fill-box;transform-origin:left;animation:grow 4.8s cubic-bezier(.6,0,.2,1) infinite}
@@ -46,9 +46,9 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 @media (prefers-reduced-motion:reduce){.flow,.blink,.pulse,.grow{animation:none}.blink{opacity:1}.pulse,.pkt{display:none}}
 </style>
 <defs>
-<linearGradient id="ga" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="760" y2="0"><stop offset="0" stop-color="#0d9488"/><stop offset="1" stop-color="#4f46e5"/></linearGradient>
-<linearGradient id="gs" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="760" y2="0"><stop offset="0" stop-color="#0d9488" stop-opacity="0.07"/><stop offset="1" stop-color="#4f46e5" stop-opacity="0.07"/></linearGradient>
-<filter id="sh" x="-10%" y="-10%" width="120%" height="140%"><feDropShadow dx="0" dy="1" stdDeviation="1.6" flood-color="#0f172a" flood-opacity="0.07"/></filter>
+<linearGradient id="ga" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="760" y2="0"><stop offset="0" stop-color="#b4400f"/><stop offset="1" stop-color="#8a5300"/></linearGradient>
+<linearGradient id="gs" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="760" y2="0"><stop offset="0" stop-color="#b4400f" stop-opacity="0.08"/><stop offset="1" stop-color="#8a5300" stop-opacity="0.08"/></linearGradient>
+<filter id="sh" x="-10%" y="-10%" width="120%" height="140%"><feDropShadow dx="0" dy="1" stdDeviation="1.6" flood-color="#3c280a" flood-opacity="0.08"/></filter>
 </defs>
 <rect class="cv" x=".75" y=".75" width="758.5" height="150.5" rx="16"/>
 <rect class="card" x="24.0" y="24" width="124.8" height="104" rx="12" filter="url(#sh)"/>

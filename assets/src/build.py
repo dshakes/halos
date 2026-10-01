@@ -25,47 +25,49 @@ SANS = "ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif"
 MONO = "ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace"
 
 THEMES = {
+    # "Eclipse" identity: warm paper / near-black ink, corona gold -> coral.
+    # a0/a1 are used for small labels, so the light pair are ink-safe (>= 4.5:1).
     "light": dict(
-        canvas="#f7f8fa",
-        canvas_line="#e4e7ed",
-        card="#ffffff",
-        card_line="#e2e8f0",
-        zone="#f4f6f9",
-        zone_line="#dfe5ec",
-        text="#0b0d12",
-        text2="#475063",
-        text3="#667085",
-        line="#94a3b8",
-        a0="#0d9488",
-        a1="#4f46e5",
-        soft=0.07,
-        danger="#dc2626",
-        danger_soft="#fef2f2",
-        shadow="#0f172a",
-        shadow_op=0.07,
-        chip="#f1f5f9",
-        on_accent="#ffffff",
+        canvas="#f7f2e9",
+        canvas_line="#e6ddcd",
+        card="#fffdf9",
+        card_line="#e3d9c8",
+        zone="#f3ece0",
+        zone_line="#e0d5c2",
+        text="#16130f",
+        text2="#4a443b",
+        text3="#655e52",
+        line="#a89f90",
+        a0="#b4400f",
+        a1="#8a5300",
+        soft=0.08,
+        danger="#b42323",
+        danger_soft="#fbedea",
+        shadow="#3c280a",
+        shadow_op=0.08,
+        chip="#f3ece0",
+        on_accent="#fffdf9",
     ),
     "dark": dict(
-        canvas="#0d0f14",
-        canvas_line="#1f232c",
-        card="#14171e",
-        card_line="#2a2f3a",
-        zone="#111319",
-        zone_line="#232731",
-        text="#eceef3",
-        text2="#a6adbb",
-        text3="#8a92a3",
-        line="#555d6c",
-        a0="#2dd4bf",
-        a1="#818cf8",
+        canvas="#0c0c10",
+        canvas_line="#1e1e24",
+        card="#121217",
+        card_line="#2a2a31",
+        zone="#0f0f14",
+        zone_line="#24242b",
+        text="#f4f1ea",
+        text2="#bdb7ac",
+        text3="#9a958b",
+        line="#5a564f",
+        a0="#ffb547",
+        a1="#ff7a4d",
         soft=0.12,
-        danger="#f87171",
-        danger_soft="#2a1517",
+        danger="#ff7a7a",
+        danger_soft="#2a1414",
         shadow="#000000",
-        shadow_op=0.45,
-        chip="#1a1d26",
-        on_accent="#0b1220",
+        shadow_op=0.5,
+        chip="#1a1a20",
+        on_accent="#16130f",
     ),
 }
 
@@ -427,12 +429,19 @@ def hero():
         frame=False,
         out=("assets", "docs"),
     )
-    # wordmark: three concentric rings = rollout rings
+    # wordmark: the eclipse mark from identity() (corona ring, dark disc, diamond-ring bead)
     cx, cy = 372, 54
     d.add(f'<circle class="pulse fs" cx="{cx}" cy="{cy}" r="22"/>')
-    d.add(f'<circle class="ic" cx="{cx}" cy="{cy}" r="21" opacity=".35"/>')
-    d.add(f'<circle class="ic" cx="{cx}" cy="{cy}" r="13.5" opacity=".7"/>')
-    d.add(f'<circle class="fa" cx="{cx}" cy="{cy}" r="6"/>')
+    d.add(
+        f'<g transform="translate({cx - 24} {cy - 24}) scale(1.5)">'
+        '<defs><linearGradient id="hm" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6c453"/>'
+        '<stop offset="1" stop-color="#ff6a3d"/></linearGradient>'
+        '<radialGradient id="hmg"><stop offset=".55" stop-color="#ff6a3d" stop-opacity=".5"/>'
+        '<stop offset="1" stop-color="#ff6a3d" stop-opacity="0"/></radialGradient></defs>'
+        '<circle cx="16" cy="16" r="15" fill="url(#hmg)"/>'
+        '<circle cx="16" cy="16" r="10.5" fill="none" stroke="url(#hm)" stroke-width="3.2"/>'
+        '<circle cx="16" cy="16" r="8.4" fill="#16130f"/><circle cx="22.4" cy="9.4" r="2.3" fill="#fff4d6"/></g>'
+    )
     d.text(cx + 34, cy + 15, "Halos", "h1")
     # flow row
     y, h, w, step = 112, 112, 168, 221
@@ -2330,39 +2339,84 @@ def how_it_works():
     d.write()
 
 
+def eclipse(cx: float, cy: float, r: float, uid: str, ink: str, rays: int = 90) -> str:
+    """Static eclipse: corona glow, ray field, dark disc, rim and diamond-ring bead.
+    Geometry matches the animated hero (docs/src/components/landing/Eclipse.astro)."""
+    import random
+    rnd = random.Random(7)
+    k = r / 134
+    lines = []
+    for i in range(rays):
+        a = i * math.tau / rays + rnd.uniform(-0.02, 0.02)
+        ln = rnd.choice([18, 30, 46, 70, 96, 40, 24]) * k
+        w = rnd.uniform(0.6, 2.2) * k
+        r0 = r * 132 / 134
+        lines.append(
+            f'<line x1="{cx + r0 * math.cos(a):.1f}" y1="{cy + r0 * math.sin(a):.1f}" '
+            f'x2="{cx + (r0 + ln) * math.cos(a):.1f}" y2="{cy + (r0 + ln) * math.sin(a):.1f}" '
+            f'stroke="url(#ray{uid})" stroke-width="{w:.2f}" stroke-linecap="round"/>'
+        )
+    bx, by = cx + r * math.cos(-0.9), cy + r * math.sin(-0.9)
+    return f"""<defs>
+<radialGradient id="cor{uid}" cx="{cx}" cy="{cy}" r="{r * 1.87:.1f}" gradientUnits="userSpaceOnUse"><stop offset=".48" stop-color="#f6c453"/><stop offset=".58" stop-color="#ff6a3d" stop-opacity=".55"/><stop offset=".8" stop-color="#ff6a3d" stop-opacity="0"/></radialGradient>
+<radialGradient id="ray{uid}" cx="{cx}" cy="{cy}" r="{r * 1.8:.1f}" gradientUnits="userSpaceOnUse"><stop offset=".52" stop-color="#f6c453" stop-opacity=".95"/><stop offset="1" stop-color="#ff6a3d" stop-opacity="0"/></radialGradient>
+<radialGradient id="bead{uid}"><stop offset="0" stop-color="#fff"/><stop offset=".25" stop-color="#fff4d6"/><stop offset="1" stop-color="#f6c453" stop-opacity="0"/></radialGradient>
+<filter id="blur{uid}" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="{16 * k:.1f}"/></filter>
+<filter id="soft{uid}" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="{1.6 * k:.2f}"/></filter>
+</defs>
+<circle cx="{cx}" cy="{cy}" r="{r * 1.87:.1f}" fill="url(#cor{uid})" filter="url(#blur{uid})"/>
+<g filter="url(#soft{uid})">{"".join(lines)}</g>
+<circle cx="{cx}" cy="{cy}" r="{r}" fill="{ink}"/>
+<circle cx="{cx}" cy="{cy}" r="{r + 0.5}" fill="none" stroke="#ffe6a8" stroke-opacity=".9" stroke-width="{1.2 * k:.2f}"/>
+<circle cx="{bx:.1f}" cy="{by:.1f}" r="{22 * k:.1f}" fill="url(#bead{uid})"/>"""
+
+
+def identity():
+    """Logo mark (docs header, light + dark) and favicon: a ring of corona around a dark disc."""
+    def mark(ink: str, bg: str | None) -> str:
+        back = f'<rect width="32" height="32" rx="8" fill="{bg}"/>' if bg else ""
+        return (
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="Halos">'
+            '<defs><linearGradient id="h" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6c453"/>'
+            '<stop offset="1" stop-color="#ff6a3d"/></linearGradient>'
+            '<radialGradient id="g"><stop offset=".55" stop-color="#ff6a3d" stop-opacity=".5"/><stop offset="1" stop-color="#ff6a3d" stop-opacity="0"/></radialGradient></defs>'
+            f'{back}<circle cx="16" cy="16" r="15" fill="url(#g)"/>'
+            '<circle cx="16" cy="16" r="10.5" fill="none" stroke="url(#h)" stroke-width="3.2"/>'
+            f'<circle cx="16" cy="16" r="8.4" fill="{ink}"/>'
+            '<circle cx="22.4" cy="9.4" r="2.3" fill="#fff4d6"/></svg>\n'
+        )
+    site = ROOT / "docs"
+    (site / "src" / "assets" / "logo-dark.svg").write_text(mark("#07070a", None))
+    (site / "src" / "assets" / "logo-light.svg").write_text(mark("#16130f", None))
+    (site / "public" / "favicon.svg").write_text(mark("#07070a", "#07070a"))
+
+
 def og_card():
     """1200x630 social card (dark). docs/scripts/og.sh renders it to docs/public/og.png."""
     c = THEMES["dark"]
-    bars = "".join(
-        f'<rect x="{760 + i * 76}" y="{470 - h}" width="52" height="{h}" rx="10" fill="url(#g)" opacity="{0.35 + i * 0.16:.2f}"/>'
-        f'<text x="{786 + i * 76}" y="500" text-anchor="middle" class="m">{p}%</text>'
-        for i, (p, h) in enumerate([(1, 40), (5, 70), (25, 120), (50, 170), (100, 230)])
-    )
     svg = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
-<defs>
-<linearGradient id="g" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="{c["a0"]}"/><stop offset="1" stop-color="{c["a1"]}"/></linearGradient>
-<radialGradient id="glow" cx="0.25" cy="0.2" r="0.7"><stop offset="0" stop-color="{c["a0"]}" stop-opacity=".22"/><stop offset="1" stop-color="{c["a0"]}" stop-opacity="0"/></radialGradient>
-<radialGradient id="glow2" cx="0.85" cy="0.9" r="0.6"><stop offset="0" stop-color="{c["a1"]}" stop-opacity=".2"/><stop offset="1" stop-color="{c["a1"]}" stop-opacity="0"/></radialGradient>
-<pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse"><path d="M48 0H0V48" fill="none" stroke="#ffffff" stroke-opacity=".05"/></pattern>
-</defs>
-<style>text{{font-family:{SANS}}}.m{{font:500 18px {MONO};fill:#7b8394}}</style>
-<rect width="1200" height="630" fill="#08090c"/><rect width="1200" height="630" fill="url(#grid)"/>
-<rect width="1200" height="630" fill="url(#glow)"/><rect width="1200" height="630" fill="url(#glow2)"/>
-<g transform="translate(80 84)"><circle cx="28" cy="28" r="25" fill="none" stroke="url(#g)" stroke-width="4" opacity=".45"/>
-<circle cx="28" cy="28" r="15.5" fill="none" stroke="url(#g)" stroke-width="4" opacity=".85"/><circle cx="28" cy="28" r="7" fill="url(#g)"/>
-<text x="76" y="40" font-size="36" font-weight="700" fill="#eceef3">Halos</text></g>
-<text x="80" y="268" font-size="76" font-weight="700" letter-spacing="-3" fill="#eceef3">Ship AI coding tools</text>
-<text x="80" y="356" font-size="76" font-weight="700" letter-spacing="-3" fill="url(#g)">like software.</text>
-<text x="80" y="430" font-size="26" fill="#a6adbb">Signed releases, ring rollouts, eval gates,</text>
-<text x="80" y="466" font-size="26" fill="#a6adbb">auto-rollback. Open source.</text>
-<text x="80" y="560" class="m" font-size="20">Claude Code · Codex · Gemini CLI · Copilot CLI</text>
-{bars}
-</svg>
+<rect width="1200" height="630" fill="#07070a"/>
+<radialGradient id="wash" cx="880" cy="315" r="520" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#ff6a3d" stop-opacity=".18"/><stop offset="1" stop-color="#ff6a3d" stop-opacity="0"/></radialGradient>
+<rect width="1200" height="630" fill="url(#wash)"/>
+{eclipse(905, 315, 150, "og", "#07070a")}
+<circle cx="905" cy="315" r="205" fill="none" stroke="#f6c453" stroke-opacity=".28"/>
+<circle cx="905" cy="315" r="250" fill="none" stroke="#f6c453" stroke-opacity=".14"/>
+<circle cx="1110" cy="315" r="4" fill="#f6c453"/><circle cx="905" cy="65" r="4" fill="#ff8a5c"/>
+<g font-family="{SANS}">
+<text x="80" y="118" fill="{c["text"]}" font-size="30" font-weight="650">Halos</text>
+<text x="80" y="270" fill="{c["text"]}" font-size="64" font-weight="700" letter-spacing="-2.4">Ship AI coding tools</text>
+<linearGradient id="tg" x1="0" x2="1"><stop offset="0" stop-color="#f6c453"/><stop offset="1" stop-color="#ff6a3d"/></linearGradient>
+<text x="80" y="346" fill="url(#tg)" font-size="64" font-weight="700" letter-spacing="-2.4">like software.</text>
+<text x="80" y="414" fill="{c["text2"]}" font-size="24">Signed releases, ring rollouts, evals and</text>
+<text x="80" y="446" fill="{c["text2"]}" font-size="24">automatic rollback for AI coding CLIs.</text>
+<text x="80" y="548" fill="{c["text3"]}" font-size="19" font-family="{MONO}">Claude Code · Codex · Gemini CLI · Copilot CLI</text>
+</g></svg>
 """
     (DOCS.parent / "og.svg").write_text(svg)
 
 
 def main():
+    identity()
     og_card()
     how_it_works()
     hero()

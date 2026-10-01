@@ -1,55 +1,68 @@
 /* Halos design tokens, shared by the landing page and the Starlight docs theme.
-   Dark is the reference palette; light mirrors it. One accent: teal -> indigo. */
+   Identity: "Eclipse". A halo is the corona around an eclipsed sun: near-black ink,
+   a gold -> coral corona, and a cool periwinkle counter-accent. Dark is the reference;
+   light sits on warm paper. Text gradients use --h-t0/--h-t1, which stay >= 3:1 on
+   their background; --h-a0/--h-a1 are for light, glow and fills only. */
 :root {
   --h-font: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --h-display: 'Sora Variable', 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
   --h-mono: 'JetBrains Mono Variable', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 
-  --h-a0: #2dd4bf;
-  --h-a1: #818cf8;
-  --h-accent: #5eead4;
-  --h-accent-strong: #99f6e4;
+  --h-a0: #f6c453;
+  --h-a1: #ff6a3d;
+  --h-t0: #f6c453;
+  --h-t1: #ff6a3d;
+  --h-cool: #8ea2ff;
+  --h-accent: #ffb547;
+  --h-accent-strong: #ffd48a;
   --h-grad: linear-gradient(100deg, var(--h-a0), var(--h-a1));
+  --h-grad-text: linear-gradient(100deg, var(--h-t0), var(--h-t1));
+  --h-disc: #07070a;
 
-  --h-bg: #08090c;
-  --h-bg-2: #0d0f14;
-  --h-surface: #111319;
-  --h-surface-2: #161922;
-  --h-border: rgba(255, 255, 255, 0.08);
-  --h-border-strong: rgba(255, 255, 255, 0.14);
-  --h-text: #eceef3;
-  --h-text-2: #a6adbb;
-  --h-text-3: #7b8394;
-  --h-danger: #fb7185;
-  --h-danger-bg: rgba(251, 113, 133, 0.12);
-  --h-ok: #34d399;
-  --h-warn: #fbbf24;
-  --h-glow: rgba(45, 212, 191, 0.16);
-  --h-glow-2: rgba(129, 140, 248, 0.16);
-  --h-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 20px 50px -24px rgba(0, 0, 0, 0.7);
-  --h-radius: 14px;
+  --h-bg: #07070a;
+  --h-bg-2: #0c0c10;
+  --h-surface: #111116;
+  --h-surface-2: #18181e;
+  --h-border: rgba(244, 241, 234, 0.08);
+  --h-border-strong: rgba(244, 241, 234, 0.15);
+  --h-text: #f4f1ea;
+  --h-text-2: #bdb7ac;
+  --h-text-3: #8e897f;
+  --h-danger: #ff7a7a;
+  --h-danger-bg: rgba(255, 122, 122, 0.12);
+  --h-ok: #6ee7a8;
+  --h-warn: #f6c453;
+  --h-glow: rgba(255, 106, 61, 0.2);
+  --h-glow-2: rgba(246, 196, 83, 0.16);
+  --h-shadow: 0 1px 0 rgba(244, 241, 234, 0.04) inset, 0 20px 50px -24px rgba(0, 0, 0, 0.75);
+  --h-radius: 16px;
   color-scheme: dark;
 }
 
 :root[data-theme='light'] {
-  --h-a0: #0d9488;
-  --h-a1: #4f46e5;
-  --h-accent: #0f766e;
-  --h-accent-strong: #115e59;
-  --h-bg: #ffffff;
-  --h-bg-2: #f7f8fa;
-  --h-surface: #ffffff;
-  --h-surface-2: #f4f5f8;
-  --h-border: rgba(15, 23, 42, 0.09);
-  --h-border-strong: rgba(15, 23, 42, 0.16);
-  --h-text: #0b0d12;
-  --h-text-2: #475063;
-  --h-text-3: #667085;
-  --h-danger: #e11d48;
-  --h-danger-bg: rgba(225, 29, 72, 0.08);
-  --h-ok: #047857;
-  --h-warn: #b45309;
-  --h-glow: rgba(13, 148, 136, 0.12);
-  --h-glow-2: rgba(79, 70, 229, 0.1);
-  --h-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 16px 40px -24px rgba(15, 23, 42, 0.22);
+  --h-a0: #f2b53a;
+  --h-a1: #f0532a;
+  --h-t0: #b86a00;
+  --h-t1: #c93a12;
+  --h-cool: #4453c9;
+  --h-accent: #a8380c;
+  --h-accent-strong: #7c2a08;
+  --h-disc: #16130f;
+  --h-bg: #fbf7f0;
+  --h-bg-2: #f4eee3;
+  --h-surface: #fffdf9;
+  --h-surface-2: #f3ece0;
+  --h-border: rgba(22, 19, 15, 0.1);
+  --h-border-strong: rgba(22, 19, 15, 0.18);
+  --h-text: #16130f;
+  --h-text-2: #4a443b;
+  --h-text-3: #6b6458;
+  --h-danger: #b42323;
+  --h-danger-bg: rgba(180, 35, 35, 0.08);
+  --h-ok: #04724f;
+  --h-warn: #8a5300;
+  --h-glow: rgba(240, 83, 42, 0.14);
+  --h-glow-2: rgba(242, 181, 58, 0.18);
+  --h-shadow: 0 1px 2px rgba(22, 19, 15, 0.05), 0 18px 40px -24px rgba(60, 40, 10, 0.25);
   color-scheme: light;
 }
