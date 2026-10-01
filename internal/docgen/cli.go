@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -88,7 +89,11 @@ func flagTable(b *strings.Builder, fs *pflag.FlagSet) {
 		if f.Shorthand != "" {
 			sh = "`-" + f.Shorthand + "`"
 		}
-		rows = append(rows, fmt.Sprintf("| `--%s` | %s | %s | %s | %s |\n", f.Name, sh, f.Value.Type(), esc(f.DefValue), esc(f.Usage)))
+		def := f.DefValue
+		if def == runtime.GOOS {
+			def = "host OS" // defaults to runtime.GOOS; render stably so docs don't drift by build host
+		}
+		rows = append(rows, fmt.Sprintf("| `--%s` | %s | %s | %s | %s |\n", f.Name, sh, f.Value.Type(), esc(def), esc(f.Usage)))
 	})
 	if len(rows) == 0 {
 		b.WriteString("None.\n\n")
