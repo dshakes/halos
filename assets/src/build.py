@@ -26,15 +26,15 @@ MONO = "ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace"
 
 THEMES = {
     "light": dict(
-        canvas="#fbfcfd",
-        canvas_line="#e6eaf0",
+        canvas="#f7f8fa",
+        canvas_line="#e4e7ed",
         card="#ffffff",
         card_line="#e2e8f0",
         zone="#f4f6f9",
         zone_line="#dfe5ec",
-        text="#0b1220",
-        text2="#475569",
-        text3="#64748b",
+        text="#0b0d12",
+        text2="#475063",
+        text3="#667085",
         line="#94a3b8",
         a0="#0d9488",
         a1="#4f46e5",
@@ -47,16 +47,16 @@ THEMES = {
         on_accent="#ffffff",
     ),
     "dark": dict(
-        canvas="#0f141a",
-        canvas_line="#232a33",
-        card="#161b22",
-        card_line="#2b3440",
-        zone="#131921",
-        zone_line="#262f3a",
-        text="#e6edf3",
-        text2="#9aa7b4",
-        text3="#7d8794",
-        line="#56606c",
+        canvas="#0d0f14",
+        canvas_line="#1f232c",
+        card="#14171e",
+        card_line="#2a2f3a",
+        zone="#111319",
+        zone_line="#232731",
+        text="#eceef3",
+        text2="#a6adbb",
+        text3="#8a92a3",
+        line="#555d6c",
         a0="#2dd4bf",
         a1="#818cf8",
         soft=0.12,
@@ -64,7 +64,7 @@ THEMES = {
         danger_soft="#2a1517",
         shadow="#000000",
         shadow_op=0.45,
-        chip="#1c232c",
+        chip="#1a1d26",
         on_accent="#0b1220",
     ),
 }
@@ -2330,7 +2330,40 @@ def how_it_works():
     d.write()
 
 
+def og_card():
+    """1200x630 social card (dark). docs/scripts/og.sh renders it to docs/public/og.png."""
+    c = THEMES["dark"]
+    bars = "".join(
+        f'<rect x="{760 + i * 76}" y="{470 - h}" width="52" height="{h}" rx="10" fill="url(#g)" opacity="{0.35 + i * 0.16:.2f}"/>'
+        f'<text x="{786 + i * 76}" y="500" text-anchor="middle" class="m">{p}%</text>'
+        for i, (p, h) in enumerate([(1, 40), (5, 70), (25, 120), (50, 170), (100, 230)])
+    )
+    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+<defs>
+<linearGradient id="g" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="{c["a0"]}"/><stop offset="1" stop-color="{c["a1"]}"/></linearGradient>
+<radialGradient id="glow" cx="0.25" cy="0.2" r="0.7"><stop offset="0" stop-color="{c["a0"]}" stop-opacity=".22"/><stop offset="1" stop-color="{c["a0"]}" stop-opacity="0"/></radialGradient>
+<radialGradient id="glow2" cx="0.85" cy="0.9" r="0.6"><stop offset="0" stop-color="{c["a1"]}" stop-opacity=".2"/><stop offset="1" stop-color="{c["a1"]}" stop-opacity="0"/></radialGradient>
+<pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse"><path d="M48 0H0V48" fill="none" stroke="#ffffff" stroke-opacity=".05"/></pattern>
+</defs>
+<style>text{{font-family:{SANS}}}.m{{font:500 18px {MONO};fill:#7b8394}}</style>
+<rect width="1200" height="630" fill="#08090c"/><rect width="1200" height="630" fill="url(#grid)"/>
+<rect width="1200" height="630" fill="url(#glow)"/><rect width="1200" height="630" fill="url(#glow2)"/>
+<g transform="translate(80 84)"><circle cx="28" cy="28" r="25" fill="none" stroke="url(#g)" stroke-width="4" opacity=".45"/>
+<circle cx="28" cy="28" r="15.5" fill="none" stroke="url(#g)" stroke-width="4" opacity=".85"/><circle cx="28" cy="28" r="7" fill="url(#g)"/>
+<text x="76" y="40" font-size="36" font-weight="700" fill="#eceef3">Halos</text></g>
+<text x="80" y="268" font-size="76" font-weight="700" letter-spacing="-3" fill="#eceef3">Ship AI coding tools</text>
+<text x="80" y="356" font-size="76" font-weight="700" letter-spacing="-3" fill="url(#g)">like software.</text>
+<text x="80" y="430" font-size="26" fill="#a6adbb">Signed releases, ring rollouts, eval gates,</text>
+<text x="80" y="466" font-size="26" fill="#a6adbb">auto-rollback. Open source.</text>
+<text x="80" y="560" class="m" font-size="20">Claude Code · Codex · Gemini CLI · Copilot CLI</text>
+{bars}
+</svg>
+"""
+    (DOCS.parent / "og.svg").write_text(svg)
+
+
 def main():
+    og_card()
     how_it_works()
     hero()
     architecture()

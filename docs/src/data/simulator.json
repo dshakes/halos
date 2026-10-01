@@ -1,0 +1,1422 @@
+{
+ "recorded": "2026-10-01",
+ "halo": "a23f464",
+ "source": "halo rollout plan|simulate opus-5-5-upgrade --policy-dir examples/acme-corp --output json",
+ "plan": {
+  "manualOnComplete": [
+   "gateway.models.opus has failover targets: re-point it to orchestrator/arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/z9w5opus55dd by hand in this PR"
+  ],
+  "timeline": {
+   "rollout": "opus-5-5-upgrade",
+   "axis": "traffic",
+   "status": "active",
+   "experiment": "opus-5-5-canary",
+   "change": "gateway alias opus -> treatment route of experiment opus-5-5-canary",
+   "steps": [
+    {
+     "index": 0,
+     "name": "dark-launch",
+     "strategy": "dark-launch",
+     "ring": "ring1-canary",
+     "percent": 10,
+     "exposure": "10% of ring1-canary requests mirrored, none served",
+     "bake": "2d",
+     "minSamples": 500,
+     "gates": [
+      "latency.p50_ms<=10%",
+      "latency.p95_ms<=15%",
+      "eval:opus-5-5"
+     ],
+     "onFailure": "pause",
+     "earliestStart": "T+0"
+    },
+    {
+     "index": 1,
+     "name": "canary-1",
+     "strategy": "canary",
+     "ring": "ring1-canary",
+     "percent": 1,
+     "exposure": "1% of ring1-canary on treatment",
+     "bake": "6h",
+     "minSamples": 200,
+     "gates": [
+      "latency.p50_ms<=10%",
+      "latency.p95_ms<=15%",
+      "api.error_rate<=5%"
+     ],
+     "onFailure": "rollback",
+     "earliestStart": "T+2d"
+    },
+    {
+     "index": 2,
+     "name": "canary-5",
+     "strategy": "canary",
+     "ring": "ring1-canary",
+     "percent": 5,
+     "exposure": "5% of ring1-canary on treatment",
+     "bake": "12h",
+     "minSamples": 500,
+     "gates": [
+      "latency.p50_ms<=10%",
+      "latency.p95_ms<=15%",
+      "api.error_rate<=5%"
+     ],
+     "onFailure": "rollback",
+     "earliestStart": "T+2d6h",
+     "live": true
+    },
+    {
+     "index": 3,
+     "name": "canary-25",
+     "strategy": "canary",
+     "ring": "ring1-canary",
+     "percent": 25,
+     "exposure": "25% of ring1-canary on treatment",
+     "bake": "1d",
+     "minSamples": 2000,
+     "gates": [
+      "latency.p50_ms<=10%",
+      "latency.p95_ms<=15%",
+      "api.error_rate<=5%"
+     ],
+     "onFailure": "rollback",
+     "earliestStart": "T+2d18h"
+    },
+    {
+     "index": 4,
+     "name": "canary-50",
+     "strategy": "canary",
+     "ring": "ring1-canary",
+     "percent": 50,
+     "exposure": "50% of ring1-canary on treatment",
+     "bake": "1d",
+     "minSamples": 4000,
+     "gates": [
+      "latency.p50_ms<=10%",
+      "latency.p95_ms<=15%",
+      "api.error_rate<=5%",
+      "approval"
+     ],
+     "onFailure": "rollback",
+     "earliestStart": "T+3d18h"
+    },
+    {
+     "index": 5,
+     "name": "holdout",
+     "strategy": "holdout",
+     "ring": "ring1-canary",
+     "percent": 5,
+     "exposure": "5% of ring1-canary held on control",
+     "bake": "14d",
+     "minSamples": 1000,
+     "gates": [
+      "latency.p50_ms<=10%",
+      "latency.p95_ms<=15%",
+      "api.error_rate<=5%",
+      "approval"
+     ],
+     "onFailure": "rollback",
+     "earliestStart": "T+4d18h"
+    }
+   ],
+   "minDuration": "18d18h"
+  }
+ },
+ "healthy": {
+  "rollout": "opus-5-5-upgrade",
+  "scenario": "healthy",
+  "outcome": "complete",
+  "duration": "19d20h",
+  "events": [
+   {
+    "at": "T+0",
+    "elapsedSeconds": 0,
+    "step": "-",
+    "action": "advance",
+    "reasons": [
+     "not started: propose step dark-launch"
+    ],
+    "gates": []
+   },
+   {
+    "at": "T+1h",
+    "elapsedSeconds": 3600,
+    "step": "dark-launch",
+    "action": "hold",
+    "reasons": [
+     "bake: baking, 1d23h left",
+     "samples: 100/100 of 500 per arm",
+     "guardrail:halo.latency.p50_ms: inconclusive, upper bound +11.5% vs limit 10.0%",
+     "guardrail:halo.latency.p95_ms: inconclusive, upper bound +4.9% vs limit 15.0%"
+    ],
+    "gates": [
+     {
+      "gate": "bake",
+      "status": "pending",
+      "value": "1h",
+      "threshold": "2d",
+      "detail": "baking, 1d23h left"
+     },
+     {
+      "gate": "samples",
+      "status": "pending",
+      "value": "100/100",
+      "threshold": ">= 500 per arm",
+      "detail": "100/100 of 500 per arm"
+     },
+     {
+      "gate": "guardrail:halo.latency.p50_ms",
+      "status": "pending",
+      "value": "+0.1% [-11.4%, +11.5%]",
+      "threshold": "regression <= 10.0%",
+      "detail": "inconclusive, upper bound +11.5% vs limit 10.0%"
+     },
+     {
+      "gate": "guardrail:halo.latency.p95_ms",
+      "status": "pending",
+      "value": "-6.3% [-17.6%, +4.9%]",
+      "threshold": "regression <= 15.0%",
+      "detail": "inconclusive, upper bound +4.9% vs limit 15.0%"
+     },
+     {
+      "gate": "scorecard",
+      "status": "pass",
+      "value": "pass@1 82.5%, delta +4.2pp vs control (no_significant_difference)",
+      "threshold": "pass@1 >= 75.0%, delta >= -1.0pp"
+     }
+    ]
+   },
+   {
+    "at": "T+5h",
+    "elapsedSeconds": 18000,
+    "step": "dark-launch",
+    "action": "hold",
+    "reasons": [
+     "bake: baking, 1d19h left"
+    ],
+    "gates": [
+     {
+      "gate": "bake",
+      "status": "pending",
+      "value": "5h",
+      "threshold": "2d",
+      "detail": "baking, 1d19h left"
+     },
+     {
+      "gate": "samples",
+      "status": "pass",
+      "value": "500/500",
+      "threshold": ">= 500 per arm"
+     },
+     {
+      "gate": "guardrail:halo.latency.p50_ms",
+      "status": "pass",
+      "value": "-0.5% [-5.9%, +4.9%]",
+      "threshold": "regression <= 10.0%"
+     },
+     {
+      "gate": "guardrail:halo.latency.p95_ms",
+      "status": "pass",
+      "value": "-3.5% [-8.8%, +1.8%]",
+      "threshold": "regression <= 15.0%"
+     },
+     {
+      "gate": "scorecard",
+      "status": "pass",
+      "value": "pass@1 82.5%, delta +4.2pp vs control (no_significant_difference)",
+      "threshold": "pass@1 >= 75.0%, delta >= -1.0pp"
+     }
+    ]
+   },
+   {
+    "at": "T+2d",
+    "elapsedSeconds": 172800,
+    "step": "dark-launch",
+    "action": "advance",
+    "reasons": [
+     "all gates passed: propose step canary-1"
+    ],
+    "gates": [
+     {
+      "gate": "bake",
+      "status": "pass",
+      "value": "2d",
+      "threshold": "2d"
+     },
+     {
+      "gate": "samples",
+      "status": "pass",
+      "value": "4800/4800",
+      "threshold": ">= 500 per arm"
+     },
+     {
+      "gate": "guardrail:halo.latency.p50_ms",
+      "status": "pass",
+      "value": "-0.9% [-2.7%, +1.0%]",
+      "threshold": "regression <= 10.0%"
+     },
+     {
+      "gate": "guardrail:halo.latency.p95_ms",
+      "status": "pass",
+      "value": "-0.8% [-2.7%, +1.1%]",
+      "threshold": "regression <= 15.0%"
+     },
+     {
+      "gate": "scorecard",
+      "status": "pass",
+      "value": "pass@1 82.5%, delta +4.2pp vs control (no_significant_difference)",
+      "threshold": "pass@1 >= 75.0%, delta >= -1.0pp"
+     }
+    ]
+   },
+   {
+    "at": "T+2d1h",
+    "elapsedSeconds": 176400,
+    "step": "canary-1",
+    "action": "hold",
+    "reasons": [
+     "bake: baking, 5h left",
+     "samples: 990/10 of 200 per arm",
+     "guardrail:halo.latency.p50_ms: inconclusive, upper bound +51.0% vs limit 10.0%",
+     "guardrail:halo.latency.p95_ms: inconclusive, upper bound +35.2% vs limit 15.0%",
+     "guardrail:halo.api.error_rate: inconclusive, upper bound +27.8% vs limit 5.0%"
+    ],
+    "gates": [
+     {
+      "gate": "bake",
+      "status": "pending",
+      "value": "1h",
+      "threshold": "6h",
+      "detail": "baking, 5h left"
+     },
+     {
+      "gate": "samples",
+      "status": "pending",
+      "value": "990/10",
+      "threshold": ">= 200 per arm",
+      "detail": "990/10 of 200 per arm"
+     },
+     {
+      "gate": "guardrail:halo.latency.p50_ms",
+      "status": "pending",
+      "value": "+5.3% [-40.5%, +51.0%]",
+      "threshold": "regression <= 10.0%",
+      "detail": "inconclusive, upper bound +51.0% vs limit 10.0%"
+     },
+     {
+      "gate": "guardrail:halo.latency.p95_ms",
+      "status": "pending",
+      "value": "-4.2% [-43.5%, +35.2%]",
+      "threshold": "regression <= 15.0%",
+      "detail": "inconclusive, upper bound +35.2% vs limit 15.0%"
+     },
+     {
+      "gate": "guardrail:halo.api.error_rate",
+      "status": "pending",
+      "value": "+0.1% [-27.6%, +27.8%]",
+      "threshold": "regression <= 5.0%",
+      "detail": "inconclusive, upper bound +27.8% vs limit 5.0%"
+     }
+    ]
+   },
+   {
+    "at": "T+2d6h",
+    "elapsedSeconds": 194400,
+    "step": "canary-1",
+    "action": "hold",
+    "reasons": [
+     "samples: 5940/60 of 200 per arm",
+     "guardrail:halo.latency.p50_ms: inconclusive, upper bound +13.6% vs limit 10.0%",
+     "guardrail:halo.latency.p95_ms: inconclusive, upper bound +5.4% vs limit 15.0%",
+     "guardrail:halo.api.error_rate: inconclusive, upper bound +5.5% vs limit 5.0%"
+    ],
+    "gates": [
+     {
+      "gate": "bake",
+      "status": "pass",
+      "value": "6h",
+      "threshold": "6h"
+     },
+     {
+      "gate": "samples",
+      "status": "pending",
+      "value": "5940/60",
+      "threshold": ">= 200 per arm",
+      "detail": "5940/60 of 200 per arm"
+     },
+     {
+      "gate": "guardrail:halo.latency.p50_ms",
+      "status": "pending",
+      "value": "+2.4% [-8.7%, +13.6%]",
+      "threshold": "regression <= 10.0%",
+      "detail": "inconclusive, upper bound +13.6% vs limit 10.0%"
+     },
+     {
+      "gate": "guardrail:halo.latency.p95_ms",
+      "status": "pending",
+      "value": "-7.1% [-19.5%, +5.4%]",
+      "threshold": "regression <= 15.0%",
+      "detail": "inconclusive, upper bound +5.4% vs limit 15.0%"
+     },
+     {
+      "gate": "guardrail:halo.api.error_rate",
+      "status": "pending",
+      "value": "-5.6% [-16.7%, +5.5%]",
+      "threshold": "regression <= 5.0%",
+      "detail": "inconclusive, upper bound +5.5% vs limit 5.0%"
+     }
+    ]
+   },
+   {
+    "at": "T+2d20h",
+    "elapsedSeconds": 244800,
+    "step": "canary-1",
+    "action": "hold",
+    "reasons": [
+     "guardrail:halo.api.error_rate: inconclusive, upper bound +5.1% vs limit 5.0%"
+    ],
+    "gates": [
+     {
+      "gate": "bake",
+      "status": "pass",
+      "value": "20h",
+      "threshold": "6h"
+     },
+     {
+      "gate": "samples",
+      "status": "pass",
+      "value": "19800/200",
+      "threshold": ">= 200 per arm"
+     },
+     {
+      "gate": "guardrail:halo.latency.p50_ms",
+      "status": "pass",
+      "value": "+0.8% [-5.8%, +7.4%]",
+      "threshold": "regression <= 10.0%"
+     },
+     {
+      "gate": "guardrail:halo.latency.p95_ms",
+      "status": "pass",
+      "value": "-2.2% [-8.3%, +3.9%]",
+      "threshold": "regression <= 15.0%"
+     },
+     {
+      "gate": "guardrail:halo.api.error_rate",
+      "status": "pending",
+      "value": "-0.9% [-6.8%, +5.1%]",
+      "threshold": "regression <= 5.0%",
+      "detail": "inconclusive, upper bound +5.1% vs limit 5.0%"
+     }
+    ]
+   },
+   {
+    "at": "T+3d",
+    "elapsedSeconds": 259200,
+    "step": "canary-1",
+    "action": "advance",
+    "reasons": [
+     "all gates passed: propose step canary-5"
+    ],
+    "gates": [
+     {
+      "gate": "bake",
+      "status": "pass",
+      "value": "1d",
+      "threshold": "6h"
+     },
+     {
+      "gate": "samples",
+      "status": "pass",
+      "value": "20000/240",
+      "threshold": ">= 200 per arm"
+     },
+     {
+      "gate": "guardrail:halo.latency.p50_ms",
+      "status": "pass",
+      "value": "+1.6% [-4.2%, +7.5%]",
+      "threshold": "regression <= 10.0%"
+     },
+     {
+      "gate": "guardrail:halo.latency.p95_ms",
+      "status": "pass",
+      "value": "-1.1% [-6.7%, +4.5%]",
+      "threshold": "regression <= 15.0%"
+     },
+     {
+      "gate": "guardrail:halo.api.error_rate",
+      "status": "pass",
+      "value": "-0.6% [-6.0%, +4.8%]",
+      "threshold": "regression <= 5.0%"
+     }
+    ]
+   },
+   {
+    "at": "T+3d1h",
+    "elapsedSeconds": 262800,
+    "step": "canary-5",
+    "action": "hold",
+    "reasons": [
+     "bake: baking, 11h left",
+     "samples: 950/50 of 500 per arm",
+     "guardrail:halo.latency.p50_ms: inconclusive, upper bound +12.7% vs limit 10.0%",
+     "guardrail:halo.latency.p95_ms: inconclusive, upper bound +12.0% vs limit 15.0%",
+     "guardrail:halo.api.error_rate: inconclusive, upper bound +16.5% vs limit 5.0%"
+    ],
+    "gates": [
+     {
+      "gate": "bake",
+      "status": "pending",
+      "value": "1h",
+      "threshold": "12h",
+      "detail": "baking, 11h left"
+     },
+     {
+      "gate": "samples",
+      "status": "pending",
+      "value": "950/50",
+      "threshold": ">= 500 per arm",
+      "detail": "950/50 of 500 per arm"
+     },
+     {
+      "gate": "guardrail:halo.latency.p50_ms",
+      "status": "pending",
+      "value": "+1.1% [-10.5%, +12.7%]",
+      "threshold": "regression <= 10.0%",
+      "detail": "inconclusive, upper bound +12.7% vs limit 10.0%"
+     },
+     {
+      "gate": "guardrail:halo.latency.p95_ms",
+      "status": "pending",
+      "value": "+0.1% [-11.8%, +12.0%]",
+      "threshold": "regression <= 15.0%",
+      "detail": "inconclusive, upper bound +12.0% vs limit 15.0%"
+     },
+     {
+      "gate": "guardrail:halo.api.error_rate",
+      "status": "pending",
+      "value": "+1.4% [-13.7%, +16.5%]",
+      "threshold": "regression <= 5.0%",
+      "detail": "inconclusive, upper bound +16.5% vs limit 5.0%"
+     }
+    ]
+   },
+   {
+    "at": "T+3d10h",
+    "elapsedSeconds": 295200,
+    "step": "canary-5",
+    "action": "hold",
+    "reasons": [
+     "bake: baking, 2h left",
+     "guardrail:halo.api.error_rate: inconclusive, upper bound +5.3% vs limit 5.0%"
+    ],
+    "gates": [
+     {
+      "gate": "bake",
+      "status": "pending",
+      "value": "10h",
+      "threshold": "12h",
+      "detail": "baking, 2h left"
+     },
+     {
+      "gate": "samples",
+      "status": "pass",
+      "value": "9500/500",
+      "threshold": ">= 500 per arm"
+     },
+     {
+      "gate": "guardrail:halo.latency.p50_ms",
+      "status": "pass",
+      "value": "-1.1% [-5.3%, +3.1%]",
+      "threshold": "regression <= 10.0%"
+     },
+     {
+      "gate": "guardrail:halo.latency.p95_ms",
+      "status": "pass",
+      "value": "+0.6% [-3.6%, +4.8%]",
+      "threshold": "regression <= 15.0%"
+     },
+     {
+      "gate": "guardrail:halo.api.error_rate",
+      "status": "pending",
+      "value": "+1.3% [-2.7%, +5.3%]",
+      "threshold": "regression <= 5.0%",
+      "detail": "inconclusive, upper bound +5.3% vs limit 5.0%"
+     }
+    ]
+   },
+   {
+    "at": "T+3d12h",
+    "elapsedSeconds": 302400,
+    "step": "canary-5",
+    "action": "advance",
+    "reasons": [
+     "all gates passed: propose step canary-25"
+    ],
+    "gates": [
+     {
+      "gate": "bake",
+      "status": "pass",
+      "value": "12h",
+      "threshold": "12h"
+     },
+     {
+      "gate": "samples",
+      "status": "pass",
+      "value": "11400/600",
+      "threshold": ">= 500 per arm"
+     },
+     {
+      "gate": "guardrail:halo.latency.p50_ms",
+      "status": "pass",
+      "value": "-0.7% [-4.5%, +3.1%]",
+      "threshold": "regression <= 10.0%"
+     },
+     {
+      "gate": "guardrail:halo.latency.p95_ms",
+      "status": "pass",
+      "value": "+1.0% [-2.8%, +4.8%]",
+      "threshold": "regression <= 15.0%"
+     },
+     {
+      "gate": "guardrail:halo.api.error_rate",
+      "status": "pass",
+      "value": "+1.1% [-2.5%, +4.7%]",
+      "threshold": "regression <= 5.0%"
+     }
+    ]
+   },
+   {
+    "at": "T+3d13h",
+    "elapsedSeconds": 306000,
+    "step": "canary-25",
+    "action": "hold",
+    "reasons": [
+     "bake: baking, 23h left",
+     "samples: 750/250 of 2000 per arm",
+     "guardrail:halo.latency.p50_ms: inconclusive, upper bound +7.0% vs limit 10.0%",
+     "guardrail:halo.latency.p95_ms: inconclusive, upper bound +5.9% vs limit 15.0%",
+     "guardrail:halo.api.error_rate: inconclusive, upper bound +5.3% vs limit 5.0%"
+    ],
+    "gates": [
+     {
+      "gate": "bake",
+      "status": "pending",
+      "value": "1h",
+      "threshold": "1d",
+      "detail": "baking, 23h left"
+     },
+     {
+      "gate": "samples",
+      "status": "pending",
+      "value": "750/250",
+      "threshold": ">= 2000 per arm",
+      "detail": "750/250 of 2000 per arm"
+     },
+     {
+      "gate": "guardrail:halo.latency.p50_ms",
+      "status": "pending",
+      "value": "+0.3% [-6.4%, +7.0%]",
+      "threshold": "regression <= 10.0%",
+      "detail": "inconclusive, upper bound +7.0% vs limit 10.0%"
+     },
+     {
+      "gate": "guardrail:halo.latency.p95_ms",
+      "status": "pending",
+      "value": "-0.5% [-6.8%, +5.9%]",
+      "threshold": "regression <= 15.0%",
+      "detail": "inconclusive, upper bound +5.9% vs limit 15.0%"
+     },
+     {
+      "gate": "guardrail:halo.api.error_rate",
+      "status": "pending",
+      "value": "-1.1% [-7.4%, +5.3%]",
+      "threshold": "regression <= 5.0%",
+      "detail": "inconclusive, upper bound +5.3% vs limit 5.0%"
+     }
+    ]
+   },
+   {
+    "at": "T+3d20h",
+    "elapsedSeconds": 331200,
+    "step": "canary-25",
+    "action": "hold",
+    "reasons": [
+     "bake: baking, 16h left"
+    ],
+    "gates": [
+     {
+      "gate": "bake",
+      "status": "pending",
+      "value": "8h",
+      "threshold": "1d",
+      "detail": "baking, 16h left"
+     },
+     {
+      "gate": "samples",
+      "status": "pass",
+      "value": "6000/2000",
+      "threshold": ">= 2000 per arm"
+     },
+     {
+      "gate": "guardrail:halo.latency.p50_ms",
+      "status": "pass",
+      "value": "-0.6% [-3.0%, +1.8%]",
+      "threshold": "regression <= 10.0%"
+     },
+     {
+      "gate": "guardrail:halo.latency.p95_ms",
+      "status": "pass",
+      "value": "-0.2% [-2.6%, +2.3%]",
+      "threshold": "regression <= 15.0%"
+     },
+     {
+      "gate": "guardrail:halo.api.error_rate",
+      "status": "pass",
+      "value": "-0.8% [-3.1%, +1.4%]",
+      "threshold": "regression <= 5.0%"
+     }
+    ]
+   },
+   {
+    "at": "T+4d12h",
+    "elapsedSeconds": 388800,
+    "step": "canary-25",
+    "action": "advance",
+    "reasons": [
+     "all gates passed: propose step canary-50"
+    ],
+    "gates": [
+     {
+      "gate": "bake",
+      "status": "pass",
+      "value": "1d",
+      "threshold": "1d"
+     },
+     {
+      "gate": "samples",
+      "status": "pass",
+      "value": "18000/6000",
+      "threshold": ">= 2000 per arm"
+     },
+     {
+      "gate": "guardrail:halo.latency.p50_ms",
+      "status": "pass",
+      "value": "-0.2% [-1.6%, +1.3%]",
+      "threshold": "regression <= 10.0%"
+     },
+     {
+      "gate": "guardrail:halo.latency.p95_ms",
+      "status": "pass",
+      "value": "-0.5% [-2.0%, +1.0%]",
+      "threshold": "regression <= 15.0%"
+     },
+     {
+      "gate": "guardrail:halo.api.error_rate",
+      "status": "pass",
+      "value": "-0.8% [-2.2%, +0.5%]",
+      "threshold": "regression <= 5.0%"
+     }
+    ]
+   },
+   {
+    "at": "T+4d13h",
+    "elapsedSeconds": 392400,
+    "step": "canary-50",
+    "action": "hold",
+    "reasons": [
+     "bake: baking, 23h left",
+     "samples: 500/500 of 4000 per arm",
+     "guardrail:halo.latency.p50_ms: inconclusive, upper bound +4.9% vs limit 10.0%",
+     "guardrail:halo.latency.p95_ms: inconclusive, upper bound +2.4% vs limit 15.0%",
+     "guardrail:halo.api.error_rate: inconclusive, upper bound +4.1% vs limit 5.0%",
+     "approval: awaiting a human (halo rollout advance)"
+    ],
+    "gates": [
+     {
+      "gate": "bake",
+      "status": "pending",
+      "value": "1h",
+      "threshold": "1d",
+      "detail": "baking, 23h left"
+     },
+     {
+      "gate": "samples",
+      "status": "pending",
+      "value": "500/500",
+      "threshold": ">= 4000 per arm",
+      "detail": "500/500 of 4000 per arm"
+     },
+     {
+      "gate": "guardrail:halo.latency.p50_ms",
+      "status": "pending",
+      "value": "-0.6% [-6.2%, +4.9%]",
+      "threshold": "regression <= 10.0%",
+      "detail": "inconclusive, upper bound +4.9% vs limit 10.0%"
+     },
+     {
+      "gate": "guardrail:halo.latency.p95_ms",
+      "status": "pending",
+      "value": "-3.3% [-8.9%, +2.4%]",
+      "threshold": "regression <= 15.0%",
+      "detail": "inconclusive, upper bound +2.4% vs limit 15.0%"
+     },
+     {
+      "gate": "guardrail:halo.api.error_rate",
+      "status": "pending",
+      "value": "-1.2% [-6.5%, +4.1%]",
+      "threshold": "regression <= 5.0%",
+      "detail": "inconclusive, upper bound +4.1% vs limit 5.0%"
+     },
+     {
+      "gate": "approval",
+      "status": "pending",
+      "value": "none",
+      "threshold": "human advance",
+      "detail": "awaiting a human (halo rollout advance)"
+     }
+    ]
+   },
+   {
+    "at": "T+4d20h",
+    "elapsedSeconds": 417600,
+    "step": "canary-50",
+    "action": "hold",
+    "reasons": [
+     "bake: baking, 16h left",
+     "approval: awaiting a human (halo rollout advance)"
+    ],
+    "gates": [
+     {
+      "gate": "bake",
+      "status": "pending",
+      "value": "8h",
+      "threshold": "1d",
+      "detail": "baking, 16h left"
+     },
+     {
+      "gate": "samples",
+      "status": "pass",
+      "value": "4000/4000",
+      "threshold": ">= 4000 per arm"
+     },
+     {
+      "gate": "guardrail:halo.latency.p50_ms",
+      "status": "pass",
+      "value": "-0.6% [-2.7%, +1.5%]",
+      "threshold": "regression <= 10.0%"
+     },
+     {
+      "gate": "guardrail:halo.latency.p95_ms",
+      "status": "pass",
+      "value": "-1.2% [-3.4%, +0.9%]",
+      "threshold": "regression <= 15.0%"
+     },
+     {
+      "gate": "guardrail:halo.api.error_rate",
+      "status": "pass",
+      "value": "-2.2% [-4.1%, -0.2%]",
+      "threshold": "regression <= 5.0%"
+     },
+     {
+      "gate": "approval",
+      "status": "pending",
+      "value": "none",
+      "threshold": "human advance",
+      "detail": "awaiting a human (halo rollout advance)"
+     }
+    ]
+   },
+   {
+    "at": "T+5d12h",
+    "elapsedSeconds": 475200,
+    "step": "canary-50",
+    "action": "hold",
+    "reasons": [
+     "approval: awaiting a human (halo rollout advance)"
+    ],
+    "gates": [
+     {
+      "gate": "bake",
+      "status": "pass",
+      "value": "1d",
+      "threshold": "1d"
+     },
+     {
+      "gate": "samples",
+      "status": "pass",
+      "value": "12000/12000",
+      "threshold": ">= 4000 per arm"
+     },
+     {
+      "gate": "guardrail:halo.latency.p50_ms",
+      "status": "pass",
+      "value": "-0.3% [-1.5%, +1.0%]",
+      "threshold": "regression <= 10.0%"
+     },
+     {
+      "gate": "guardrail:halo.latency.p95_ms",
+      "status": "pass",
+      "value": "-0.6% [-1.9%, +0.7%]",
+      "threshold": "regression <= 15.0%"
+     },
+     {
+      "gate": "guardrail:halo.api.error_rate",
+      "status": "pass",
+      "value": "-0.8% [-2.0%, +0.4%]",
+      "threshold": "regression <= 5.0%"
+     },
+     {
+      "gate": "approval",
+      "status": "pending",
+      "value": "none",
+      "threshold": "human advance",
+      "detail": "awaiting a human (halo rollout advance)"
+     }
+    ]
+   },
+   {
+    "at": "T+5d16h",
+    "elapsedSeconds": 489600,
+    "step": "canary-50",
+    "action": "advance",
+    "reasons": [
+     "all gates passed: propose step holdout"
+    ],
+    "gates": [
+     {
+      "gate": "bake",
+      "status": "pass",
+      "value": "1d4h",
+      "threshold": "1d"
+     },
+     {
+      "gate": "samples",
+      "status": "pass",
+      "value": "14000/14000",
+      "threshold": ">= 4000 per arm"
+     },
+     {
+      "gate": "guardrail:halo.latency.p50_ms",
+      "status": "pass",
+      "value": "-0.3% [-1.4%, +0.9%]",
+      "threshold": "regression <= 10.0%"
+     },
+     {
+      "gate": "guardrail:halo.latency.p95_ms",
+      "status": "pass",
+      "value": "-0.7% [-1.8%, +0.5%]",
+      "threshold": "regression <= 15.0%"
+     },
+     {
+      "gate": "guardrail:halo.api.error_rate",
+      "status": "pass",
+      "value": "-0.7% [-1.8%, +0.4%]",
+      "threshold": "regression <= 5.0%"
+     },
+     {
+      "gate": "approval",
+      "status": "pass",
+      "value": "approved",
+      "threshold": "human advance"
+     }
+    ],
+    "approved": true
+   },
+   {
+    "at": "T+5d17h",
+    "elapsedSeconds": 493200,
+    "step": "holdout",
+    "action": "hold",
+    "reasons": [
+     "bake: baking, 13d23h left",
+     "samples: 50/950 of 1000 per arm",
+     "guardrail:halo.latency.p50_ms: inconclusive, upper bound +3.4% vs limit 10.0%",
+     "guardrail:halo.latency.p95_ms: inconclusive, upper bound +6.9% vs limit 15.0%",
+     "guardrail:halo.api.error_rate: inconclusive, upper bound +16.3% vs limit 5.0%",
+     "approval: awaiting a human (halo rollout advance)"
+    ],
+    "gates": [
+     {
+      "gate": "bake",
+      "status": "pending",
+      "value": "1h",
+      "threshold": "14d",
+      "detail": "baking, 13d23h left"
+     },
+     {
+      "gate": "samples",
+      "status": "pending",
+      "value": "50/950",
+      "threshold": ">= 1000 per arm",
+      "detail": "50/950 of 1000 per arm"
+     },
+     {
+      "gate": "guardrail:halo.latency.p50_ms",
+      "status": "pending",
+      "value": "-7.0% [-17.3%, +3.4%]",
+      "threshold": "regression <= 10.0%",
+      "detail": "inconclusive, upper bound +3.4% vs limit 10.0%"
+     },
+     {
+      "gate": "guardrail:halo.latency.p95_ms",
+      "status": "pending",
+      "value": "-3.2% [-13.4%, +6.9%]",
+      "threshold": "regression <= 15.0%",
+      "detail": "inconclusive, upper bound +6.9% vs limit 15.0%"
+     },
+     {
+      "gate": "guardrail:halo.api.error_rate",
+      "status": "pending",
+      "value": "+1.1% [-14.2%, +16.3%]",
+      "threshold": "regression <= 5.0%",
+      "detail": "inconclusive, upper bound +16.3% vs limit 5.0%"
+     },
+     {
+      "gate": "approval",
+      "status": "pending",
+      "value": "none",
+      "threshold": "human advance",
+      "detail": "awaiting a human (halo rollout advance)"
+     }
+    ]
+   },
+   {
+    "at": "T+6d12h",
+    "elapsedSeconds": 561600,
+    "step": "holdout",
+    "action": "hold",
+    "reasons": [
+     "bake: baking, 13d4h left",
+     "approval: awaiting a human (halo rollout advance)"
+    ],
+    "gates": [
+     {
+      "gate": "bake",
+      "status": "pending",
+      "value": "20h",
+      "threshold": "14d",
+      "detail": "baking, 13d4h left"
+     },
+     {
+      "gate": "samples",
+      "status": "pass",
+      "value": "1000/19000",
+      "threshold": ">= 1000 per arm"
+     },
+     {
+      "gate": "guardrail:halo.latency.p50_ms",
+      "status": "pass",
+      "value": "-0.5% [-3.5%, +2.4%]",
+      "threshold": "regression <= 10.0%"
+     },
+     {
+      "gate": "guardrail:halo.latency.p95_ms",
+      "status": "pass",
+      "value": "-0.6% [-3.7%, +2.4%]",
+      "threshold": "regression <= 15.0%"
+     },
+     {
+      "gate": "guardrail:halo.api.error_rate",
+      "status": "pass",
+      "value": "-0.7% [-3.5%, +2.2%]",
+      "threshold": "regression <= 5.0%"
+     },
+     {
+      "gate": "approval",
+      "status": "pending",
+      "value": "none",
+      "threshold": "human advance",
+      "detail": "awaiting a human (halo rollout advance)"
+     }
+    ]
+   },
+   {
+    "at": "T+19d16h",
+    "elapsedSeconds": 1699200,
+    "step": "holdout",
+    "action": "hold",
+    "reasons": [
+     "approval: awaiting a human (halo rollout advance)"
+    ],
+    "gates": [
+     {
+      "gate": "bake",
+      "status": "pass",
+      "value": "14d",
+      "threshold": "14d"
+     },
+     {
+      "gate": "samples",
+      "status": "pass",
+      "value": "16800/20000",
+      "threshold": ">= 1000 per arm"
+     },
+     {
+      "gate": "guardrail:halo.latency.p50_ms",
+      "status": "pass",
+      "value": "-1.0% [-2.0%, +0.0%]",
+      "threshold": "regression <= 10.0%"
+     },
+     {
+      "gate": "guardrail:halo.latency.p95_ms",
+      "status": "pass",
+      "value": "-0.7% [-1.8%, +0.3%]",
+      "threshold": "regression <= 15.0%"
+     },
+     {
+      "gate": "guardrail:halo.api.error_rate",
+      "status": "pass",
+      "value": "-1.1% [-2.0%, -0.1%]",
+      "threshold": "regression <= 5.0%"
+     },
+     {
+      "gate": "approval",
+      "status": "pending",
+      "value": "none",
+      "threshold": "human advance",
+      "detail": "awaiting a human (halo rollout advance)"
+     }
+    ]
+   },
+   {
+    "at": "T+19d20h",
+    "elapsedSeconds": 1713600,
+    "step": "holdout",
+    "action": "complete",
+    "reasons": [
+     "all gates passed on the last step: propose completion"
+    ],
+    "gates": [
+     {
+      "gate": "bake",
+      "status": "pass",
+      "value": "14d4h",
+      "threshold": "14d"
+     },
+     {
+      "gate": "samples",
+      "status": "pass",
+      "value": "17000/20000",
+      "threshold": ">= 1000 per arm"
+     },
+     {
+      "gate": "guardrail:halo.latency.p50_ms",
+      "status": "pass",
+      "value": "-1.0% [-2.0%, +0.0%]",
+      "threshold": "regression <= 10.0%"
+     },
+     {
+      "gate": "guardrail:halo.latency.p95_ms",
+      "status": "pass",
+      "value": "-0.7% [-1.8%, +0.3%]",
+      "threshold": "regression <= 15.0%"
+     },
+     {
+      "gate": "guardrail:halo.api.error_rate",
+      "status": "pass",
+      "value": "-1.1% [-2.1%, -0.1%]",
+      "threshold": "regression <= 5.0%"
+     },
+     {
+      "gate": "approval",
+      "status": "pass",
+      "value": "approved",
+      "threshold": "human advance"
+     }
+    ],
+    "approved": true
+   }
+  ]
+ },
+ "regression": {
+  "rollout": "opus-5-5-upgrade",
+  "scenario": "regression",
+  "outcome": "rollback",
+  "duration": "2d20h",
+  "events": [
+   {
+    "at": "T+0",
+    "elapsedSeconds": 0,
+    "step": "-",
+    "action": "advance",
+    "reasons": [
+     "not started: propose step dark-launch"
+    ],
+    "gates": []
+   },
+   {
+    "at": "T+1h",
+    "elapsedSeconds": 3600,
+    "step": "dark-launch",
+    "action": "hold",
+    "reasons": [
+     "bake: baking, 1d23h left",
+     "samples: 100/100 of 500 per arm",
+     "guardrail:halo.latency.p50_ms: inconclusive, upper bound +11.5% vs limit 10.0%",
+     "guardrail:halo.latency.p95_ms: inconclusive, upper bound +4.9% vs limit 15.0%"
+    ],
+    "gates": [
+     {
+      "gate": "bake",
+      "status": "pending",
+      "value": "1h",
+      "threshold": "2d",
+      "detail": "baking, 1d23h left"
+     },
+     {
+      "gate": "samples",
+      "status": "pending",
+      "value": "100/100",
+      "threshold": ">= 500 per arm",
+      "detail": "100/100 of 500 per arm"
+     },
+     {
+      "gate": "guardrail:halo.latency.p50_ms",
+      "status": "pending",
+      "value": "+0.1% [-11.4%, +11.5%]",
+      "threshold": "regression <= 10.0%",
+      "detail": "inconclusive, upper bound +11.5% vs limit 10.0%"
+     },
+     {
+      "gate": "guardrail:halo.latency.p95_ms",
+      "status": "pending",
+      "value": "-6.3% [-17.6%, +4.9%]",
+      "threshold": "regression <= 15.0%",
+      "detail": "inconclusive, upper bound +4.9% vs limit 15.0%"
+     },
+     {
+      "gate": "scorecard",
+      "status": "pass",
+      "value": "pass@1 82.5%, delta +4.2pp vs control (no_significant_difference)",
+      "threshold": "pass@1 >= 75.0%, delta >= -1.0pp"
+     }
+    ]
+   },
+   {
+    "at": "T+5h",
+    "elapsedSeconds": 18000,
+    "step": "dark-launch",
+    "action": "hold",
+    "reasons": [
+     "bake: baking, 1d19h left"
+    ],
+    "gates": [
+     {
+      "gate": "bake",
+      "status": "pending",
+      "value": "5h",
+      "threshold": "2d",
+      "detail": "baking, 1d19h left"
+     },
+     {
+      "gate": "samples",
+      "status": "pass",
+      "value": "500/500",
+      "threshold": ">= 500 per arm"
+     },
+     {
+      "gate": "guardrail:halo.latency.p50_ms",
+      "status": "pass",
+      "value": "-0.5% [-5.9%, +4.9%]",
+      "threshold": "regression <= 10.0%"
+     },
+     {
+      "gate": "guardrail:halo.latency.p95_ms",
+      "status": "pass",
+      "value": "-3.5% [-8.8%, +1.8%]",
+      "threshold": "regression <= 15.0%"
+     },
+     {
+      "gate": "scorecard",
+      "status": "pass",
+      "value": "pass@1 82.5%, delta +4.2pp vs control (no_significant_difference)",
+      "threshold": "pass@1 >= 75.0%, delta >= -1.0pp"
+     }
+    ]
+   },
+   {
+    "at": "T+2d",
+    "elapsedSeconds": 172800,
+    "step": "dark-launch",
+    "action": "advance",
+    "reasons": [
+     "all gates passed: propose step canary-1"
+    ],
+    "gates": [
+     {
+      "gate": "bake",
+      "status": "pass",
+      "value": "2d",
+      "threshold": "2d"
+     },
+     {
+      "gate": "samples",
+      "status": "pass",
+      "value": "4800/4800",
+      "threshold": ">= 500 per arm"
+     },
+     {
+      "gate": "guardrail:halo.latency.p50_ms",
+      "status": "pass",
+      "value": "-0.9% [-2.7%, +1.0%]",
+      "threshold": "regression <= 10.0%"
+     },
+     {
+      "gate": "guardrail:halo.latency.p95_ms",
+      "status": "pass",
+      "value": "-0.8% [-2.7%, +1.1%]",
+      "threshold": "regression <= 15.0%"
+     },
+     {
+      "gate": "scorecard",
+      "status": "pass",
+      "value": "pass@1 82.5%, delta +4.2pp vs control (no_significant_difference)",
+      "threshold": "pass@1 >= 75.0%, delta >= -1.0pp"
+     }
+    ]
+   },
+   {
+    "at": "T+2d1h",
+    "elapsedSeconds": 176400,
+    "step": "canary-1",
+    "action": "hold",
+    "reasons": [
+     "bake: baking, 5h left",
+     "samples: 990/10 of 200 per arm",
+     "guardrail:halo.latency.p50_ms: inconclusive, upper bound +71.6% vs limit 10.0%",
+     "guardrail:halo.latency.p95_ms: inconclusive, upper bound +35.2% vs limit 15.0%",
+     "guardrail:halo.api.error_rate: inconclusive, upper bound +27.8% vs limit 5.0%"
+    ],
+    "gates": [
+     {
+      "gate": "bake",
+      "status": "pending",
+      "value": "1h",
+      "threshold": "6h",
+      "detail": "baking, 5h left"
+     },
+     {
+      "gate": "samples",
+      "status": "pending",
+      "value": "990/10",
+      "threshold": ">= 200 per arm",
+      "detail": "990/10 of 200 per arm"
+     },
+     {
+      "gate": "guardrail:halo.latency.p50_ms",
+      "status": "pending",
+      "value": "+25.7% [-20.1%, +71.6%]",
+      "threshold": "regression <= 10.0%",
+      "detail": "inconclusive, upper bound +71.6% vs limit 10.0%"
+     },
+     {
+      "gate": "guardrail:halo.latency.p95_ms",
+      "status": "pending",
+      "value": "-4.2% [-43.5%, +35.2%]",
+      "threshold": "regression <= 15.0%",
+      "detail": "inconclusive, upper bound +35.2% vs limit 15.0%"
+     },
+     {
+      "gate": "guardrail:halo.api.error_rate",
+      "status": "pending",
+      "value": "+0.1% [-27.6%, +27.8%]",
+      "threshold": "regression <= 5.0%",
+      "detail": "inconclusive, upper bound +27.8% vs limit 5.0%"
+     }
+    ]
+   },
+   {
+    "at": "T+2d6h",
+    "elapsedSeconds": 194400,
+    "step": "canary-1",
+    "action": "hold",
+    "reasons": [
+     "samples: 5940/60 of 200 per arm",
+     "guardrail:halo.latency.p50_ms: inconclusive, upper bound +34.1% vs limit 10.0%",
+     "guardrail:halo.latency.p95_ms: inconclusive, upper bound +5.4% vs limit 15.0%",
+     "guardrail:halo.api.error_rate: inconclusive, upper bound +5.5% vs limit 5.0%"
+    ],
+    "gates": [
+     {
+      "gate": "bake",
+      "status": "pass",
+      "value": "6h",
+      "threshold": "6h"
+     },
+     {
+      "gate": "samples",
+      "status": "pending",
+      "value": "5940/60",
+      "threshold": ">= 200 per arm",
+      "detail": "5940/60 of 200 per arm"
+     },
+     {
+      "gate": "guardrail:halo.latency.p50_ms",
+      "status": "pending",
+      "value": "+22.9% [+11.8%, +34.1%]",
+      "threshold": "regression <= 10.0%",
+      "detail": "inconclusive, upper bound +34.1% vs limit 10.0%"
+     },
+     {
+      "gate": "guardrail:halo.latency.p95_ms",
+      "status": "pending",
+      "value": "-7.1% [-19.5%, +5.4%]",
+      "threshold": "regression <= 15.0%",
+      "detail": "inconclusive, upper bound +5.4% vs limit 15.0%"
+     },
+     {
+      "gate": "guardrail:halo.api.error_rate",
+      "status": "pending",
+      "value": "-5.6% [-16.7%, +5.5%]",
+      "threshold": "regression <= 5.0%",
+      "detail": "inconclusive, upper bound +5.5% vs limit 5.0%"
+     }
+    ]
+   },
+   {
+    "at": "T+2d20h",
+    "elapsedSeconds": 244800,
+    "step": "canary-1",
+    "action": "rollback",
+    "reasons": [
+     "guardrail:halo.latency.p50_ms failed: +21.3% [+14.8%, +27.9%] (threshold regression <= 10.0%)"
+    ],
+    "gates": [
+     {
+      "gate": "bake",
+      "status": "pass",
+      "value": "20h",
+      "threshold": "6h"
+     },
+     {
+      "gate": "samples",
+      "status": "pass",
+      "value": "19800/200",
+      "threshold": ">= 200 per arm"
+     },
+     {
+      "gate": "guardrail:halo.latency.p50_ms",
+      "status": "fail",
+      "value": "+21.3% [+14.8%, +27.9%]",
+      "threshold": "regression <= 10.0%",
+      "detail": "regression significantly above the limit"
+     },
+     {
+      "gate": "guardrail:halo.latency.p95_ms",
+      "status": "pending",
+      "value": "unknown",
+      "threshold": "regression <= 15.0%",
+      "detail": "not evaluated"
+     },
+     {
+      "gate": "guardrail:halo.api.error_rate",
+      "status": "pending",
+      "value": "unknown",
+      "threshold": "regression <= 5.0%",
+      "detail": "not evaluated"
+     }
+    ]
+   }
+  ]
+ }
+}

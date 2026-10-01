@@ -2,36 +2,36 @@
 <title id="t">Model route failover</title>
 <desc id="d">A model alias resolves to priority tiers. Within tier 0 a weighted pick, sticky per user and session, goes first and the rest of the tier follows. On a connect error, 5xx or 429, before any byte reaches the client, halo-proxy tries the next target, then the next tier.</desc>
 <style>
-.cv{fill:#0f141a;stroke:#232a33;stroke-width:1.5}
-.card{fill:#161b22;stroke:#2b3440;stroke-width:1.5}
+.cv{fill:#0d0f14;stroke:#1f232c;stroke-width:1.5}
+.card{fill:#14171e;stroke:#2a2f3a;stroke-width:1.5}
 .soft{fill:url(#gs)}
 .ring{fill:none;stroke:url(#ga);stroke-width:1.5}
 .dcard{fill:#2a1517;stroke:#f87171;stroke-width:1.5}
-.ghost{fill:none;stroke:#56606c;stroke-width:1.5;stroke-dasharray:4 4}
-.zone{fill:#131921;stroke:#262f3a;stroke-width:1.5}
-.chip{fill:#1c232c;stroke:#2b3440;stroke-width:1}
+.ghost{fill:none;stroke:#555d6c;stroke-width:1.5;stroke-dasharray:4 4}
+.zone{fill:#111319;stroke:#232731;stroke-width:1.5}
+.chip{fill:#1a1d26;stroke:#2a2f3a;stroke-width:1}
 text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
-.t{font-size:13.5px;font-weight:600;fill:#e6edf3}
-.tm{font:600 12.5px ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;fill:#e6edf3}
+.t{font-size:13.5px;font-weight:600;fill:#eceef3}
+.tm{font:600 12.5px ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;fill:#eceef3}
 .td{fill:#f87171}
-.s{font-size:12px;fill:#9aa7b4}
-.m{font:11px ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;fill:#9aa7b4}
-.xs{font-size:10.5px;font-weight:500;fill:#7d8794}
+.s{font-size:12px;fill:#a6adbb}
+.m{font:11px ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;fill:#a6adbb}
+.xs{font-size:10.5px;font-weight:500;fill:#8a92a3}
 .xm{font-family:ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;font-weight:400}
 .xa{fill:url(#ga);font-weight:600}
 .xd{fill:#f87171;font-weight:600}
 .xw{fill:#0b1220;font-weight:600}
-.k{font-size:10.5px;font-weight:600;letter-spacing:.08em;fill:#7d8794}
+.k{font-size:10.5px;font-weight:600;letter-spacing:.08em;fill:#8a92a3}
 .ka{fill:url(#ga)}
-.h1{font-size:42px;font-weight:700;letter-spacing:-.02em;fill:#e6edf3}
+.h1{font-size:42px;font-weight:700;letter-spacing:-.02em;fill:#eceef3}
 .ln,.la,.ld,.lm{fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
-.ln{stroke:#56606c}.la{stroke:url(#ga)}.ld{stroke:#f87171}.lm{stroke:#2b3440}
-.lane{stroke:#2b3440;stroke-width:1.5;stroke-dasharray:3 4}
+.ln{stroke:#555d6c}.la{stroke:url(#ga)}.ld{stroke:#f87171}.lm{stroke:#2a2f3a}
+.lane{stroke:#2a2f3a;stroke-width:1.5;stroke-dasharray:3 4}
 .dash{stroke-dasharray:5 5}
-.dl{fill:#56606c}.da{fill:url(#ga)}.dd{fill:#f87171}
-.pl{fill:#0f141a}.pa{fill:#0f141a;stroke:url(#ga);stroke-width:1}
+.dl{fill:#555d6c}.da{fill:url(#ga)}.dd{fill:#f87171}
+.pl{fill:#0d0f14}.pa{fill:#0d0f14;stroke:url(#ga);stroke-width:1}
 .pd{fill:#2a1517;stroke:#f87171;stroke-width:1}.ps{fill:url(#ga)}
-.fa{fill:url(#ga)}.fs{fill:url(#gs)}.fm{fill:#1c232c}.fd{fill:#f87171}.ft{fill:#e6edf3}
+.fa{fill:url(#ga)}.fs{fill:url(#gs)}.fm{fill:#1a1d26}.fd{fill:#f87171}.ft{fill:#eceef3}
 .bdg{fill:url(#ga)}.bn{font-size:9.5px;font-weight:700;fill:#0b1220}
 .ic{fill:none;stroke:url(#ga);stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
 .pkt{fill:url(#ga)}

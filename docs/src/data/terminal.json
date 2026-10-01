@@ -1,0 +1,22 @@
+{
+ "recorded": "2026-10-01",
+ "halo": "a23f464",
+ "note": "Recorded by docs/scripts/record-site-data.sh: a fresh dir, a local registry:2 and a throwaway dev key (HALO_REGISTRY / HALO_KEY set; one setup step publishing ring3-ga as the rollback baseline is not replayed).",
+ "steps": [
+  {
+   "cmd": "halo init --org acme",
+   "ms": 25,
+   "out": "create halos.yaml\nnext: halo explain --policy-dir .   (the full policy this expands to)\nnext: halo validate --policy-dir ."
+  },
+  {
+   "cmd": "halo upgrade start claude-code 2.1.286",
+   "ms": 273,
+   "out": "Signing ring ring1-canary.x-claude-code-2.1.286-canary.next \u2192 version claude-code-2.1.286-x-claude-code-2.1.286-canary.next (digest sha256:534762a6afe095d3bfd4991ea507241f9a301c68dd2ba3257f2555ff8325670a, seq 1790874803)\nok published 127.0.0.1:5056/acme/halos vclaude-code-2.1.286 (sha256:8350dc789e85dfde1450643bc88f3818294f9fbf47b6c4389946644cca0d65ba); no ring pointer moved\nok published channel ring1-canary.x-claude-code-2.1.286-canary.next (sha256:534762a6afe095d3bfd4991ea507241f9a301c68dd2ba3257f2555ff8325670a): reached only once the experiment runs\ncreate experiments/claude-code-2.1.286-canary.yaml\ncreate profiles/claude-code-2.1.286.yaml\ncreate rings/ring0-team.yaml\ncreate rings/ring1-canary.yaml\ncreate rings/ring2-early.yaml\ncreate rings/ring3-ga.yaml\ncreate rollouts/claude-code-2.1.286.yaml\nnext: start it: merge this, then `halo rollout advance claude-code-2.1.286 --reason ...` opens the first step's PR\nnext: after it completes, set halos.yaml tools.claude-code to 2.1.286 so new releases keep the pin"
+  },
+  {
+   "cmd": "halo rollout simulate claude-code-2.1.286 --scenario regression",
+   "ms": 12,
+   "out": "Simulating claude-code-2.1.286 (scenario regression, tick 1h, 1000 users/h, seed 1; PRs assumed merged at once)\n\nAT      STEP        DECISION  WHY\nT+0     -           advance   not started: propose step ring0-team\nT+1h    ring0-team  hold      bake: baking, 23h left\nT+1d    ring0-team  advance   all gates passed: propose step canary-5\nT+1d1h  canary-5    hold      bake: baking, 11h left; samples: 950/50 of 200 per arm; guardrail:halo.tool.error_rate: inconclusive, upper...\nT+1d4h  canary-5    rollback  primary failed: primary halo.tool.error_rate significantly worse (effect +0.09415, p=0.0000) (threshold not...\n\nOutcome: rollback after 1d4h"
+  }
+ ]
+}

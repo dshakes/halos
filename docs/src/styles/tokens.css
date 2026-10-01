@@ -1,0 +1,55 @@
+/* Halos design tokens, shared by the landing page and the Starlight docs theme.
+   Dark is the reference palette; light mirrors it. One accent: teal -> indigo. */
+:root {
+  --h-font: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --h-mono: 'JetBrains Mono Variable', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+  --h-a0: #2dd4bf;
+  --h-a1: #818cf8;
+  --h-accent: #5eead4;
+  --h-accent-strong: #99f6e4;
+  --h-grad: linear-gradient(100deg, var(--h-a0), var(--h-a1));
+
+  --h-bg: #08090c;
+  --h-bg-2: #0d0f14;
+  --h-surface: #111319;
+  --h-surface-2: #161922;
+  --h-border: rgba(255, 255, 255, 0.08);
+  --h-border-strong: rgba(255, 255, 255, 0.14);
+  --h-text: #eceef3;
+  --h-text-2: #a6adbb;
+  --h-text-3: #7b8394;
+  --h-danger: #fb7185;
+  --h-danger-bg: rgba(251, 113, 133, 0.12);
+  --h-ok: #34d399;
+  --h-warn: #fbbf24;
+  --h-glow: rgba(45, 212, 191, 0.16);
+  --h-glow-2: rgba(129, 140, 248, 0.16);
+  --h-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 20px 50px -24px rgba(0, 0, 0, 0.7);
+  --h-radius: 14px;
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  --h-a0: #0d9488;
+  --h-a1: #4f46e5;
+  --h-accent: #0f766e;
+  --h-accent-strong: #115e59;
+  --h-bg: #ffffff;
+  --h-bg-2: #f7f8fa;
+  --h-surface: #ffffff;
+  --h-surface-2: #f4f5f8;
+  --h-border: rgba(15, 23, 42, 0.09);
+  --h-border-strong: rgba(15, 23, 42, 0.16);
+  --h-text: #0b0d12;
+  --h-text-2: #475063;
+  --h-text-3: #667085;
+  --h-danger: #e11d48;
+  --h-danger-bg: rgba(225, 29, 72, 0.08);
+  --h-ok: #047857;
+  --h-warn: #b45309;
+  --h-glow: rgba(13, 148, 136, 0.12);
+  --h-glow-2: rgba(79, 70, 229, 0.1);
+  --h-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 16px 40px -24px rgba(15, 23, 42, 0.22);
+  color-scheme: light;
+}

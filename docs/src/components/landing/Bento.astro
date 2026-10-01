@@ -1,0 +1,97 @@
+---
+// Feature grid. Each tile has its own small animated SVG (CSS keyframes, all off
+// under prefers-reduced-motion). Colors come from the design tokens.
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const tiles = [
+  { id: 'rollouts', wide: true, title: 'Rollouts', href: '/concepts/rollouts/',
+    text: 'Progressive rings, canary ramps, blue-green, dark launch and holdout. Each step bakes, counts samples and checks its gates; a passed step opens a PR.' },
+  { id: 'experiments', title: 'Experiments', href: '/concepts/experiments/',
+    text: 'A/B on the client, canary on the traffic path, both assigned per verified identity. Shadow mirrors sampled sessions to a candidate.' },
+  { id: 'toggles', title: 'Feature toggles', href: '/concepts/toggles/',
+    text: 'Turn one MCP server, hook or model route on for a ring, group or percentage. Kill it fleet-wide with one signed flip.' },
+  { id: 'evals', wide: true, title: 'Evals and the measure loop', href: '/concepts/evals/',
+    text: 'pass@k and pass^k, a pinned LLM judge, flake detection and a harness × model × provider matrix. Scorecards gate rollout steps; mSPRT judges live telemetry.' },
+  { id: 'providers', wide: true, title: 'Any provider', href: '/concepts/stack-agnostic/',
+    text: 'Anthropic, Bedrock, Vertex, OpenAI and Azure behind halo-proxy: model aliases, weighted routes, wire translation and failover before the first byte. Or Kong with halo-kong.' },
+  { id: 'everywhere', title: 'Runs everywhere', href: '/getting-started/install/',
+    text: 'macOS, Linux, Windows, dev containers, Codespaces, Coder, CI runners. The control plane ships as a Helm chart.' },
+];
+---
+
+<div class="bento">
+  {tiles.map((t) => (
+    <a class:list={['tile', { wide: t.wide }]} href={base + t.href}>
+      <div class="mini" aria-hidden="true">
+        {t.id === 'rollouts' && (
+          <svg viewBox="0 0 320 120">
+            {[1, 5, 25, 50, 100].map((p, i) => (
+              <g transform={`translate(${16 + i * 62} 0)`}>
+                <rect class="m-track" x="0" y="14" width="44" height="80" rx="8" />
+                <rect class="m-fill grow-y" x="0" y={94 - (8 + 72 * Math.sqrt(p / 100))} width="44" height={8 + 72 * Math.sqrt(p / 100)} rx="8" style={`animation-delay:${i * 0.35}s`} />
+                <text class="m-lbl" x="22" y="112" text-anchor="middle">{p}%</text>
+              </g>
+            ))}
+          </svg>
+        )}
+        {t.id === 'experiments' && (
+          <svg viewBox="0 0 200 120">
+            <path class="m-line" d="M20 60 H70 C90 60 90 30 110 30 H180" />
+            <path class="m-line" d="M20 60 H70 C90 60 90 90 110 90 H180" />
+            <path class="m-line dashed" d="M70 60 H180" />
+            <circle class="m-dot travel-a" r="4" />
+            <circle class="m-dot alt travel-b" r="4" />
+            <text class="m-lbl" x="184" y="34">A</text>
+            <text class="m-lbl" x="184" y="64">shadow</text>
+            <text class="m-lbl" x="184" y="94">B</text>
+            <circle class="m-node" cx="20" cy="60" r="6" />
+          </svg>
+        )}
+        {t.id === 'toggles' && (
+          <svg viewBox="0 0 200 120">
+            <rect class="m-track" x="50" y="34" width="100" height="52" rx="26" />
+            <rect class="m-fill toggle-bg" x="50" y="34" width="100" height="52" rx="26" />
+            <circle class="m-knob toggle-knob" cx="76" cy="60" r="20" />
+            <text class="m-lbl" x="100" y="110" text-anchor="middle">ring1 · 10% · on → killed</text>
+          </svg>
+        )}
+        {t.id === 'evals' && (
+          <svg viewBox="0 0 320 120">
+            <line class="m-gate" x1="12" x2="308" y1="60" y2="60" />
+            <text class="m-lbl" x="12" y="54">pass-rate gate</text>
+            {[0.5, 0.58, 0.55, 0.64, 0.61, 0.7, 0.68, 0.74].map((v, i) => (
+              <rect class="m-fill grow-y" x={20 + i * 36} y={112 - v * 90} width="22" height={v * 90} rx="5" style={`animation-delay:${i * 0.12}s`} />
+            ))}
+            <g class="verdicts" transform="translate(150 0)">
+              <rect class="m-chip ship" x="12" y="6" width="44" height="18" rx="9" /><text class="m-chipt" x="34" y="19" text-anchor="middle">ship</text>
+              <rect class="m-chip hold" x="62" y="6" width="44" height="18" rx="9" /><text class="m-chipt" x="84" y="19" text-anchor="middle">hold</text>
+              <rect class="m-chip block" x="112" y="6" width="50" height="18" rx="9" /><text class="m-chipt" x="137" y="19" text-anchor="middle">block</text>
+            </g>
+          </svg>
+        )}
+        {t.id === 'providers' && (
+          <svg viewBox="0 0 320 120">
+            <rect class="m-box" x="10" y="44" width="70" height="32" rx="8" /><text class="m-lblb" x="45" y="64" text-anchor="middle">opus</text>
+            <rect class="m-box bad" x="150" y="12" width="150" height="32" rx="8" /><text class="m-lblb" x="225" y="32" text-anchor="middle">tier 0 · 5xx</text>
+            <rect class="m-box" x="150" y="76" width="150" height="32" rx="8" /><text class="m-lblb" x="225" y="96" text-anchor="middle">tier 1 · failover</text>
+            <path class="m-line" d="M80 60 H110 C125 60 125 28 140 28 H150" />
+            <path class="m-line acc" d="M80 60 H110 C125 60 125 92 140 92 H150" />
+            <circle class="m-dot route" r="4" />
+          </svg>
+        )}
+        {t.id === 'everywhere' && (
+          <svg viewBox="0 0 200 120">
+            {['macOS', 'Linux', 'Windows', 'Container', 'CI', 'K8s'].map((n, i) => (
+              <g transform={`translate(${6 + (i % 3) * 64} ${12 + Math.floor(i / 3) * 52})`}>
+                <rect class="m-box pulse-in" x="0" y="0" width="60" height="42" rx="9" style={`animation-delay:${i * 0.4}s`} />
+                <text class="m-lbl sm" x="30" y="25" text-anchor="middle">{n}</text>
+              </g>
+            ))}
+          </svg>
+        )}
+      </div>
+      <h3>{t.title}</h3>
+      <p>{t.text}</p>
+      <span class="more">Learn more →</span>
+    </a>
+  ))}
+</div>

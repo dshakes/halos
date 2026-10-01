@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+<defs>
+<linearGradient id="g" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#2dd4bf"/><stop offset="1" stop-color="#818cf8"/></linearGradient>
+<radialGradient id="glow" cx="0.25" cy="0.2" r="0.7"><stop offset="0" stop-color="#2dd4bf" stop-opacity=".22"/><stop offset="1" stop-color="#2dd4bf" stop-opacity="0"/></radialGradient>
+<radialGradient id="glow2" cx="0.85" cy="0.9" r="0.6"><stop offset="0" stop-color="#818cf8" stop-opacity=".2"/><stop offset="1" stop-color="#818cf8" stop-opacity="0"/></radialGradient>
+<pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse"><path d="M48 0H0V48" fill="none" stroke="#ffffff" stroke-opacity=".05"/></pattern>
+</defs>
+<style>text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}.m{font:500 18px ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;fill:#7b8394}</style>
+<rect width="1200" height="630" fill="#08090c"/><rect width="1200" height="630" fill="url(#grid)"/>
+<rect width="1200" height="630" fill="url(#glow)"/><rect width="1200" height="630" fill="url(#glow2)"/>
+<g transform="translate(80 84)"><circle cx="28" cy="28" r="25" fill="none" stroke="url(#g)" stroke-width="4" opacity=".45"/>
+<circle cx="28" cy="28" r="15.5" fill="none" stroke="url(#g)" stroke-width="4" opacity=".85"/><circle cx="28" cy="28" r="7" fill="url(#g)"/>
+<text x="76" y="40" font-size="36" font-weight="700" fill="#eceef3">Halos</text></g>
+<text x="80" y="268" font-size="76" font-weight="700" letter-spacing="-3" fill="#eceef3">Ship AI coding tools</text>
+<text x="80" y="356" font-size="76" font-weight="700" letter-spacing="-3" fill="url(#g)">like software.</text>
+<text x="80" y="430" font-size="26" fill="#a6adbb">Signed releases, ring rollouts, eval gates,</text>
+<text x="80" y="466" font-size="26" fill="#a6adbb">auto-rollback. Open source.</text>
+<text x="80" y="560" class="m" font-size="20">Claude Code · Codex · Gemini CLI · Copilot CLI</text>
+<rect x="760" y="430" width="52" height="40" rx="10" fill="url(#g)" opacity="0.35"/><text x="786" y="500" text-anchor="middle" class="m">1%</text><rect x="836" y="400" width="52" height="70" rx="10" fill="url(#g)" opacity="0.51"/><text x="862" y="500" text-anchor="middle" class="m">5%</text><rect x="912" y="350" width="52" height="120" rx="10" fill="url(#g)" opacity="0.67"/><text x="938" y="500" text-anchor="middle" class="m">25%</text><rect x="988" y="300" width="52" height="170" rx="10" fill="url(#g)" opacity="0.83"/><text x="1014" y="500" text-anchor="middle" class="m">50%</text><rect x="1064" y="240" width="52" height="230" rx="10" fill="url(#g)" opacity="0.99"/><text x="1090" y="500" text-anchor="middle" class="m">100%</text>
+</svg>

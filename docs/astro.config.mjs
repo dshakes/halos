@@ -9,14 +9,38 @@ export default defineConfig({
       title: 'Halos',
       description:
         'Ship AI coding tools like you ship software: versioned, signed, ring-deployed, and proven by evals.',
-      logo: { src: './src/assets/logo.svg' },
+      logo: { light: './src/assets/logo-light.svg', dark: './src/assets/logo-dark.svg' },
+      favicon: '/favicon.svg',
+      head: [
+        { tag: 'meta', attrs: { property: 'og:image', content: 'https://dshakes.github.io/halos/og.png' } },
+        { tag: 'meta', attrs: { property: 'og:image:width', content: '1200' } },
+        { tag: 'meta', attrs: { property: 'og:image:height', content: '630' } },
+        { tag: 'meta', attrs: { name: 'twitter:image', content: 'https://dshakes.github.io/halos/og.png' } },
+      ],
+      expressiveCode: {
+        themes: ['github-dark-default', 'github-light'],
+        styleOverrides: {
+          borderRadius: '12px',
+          borderColor: 'var(--sl-color-hairline-light)',
+          codeFontFamily: 'var(--sl-font-mono)',
+          codeFontSize: '0.86rem',
+          codeLineHeight: '1.7',
+          uiFontFamily: 'var(--sl-font)',
+          frames: { shadowColor: 'transparent', frameBoxShadowCssValue: 'none' },
+        },
+      },
       social: [
         { icon: 'github', label: 'GitHub', href: 'https://github.com/dshakes/halos' },
       ],
       editLink: {
         baseUrl: 'https://github.com/dshakes/halos/edit/main/docs/',
       },
-      customCss: ['./src/styles/custom.css'],
+      customCss: [
+        '@fontsource-variable/inter/wght.css',
+        '@fontsource-variable/jetbrains-mono/wght.css',
+        './src/styles/tokens.css',
+        './src/styles/custom.css',
+      ],
       sidebar: [
         {
           label: 'Getting started',

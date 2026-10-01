@@ -1,21 +1,88 @@
+/* Starlight theme mapped onto the Halos tokens (tokens.css), so the docs match the landing page. */
 :root {
-  --sl-color-accent-low: #06302c;
-  --sl-color-accent: #0f766e;
-  --sl-color-accent-high: #7ee7d6;
-  --sl-font-system-mono: ui-monospace, 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+  --sl-font: var(--h-font);
+  --sl-font-mono: var(--h-mono);
+  --sl-color-accent-low: #0b2f2c;
+  --sl-color-accent: #2dd4bf;
+  --sl-color-accent-high: #99f6e4;
+  --sl-color-white: #eceef3;
+  --sl-color-gray-1: #d6dae2;
+  --sl-color-gray-2: #a6adbb;
+  --sl-color-gray-3: #8a92a3;
+  --sl-color-gray-4: #4b5263;
+  --sl-color-gray-5: #262a34;
+  --sl-color-gray-6: #14171e;
+  --sl-color-gray-7: #0e1015;
+  --sl-color-black: #08090c;
+  --sl-color-bg-nav: color-mix(in srgb, #08090c 82%, transparent);
+  --sl-color-bg-sidebar: #08090c;
+  --sl-color-hairline: rgba(255, 255, 255, 0.07);
+  --sl-color-hairline-light: rgba(255, 255, 255, 0.1);
+  --sl-text-h1: 2.6rem;
+  --sl-text-h2: 1.75rem;
+  --sl-text-h3: 1.3rem;
+  --sl-line-height-headings: 1.15;
 }
 :root[data-theme='light'] {
-  --sl-color-accent-low: #c9f2ea;
+  --sl-color-accent-low: #d5f5ef;
   --sl-color-accent: #0f766e;
   --sl-color-accent-high: #0b4f4a;
+  --sl-color-white: #0b0d12;
+  --sl-color-gray-1: #1f2430;
+  --sl-color-gray-2: #3d4556;
+  --sl-color-gray-3: #5d6677;
+  --sl-color-gray-4: #8b93a4;
+  --sl-color-gray-5: #dde1e8;
+  --sl-color-gray-6: #eff1f5;
+  --sl-color-gray-7: #f7f8fa;
+  --sl-color-black: #ffffff;
+  --sl-color-bg-nav: color-mix(in srgb, #ffffff 82%, transparent);
+  --sl-color-bg-sidebar: #ffffff;
+  --sl-color-hairline: rgba(15, 23, 42, 0.08);
+  --sl-color-hairline-light: rgba(15, 23, 42, 0.1);
 }
-.sl-markdown-content table { display: table; width: 100%; }
-.sl-markdown-content img.diagram { display: block; max-width: 100%; height: auto; margin: 1.5rem auto; }
-/* Light/dark diagram pairs: unlayered, so restate Starlight's theme hiding at higher specificity. */
+
+body { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; font-feature-settings: 'cv11', 'ss01'; }
+
+/* header: translucent, blurred */
+header.header { backdrop-filter: saturate(160%) blur(14px); -webkit-backdrop-filter: saturate(160%) blur(14px); border-bottom: 1px solid var(--sl-color-hairline); }
+.site-title { font-weight: 650; letter-spacing: -0.01em; }
+.site-title img { height: 1.6rem; width: auto; }
+site-search button[data-open-modal] { border-radius: 10px; border-color: var(--sl-color-hairline-light); background: var(--sl-color-gray-6); }
+
+/* sidebar: quiet group labels, a pill for the current page */
+.sidebar-pane { border-inline-end: 1px solid var(--sl-color-hairline); }
+nav.sidebar .large { font-size: 0.78rem; font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase; color: var(--sl-color-gray-3); }
+nav.sidebar a { border-radius: 8px; font-size: 0.92rem; color: var(--sl-color-gray-2); transition: background 0.15s, color 0.15s; }
+nav.sidebar a:hover { color: var(--sl-color-white); background: var(--sl-color-gray-6); }
+nav.sidebar a[aria-current='page'],
+nav.sidebar a[aria-current='page']:hover { background: var(--sl-color-accent-low); color: var(--sl-color-accent-high); font-weight: 600; }
+
+/* content typography */
+.sl-markdown-content { line-height: 1.72; }
+.sl-markdown-content :is(h1, h2, h3, h4) { letter-spacing: -0.022em; font-weight: 680; }
+.content-panel h1#_top { font-size: clamp(2rem, 4vw, var(--sl-text-h1)); letter-spacing: -0.035em; font-weight: 720; }
+.sl-markdown-content a { text-decoration-color: color-mix(in srgb, var(--sl-color-accent) 45%, transparent); text-underline-offset: 3px; }
+.sl-markdown-content a:hover { text-decoration-color: var(--sl-color-accent); }
+.sl-markdown-content :not(pre) > code { padding: 0.12em 0.4em; border-radius: 6px; background: var(--sl-color-gray-6); border: 1px solid var(--sl-color-hairline-light); font-size: 0.86em; }
+.sl-markdown-content table { display: table; width: 100%; border-collapse: separate; border-spacing: 0; border: 1px solid var(--sl-color-hairline-light); border-radius: 12px; overflow: hidden; font-size: 0.92rem; }
+.sl-markdown-content :is(th, td) { border: 0; border-bottom: 1px solid var(--sl-color-hairline); padding: 0.6rem 0.9rem; }
+.sl-markdown-content tr:last-child td { border-bottom: 0; }
+.sl-markdown-content th { background: var(--sl-color-gray-6); font-weight: 600; color: var(--sl-color-white); }
+.sl-markdown-content blockquote { border-inline-start: 3px solid var(--sl-color-accent); background: var(--sl-color-gray-6); border-radius: 0 10px 10px 0; padding: 0.6rem 1rem; }
+
+/* callouts and cards */
+.starlight-aside { border-radius: 12px; border-inline-start-width: 3px; }
+.card { border-radius: 14px; border-color: var(--sl-color-hairline-light); background: var(--sl-color-gray-7); transition: border-color 0.2s; }
+.card:hover { border-color: var(--sl-color-gray-4); }
+.sl-link-card { border-radius: 14px; }
+.pagination-links a { border-radius: 12px; border-color: var(--sl-color-hairline-light); }
+.pagination-links a:hover { border-color: var(--sl-color-accent); }
+
+/* diagrams: light/dark pairs. Unlayered, so restate Starlight's theme hiding at higher specificity. */
+.sl-markdown-content img.diagram { display: block; max-width: 100%; height: auto; margin: 1.75rem auto; }
 [data-theme='light'] img.diagram.light\:sl-hidden,
 [data-theme='dark'] img.diagram.dark\:sl-hidden { display: none; }
-/* Landing page: problem → answer strip. */
-.halo-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 1rem; margin: 2rem 0; }
-.halo-strip > div { border: 1px solid var(--sl-color-gray-5); border-radius: 0.75rem; padding: 1rem 1.25rem; background: var(--sl-color-gray-7, var(--sl-color-black)); }
-.halo-strip p { margin: 0; color: var(--sl-color-gray-2); font-size: var(--sl-text-sm); }
-.halo-strip p.halo-problem { margin-bottom: 0.5rem; color: var(--sl-color-white); font-weight: 600; font-size: var(--sl-text-base); }
+
+:focus-visible { outline: 2px solid var(--sl-color-accent); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
