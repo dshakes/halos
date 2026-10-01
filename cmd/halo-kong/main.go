@@ -10,8 +10,11 @@
 //     only when the TCP peer is inside trusted_proxy_cidrs (the auth gateway).
 //     Without CIDRs this mode fails closed (caller treated as anonymous).
 //
-// Unverified callers get default routing and no experiments; the request is
-// not rejected here (the auth gateway behind Kong decides that).
+// Secure defaults (opt out with allow_unverified / forward_client_credentials):
+// with JWT identity a model call without a verified caller is answered 401, and
+// the caller's credential headers are removed before the upstream. In
+// trusted_header mode, or with allow_unverified, unverified callers get default
+// routing and no experiments and the auth gateway behind Kong decides.
 // All client-supplied x-halo-* and identity/groups headers are dropped.
 //
 // Fail closed on the model allowlist: model paths the gateway doesn't know
@@ -74,6 +77,21 @@ type Config struct {
 	UserClaim         string   `json:"user_claim"`
 	GroupsClaimName   string   `json:"groups_claim"`
 	TrustedProxyCIDRs []string `json:"trusted_proxy_cidrs"` // required for trusted_header
+
+	// AllowUnverified opts out of the secure default. By default, when identity
+	// is verified by JWT (an issuer is configured), a model call whose caller
+	// cannot be verified is answered 401 (in the caller's wire format) instead
+	// of being routed anonymously. Set it only when an auth gateway behind Kong
+	// decides: unverified callers then get default routing and no experiments.
+	AllowUnverified bool `json:"allow_unverified"`
+
+	// ForwardClientCredentials opts out of the secure default. By default the
+	// caller's Authorization, x-api-key, api-key, x-goog-api-key and
+	// Proxy-Authorization are removed before the request goes upstream, so the
+	// developer's IdP token never reaches a provider (the same as halo-proxy).
+	// Set it only when the upstream is an auth gateway or orchestrator that
+	// needs the caller's token.
+	ForwardClientCredentials bool `json:"forward_client_credentials"`
 
 	// Kill switch: halo-server's signed kill list; killed experiments get
 	// control routing and no shadow. Empty URL disables.
@@ -200,6 +218,22 @@ func (c Config) identityOptions(org *policy.Org) identity.Options {
 	}
 }
 
+// rejectsUnverified reports whether an unverifiable caller is refused (401): the
+// default whenever identity is verified by JWT, unless allow_unverified. In
+// trusted_header mode the auth gateway that sets the identity header decides.
+func (c Config) rejectsUnverified(org *policy.Org) bool {
+	if c.AllowUnverified {
+		return false
+	}
+	switch c.IdentityMode {
+	case "jwt":
+		return true
+	case "":
+		return c.Issuer != "" || (org != nil && org.Identity.Issuer != "")
+	}
+	return false
+}
+
 // kongAPI is the slice of the Kong PDK the Access phase uses; pdkAPI adapts
 // the real *pdk.PDK and tests use a fake.
 type kongAPI interface {
@@ -240,7 +274,10 @@ func (a pdkAPI) Notice(args ...any) error              { return a.k.Log.Notice(a
 
 // verify returns the verified caller, or nil (anonymous) with a log line.
 // err is non-nil only for requests that must be refused (ambiguous identity).
-func (c Config) verify(kong kongAPI, org *policy.Org, h http.Header) (*policy.Subject, error) {
+// enforced reports whether identity verification is configured at all: a nil
+// subject is only an unverified caller when it is true (a broken identity
+// config counts as enforced, so reject_unverified fails closed).
+func (c Config) verify(kong kongAPI, org *policy.Org, h http.Header) (sub *policy.Subject, enforced bool, err error) {
 	opts := c.identityOptions(org)
 	key := fmt.Sprintf("%+v", opts)
 	resMu.Lock()
@@ -253,23 +290,23 @@ func (c Config) verify(kong kongAPI, org *policy.Org, h http.Header) (*policy.Su
 	v, err := r.Get(opts, org)
 	if err != nil {
 		_ = kong.Err("halo-kong: identity config: ", err.Error())
-		return nil, nil
+		return nil, true, nil
 	}
 	if v == nil {
-		return nil, nil
+		return nil, false, nil
 	}
 	peer, _ := kong.PeerIP() // direct TCP peer, not X-Forwarded-For
-	sub, err := v.Verify(&http.Request{Header: h, RemoteAddr: peer})
+	s, err := v.Verify(&http.Request{Header: h, RemoteAddr: peer})
 	if errors.Is(err, identity.ErrAmbiguous) {
-		return nil, err
+		return nil, true, err
 	}
 	if err != nil {
 		if !errors.Is(err, identity.ErrNoCredentials) {
 			_ = kong.Notice("halo-kong: unverified caller: ", err.Error())
 		}
-		return nil, nil
+		return nil, true, nil
 	}
-	return &sub, nil
+	return &s, true, nil
 }
 
 func exit(kong kongAPI, r *gateway.Rejection) {
@@ -296,9 +333,14 @@ func (c Config) access(kong kongAPI) {
 		}
 	}
 	path, _ := kong.Path()
-	sub, err := c.verify(kong, org, h)
+	sub, enforced, err := c.verify(kong, org, h)
 	if err != nil {
 		exit(kong, &gateway.Rejection{Status: http.StatusBadRequest, Protocol: gateway.ProtocolForPath(path), Message: "identity header sent more than once"})
+		return
+	}
+	if sub == nil && enforced && c.rejectsUnverified(org) && gateway.ProtocolForPath(path) != "" {
+		r := &gateway.Rejection{Status: http.StatusUnauthorized, Protocol: gateway.ProtocolForPath(path), Message: "invalid or missing credentials"}
+		kong.Exit(r.Status, r.JSON(), map[string][]string{"Content-Type": {"application/json"}, "WWW-Authenticate": {`Bearer realm="halos"`}})
 		return
 	}
 	body, berr := kong.RawBody() // error if Kong spooled a large body to disk
@@ -321,6 +363,11 @@ func (c Config) access(kong kongAPI) {
 
 	for _, n := range append(res.ClearHeaders, c.identityOptions(org).HeaderNames(org)...) {
 		_ = kong.ClearHeader(n)
+	}
+	if !c.ForwardClientCredentials {
+		for _, n := range identity.ClientCredentialHeaders {
+			_ = kong.ClearHeader(n)
+		}
 	}
 	for k, v := range d.Headers {
 		_ = kong.SetHeader(k, v)

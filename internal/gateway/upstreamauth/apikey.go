@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/dshakes/halos/internal/identity"
 	"github.com/dshakes/halos/internal/policy"
 )
 
@@ -40,7 +41,7 @@ func Secret(c *policy.Credential, getenv func(string) string) (string, error) {
 // ClientCredentialHeaders are the headers a caller can use to present a
 // credential. None of them is ever a gateway-to-provider credential: they are
 // dropped before the gateway installs its own (or none).
-var ClientCredentialHeaders = []string{"Authorization", "X-Api-Key", "Api-Key", "X-Goog-Api-Key", "Proxy-Authorization"}
+var ClientCredentialHeaders = identity.ClientCredentialHeaders
 
 // StripClientCredentials removes every ClientCredentialHeaders entry from h.
 func StripClientCredentials(h http.Header) {
