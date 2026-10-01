@@ -128,16 +128,16 @@ brews:
     homepage: https://dshakes.github.io/halos
     description: Control plane for AI coding CLIs (Claude Code, Codex, Gemini)
     license: Apache-2.0
-    skip_upload: auto
-    repository: {owner: dshakes, name: homebrew-tap, token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"}
+    skip_upload: '{{ if index .Env "HOMEBREW_TAP_TOKEN" }}auto{{ else }}true{{ end }}'
+    repository: {owner: dshakes, name: homebrew-tap, token: '{{ index .Env "HOMEBREW_TAP_TOKEN" }}'}
     test: system "#{bin}/halo", "version"
 scoops:
   - ids: [halo]
     homepage: https://dshakes.github.io/halos
     description: Control plane for AI coding CLIs (Claude Code, Codex, Gemini)
     license: Apache-2.0
-    skip_upload: auto
-    repository: {owner: dshakes, name: scoop-bucket, token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"}
+    skip_upload: '{{ if index .Env "HOMEBREW_TAP_TOKEN" }}auto{{ else }}true{{ end }}'
+    repository: {owner: dshakes, name: scoop-bucket, token: '{{ index .Env "HOMEBREW_TAP_TOKEN" }}'}
 winget:
   # Manifest stub: skip_upload keeps it a local artifact (dist/winget) to submit to microsoft/winget-pkgs by hand.
   - ids: [halo]
