@@ -43,6 +43,8 @@ Generated from `schemas/gateway.schema.json`; do not edit. Nested fields use dot
 | `upstreams.*.kind` | string | yes |  | orchestrator, anthropic, bedrock, vertex, openai, azure-openai, gemini |  | Backend type. vertex: Anthropic models on Google Vertex AI (ADC auth). azure-openai: Azure OpenAI Responses (credential required). |
 | `upstreams.*.project` | string |  |  |  |  | Google Cloud project id (kind vertex). |
 | `upstreams.*.region` | string |  |  |  | pattern ^([a-z]&#123;2}(-[a-z]+)+-[0-9]+\|[a-z]+-[a-z]+[0-9]+\|global)$ | AWS SigV4 region for kind bedrock (default: parsed from a bedrock-runtime.&lt;region>.amazonaws.com host); Google Cloud region (e.g. us-east5, or global) for kind vertex. |
+| `upstreams.*.serves` | array |  |  |  |  | Kind orchestrator only: the client wires this upstream answers. Validate warns about a harness routed to an orchestrator that does not declare its wire. |
+| `upstreams.*.serves[]` |  |  |  | anthropic-messages, bedrock-invoke, openai-responses, gemini |  |  |
 | `upstreams.*.url` | string |  |  |  | format uri | Base URL of the backend (optional for kind vertex: derived from region). |
 
 ## Constraints

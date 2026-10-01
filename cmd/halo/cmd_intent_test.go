@@ -53,7 +53,7 @@ func TestSimpleExampleRendersRelease(t *testing.T) {
 
 func TestInitSimpleFlagsAndInteractive(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "p")
-	code, out, errs := halo(t, "init", dir, "--org", "globex", "--tools", "claude-code@2.1.280,codex@0.58.0",
+	code, out, errs := halo(t, "init", dir, "--org", "globex", "--tools", "claude-code@2.1.280,codex@0.99.0",
 		"--provider", "bedrock", "--model", "default=anthropic.claude-sonnet-4-5", "--model", "strong=anthropic/claude-opus-4-1",
 		"--safety", "strict", "--rollout", "careful")
 	if code != 0 {

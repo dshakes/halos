@@ -16,11 +16,12 @@ import (
 const simpleRoot = `apiVersion: halos.dev/v1alpha1
 kind: Halos
 org: acme
-tools: {claude-code: 2.1.280, codex: 0.58.0}
+tools: {claude-code: 2.1.280, codex: {version: 0.99.0, model: codex}}
 provider: anthropic
 models:
   default: claude-sonnet-4-5
   strong: claude-opus-4-1
+  codex: openai/gpt-5-codex
 gateway: https://ai.acme.example
 identity: {issuer: https://login.acme.example, audience: halos, adminGroups: [ai-platform]}
 `

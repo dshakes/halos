@@ -38,8 +38,10 @@ harnesses:
     version: 2.1.280
   codex:
     version: 0.58.0
+    model: codex
   gemini-cli:
     version: 0.12.0
+    model: gemini
 models:
   default: default
   allowed:

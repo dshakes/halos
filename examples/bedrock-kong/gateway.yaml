@@ -15,6 +15,7 @@ upstreams:
   orchestrator:
     url: https://orchestrator.internal.corp.example
     kind: orchestrator
+    serves: [anthropic-messages] # Claude Code's wire; it translates to Bedrock
 models:
   # Bedrock application inference profile ARNs (placeholders).
   sonnet:

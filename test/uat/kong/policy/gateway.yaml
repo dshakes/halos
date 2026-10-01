@@ -13,13 +13,16 @@ upstreams:
   mock-b: {url: "http://mock-b:8080", kind: anthropic}
   mock-down: {url: "http://mock-down.invalid:9000", kind: anthropic} # never resolves
   mock-bedrock: {url: "http://mock-a:8080", kind: bedrock, region: us-east-1}
+  # Wire-correct homes for the codex/gemini aliases; this run never calls them.
+  mock-responses: {url: "http://mock-a:8080/v1/responses", kind: openai}
+  mock-gemini: {url: "http://mock-a:8080", kind: gemini}
 models:
   sonnet: {upstream: mock-a, model: claude-sonnet-4-5}
   opus: {upstream: mock-a, model: claude-opus-4-1}
   haiku: {upstream: mock-a, model: claude-haiku-4-5}
   # The example profiles name these; they only need to exist.
-  codex-default: {upstream: mock-a, model: gpt-5-codex}
-  gemini-default: {upstream: mock-a, model: gemini-2.5-pro}
+  codex-default: {upstream: mock-responses, model: gpt-5-codex}
+  gemini-default: {upstream: mock-gemini, model: gemini-2.5-pro}
   # Documented halo-kong limits: only the first target is used (no failover, no wire translation).
   multi:
     targets:

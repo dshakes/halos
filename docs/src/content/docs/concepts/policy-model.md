@@ -72,9 +72,14 @@ models:
     upstream: orchestrator
     model: us.anthropic.claude-opus-4-v1:0
 upstreams:
-  orchestrator: {url: https://orchestrator.internal.acme.example, kind: orchestrator}
+  orchestrator: {url: https://orchestrator.internal.acme.example, kind: orchestrator, serves: [anthropic-messages]}
   anthropic:    {url: https://api.anthropic.com, kind: anthropic}
 ```
+
+Each harness speaks one wire to the gateway: Claude Code `anthropic-messages`, Codex `openai-responses`, Gemini CLI `gemini`. halo-proxy forwards that wire to the upstream, so the model a harness starts on (its `harnesses.<h>.model`, else `models.default`) must route to an upstream that answers it. `halo validate` checks every harness a ring or client-axis experiment delivers:
+
+- **Error:** no target of that alias can answer the wire, for example Codex starting on an alias that only reaches `kind: anthropic`. The message names the alias and upstream to add.
+- **Warning:** the only candidates are `kind: orchestrator`, which may translate. Declare what an orchestrator answers with `serves: [<wire>, ...]` (valid on `kind: orchestrator` only) and the warning goes away.
 
 Clients request stable **aliases** (`sonnet`); the gateway maps them to upstream model ids, which is what lets a model upgrade be a route change. Model ids above are examples; use your own inference profile ARNs. An alias that is not in `models` is rejected with 403 (the allowlist fails closed). Alias, upstream, profile, ring, experiment, variant and MCP server names must match `^[a-z0-9][a-z0-9._-]{0,62}$` because they flow into scripts, paths and headers.
 
