@@ -208,7 +208,7 @@ func TestApplyInstallDriftAndRemoval(t *testing.T) {
 	if st.Harnesses["claude-code"].Installed != "2.0.0" || e.read(managedBin) != "fake-claude 2.0.0" || e.vendor.downloads.Load() != 1 {
 		t.Fatalf("verified install not done: %+v downloads=%d", st, e.vendor.downloads.Load())
 	}
-	if fi, _ := os.Stat(filepath.Join(e.root, managedBin)); fi.Mode().Perm() != 0o755 {
+	if fi, _ := os.Stat(filepath.Join(e.root, managedBin)); runtime.GOOS != "windows" && fi.Mode().Perm() != 0o755 { // no POSIX mode bits on Windows
 		t.Fatalf("binary mode %v", fi.Mode())
 	}
 	if l, err := os.Readlink(filepath.Join(e.root, "/usr/local/bin/claude")); err != nil || l != filepath.Join(e.root, managedBin) {
