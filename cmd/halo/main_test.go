@@ -107,7 +107,7 @@ func TestInitThenValidate(t *testing.T) {
 		t.Fatalf("render scaffold %d %s", code, errs)
 	}
 	full := filepath.Join(t.TempDir(), "full")
-	if code, out, errs := halo(t, "init", full, "--org", "globex", "--full"); code != 0 || !strings.Contains(out, "profiles/base.yaml") {
+	if code, out, errs := halo(t, "init", full, "--org", "globex", "--full"); code != 0 || !strings.Contains(filepath.ToSlash(out), "profiles/base.yaml") {
 		t.Fatalf("init --full %d\n%s%s", code, out, errs)
 	}
 	if code, _, errs := halo(t, "render", full, "--ring", "ring1-ga", "--os", "linux", "--out", t.TempDir()); code != 0 {
