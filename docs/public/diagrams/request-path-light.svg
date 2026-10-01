@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 460" width="760" height="460" role="img" aria-labelledby="t d" font-family="ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif">
 <title id="t">Request path through halo-proxy</title>
-<desc id="d">Claude Code sends a request with a bearer JWT; halo-proxy strips client x-halo headers, verifies the token against the issuer JWKS, assigns ring, experiment and variant, enforces the model allowlist, forwards with x-halo stamps, streams the response and mirrors the first turn to halo-shadow asynchronously.</desc>
+<desc id="d">Claude Code sends a request with a bearer JWT; halo-proxy verifies the token against the issuer JWKS, assigns ring, experiment and variant, enforces the model allowlist, strips client x-halo headers, forwards with x-halo stamps, streams the response and mirrors the first turn to halo-shadow asynchronously.</desc>
 <style>
 .cv{fill:#f7f2e9;stroke:#e6ddcd;stroke-width:1.5}
 .card{fill:#fffdf9;stroke:#e3d9c8;stroke-width:1.5}
@@ -77,20 +77,20 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <circle class="bdg" cx="32.0" cy="110" r="8"/>
 <text class="bn" x="32.0" y="113.4" text-anchor="middle">1</text>
 <text class="s" x="46.0" y="114" style="font-size:11.5px">POST /v1/messages · Bearer JWT · spoofed x-halo-*</text>
-<rect class="chip" x="160.5" y="141" width="154.2" height="22" rx="6"/>
-<text class="m" x="237.6" y="156" text-anchor="middle">strip every x-halo-*</text>
-<path class="ln" d="M241.6 194L376 194"/>
-<path class="ln hd" d="M370.5 197.4L376 194L370.5 190.6"/>
-<rect class="pl" x="186.4" y="173" width="244.7" height="17" rx="4"/>
-<circle class="bdg" cx="198.44750000000008" cy="182" r="8"/>
-<text class="bn" x="198.44750000000008" y="185.4" text-anchor="middle">2</text>
-<text class="s" x="212.4" y="186" style="font-size:11.5px">JWKS (cached, refetch on unknown kid)</text>
-<rect class="chip" x="113.5" y="213" width="248.1" height="22" rx="6"/>
-<text class="m" x="237.6" y="228" text-anchor="middle">verify iss · aud · exp · nbf · alg</text>
-<rect class="chip" x="90.0" y="249" width="295.1" height="22" rx="6"/>
-<text class="m" x="237.6" y="264" text-anchor="middle">ring, experiment, variant ← user + groups</text>
-<rect class="chip" x="73.3" y="285" width="328.7" height="22" rx="6"/>
-<text class="m" x="237.6" y="300" text-anchor="middle">model allowlist (fails closed) · alias → route</text>
+<path class="ln" d="M241.6 158L376 158"/>
+<path class="ln hd" d="M370.5 161.4L376 158L370.5 154.6"/>
+<rect class="pl" x="186.4" y="137" width="244.7" height="17" rx="4"/>
+<circle class="bdg" cx="198.44750000000008" cy="146" r="8"/>
+<text class="bn" x="198.44750000000008" y="149.4" text-anchor="middle">2</text>
+<text class="s" x="212.4" y="150" style="font-size:11.5px">JWKS (cached, refetch on unknown kid)</text>
+<rect class="chip" x="113.5" y="177" width="248.1" height="22" rx="6"/>
+<text class="m" x="237.6" y="192" text-anchor="middle">verify iss · aud · exp · nbf · alg</text>
+<rect class="chip" x="90.0" y="213" width="295.1" height="22" rx="6"/>
+<text class="m" x="237.6" y="228" text-anchor="middle">ring, experiment, variant ← user + groups</text>
+<rect class="chip" x="73.3" y="249" width="328.7" height="22" rx="6"/>
+<text class="m" x="237.6" y="264" text-anchor="middle">model allowlist (fails closed) · alias → route</text>
+<rect class="chip" x="69.9" y="285" width="335.4" height="22" rx="6"/>
+<text class="m" x="237.6" y="300" text-anchor="middle">strip every x-halo-* · stamp gateway-owned ones</text>
 <path class="ln" d="M241.6 338L518.4 338"/>
 <path class="ln hd" d="M512.9 341.4L518.4 338L512.9 334.6"/>
 <rect class="pl" x="223.1" y="317" width="313.8" height="17" rx="4"/>

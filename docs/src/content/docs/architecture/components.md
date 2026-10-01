@@ -118,7 +118,7 @@ Halos ships six binaries from `cmd/`. Two more surfaces run inside one of them o
 - **State and storage:** none on disk. In memory it keeps the policy snapshot, the last accepted kill list, breaker state and per-target token caches.
 - **Trust boundary:**
   - Cohort comes only from the verified subject.
-  - Every client `x-halo-*` header and the identity and groups headers are dropped ([`cmd/halo-proxy/proxy.go:309-313`](https://github.com/dshakes/halos/blob/main/cmd/halo-proxy/proxy.go#L309-L313)).
+  - Every client `x-halo-*` header and the identity and groups headers are dropped ([`cmd/halo-proxy/proxy.go:297-301`](https://github.com/dshakes/halos/blob/main/cmd/halo-proxy/proxy.go#L297-L301)).
   - Client credentials are stripped unless `--forward-auth` is set ([`cmd/halo-proxy/proxy.go:327-334`](https://github.com/dshakes/halos/blob/main/cmd/halo-proxy/proxy.go#L327-L334)).
   - Provider credentials come only from the gateway's own environment ([`cmd/halo-proxy/route.go:233-253`](https://github.com/dshakes/halos/blob/main/cmd/halo-proxy/route.go#L233-L253)).
   - SigV4 signs only for AWS hosts or a `signHosts` allowlist ([`cmd/halo-proxy/proxy.go:292-298`](https://github.com/dshakes/halos/blob/main/cmd/halo-proxy/proxy.go#L292-L298)).

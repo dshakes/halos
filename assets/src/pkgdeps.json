@@ -304,6 +304,7 @@
         "internal/policy",
         "internal/promote",
         "internal/rollout",
+        "internal/toggle",
         "internal/yamledit",
         "web"
       ]
