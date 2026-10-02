@@ -37,7 +37,7 @@ selfService:
   launchers: [laptop]
   enrollmentTTLSeconds: 900
 `)
-	writeFile(t, filepath.Join(dir, "gateway.yaml"), `apiVersion: halos.dev/v1alpha1
+	writeFile(t, filepath.Join(dir, "gateway.yaml"), `apiVersion: halos.dev/v1
 kind: Gateway
 name: acme-gateway
 baseURL: https://ai.acme.example
@@ -52,7 +52,7 @@ upstreams:
 models:
   sonnet: {upstream: primary, model: claude-sonnet-4-5}
 `)
-	writeFile(t, filepath.Join(dir, "experiments/shadow.yaml"), `apiVersion: halos.dev/v1alpha1
+	writeFile(t, filepath.Join(dir, "experiments/shadow.yaml"), `apiVersion: halos.dev/v1
 kind: Experiment
 name: sonnet-next-shadow
 type: shadow

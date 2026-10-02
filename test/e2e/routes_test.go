@@ -97,7 +97,7 @@ func TestRoutes(t *testing.T) {
 	pair("failover", "fp", "fs", false)
 	pair("midstream", "mp", "ms", false)
 	pair("breaker", "bp", "bs", false)
-	writeFile(t, filepath.Join(pol, "gateway.yaml"), `apiVersion: halos.dev/v1alpha1
+	writeFile(t, filepath.Join(pol, "gateway.yaml"), `apiVersion: halos.dev/v1
 kind: Gateway
 name: acme-gateway
 baseURL: https://ai.acme.example
@@ -261,7 +261,7 @@ func TestGeminiWire(t *testing.T) {
 	if err := os.Remove(filepath.Join(pol, "experiments/shadow.yaml")); err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, filepath.Join(pol, "gateway.yaml"), `apiVersion: halos.dev/v1alpha1
+	writeFile(t, filepath.Join(pol, "gateway.yaml"), `apiVersion: halos.dev/v1
 kind: Gateway
 name: acme-gateway
 baseURL: https://ai.acme.example

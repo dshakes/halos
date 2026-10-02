@@ -1,5 +1,5 @@
 # UAT traffic canary on alias "fast" (ring3-ga), backing rollout uat-ok.
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Experiment
 name: uat-ok
 type: canary

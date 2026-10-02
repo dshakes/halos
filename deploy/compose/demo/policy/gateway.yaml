@@ -1,6 +1,6 @@
 # DEMO OVERLAY (make demo): acme-corp's gateway with every upstream pointed at
 # the compose mockllm containers, so no real model or cloud credential is used.
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Gateway
 name: acme-gateway
 baseURL: https://ai.acme.example # what rendered client configs point at; the demo curls halo-proxy directly

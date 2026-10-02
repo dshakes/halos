@@ -9,7 +9,7 @@ Generated from `schemas/experiment.schema.json`; do not edit. Nested fields use 
 
 | Field | Type | Required | Default | Allowed values | Constraints | Description |
 |---|---|---|---|---|---|---|
-| `apiVersion` | string | yes |  | const halos.dev/v1alpha1 |  | Document version. |
+| `apiVersion` | string | yes |  | const halos.dev/v1 |  | Document version. |
 | `axis` | string | yes |  | client, traffic |  | Where variants differ: client (profiles) or traffic (model routes). Shadow must be traffic. |
 | `kind` | string | yes |  | const Experiment |  | Document kind. |
 | `labels` | object |  |  |  |  | Free-form labels. |

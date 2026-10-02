@@ -9,7 +9,7 @@ Generated from `schemas/toggle.schema.json`; do not edit. Nested fields use dott
 
 | Field | Type | Required | Default | Allowed values | Constraints | Description |
 |---|---|---|---|---|---|---|
-| `apiVersion` | string | yes |  | const halos.dev/v1alpha1 |  | Document version. |
+| `apiVersion` | string | yes |  | const halos.dev/v1 |  | Document version. |
 | `axis` | string | yes |  | client, traffic |  | client: a settings fragment in the signed release. traffic: a model route switch at the gateway. |
 | `client` | object |  |  |  |  | Payload of a client-axis toggle. |
 | `client.harnesses` | object | yes |  |  |  | Fragment per harness name. |

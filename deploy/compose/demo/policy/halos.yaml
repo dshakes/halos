@@ -1,6 +1,6 @@
 # DEMO OVERLAY (make demo): examples/acme-corp with identity pointed at the
 # compose mock IdP. Dev only; never use the mock IdP outside a laptop demo.
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Halos
 org: acme-corp
 identity:

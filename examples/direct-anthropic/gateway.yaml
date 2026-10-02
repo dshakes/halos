@@ -2,7 +2,7 @@
 # Claude Code -> halo-proxy -> api.anthropic.com. halo-proxy verifies the caller's
 # OIDC token, assigns cohort, and injects the org's Anthropic key on the proxy
 # host, so developers never hold one.
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Gateway
 name: direct-gateway
 engine: halo-proxy

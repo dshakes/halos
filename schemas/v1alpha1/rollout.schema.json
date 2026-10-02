@@ -1,0 +1,240 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://halos.dev/schemas/v1alpha1/rollout.schema.json",
+  "title": "Rollout",
+  "description": "A phased rollout of one change: ordered steps with a ring, percent, bake, gates and a failure action. Advancing only opens a PR; rollback and pause are automatic.",
+  "type": "object",
+  "$defs": {
+    "metricGoal": {
+      "type": "object",
+      "description": "A metric guardrail on the backing experiment's arms.",
+      "properties": {
+        "metric": {
+          "type": "string",
+          "description": "Normalised halo.* metric name (see internal/policy MetricRegistry).",
+          "pattern": "^halo\\.[a-z0-9_.]+$"
+        },
+        "direction": {
+          "type": "string",
+          "description": "Which direction is better.",
+          "enum": [
+            "increase",
+            "decrease"
+          ]
+        },
+        "maxRegression": {
+          "type": "number",
+          "description": "Relative worsening that fails the gate, e.g. 0.05 = 5%.",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "metric",
+        "direction"
+      ],
+      "additionalProperties": false
+    },
+    "step": {
+      "type": "object",
+      "description": "One phase of the rollout.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Step name, unique within the rollout.",
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,62}$"
+        },
+        "strategy": {
+          "type": "string",
+          "description": "progressive / blue-green move the ring's release pointer (client axis); canary / holdout set the backing experiment's weights; dark-launch mirrors traffic via halo-shadow (traffic axis).",
+          "enum": [
+            "progressive",
+            "canary",
+            "blue-green",
+            "dark-launch",
+            "holdout"
+          ]
+        },
+        "ring": {
+          "type": "string",
+          "description": "Target ring. Required for progressive/blue-green; percent steps expose the backing experiment's rings."
+        },
+        "percent": {
+          "type": "number",
+          "description": "canary: treatment share; holdout: share kept on control; dark-launch: share of requests mirrored; progressive/blue-green: 100 (default).",
+          "exclusiveMinimum": 0,
+          "maximum": 100
+        },
+        "bake": {
+          "type": "string",
+          "description": "Minimum time at this step: a Go duration (30m, 24h) or whole days (14d).",
+          "pattern": "^([0-9]+d|([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$"
+        },
+        "minSamples": {
+          "type": "integer",
+          "description": "Minimum users per arm before the step may advance.",
+          "minimum": 0
+        },
+        "gates": {
+          "type": "object",
+          "description": "All must pass before the step advances.",
+          "properties": {
+            "guardrails": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/metricGoal"
+              },
+              "description": "Metric guardrails; a breach triggers onFailure at any time."
+            },
+            "scorecard": {
+              "type": "object",
+              "description": "Eval scorecard gate (halo eval run --output json).",
+              "properties": {
+                "file": {
+                  "type": "string",
+                  "description": "Scorecard JSON, relative to the policy repo."
+                },
+                "variant": {
+                  "type": "string",
+                  "description": "Scorecard variant to judge."
+                },
+                "minPass1": {
+                  "type": "number",
+                  "description": "Absolute pass@1 floor.",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "maxRegression": {
+                  "type": "number",
+                  "description": "Largest allowed pass-rate drop vs the scorecard control (0.02 = 2pp).",
+                  "minimum": 0,
+                  "maximum": 1
+                }
+              },
+              "required": [
+                "file",
+                "variant"
+              ],
+              "additionalProperties": false
+            },
+            "approval": {
+              "type": "boolean",
+              "description": "Hold until a human advances the step."
+            }
+          },
+          "additionalProperties": false
+        },
+        "onFailure": {
+          "type": "string",
+          "description": "What a gate breach does (default rollback).",
+          "enum": [
+            "rollback",
+            "pause"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "strategy"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "properties": {
+    "apiVersion": {
+      "type": "string",
+      "description": "Document version.",
+      "const": "halos.dev/v1alpha1"
+    },
+    "kind": {
+      "type": "string",
+      "description": "Document kind.",
+      "const": "Rollout"
+    },
+    "name": {
+      "type": "string",
+      "description": "Unique name within its kind.",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,62}$"
+    },
+    "labels": {
+      "type": "object",
+      "description": "Free-form labels.",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "axis": {
+      "type": "string",
+      "description": "client: a release digest moves through rings; traffic: a gateway model route.",
+      "enum": [
+        "client",
+        "traffic"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "description": "Only active rollouts are driven by the controller.",
+      "enum": [
+        "draft",
+        "active",
+        "paused",
+        "aborted",
+        "completed"
+      ]
+    },
+    "step": {
+      "type": "string",
+      "description": "The live step, set by merged advance PRs; empty = not started."
+    },
+    "experiment": {
+      "type": "string",
+      "description": "Backing two-arm experiment (exposure, evidence, kill switch). Optional when every step is progressive or blue-green."
+    },
+    "change": {
+      "type": "object",
+      "description": "What rolls out.",
+      "properties": {
+        "release": {
+          "type": "string",
+          "description": "Client axis: release digest the ring pointers move to."
+        },
+        "version": {
+          "type": "string",
+          "description": "Client axis: human label of the release."
+        },
+        "alias": {
+          "type": "string",
+          "description": "Traffic axis: gateway model alias re-routed to the treatment's route on completion."
+        }
+      },
+      "additionalProperties": false
+    },
+    "baseline": {
+      "type": "object",
+      "description": "Known-good state a rollback returns to.",
+      "properties": {
+        "release": {
+          "type": "string",
+          "description": "Client axis: switch-back release digest."
+        }
+      },
+      "additionalProperties": false
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/step"
+      },
+      "description": "Ordered steps.",
+      "minItems": 1
+    }
+  },
+  "required": [
+    "apiVersion",
+    "kind",
+    "name",
+    "axis",
+    "change",
+    "steps"
+  ],
+  "additionalProperties": false
+}

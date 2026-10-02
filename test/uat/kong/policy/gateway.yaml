@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=../../../../schemas/gateway.schema.json
 # UAT overlay for the real-Kong run: acme-corp's gateway with the two mock upstreams.
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Gateway
 name: acme-gateway
 baseURL: https://ai.acme.example

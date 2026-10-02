@@ -29,7 +29,7 @@ next: halo validate --policy-dir .
 
 ```yaml
 # halos.yaml, as scaffolded
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Halos
 org: my-org
 tools:

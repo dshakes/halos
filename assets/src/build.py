@@ -2654,7 +2654,7 @@ def deep_dive():
     )
     xs, wbox, hbox = (24, 282, 540), 196, 104
     ys = (56, 196, 336)
-    d.kicker(24, 34, "kinds · apiVersion halos.dev/v1alpha1")
+    d.kicker(24, 34, "kinds · apiVersion halos.dev/v1")
 
     def kind(col, row, k, subs, style="card"):
         d.card(xs[col], ys[row], wbox, hbox, k, subs, kind=style, mono_sub=True, title_mono=True)

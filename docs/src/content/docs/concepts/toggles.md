@@ -28,7 +28,7 @@ Client fragments go through the same adapter and guardrails as a profile. The bu
 
 ```yaml
 # examples/acme-corp/toggles/github-mcp.yaml
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Toggle
 name: github-mcp
 description: GitHub MCP server (issues, PRs) for a slice of the canary ring

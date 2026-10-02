@@ -8,7 +8,7 @@
     "apiVersion": {
       "type": "string",
       "description": "Document version.",
-      "const": "halos.dev/v1alpha1"
+      "const": "halos.dev/v1"
     },
     "kind": {
       "type": "string",

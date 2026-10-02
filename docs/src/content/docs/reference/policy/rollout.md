@@ -9,7 +9,7 @@ Generated from `schemas/rollout.schema.json`; do not edit. Nested fields use dot
 
 | Field | Type | Required | Default | Allowed values | Constraints | Description |
 |---|---|---|---|---|---|---|
-| `apiVersion` | string | yes |  | const halos.dev/v1alpha1 |  | Document version. |
+| `apiVersion` | string | yes |  | const halos.dev/v1 |  | Document version. |
 | `axis` | string | yes |  | client, traffic |  | client: a release digest moves through rings; traffic: a gateway model route. |
 | `baseline` | object |  |  |  |  | Known-good state a rollback returns to. |
 | `baseline.release` | string |  |  |  |  | Client axis: switch-back release digest. |

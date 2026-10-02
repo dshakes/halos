@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=../../schemas/gateway.schema.json
 # CLI -> halo-proxy -> Anthropic. One alias, one upstream.
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Gateway
 name: startup-gateway
 baseURL: https://ai.startup.example

@@ -171,10 +171,10 @@ func TestGuardToggles(t *testing.T) {
 func TestToggleLoadDispatch(t *testing.T) {
 	o := &Org{}
 	tg := &Toggle{Meta: Meta{APIVersion: APIVersion, Kind: KindToggle, Name: "a"}}
-	if err := o.add(tg); err != nil {
+	if _, err := o.add(tg); err != nil {
 		t.Fatal(err)
 	}
-	if err := o.add(&Toggle{Meta: tg.Meta}); err == nil || !strings.Contains(err.Error(), "duplicate toggle") {
+	if _, err := o.add(&Toggle{Meta: tg.Meta}); err == nil || !strings.Contains(err.Error(), "duplicate toggle") {
 		t.Fatalf("duplicate toggle not rejected: %v", err)
 	}
 }

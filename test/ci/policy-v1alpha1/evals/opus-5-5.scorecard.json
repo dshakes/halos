@@ -1,0 +1,12 @@
+{
+  "suite": "acme-refactor-suite",
+  "control": "control",
+  "variants": [
+    {"name": "control", "trials": 120, "pass1": 0.783, "pass1CILo": 0.708, "pass1CIHi": 0.85, "costPerTaskUSD": 0.412, "wallP50Ms": 61000, "wallP95Ms": 142000, "tokens": 9120000, "toolErrors": 14, "errors": 1},
+    {"name": "opus-5-5", "trials": 120, "pass1": 0.825, "pass1CILo": 0.758, "pass1CIHi": 0.892, "costPerTaskUSD": 0.398, "wallP50Ms": 55000, "wallP95Ms": 128000, "tokens": 8640000, "toolErrors": 9, "errors": 0}
+  ],
+  "comparisons": [
+    {"variant": "opus-5-5", "control": "control", "tasks": 40, "delta": 0.042, "ciLo": -0.008, "ciHi": 0.092, "verdict": "no_significant_difference"}
+  ],
+  "trials": []
+}

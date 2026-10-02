@@ -23,7 +23,7 @@ halo eval run evals/suites/model-upgrade.yaml --output json > scorecard.json
 ## 3. Canary
 
 ```yaml
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Experiment
 name: opus-5-5-canary
 type: canary
