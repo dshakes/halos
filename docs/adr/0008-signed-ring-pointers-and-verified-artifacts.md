@@ -68,6 +68,6 @@ The pointer checks above protect the device. They did not protect the signer: `r
 ### Consequences
 
 - Good: a registry cannot launder an old pointer through the signer, and a retagged `v` or `ring-` tag cannot steer promote or rollback.
-- Bad: **stateless CI has a gap.** A fresh runner has no state file, so the replay check is inert unless the file is cached between runs (the example workflow does this) or `--expect-digest` is passed. A missing file is treated as empty state, so cache eviction **silently** turns the replay check off for that run (only an unparseable file blocks signing). Pass `--expect-digest` in CI where a silent gap is unacceptable.
+- Bad: **stateless CI has a gap.** A fresh runner has no state file, so the replay check is inert unless the file is cached between runs (the example workflow does this) or `--expect-digest` is passed. A missing file is empty state, but a served pointer with no record is refused unless the operator passes `--expect-digest` or `--adopt-existing`, so cache eviction is not silent; `--adopt-existing` trusts the served pointer, so that run has no replay protection (an unparseable file blocks signing). Prefer `--expect-digest` in CI.
 - Bad: one signer per state file; there is no locking, and two signers with separate files do not see each other's writes.
 - Bad: an expired ring needs a human-chosen `halo rollback --to <version>` instead of an automatic refresh.

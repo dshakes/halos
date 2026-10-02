@@ -139,13 +139,13 @@ The complete list with auth levels is the [API reference](/halos/reference/api/)
 | `POST`/`GET /api/v1/requests` | Signed-in developer |
 | `POST /api/v1/requests/{id}/approve`, `/deny` | Admin |
 | `POST /api/v1/users/{id}/revoke-sessions`, `POST /api/v1/devices/{id}/revoke` | Admin |
-| `GET /api/v1/fleet`, `/policy`, `/experiments`, `/experiments/{name}`, `/toggles`, `/toggles/{name}`, `/devices`, `/devices/{id}`, `/releases`, `/audit`, `/killswitch` | Admin |
+| `GET /api/v1/fleet`, `/policy`, `/experiments`, `/experiments/{name}`, `/toggles`, `/toggles/{name}`, `/devices`, `/devices/{id}`, `/releases`, `/audit`, `/killswitch`, `/rollouts`, `/rollouts/{name}` | Admin |
 | `POST /api/v1/experiments/{name}/status`, `/kill`, `/unkill` | Admin |
 | `POST /api/v1/toggles/{name}/propose`, `/kill`, `/unkill` | Admin |
 | `GET /api/v1/capabilities` | Signed-in developer |
 | `GET /api/v1/gateway/killswitch` | Gateway token |
 | `POST /api/v1/fleet/report` | Fleet token or device token |
-| `GET /api/v1/fleet/ring` | Device token |
-| `GET /enroll.sh`, `/enroll.ps1`, `/enroll/release.pub`, `POST /api/v1/enroll` | Public; the token is the credential |
+| `GET /api/v1/fleet/ring`, `GET /api/v1/fleet/killswitch` | Device token |
+| `GET /enroll.sh`, `/enroll.ps1`, `/enroll/release.pub`, `/enroll/killswitch.pub`, `POST /api/v1/enroll` | Public; the token is the credential |
 
 Responses carry a strict Content-Security-Policy, `X-Frame-Options: DENY` and `Cache-Control: no-store` on API paths.

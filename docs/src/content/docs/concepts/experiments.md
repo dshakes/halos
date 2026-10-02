@@ -78,7 +78,7 @@ A variant profile is held to the ring's profile more strictly than a child is to
 
 ### Attribution
 
-The variant release carries the experiment and variant in its harness config. Claude Code gets `halo.experiment` and `halo.variant` in `OTEL_RESOURCE_ATTRIBUTES` (next to `halo.ring` and `halo.release`). Codex, Gemini CLI and Copilot CLI have no resource-attribute setting: `halo release publish` and `halo render` warn that CLI metrics are not attributed to the experiment.
+The variant release carries the experiment and variant in its harness config. Claude Code gets `halo.experiment` and `halo.variant` in `OTEL_RESOURCE_ATTRIBUTES` (next to `halo.ring` and `halo.release`). Codex, Gemini CLI and Copilot CLI have no resource-attribute config key. On Linux, with telemetry enabled, Halos writes an `/etc/profile.d` shell function that runs the CLI with `OTEL_RESOURCE_ATTRIBUTES` including `halo.experiment` and `halo.variant`; it reaches login shells only, so an exec that bypasses the shell (`timeout`, `env`, `xargs`) runs the CLI unlabeled. On macOS and Windows Halos cannot set it, and `halo render` and `halo release publish` warn that CLI telemetry carries no `halo.*` attributes.
 
 The gateway attributes a request (`x-halo-experiment`, `x-halo-variant`) to a client-axis experiment **only when no traffic-axis experiment applies** to it, so a client-axis experiment never displaces a traffic experiment's routing. Client-axis experiments never route. `halod status` and fleet reports carry `experiment` and `variant`.
 
@@ -201,7 +201,7 @@ curl -X POST https://halo.acme.example/api/v1/experiments/opus-5-5-canary/unkill
 The kill switch lives at the **gateway**, so it fully undoes a `traffic`-axis experiment (model routes). A `client`-axis experiment changes the release **on the machine**. Killing it always stops gateway-side effects (routing, mirroring and attribution). Whether it reaches machines depends on `halod`:
 
 - **`killSwitch` configured in `halod.yaml`:** `halod` polls the same signed list (`GET /api/v1/fleet/killswitch`, device token, default every 60 seconds) and treats a killed experiment as not running. The device applies the ring release (control) within one poll, without a republish, and reports `killed: true`. Unkill returns it to its variant. The list is verified, persisted and replay-protected like the gateway's; a failed fetch keeps the last list. Config: [`halod.yaml`](/halos/reference/binaries/#halodyaml).
-- **Not configured (the default; enrollment does not add it):** devices keep their variant until the experiment is paused or concluded in policy and `halo release publish --ring <R>` republishes, or `halo rollback` points the ring and its channels at an earlier release. See [client-axis delivery](#client-axis-delivery).
+- **Not configured (the default for hand-written and MDM configs; portal enrollment adds it whenever `halo-server` has a kill key):** devices keep their variant until the experiment is paused or concluded in policy and `halo release publish --ring <R>` republishes, or `halo rollback` points the ring and its channels at an earlier release. See [client-axis delivery](#client-axis-delivery).
 
 The controller's notification text ("gateway traffic only; client-axis variants stay until the pause PR merges") describes the second case.
 

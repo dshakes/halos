@@ -50,7 +50,7 @@ Option 3.
 - Bad: each variant is a full release, so publishing costs one build per variant and registry storage grows with variants.
 - Bad: channel pointers expire like ring pointers; a missed `refresh` stops treatment devices (they keep last-good), not just control.
 - Bad: a halod that cannot verify a channel stays on its previous release, so a broken publish strands treatment devices until fixed. That is the intended trade against silent contamination.
-- Limit: the signed kill list reaches client-axis devices only where `halod` has the opt-in `killSwitch` setting (see ADR-0009); otherwise a device reverts on pause and republish.
+- Limit: the signed kill list reaches client-axis devices only where `halod` has `killSwitch` configured (portal enrollment sets it when `halo-server` has a kill key; see ADR-0009); otherwise a device reverts on pause and republish.
 - Limit: only Claude Code carries experiment attribution in CLI metrics.
 
 ## More information

@@ -51,7 +51,7 @@ This is not full TUF: there is no root key rotation protocol, threshold signing 
 - **`--expect-digest sha256:<release digest>`** on `refresh`, `promote` and `rollback` refuses unless the release involved is exactly that one: the check that works without state.
 - **Every signature is announced.** Before signing, the CLI prints `Signing ring X → version V (digest D, seq S)` to stderr.
 
-Limit: **stateless CI has no state file**, and a missing file is silently treated as empty, so on a fresh runner (or after cache eviction) only `--expect-digest` stands between a replay and your key. Cache `pointers.json` between runs ([production deployment](/halos/guides/production-deployment/#replay-protection-the-signer-state-file)). The file has one writer; an unparseable file blocks signing rather than disabling the check.
+Limit: **stateless CI has no state file**, and a signer with no record for a ring refuses to re-sign a pointer the registry already serves unless you confirm it with `--expect-digest` (the served release digest) or `--adopt-existing` (use it only on a first run or after a cache eviction: it trusts what the registry serves, so that run has no replay protection). Cache `pointers.json` between runs ([production deployment](/halos/guides/production-deployment/#replay-protection-the-signer-state-file)). The file has one writer; an unparseable file blocks signing rather than disabling the check.
 
 ## Evidence trust
 
@@ -72,7 +72,7 @@ The kill switch lets `halo-server` (the controller on a rollback verdict, or an 
 - **TLS for the token.** Gateways refuse plain `http://` to a non-loopback kill URL, since the bearer token would travel in the clear, unless `killSwitch.allowInsecureInCluster` (`halo-kong`: `killswitch_allow_insecure_in_cluster`) is set for a trusted in-cluster URL. A misconfigured `halo-kong` still serves traffic but logs at ERROR and adds `x-halo-killswitch: misconfigured` to the upstream request.
 - **Notification webhooks are signed and timestamped.** The controller's generic webhook carries `X-Halo-Timestamp` and `X-Halo-Signature: sha256=<hex>`, an HMAC-SHA256 over `timestamp + "." + body` under a shared secret. Receivers must verify it and reject timestamps more than 5 minutes off, which stops replay of a captured request ([snippets](/halos/reference/binaries/#verifying-the-webhook-signature)). Delivery is retried per channel on later ticks. Slack uses its own incoming-webhook URL, which is itself a secret.
 
-Limits: a kill affects gateways (routing and mirroring). It reaches client-axis variants on machines only where `halod` has the opt-in `killSwitch` setting; otherwise those revert on pause and republish ([details](/halos/concepts/experiments/#limits-the-client-axis)). If `halo-server` is down when a kill is issued, nothing is killed until it is back. Decision record: [ADR-0009](/halos/adr/0009-signed-kill-switch/).
+Limits: a kill affects gateways (routing and mirroring). It reaches client-axis variants on machines only where `halod` has `killSwitch` configured (portal enrollment sets it when `halo-server` has a kill key); otherwise those revert on pause and republish ([details](/halos/concepts/experiments/#limits-the-client-axis)). If `halo-server` is down when a kill is issued, nothing is killed until it is back. Decision record: [ADR-0009](/halos/adr/0009-signed-kill-switch/).
 
 ## Audit log
 
