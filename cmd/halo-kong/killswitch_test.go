@@ -137,8 +137,16 @@ func TestKillSwitchRotationDoesNotLeakPollers(t *testing.T) {
 	e := kills[ks.URL] // one entry per URL, however many rotations
 	killMu.Unlock()
 	t.Cleanup(func() { e.cancel() })
+	// Count pollers, not pooled keep-alive connections: cancelled polls can leave
+	// idle conns (client read/write loops + server conn goroutines) that Windows
+	// tears down slowly. Closing them never stops a leaked poller.
+	settled := func() bool {
+		ks.CloseClientConnections()
+		http.DefaultTransport.(*http.Transport).CloseIdleConnections()
+		return runtime.NumGoroutine() <= base+4
+	}
 	deadline := time.Now().Add(3 * time.Second)
-	for runtime.NumGoroutine() > base+4 && time.Now().Before(deadline) {
+	for !settled() && time.Now().Before(deadline) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	if g := runtime.NumGoroutine(); g > base+4 {

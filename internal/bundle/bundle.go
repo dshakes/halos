@@ -62,6 +62,10 @@ func publish(ctx context.Context, dst oras.Target, rel *release.Release, s Signe
 		return ocispec.Descriptor{}, fmt.Errorf("bundle: sign %s: %w", rel.Digest, err)
 	}
 	ann := map[string]string{AnnSignature: base64.StdEncoding.EncodeToString(sig), AnnSigType: s.Type()}
+	// A fixed created stamp keeps the manifest content-addressed: oras otherwise
+	// stamps the push time, so an idempotent republish across a second boundary
+	// gets a new digest and trips the immutable-tag check.
+	ann[ocispec.AnnotationCreated] = "1970-01-01T00:00:00Z"
 	if ms, ok := s.(MultiSigner); ok {
 		for _, co := range ms[1:] {
 			cs, err := co.Sign(ctx, rel.Digest)

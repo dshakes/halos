@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"oras.land/oras-go/v2/content/memory"
 
@@ -76,6 +77,28 @@ func TestPublishPullRoundTrip(t *testing.T) {
 	// re-publishing identical release is idempotent
 	if _, err := Publish(ctx, store, rel, s, "canary"); err != nil {
 		t.Fatalf("idempotent republish: %v", err)
+	}
+}
+
+// Regression: oras stamps the push time into the manifest unless told
+// otherwise, so a republish in the next second got a new digest and was
+// refused as an immutable-tag violation (a CI flake).
+func TestRepublishAcrossSecondBoundaryIsIdempotent(t *testing.T) {
+	ctx := context.Background()
+	store := memory.New()
+	s, _ := keys(t)
+	rel := mkRel(t, "1", "canary")
+	d1, err := Publish(ctx, store, rel, s, "canary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(time.Until(time.Now().Truncate(time.Second).Add(time.Second + 10*time.Millisecond)))
+	d2, err := Publish(ctx, store, rel, s, "canary")
+	if err != nil {
+		t.Fatalf("republish in the next second: %v", err)
+	}
+	if d1.Digest != d2.Digest {
+		t.Fatalf("manifest digest changed across republish: %s != %s", d1.Digest, d2.Digest)
 	}
 }
 
