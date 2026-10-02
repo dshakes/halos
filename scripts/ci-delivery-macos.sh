@@ -71,7 +71,6 @@ echo "== halod once"
 sudo "$HALOD" once --install=false
 [ -f "$SETTINGS" ] || fail "no managed settings at $SETTINGS"
 case "$(owner "$SETTINGS")" in root:*" 644") ;; *) fail "managed settings: $(owner "$SETTINGS")" ;; esac # group is inherited from the directory (admin)
-# "managed settings: $(owner "$SETTINGS")"
 grep -q '"disableBypassPermissionsMode": *"disable"' "$SETTINGS" || fail "managed settings content: $(cat "$SETTINGS")"
 curl -fsS "$BASE/api/v1/fleet" | grep -q 'dev@acme.com' || fail "device missing from the fleet view"
 
