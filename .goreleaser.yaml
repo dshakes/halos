@@ -133,6 +133,7 @@ brews:
     test: system "#{bin}/halo", "version"
 scoops:
   - ids: [halo]
+    name: halo # halo.json, `scoop install halo` (default would be the project name, halos)
     homepage: https://dshakes.github.io/halos
     description: Control plane for AI coding CLIs (Claude Code, Codex, Gemini)
     license: Apache-2.0
@@ -170,3 +171,4 @@ docker_signs:
 release:
   github: {owner: dshakes, name: halos}
   prerelease: auto # vX.Y.Z-rc.N is a prerelease, never "Latest"
+  replace_existing_artifacts: true # a re-run from the tag (workflow_dispatch) finishes a partial release
