@@ -272,3 +272,60 @@ func TestContinuityUnknownPointerNeedsAdoption(t *testing.T) {
 		t.Fatalf("first publish of a new ring: %v", err)
 	}
 }
+
+// ADR-0008 (8c): seq = max(served+1, unix now), also with signer state.
+func TestPointerSeqIsMaxOfServedPlusOneAndNow(t *testing.T) {
+	ctx := context.Background()
+	s, v := keys(t)
+	st, err := LoadPointerState(filepath.Join(t.TempDir(), "pointers.json"), "reg/acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, o := range map[string]*PointerOptions{"stateless": {}, "with state": {State: st}} {
+		t.Run(name, func(t *testing.T) {
+			store := memory.New()
+			t0 := time.Unix(2_000_000_000, 0)
+			steps := []struct {
+				now  time.Time
+				want uint64
+			}{
+				{t0, 2_000_000_000},                       // no pointer yet: now
+				{t0, 2_000_000_001},                       // clock not past served: served+1
+				{t0.Add(-time.Hour), 2_000_000_002},       // clock went back: still served+1
+				{t0.Add(time.Hour), 2_000_000_000 + 3600}, // clock ahead: now
+			}
+			for i, step := range steps {
+				o.now = step.now
+				if _, _, err := PublishRing(ctx, store, mkRel(t, "1", "ga"), nil, s, "ga", o); err != nil {
+					t.Fatalf("step %d: %v", i, err)
+				}
+				p, found, err := ReadPointer(ctx, store, "ga", v)
+				if err != nil || !found || p.Seq != step.want {
+					t.Fatalf("step %d: seq %d (found %v, err %v), want %d", i, p.Seq, found, err, step.want)
+				}
+			}
+		})
+	}
+}
+
+// ADR-0008 addendum (8n): a failed state save after the push says so.
+func TestPointerStateSaveFailureReportsPublished(t *testing.T) {
+	ctx := context.Background()
+	store := memory.New()
+	s, _ := keys(t)
+	dir := t.TempDir()
+	st, err := LoadPointerState(filepath.Join(dir, "sub", "pointers.json"), "reg/acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "sub"), nil, 0o600); err != nil { // parent is a file: save fails
+		t.Fatal(err)
+	}
+	_, _, err = PublishRing(ctx, store, mkRel(t, "1", "ga"), nil, s, "ga", &PointerOptions{State: st})
+	if err == nil || !strings.Contains(err.Error(), "was published but the signer state was not updated") {
+		t.Fatalf("got %v", err)
+	}
+	if _, err := store.Resolve(ctx, PointerTag("ga")); err != nil {
+		t.Fatalf("pointer should be on the registry: %v", err)
+	}
+}

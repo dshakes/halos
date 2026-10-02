@@ -445,3 +445,43 @@ func TestKillRejectsInvalidNames(t *testing.T) {
 		t.Fatalf("toggle kill was removed: %+v %v", l, err)
 	}
 }
+
+// ADR-0009 (9o): a kill stays applied when its audit append fails (fail safe);
+// a failed unkill is reverted so the kill stays in force. Both answer 500.
+func TestKillAuditFailure(t *testing.T) {
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := New(Config{
+		PolicyDir: "../../examples/acme-corp", Token: tok, DataDir: t.TempDir(),
+		Log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+		DevUser: "alice@test", DevAdmin: true, KillKey: priv, GatewayToken: gwTok,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := s.Handler()
+	const exp = "/api/v1/experiments/opus-5-5-canary/"
+	killed := func() int {
+		recs, _, err := s.kills.Killed()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(recs)
+	}
+
+	_ = s.auditLog.f.Close() // every append now errors
+	if w := do(h, "POST", exp+"kill", "", `{"reason":"spike"}`); w.Code != http.StatusInternalServerError {
+		t.Fatalf("kill with broken audit: %d %s", w.Code, w.Body)
+	}
+	if killed() != 1 {
+		t.Fatal("kill must stay applied when the audit append fails")
+	}
+	if w := do(h, "POST", exp+"unkill", "", `{"reason":"fixed"}`); w.Code != http.StatusInternalServerError {
+		t.Fatalf("unkill with broken audit: %d %s", w.Code, w.Body)
+	}
+	if killed() != 1 {
+		t.Fatal("unrecorded unkill must be reverted: kill stays in force")
+	}
+}

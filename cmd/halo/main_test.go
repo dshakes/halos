@@ -483,3 +483,33 @@ func TestPolicyDirFlagExpGateway(t *testing.T) {
 		t.Errorf("exp --dir should print a deprecation notice, stderr: %q", e)
 	}
 }
+
+// ADR-0007 (7b): build and publish refuse a guardrail-violating policy with the
+// validation exit code (2), before touching any registry or key.
+func TestReleaseBuildPublishGuardrailExit2(t *testing.T) {
+	ex := buildable(t)
+	p := filepath.Join(ex, "profiles", "base.yaml")
+	b, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, bytes.Replace(b, []byte("mode: default"), []byte("mode: bypassPermissions"), 1), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old := dialRegistry
+	dialRegistry = func(string, bool) (oras.Target, error) { return memory.New(), nil }
+	t.Cleanup(func() { dialRegistry = old })
+	keys := t.TempDir()
+	if code, _, errs := halo(t, "keys", "generate", "--out", keys); code != 0 {
+		t.Fatalf("keys: %d %s", code, errs)
+	}
+	tar := filepath.Join(t.TempDir(), "release.tar")
+	for name, args := range map[string][]string{
+		"build":   {"release", "build", "--no-artifacts", ex, "--ring", "ring3-ga", "--release-version", "1.0.0", "-o", tar},
+		"publish": {"release", "publish", "--no-artifacts", ex, "--ring", "ring3-ga", "--release-version", "1.0.0", "--registry", "registry.test/acme/halos", "--key", filepath.Join(keys, "halo.key")},
+	} {
+		if code, _, errs := halo(t, args...); code != 2 {
+			t.Errorf("%s: want exit 2, got %d: %s", name, code, errs)
+		}
+	}
+}
