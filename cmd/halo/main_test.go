@@ -235,6 +235,21 @@ func TestKeysBuildPublishPlanRollback(t *testing.T) {
 	if code, _, _ := halo(t, "release", "publish", "--no-artifacts", ex, "--ring", "ring3-ga", "--registry", reg, "--key", key); code != 1 {
 		t.Fatal("publish without --release-version should fail")
 	}
+	// ADR-0002: a ring pinned to a release in policy is never rebuilt from its profile.
+	pinned := filepath.Join(ex, "rings", "ring3-ga.yaml")
+	orig, err := os.ReadFile(pinned)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pinned, append(orig, []byte("release: sha256:"+strings.Repeat("ab", 32)+"\n")...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errs := halo(t, "release", "publish", "--no-artifacts", ex, "--ring", "ring3-ga", "--release-version", "1.2.0", "--registry", reg, "--key", key); code == 0 || !strings.Contains(errs, "is pinned to release") {
+		t.Fatalf("publish over a pinned ring: %d %s", code, errs)
+	}
+	if err := os.WriteFile(pinned, orig, 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	// plan against tar and against registry ring tag (identical content => no changes)
 	if code, out, errs := halo(t, "plan", ex, "--ring", "ring3-ga", "--release-version", "1.0.0", "--against", tar); code != 0 || !strings.Contains(out, "no changes") {

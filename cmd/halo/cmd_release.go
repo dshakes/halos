@@ -200,6 +200,9 @@ func (a *app) cmdRelease() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if err := a.refusePinned(dir, pRing, rel.Digest); err != nil {
+				return err
+			}
 			if rel, err = a.resolveArtifacts(cmd.Context(), rel, pNoArt); err != nil {
 				return err
 			}

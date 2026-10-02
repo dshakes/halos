@@ -273,4 +273,33 @@ func TestExtraGuardrailsOnlyAdd(t *testing.T) {
 	if !bypass || !extra {
 		t.Fatalf("built-in bypass=%v extra=%v, want both", bypass, extra)
 	}
+	if o.Profiles == nil {
+		t.Fatal("an extra guardrail mutated the policy the release is built from")
+	}
+}
+
+// ADR-0007: hooks on the default (GA) ring must be managed-only.
+func TestGARingHooksManagedOnly(t *testing.T) {
+	has := func(o *Org) bool {
+		for _, is := range o.Validate() {
+			if is.Severity == SeverityError && strings.Contains(is.Message, "hooks.managedOnly must be true") {
+				return true
+			}
+		}
+		return false
+	}
+	o := validOrg()
+	o.Profiles["base"].Hooks = Hooks{Hooks: []Hook{{Event: "PostToolUse", Command: "fmt"}}}
+	if !has(o) {
+		t.Fatal("GA ring with unmanaged hooks passed validation")
+	}
+	o.Profiles["base"].Hooks.ManagedOnly = true
+	if has(o) {
+		t.Fatal("managed-only hooks on GA flagged")
+	}
+	o.Profiles["base"].Hooks.ManagedOnly = false
+	o.Rings[1].Membership.Default = false
+	if has(o) {
+		t.Fatal("hooks on a non-default ring flagged")
+	}
 }

@@ -27,6 +27,7 @@ var builtinGuardrails = []Guardrail{
 	guardTelemetryOn,
 	guardMCPServers,
 	guardEgressHasGateway,
+	guardGARing,
 	guardReservedOverrides,
 	guardNames,
 	guardRingProfiles,
@@ -127,6 +128,21 @@ func guardEgressHasGateway(o *Org) []Issue {
 		}
 		if !ok {
 			out = append(out, gi(SeverityError, "profiles["+name+"].egress.allowedDomains", "must include gateway host %q", host))
+		}
+	}
+	return out
+}
+
+// guardGARing (ADR-0007): a default (GA) ring that ships org hooks must make
+// them managed-only, so user and project hooks cannot run beside them.
+func guardGARing(o *Org) []Issue {
+	var out []Issue
+	for _, r := range o.Rings {
+		if !r.Membership.Default {
+			continue
+		}
+		if p, err := o.ResolveProfile(r.Profile); err == nil && len(p.Hooks.Hooks) > 0 && !p.Hooks.ManagedOnly {
+			out = append(out, gi(SeverityError, "rings["+r.Name+"].profile", "the default (GA) ring ships hooks, so hooks.managedOnly must be true (profile %q)", r.Profile))
 		}
 	}
 	return out

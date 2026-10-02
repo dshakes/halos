@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"regexp"
@@ -61,10 +62,28 @@ func (o *Org) Validate() []Issue {
 	for _, g := range builtinGuardrails {
 		v.issues = append(v.issues, g(o)...)
 	}
-	for _, g := range ExtraGuardrails {
-		v.issues = append(v.issues, g(o)...)
+	if len(ExtraGuardrails) > 0 {
+		// Extras see a copy: the caller builds the release from o, so an extra
+		// must not be able to weaken it after the built-ins passed (ADR-0007).
+		cp, err := o.clone()
+		if err != nil {
+			return append(v.issues, Issue{SeverityError, "org", "copy policy for extra guardrails: " + err.Error()})
+		}
+		for _, g := range ExtraGuardrails {
+			v.issues = append(v.issues, g(cp)...)
+		}
 	}
 	return v.issues
+}
+
+// clone deep-copies o through its JSON form, the same form gateway snapshots use.
+func (o *Org) clone() (*Org, error) {
+	b, err := json.Marshal(o)
+	if err != nil {
+		return nil, err
+	}
+	cp := &Org{}
+	return cp, json.Unmarshal(b, cp)
 }
 
 type validator struct {
