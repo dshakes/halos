@@ -269,7 +269,7 @@ func (e *cliEnv) policy() error {
 	if err != nil {
 		return err
 	}
-	gateway := `apiVersion: halos.dev/v1alpha1
+	gateway := `apiVersion: halos.dev/v1
 kind: Gateway
 name: uat-gateway
 baseURL: http://localhost:8088
@@ -291,7 +291,7 @@ models:
   codex-default: {upstream: openai-mock, model: gpt-uat-upstream}
   gemini-default: {upstream: gemini-mock, model: gemini-uat-upstream}
 `
-	experiment := `apiVersion: halos.dev/v1alpha1
+	experiment := `apiVersion: halos.dev/v1
 kind: Experiment
 name: uat-route
 type: canary

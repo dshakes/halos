@@ -9,7 +9,7 @@ Generated from `schemas/profile.schema.json`; do not edit. Nested fields use dot
 
 | Field | Type | Required | Default | Allowed values | Constraints | Description |
 |---|---|---|---|---|---|---|
-| `apiVersion` | string | yes |  | const halos.dev/v1alpha1 |  | Document version. |
+| `apiVersion` | string | yes |  | const halos.dev/v1 |  | Document version. |
 | `egress` | object |  |  |  |  | Egress policy. |
 | `egress.allowedDomains` | array of string |  |  |  |  | Only egress permitted from managed environments; must include the gateway host when non-empty. |
 | `egress.allowedDomains[]` | string |  |  |  |  |  |

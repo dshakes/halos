@@ -44,6 +44,11 @@ func (a *app) applyChange(c *intent.Change, dry bool, before ...func() error) er
 	if policy.HasErrors(issues) {
 		return &exitErr{code: exitValidation, err: errors.New("the generated policy does not validate; nothing written")}
 	}
+	return a.writeChange(c, dry, before...)
+}
+
+// writeChange writes (or, dry, prints) c without validating it first.
+func (a *app) writeChange(c *intent.Change, dry bool, before ...func() error) error {
 	created, changed := c.Paths()
 	patch := ""
 	if dry {
@@ -845,7 +850,9 @@ func (a *app) cmdMigrate() *cobra.Command {
 					fmt.Fprintln(a.out, a.green("OK")+": every document already uses "+policy.APIVersion)
 				})
 			}
-			return a.applyChange(ch, dry)
+			// ponytail: no validate gate; the rewrite is semantics-preserving and
+			// must also work on partial overlay dirs that do not load alone.
+			return a.writeChange(ch, dry)
 		},
 	}
 	c.Flags().BoolVar(&dry, "dry-run", false, "print the diff instead of writing")

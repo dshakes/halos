@@ -3,7 +3,7 @@
 # with a direct Anthropic upstream for users/experiments that bypass Bedrock.
 # `opus` and `default` show provider-agnostic routing (halo-proxy only): a model
 # upgrade or provider move is a policy change. See `halo gateway routes`.
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Gateway
 name: acme-gateway
 baseURL: https://ai.acme.example

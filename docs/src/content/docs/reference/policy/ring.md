@@ -9,7 +9,7 @@ Generated from `schemas/ring.schema.json`; do not edit. Nested fields use dotted
 
 | Field | Type | Required | Default | Allowed values | Constraints | Description |
 |---|---|---|---|---|---|---|
-| `apiVersion` | string | yes |  | const halos.dev/v1alpha1 |  | Document version. |
+| `apiVersion` | string | yes |  | const halos.dev/v1 |  | Document version. |
 | `kind` | string | yes |  | const Ring |  | Document kind. |
 | `labels` | object |  |  |  |  | Free-form labels. |
 | `labels.*` | string |  |  |  |  |  |

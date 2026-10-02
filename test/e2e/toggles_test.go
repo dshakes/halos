@@ -41,7 +41,7 @@ func TestToggles(t *testing.T) {
 	dir := t.TempDir()
 	pol := filepath.Join(dir, "policy")
 	gatewayPolicy(t, pol, iss.URL, "http://"+primary, "http://"+candidate)
-	writeFile(t, filepath.Join(pol, "toggles/e2e-flag.yaml"), `apiVersion: halos.dev/v1alpha1
+	writeFile(t, filepath.Join(pol, "toggles/e2e-flag.yaml"), `apiVersion: halos.dev/v1
 kind: Toggle
 name: e2e-flag
 owner: e2e
@@ -55,7 +55,7 @@ client:
     claude-code:
       env: {E2E_FLAG: "on"}
 `)
-	writeFile(t, filepath.Join(pol, "toggles/e2e-route.yaml"), `apiVersion: halos.dev/v1alpha1
+	writeFile(t, filepath.Join(pol, "toggles/e2e-route.yaml"), `apiVersion: halos.dev/v1
 kind: Toggle
 name: e2e-route
 owner: e2e
@@ -71,7 +71,7 @@ traffic:
 	// group-targeted toggles: a client env flag, and a traffic route for a second alias
 	replaceIn(t, filepath.Join(pol, "gateway.yaml"), "  sonnet: {upstream: primary, model: claude-sonnet-4-5}\n",
 		"  sonnet: {upstream: primary, model: claude-sonnet-4-5}\n  haiku: {upstream: primary, model: claude-haiku-4-5}\n")
-	writeFile(t, filepath.Join(pol, "toggles/e2e-group.yaml"), `apiVersion: halos.dev/v1alpha1
+	writeFile(t, filepath.Join(pol, "toggles/e2e-group.yaml"), `apiVersion: halos.dev/v1
 kind: Toggle
 name: e2e-group
 owner: e2e
@@ -85,7 +85,7 @@ client:
     claude-code:
       env: {E2E_GROUP: "on"}
 `)
-	writeFile(t, filepath.Join(pol, "toggles/e2e-route-grp.yaml"), `apiVersion: halos.dev/v1alpha1
+	writeFile(t, filepath.Join(pol, "toggles/e2e-route-grp.yaml"), `apiVersion: halos.dev/v1
 kind: Toggle
 name: e2e-route-grp
 owner: e2e

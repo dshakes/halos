@@ -12,7 +12,7 @@ A [toggle](/halos/concepts/toggles/) turns one capability on for a cohort and ca
 Create `toggles/linear-mcp.yaml`:
 
 ```yaml
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Toggle
 name: linear-mcp
 description: Linear MCP server for a quarter of the canary ring

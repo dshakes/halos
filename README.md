@@ -96,7 +96,7 @@ A `Rollout` is an ordered list of steps. Each step sets:
 - gates: metric guardrails, an eval scorecard, a human approval
 
 ```yaml
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Rollout
 name: opus-5-5-upgrade
 axis: traffic                    # client: a CLI/config release · traffic: a model route

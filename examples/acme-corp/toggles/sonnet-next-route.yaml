@@ -1,7 +1,7 @@
 # yaml-language-server: $schema=../../../schemas/toggle.schema.json
 # Traffic toggle: the gateway routes alias "sonnet" for ring0 straight to the
 # newer model. Clients keep asking for "sonnet"; nothing is rendered on devices.
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Toggle
 name: sonnet-next-route
 description: Route the sonnet alias to the next Sonnet for the harness team

@@ -1,5 +1,5 @@
 # Overlay: a second concurrent 50/50 traffic canary, on the haiku alias (per-alias experiment selection).
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Experiment
 name: haiku-next-canary
 type: canary

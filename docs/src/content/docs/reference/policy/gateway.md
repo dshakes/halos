@@ -9,7 +9,7 @@ Generated from `schemas/gateway.schema.json`; do not edit. Nested fields use dot
 
 | Field | Type | Required | Default | Allowed values | Constraints | Description |
 |---|---|---|---|---|---|---|
-| `apiVersion` | string | yes |  | const halos.dev/v1alpha1 |  | Document version. |
+| `apiVersion` | string | yes |  | const halos.dev/v1 |  | Document version. |
 | `auth` | object | yes |  |  |  | How clients obtain a credential for the auth gateway. |
 | `auth.helperCommand` | string |  |  |  |  | Command that prints a short-lived token (Claude apiKeyHelper, Codex env_key source, ...). |
 | `auth.identityHeader` | string |  |  |  |  | Header the auth gateway sets with the verified user id. |
