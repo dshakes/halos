@@ -131,6 +131,8 @@ type Agent struct {
 	ringRel *cachedRing
 	// groups are the device's IdP groups from the ring endpoint (loop goroutine only).
 	groups []string
+	// immutableWarned: the immutable-flag failure was logged this run (loop goroutine only).
+	immutableWarned bool
 }
 
 type cachedRing struct {
@@ -511,6 +513,7 @@ func (a *Agent) apply(ctx context.Context, st *Status, prev State, ring, subject
 				errs = append(errs, fmt.Errorf("remove stale %s: %w", p, err))
 				continue
 			}
+			a.immutable(a.path(p), false)
 			if err := os.Remove(a.path(p)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 				errs = append(errs, fmt.Errorf("remove stale %s: %w", p, err))
 				owned[p] = true // still ours; retry next cycle
@@ -550,7 +553,7 @@ func (a *Agent) ensureFile(f release.FileEntry, data []byte, sameRelease bool) (
 	if fi, err := os.Lstat(p); err == nil && !fi.Mode().IsRegular() {
 		// symlink or special file where a managed file belongs: replace it
 		// (rename swaps the link itself; nothing is followed)
-		return sameRelease, writeAtomic(p, data, fs.FileMode(f.Mode&0o777))
+		return sameRelease, a.write(p, data, fs.FileMode(f.Mode&0o777))
 	}
 	cur, rerr := os.ReadFile(p)
 	if rerr == nil {
@@ -558,9 +561,13 @@ func (a *Agent) ensureFile(f release.FileEntry, data []byte, sameRelease bool) (
 		if hex.EncodeToString(sum[:]) == f.SHA256 {
 			if runtime.GOOS != "windows" {
 				if fi, err := os.Stat(p); err == nil && uint32(fi.Mode().Perm()) != f.Mode&0o777 {
-					return sameRelease, os.Chmod(p, fs.FileMode(f.Mode&0o777))
+					a.immutable(p, false)
+					err := os.Chmod(p, fs.FileMode(f.Mode&0o777))
+					a.immutable(p, true)
+					return sameRelease, err
 				}
 			}
+			a.immutable(p, true) // re-applied each cycle: someone may have cleared it
 			return false, nil
 		}
 		drift = sameRelease
@@ -569,7 +576,60 @@ func (a *Agent) ensureFile(f release.FileEntry, data []byte, sameRelease bool) (
 	} else {
 		return false, rerr
 	}
-	return drift, writeAtomic(p, data, fs.FileMode(f.Mode&0o777))
+	return drift, a.write(p, data, fs.FileMode(f.Mode&0o777))
+}
+
+// write replaces managed file p atomically, clearing its immutable flag first
+// (a flagged file cannot be renamed over) and setting it again afterwards,
+// also when the write failed and the old file is still in place.
+func (a *Agent) write(p string, data []byte, mode fs.FileMode) error {
+	a.immutable(p, false)
+	err := writeAtomic(p, data, mode)
+	a.immutable(p, true)
+	return err
+}
+
+// immutable sets (on) or clears the system-immutable flag on managed file p
+// when halod.yaml sets immutable: chflags schg|noschg on macOS, chattr +i|-i
+// on Linux. Only a regular file is touched (both tools follow symlinks). A
+// missing tool or permission is logged once per run and otherwise ignored:
+// the flag is hardening on top of drift restore, not a precondition.
+func (a *Agent) immutable(p string, on bool) {
+	if !a.Cfg.Immutable {
+		return
+	}
+	if fi, err := os.Lstat(p); err != nil || !fi.Mode().IsRegular() {
+		return
+	}
+	name, flag := immutableCmd(a.Cfg.OS, on)
+	var err error
+	var out []byte
+	if name == "" {
+		err = fmt.Errorf("not supported on %s", a.Cfg.OS)
+	} else {
+		out, err = a.Run(context.Background(), name, flag, p)
+	}
+	if err != nil && !a.immutableWarned {
+		a.immutableWarned = true
+		a.log().Warn("immutable: could not change the flag on a managed file; continuing without it (logged once per run)",
+			"cmd", strings.TrimSpace(name+" "+flag), "path", p, "err", err, "output", strings.TrimSpace(string(out)))
+	}
+}
+
+func immutableCmd(goos string, on bool) (name, flag string) {
+	switch goos {
+	case "darwin":
+		if on {
+			return "chflags", "schg"
+		}
+		return "chflags", "noschg"
+	case "linux":
+		if on {
+			return "chattr", "+i"
+		}
+		return "chattr", "-i"
+	}
+	return "", ""
 }
 
 // writeAtomic creates path's directory (managedDir secures a new managed

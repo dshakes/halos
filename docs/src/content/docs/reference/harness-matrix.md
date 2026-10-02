@@ -9,7 +9,7 @@ The capability sets below are what `halo harnesses` prints (from each adapter's 
 `make uat-clis` runs the real Claude Code 2.1.280, Codex 0.99.0, Gemini CLI 0.34.0 and Copilot CLI 1.0.90 against `halod`-applied config on every PR (`test/uat/CLI-REPORT.md`). Cells marked UNVERIFIED there, for example Copilot `disableBypassPermissionsMode` and Copilot gateway routing, are documentation-sourced only. Golden tests check the *rendered bytes*, not the CLI's behavior.
 :::
 
-Legend: **Rendered** = the adapter writes the harness's native enforcement. **`halod`** = the CLI cannot enforce it, so Halos's agent installs the pinned version and reports drift (a local admin can defeat it). **No** = not rendered; the adapter emits a warning in the release manifest rather than dropping the setting silently.
+Legend: **Rendered** = the adapter writes the harness's native enforcement. **`halod`** = the CLI cannot enforce it, so Halos's agent installs the pinned version and reports drift. Root can stop `halod`, but on rings with `posture: enforce` the device then loses gateway access, and `versionGate: enforce` refuses CLI versions the ring does not pin (see [gateway gates](/halos/concepts/delivery/#gateway-gates)). **No** = not rendered; the adapter emits a warning in the release manifest rather than dropping the setting silently.
 
 ```bash
 halo harnesses                 # table
