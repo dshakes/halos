@@ -1,0 +1,12 @@
+{
+  "name": "halos",
+  "version": "0.1.0",
+  "description": "Onboard onto Halos and drive rollouts of Claude Code, Codex, Gemini CLI and Copilot CLI from Gemini CLI, with human approval at every irreversible step.",
+  "mcpServers": {
+    "halos": {
+      "command": "halo",
+      "args": ["mcp", "serve", "--policy-dir", "."]
+    }
+  },
+  "contextFileName": "GEMINI.md"
+}
