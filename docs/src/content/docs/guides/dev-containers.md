@@ -3,8 +3,8 @@ title: Dev containers
 description: Apply a Halos release inside a Dev Container with the Halos Feature.
 ---
 
-:::caution[UNVERIFIED end to end]
-The Feature lives in `features/halos/` and its options below are read from `devcontainer-feature.json`. `make uat-clis` runs the Feature's `install.sh` in a `node:22` container against a local TLS registry; it has not been built with the devcontainer CLI or run in Codespaces (**UNVERIFIED**).
+:::caution[Verified in CI, not in Codespaces]
+The Feature lives in `features/halos/` and its options below are read from `devcontainer-feature.json`. CI builds it with the devcontainer CLI (`scripts/ci-devcontainer.sh`): a fixture dev container applies a real signed release from a TLS registry and the pinned Claude Code and the managed settings land in the container, and this repo's own `.devcontainer` is built and brought up. `make uat-clis` also runs the Feature's `install.sh` against all four CLIs. Not run: Codespaces, the `firewall` option (needs `NET_ADMIN`) and a published Feature OCI artifact (**UNVERIFIED**).
 :::
 
 ## What the Feature does
