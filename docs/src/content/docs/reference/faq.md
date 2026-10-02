@@ -61,7 +61,7 @@ No, by design. See [ADR-0004](/halos/adr/0004-shadow-single-turn-only/). Use rep
 
 ## Can Halos auto-promote?
 
-No. The controller may trip the kill switch on a rollback verdict (an instant return to control), but only when the evidence came through the authenticated gateway receiver and `halo-server` serves a kill list. It opens PRs, but promotion is a PR a human merges. It never merges anything.
+No. The controller may trip the kill switch on a rollback verdict (a return to control at the next poll, about 10 s at gateways and 60 s on devices, plus the controller tick), but only when the evidence came through the authenticated gateway receiver and `halo-server` serves a kill list. It opens PRs, but promotion is a PR a human merges. It never merges anything.
 
 ## Does Codex support version pinning?
 

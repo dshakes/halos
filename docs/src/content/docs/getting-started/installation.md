@@ -6,7 +6,7 @@ sidebar:
 ---
 
 :::note[No tagged release yet]
-Build from source. `.goreleaser.yaml` is configured for checksummed, SBOM-carrying, cosign-signed archives, but it has not been run for a tag, so treat that pipeline as **UNVERIFIED**. Container images referenced by the Helm chart are placeholders until images are published.
+Build from source. `.goreleaser.yaml` is configured for checksummed, SBOM-carrying, cosign-signed archives, but it has not been run for a tag, so treat that pipeline as **UNVERIFIED**. The Helm chart's images default to the chart `appVersion` (currently 0.1.0); set each component's `image.tag` to the release you install.
 :::
 
 ## Components

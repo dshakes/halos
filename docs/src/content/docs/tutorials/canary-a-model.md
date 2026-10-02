@@ -99,7 +99,7 @@ opus   1   bedrock-use1      bedrock    arn:…/p7q2opus41bb        …
 opus   2   anthropic-direct  anthropic  claude-opus-4-1-20250805  …
 ```
 
-After the pause and recompile, `dev59` is back on the control route. `halo-proxy` and `halo-kong` hot-reload the compiled policy. For an instant stop with no PR, use the signed kill list: [Kill a bad change in 10 seconds](/halos/tutorials/kill-a-bad-change/).
+After the pause and recompile, `dev59` is back on the control route. `halo-proxy` and `halo-kong` hot-reload the compiled policy. For a stop with no PR (effective at the next poll, about 10 s at gateways and 60 s on devices), use the signed kill list: [Kill a bad change in 10 seconds](/halos/tutorials/kill-a-bad-change/).
 
 ## What just happened
 

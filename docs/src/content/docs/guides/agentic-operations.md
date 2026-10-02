@@ -35,6 +35,9 @@ Read tools are always on and annotated read-only.
 | `explain_release_diff` | Diff two `release.tar` files and summarize per-harness version changes |
 | `eval_scorecard` | Read a scorecard JSON produced by `halo eval run --output json` |
 | `analyze_experiment` | Verdict `promote`, `rollback`, `continue` or `expired`. Only with `--clickhouse` |
+| `list_rollouts`, `rollout_status` | Rollouts, their live step, and gate values against thresholds |
+| `list_toggles`, `evaluate_toggle` | Toggles, and the rule trace for a user |
+| `eval_matrix`, `upgrade_candidates` | Expand an eval suite's matrix without running it; list upstream CLI and model candidates |
 
 Resources: `halos://policy/<path>` (every policy file) and `halos://schema/<kind>` (JSON Schema for `profile`, `experiment`, `gateway`, and so on). Prompts: `plan-cli-upgrade`, `plan-model-upgrade`, `triage-experiment`.
 
@@ -47,6 +50,8 @@ Write tools exist only with `--allow-writes`:
 | `start_experiment`, `pause_experiment`, `conclude_experiment` | Set the experiment's `status` in policy YAML |
 | `propose_promotion` | Open a PR pointing a ring at a release and concluding the experiment. **Requires a `promote` verdict** |
 | `propose_rollback` | Pause an experiment and optionally re-point a ring at a known-good release **in policy YAML**. Does not touch the registry |
+| `propose_rollout_advance`, `propose_rollout_rollback` | Move a rollout to its next step or abort it in policy YAML (advance is refused when a gate failed) |
+| `propose_toggle_change` | Change a toggle's default, a rule's rollout percent or its expiry |
 
 Rules enforced in code, not just in the prompt:
 
@@ -56,7 +61,7 @@ Rules enforced in code, not just in the prompt:
 4. **No tool publishes a release, retags a registry ring, signs a pointer, merges, or pushes to a default branch** (`propose_promotion` pushes only its own review branch to open the PR). These are `halo release publish`, `promote`, `refresh`, `halo rollback` and a human clicking merge, and they are deliberately absent. Do not add one ([AGENTS.md](https://github.com/dshakes/halos/blob/main/AGENTS.md)).
 5. **Status transitions are constrained:** `start` from draft, paused or unset; `pause` from running; `conclude` from running or paused.
 
-Because promotion is a PR and rollback in policy is a PR-or-branch, the agent's worst case is a reviewable diff that a human rejects. Note the asymmetry: `propose_rollback` edits policy, which is not the same as the instant rollback the human performs with `halo rollback` (new signed pointer) or by pausing a traffic-axis experiment.
+Because promotion is a PR and rollback in policy is a PR-or-branch, the agent's worst case is a reviewable diff that a human rejects. Note the asymmetry: `propose_rollback` edits policy, which is not the same as the fast rollback a human performs with `halo kill` (effective at the next poll) or `halo rollback` (a new signed pointer, picked up on the next `halod` pull).
 
 ## Claude Code plugin
 

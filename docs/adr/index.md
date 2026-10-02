@@ -17,6 +17,6 @@ Decisions that shape Halos. New ADRs use [MADR](https://adr.github.io/madr/): co
 | [0006](/halos/adr/0006-go-and-kong-go-pdk/) | Go, with the Kong Go PDK |
 | [0007](/halos/adr/0007-guardrails-in-go-not-opa/) | Guardrails in Go, Rego pluggable later |
 | [0008](/halos/adr/0008-signed-ring-pointers-and-verified-artifacts/) | Signed ring pointers and verified artifacts (refines 0005) |
-| [0009](/halos/adr/0009-signed-kill-switch/) | Signed, instant kill switch for experiments |
+| [0009](/halos/adr/0009-signed-kill-switch/) | Signed, poll-based kill switch for experiments |
 
 The canonical files live in `docs/adr/` in the repository; the docs build copies them into the site.

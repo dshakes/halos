@@ -192,7 +192,7 @@ const p = proof();
             <a class="stat" href={`${gh}/blob/main/test/uat/CLI-REPORT.md`}>
               <span class="big" data-count>{p.clis.pass} pass</span>
               <span class="lbl">checks on the real CLIs: {p.clis.versions}</span>
-              <span class="src">{p.clis.fail} known environmental fails, {p.clis.unverified} UNVERIFIED · {p.clis.date} · test/uat/CLI-REPORT.md</span>
+              <span class="src">{p.clis.fail} known environmental fails (no Landlock on the recording host; CI requires them to pass), {p.clis.unverified} UNVERIFIED · local run {p.clis.date} · test/uat/CLI-REPORT.md</span>
             </a>
             <a class="stat" href={`${gh}/blob/main/docs/src/content/docs/tutorials/kill-a-bad-change.md`}>
               <span class="big" data-count>{p.kill}</span>

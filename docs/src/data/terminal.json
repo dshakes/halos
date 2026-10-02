@@ -9,7 +9,7 @@
    "out": "create halos.yaml\nnext: halo explain --policy-dir .   (the full policy this expands to)\nnext: halo validate --policy-dir ."
   },
   {
-   "cmd": "halo upgrade start claude-code 2.1.286",
+   "cmd": "halo upgrade start claude-code 2.1.286  # needs HALO_REGISTRY + HALO_KEY, and ring3-ga already published as the baseline",
    "ms": 273,
    "out": "Signing ring ring1-canary.x-claude-code-2.1.286-canary.next \u2192 version claude-code-2.1.286-x-claude-code-2.1.286-canary.next (digest sha256:534762a6afe095d3bfd4991ea507241f9a301c68dd2ba3257f2555ff8325670a, seq 1790874803)\nok published 127.0.0.1:5056/acme/halos vclaude-code-2.1.286 (sha256:8350dc789e85dfde1450643bc88f3818294f9fbf47b6c4389946644cca0d65ba); no ring pointer moved\nok published channel ring1-canary.x-claude-code-2.1.286-canary.next (sha256:534762a6afe095d3bfd4991ea507241f9a301c68dd2ba3257f2555ff8325670a): reached only once the experiment runs\ncreate experiments/claude-code-2.1.286-canary.yaml\ncreate profiles/claude-code-2.1.286.yaml\ncreate rings/ring0-team.yaml\ncreate rings/ring1-canary.yaml\ncreate rings/ring2-early.yaml\ncreate rings/ring3-ga.yaml\ncreate rollouts/claude-code-2.1.286.yaml\nnext: start it: merge this, then `halo rollout advance claude-code-2.1.286 --reason ...` opens the first step's PR\nnext: after it completes, set halos.yaml tools.claude-code to 2.1.286 so new releases keep the pin"
   },

@@ -9,16 +9,12 @@ description: Install halo and halod on macOS, Linux and Windows, in CI, in dev c
 **`halo`** is the CLI you run in CI and on your workstation. **`halod`** is the fleet agent; it runs as root on each machine and applies the ring's signed release. Every channel below installs the same checksummed archives from a GitHub release. Always pin a version in automation; `v0.4.0` below is an example tag.
 
 :::caution[No tagged release yet]
-The channels below are configured in `.goreleaser.yaml`, the installers and the CI integrations, but no tag has been cut. Until one is, they are **UNVERIFIED**; [build from source](/halos/getting-started/installation/#from-source).
+The channels below are configured in `.goreleaser.yaml`, the installers and the CI integrations, but no tag has been cut. Until one is, they are **UNVERIFIED**. The binaries, deb/rpm/apk packages and `install.sh`/`install.ps1` come from the GitHub release. Homebrew and Scoop publish only after the `HOMEBREW_TAP_TOKEN` release secret and the `dshakes/scoop-bucket` repo are set up (neither exists yet; see RELEASING.md), and winget is submitted by hand; [build from source](/halos/getting-started/installation/#from-source).
 :::
 
 ## macOS
 
-```sh
-brew install dshakes/tap/halo
-```
-
-Or use the script, which works on macOS and Linux and needs no sudo:
+Homebrew (`brew install dshakes/tap/halo`) is not available until the tap is published. Use the script, which works on macOS and Linux and needs no sudo:
 
 ```sh
 curl -fsSLO https://raw.githubusercontent.com/dshakes/halos/v0.4.0/install/install.sh
@@ -37,12 +33,7 @@ The `halo` and `halod` packages (deb, rpm, apk) install to `/usr/bin`. `halod` s
 
 ## Windows
 
-```powershell
-scoop bucket add dshakes https://github.com/dshakes/scoop-bucket
-scoop install halo
-```
-
-Or, from an **elevated** PowerShell:
+Scoop is not available until the bucket repo exists. Use `install.ps1` from the release, from an **elevated** PowerShell:
 
 ```powershell
 .\install.ps1 -Version v0.4.0 -WithAgent         # to $env:ProgramFiles\Halos
@@ -102,7 +93,7 @@ policy-check:
 helm install halos deploy/helm/halos --namespace halos --create-namespace
 ```
 
-The chart runs `halo-server`, `halo-proxy` and `halo-shadow`, with an optional OTel collector and a Kong plugin resource. The image references are placeholders until images are published. See [production deployment](/halos/guides/production-deployment/).
+The chart runs `halo-server`, `halo-proxy` and `halo-shadow`, with an optional OTel collector and a Kong plugin resource. Images default to `ghcr.io/dshakes/halo-*:<chart appVersion>` (currently 0.1.0), which will not match a later release; set each component's `image.tag` to the version you install (for example `--set server.image.tag=0.4.0`). See [production deployment](/halos/guides/production-deployment/).
 
 ## Check
 

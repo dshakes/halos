@@ -12,7 +12,7 @@ Halos overlaps with three kinds of tool without replacing any of them outright. 
 | Main job | Admin and enforce one vendor's tool | Route, meter and govern LLM API calls | Control app features and run experiments | Release and roll out AI-CLI configuration, route model traffic by cohort |
 | Spans several AI CLIs | No, one vendor each | Indirectly, via API compatibility | Not designed for it | Yes: Claude Code, Codex, Gemini CLI, Copilot CLI (rendered and applied by `halod` on Linux; no gateway render) |
 | Config as signed, versioned releases | No | No | No | Yes |
-| Rings and instant rollback | Limited to what the vendor offers | Not for client config | Rollouts, but for app code | Rings, signed pointers, kill switch |
+| Rings and rollback without a release | Limited to what the vendor offers | Not for client config | Rollouts, but for app code | Rings, signed pointers, kill switch |
 | Spend limits, virtual keys, budgets | Vendor-specific | Core strength | No | Not a goal |
 | Many providers behind one API | No | Core strength | No | A handful (Anthropic, Bedrock, Vertex, OpenAI, Azure OpenAI, Gemini) |
 | Polished admin UI | Yes | Usually | Yes | Basic console and portal |

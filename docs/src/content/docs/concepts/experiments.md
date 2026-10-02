@@ -22,7 +22,7 @@ Traffic first: [ADR-0003](/halos/adr/0003-experiments-on-traffic-plane-first/).
 
 - Deterministic: `hash(user, salt) % 10000` mapped over normalized variant weights. `salt` defaults to the experiment name so experiments are independent.
 - **Sticky per user.** Because the variant is a function of the user, an agent session never switches model mid-task. Shadow sampling is keyed on the session id the harness sends (for example Claude Code's `x-claude-code-session-id`), so a whole session is either mirrored or not.
-- The cohort comes from the identity the gateway verified (OIDC JWT), never from a client header. A request with no verified identity gets default routing and no experiments.
+- The cohort comes from the identity the gateway verified (OIDC JWT), never from a client header. A request with no verified identity is refused with 401; only with anonymous access enabled (`allow_unverified` / the proxy's `allowAnonymous`) does it get default routing and no experiments.
 - At most one A/B or canary applies to a request (the first matching running experiment); any number of running shadow experiments can sample it.
 
 <img class="diagram dark:sl-hidden" src="/halos/diagrams/variant-assignment-light.svg" alt="The verified identity is hashed with the experiment salt into 10,000 buckets; the weight bucket picks control (current route) or candidate (routes override), and the gateway stamps x-halo-variant." width="760" />
@@ -88,12 +88,13 @@ Walkthrough: [A/B a CLI upgrade](/halos/guides/cli-upgrade-ab/). Design: [ADR-00
 
 ```yaml
 metrics:
-  primary: {metric: halo.task.success, direction: increase}
+  primary: {metric: halo.edit.accept_rate, direction: increase}
   guardrails:
     - {metric: halo.cost.usd_per_session, direction: decrease, maxRegression: 0.10}
 stopping: {method: msprt, alpha: 0.05, minSamples: 300, maxDays: 14, maxSpendUSD: 500}
 ```
 
+- This snippet is for a client-axis experiment. A traffic-axis experiment must use gateway-sourced metrics (`halo.api.error_rate`, `halo.latency.p50_ms`, `halo.latency.p95_ms`); `halo.task.success` is offline-eval only.
 - `msprt`: mixture sequential probability ratio test, valid under continuous monitoring (no peeking penalty). `fixed`: fixed horizon.
 - Guardrail `maxRegression` is relative worsening that aborts the experiment (0.10 = 10%).
 - `maxDays` and `maxSpendUSD` are hard ceilings so a non-converging experiment stops spending.

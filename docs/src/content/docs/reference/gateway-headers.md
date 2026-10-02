@@ -16,7 +16,7 @@ Headers owned by the gateway (from `internal/gateway/decision.go`):
 ## Rules
 
 1. **Everything under `x-halo-` is owned by the gateway.** Every client-supplied `x-halo-*` header is discarded before anything is computed, even if the host's header list was truncated.
-2. The cohort is derived from the identity the gateway **verified**: the caller's OIDC JWT (issuer, audience, expiry), or, in `trusted_header` mode, headers set by a proxy whose address is in `trustedProxyCIDRs`. It is never taken from a client-provided value. No verified identity means ring `unknown`, default routing and no experiments.
+2. The cohort is derived from the identity the gateway **verified**: the caller's OIDC JWT (issuer, audience, expiry), or, in `trusted_header` mode, headers set by a proxy whose address is in `trustedProxyCIDRs`. It is never taken from a client-provided value. No verified identity means 401, or, with `allowAnonymous` / `allow_unverified`, ring `unknown`, default routing and no experiments.
 3. The configured identity and groups headers are removed from the forwarded request once the subject is derived. In `trusted_header` mode a request carrying either header twice is a 400. The identity header may not be an `x-halo-*` name.
 4. Upstream services (auth gateway, orchestrator) may trust `x-halo-*` only if they are unreachable except through the gateway.
 
@@ -31,7 +31,7 @@ When an experiment is on the gateway's [kill list](/halos/concepts/experiments/#
 
 ## Errors
 
-Rejections are rendered in the caller's wire format so the CLI prints the reason: 403 for a model that is not a policy alias or for the batches API, 404 for an unknown model endpoint, 413 for an oversize or unreadable body, 401 for a failed JWT (unless `allowAnonymous`), 503 while the policy is not loaded or when `trusted_header` has no CIDR pin.
+Rejections are rendered in the caller's wire format so the CLI prints the reason: 400 (`invalid_request_error`) for a model that is not a policy alias or for the batches API, 404 for an unknown model endpoint, 413 for an oversize or unreadable body, 401 for a failed JWT (unless `allowAnonymous`), 503 while the policy is not loaded or when `trusted_header` has no CIDR pin.
 
 ## Shadow authentication
 

@@ -76,7 +76,7 @@ curl -s https://ai.acme.example/v1/messages -H "Authorization: Bearer $TOKEN" \
   -d '{"model":"sonnet","max_tokens":16,"messages":[{"role":"user","content":"ping"}]}'
 ```
 
-**Check:** the request succeeds; asking for an alias not in `models` returns 403 `permission_error`; and a forged `x-halo-ring` does not change the ring your orchestrator sees. The compose demo reproduces all three against mocks.
+**Check:** the request succeeds; asking for an alias not in `models` returns 400 `invalid_request_error`; and a forged `x-halo-ring` does not change the ring your orchestrator sees. The compose demo reproduces all three against mocks.
 
 ## 5. Kill switch (optional)
 

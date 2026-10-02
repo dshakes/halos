@@ -21,7 +21,7 @@ Files (root-owned; `halod` refuses to start otherwise):
 | Config | `/Library/Halos/etc/halod.yaml` | `/etc/halos/halod.yaml` |
 | Public key | `/Library/Halos/etc/release.pub` | `/etc/halos/release.pub` |
 | State | `/Library/Halos/var/state.json` | `/var/lib/halos/state.json` |
-| Service | `cmd/halod/packaging/dev.halos.halod.plist` | `cmd/halod/packaging/halod.service` |
+| Service | `cmd/halod/packaging/dev.halos.halod.plist` | `deploy/packaging/halod.service` |
 
 ```yaml
 # halod.yaml

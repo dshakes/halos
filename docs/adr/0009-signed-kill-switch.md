@@ -1,11 +1,11 @@
 ---
-title: "ADR-0009: Signed, instant kill switch for experiments"
+title: "ADR-0009: Signed, poll-based kill switch for experiments"
 description: Gateways poll a signed kill list from halo-server so a bad experiment can be switched off in seconds without a PR merge.
 status: accepted
 date: 2026-09-30
 ---
 
-# ADR-0009: Signed, instant kill switch for experiments
+# ADR-0009: Signed, poll-based kill switch for experiments
 
 - Status: accepted (extends ADR-0003 and the guardrail rollback in the experiments design)
 - Date: 2026-09-30
