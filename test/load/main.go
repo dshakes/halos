@@ -92,7 +92,7 @@ func drive(ctx context.Context, url, tok, body string, n int, d time.Duration) r
 				resp, err := cl.Do(req)
 				if err == nil {
 					_, err = io.Copy(io.Discard, resp.Body)
-					resp.Body.Close()
+					_ = resp.Body.Close()
 					if err == nil && resp.StatusCode != 200 {
 						err = fmt.Errorf("status %d", resp.StatusCode)
 					}
@@ -129,9 +129,9 @@ func newMock(name string, lat time.Duration) *mock {
 	m := &mock{name: name}
 	m.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		m.hits.Add(1)
-		io.Copy(io.Discard, r.Body)
+		_, _ = io.Copy(io.Discard, r.Body)
 		if m.failing.Load() {
-			http.Error(w, `{"error":"overloaded"}`, 503)
+			http.Error(w, `{"error":"overloaded"}`, http.StatusServiceUnavailable)
 			return
 		}
 		if s := r.URL.Query().Get("sse"); s != "" {
@@ -167,7 +167,7 @@ func longSSE(url, tok string, secs int) (string, bool) {
 	if err != nil {
 		return "request: " + err.Error(), false
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	b, err := io.ReadAll(resp.Body)
 	n := strings.Count(string(b), "event: ping")
 	ok := err == nil && n == secs && strings.Contains(string(b), "message_stop")
@@ -187,7 +187,7 @@ func scrape(admin string, pid int) sample {
 	resp, err := http.Get("http://" + admin + "/metrics")
 	if err == nil {
 		b, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		for _, l := range strings.Split(string(b), "\n") {
 			f := strings.Fields(l)
 			if len(f) == 2 && f[0] == "go_goroutines" {
@@ -210,7 +210,7 @@ func metric(admin, prefix string) string {
 	if err != nil {
 		return err.Error()
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	b, _ := io.ReadAll(resp.Body)
 	var out []string
 	for _, l := range strings.Split(string(b), "\n") {
@@ -223,7 +223,7 @@ func metric(admin, prefix string) string {
 
 func freeAddr() string {
 	l, _ := net.Listen("tcp", "127.0.0.1:0")
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 	return l.Addr().String()
 }
 
@@ -284,7 +284,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(dir)
+	defer func() { _ = os.RemoveAll(dir) }()
 	pol, err := policy.Compile(org)
 	if err != nil {
 		return err
@@ -309,7 +309,7 @@ func run() error {
 	defer func() { _ = cmd.Process.Kill(); _, _ = cmd.Process.Wait() }()
 	for i := 0; ; i++ {
 		if resp, err := http.Get("http://" + admin + "/healthz"); err == nil && resp.StatusCode == 200 {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			break
 		}
 		if i > 100 {
