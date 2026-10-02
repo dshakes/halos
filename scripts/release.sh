@@ -49,7 +49,7 @@ if [ "$branch" = main ]; then ok "on main"; else fail "on '${branch:-detached HE
 
 if [ -z "$(git status --porcelain)" ]; then ok "working tree clean"; else fail "working tree is dirty (git status)"; fi
 
-git fetch -q origin main --tags || die "git fetch origin failed"
+git fetch -q origin +refs/heads/main:refs/remotes/origin/main --tags || die "git fetch origin failed"
 HEAD=$(git rev-parse HEAD)
 if [ "$HEAD" = "$(git rev-parse origin/main)" ]; then ok "HEAD is origin/main (${HEAD:0:12})"
 else fail "HEAD ${HEAD:0:12} != origin/main $(git rev-parse --short=12 origin/main); pull or push first"; fi
