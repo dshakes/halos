@@ -87,7 +87,7 @@ claude mcp add halos -- halo mcp serve --policy-dir /path/to/policy --allow-writ
 | Skill | `halos-rollout` | End-to-end CLI or model upgrade: scope, draft YAML, validate, plan, eval, **stop for approval**, start, monitor, **stop for approval**, propose promotion |
 | Skill | `halos-author-policy` | Edit profiles, rings and experiments; always validates; reads schemas and existing files first |
 | Skill | `halos-triage` | Diagnose a failing guardrail and propose a rollback |
-| Command | `/halo-onboard [try\|machine\|company]` | Starts the onboarding skill |
+| Command | `/halos:halo-onboard [try\|machine\|company]` | Starts the onboarding skill |
 | Command | `/halo-rollout <harness\|model> <target>` | Starts the rollout skill |
 | Command | `/halo-status` | Read-only table of rings, experiments and verdicts |
 | Agent | `halos-release-manager` | Read-mostly subagent (Sonnet) limited to read tools and `halo validate\|plan\|exp list\|exp show\|exp analyze`; proposes, never changes anything |
@@ -124,4 +124,4 @@ Inside a Halos checkout, Copilot CLI loads `.github/mcp.json` (the `halos` serve
 copilot mcp add halos -- halo mcp serve --policy-dir /path/to/policy-repo --allow-writes   # ~/.copilot/mcp-config.json
 ```
 
-**UNVERIFIED:** the Gemini extension and Copilot files follow each CLI's documented formats (`gemini-extension.json` with `mcpServers` and `contextFileName`; `.github/mcp.json` with `mcpServers.<name>.type: local`); the Copilot files were not run against a Copilot install.
+The Gemini extension was installed and enabled by `gemini extensions install` with Gemini CLI 0.26.0 (it lists the `halos` server and the `GEMINI.md` context); an onboarding session in Gemini was not run. **UNVERIFIED:** the Copilot files follow the documented format (`.github/mcp.json` with `mcpServers.<name>.type: local`, `.github/copilot-instructions.md`) but were not run against a Copilot install.

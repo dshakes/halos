@@ -48,7 +48,7 @@ Three ways in, each driven by hand or by the AI CLI you already use ([Start here
 
 | | First command | From your CLI |
 |---|---|---|
-| **Try it** (~2 min, Docker) | `halo quickstart` | Claude Code `/halo-onboard try` |
+| **Try it** (~2 min, Docker) | `halo quickstart` | Claude Code `/halos:halo-onboard try` |
 | **My machine** (pin your CLIs, manage their config, local proxy, verified round trip) | `halo doctor`, then `halo onboard local` | Codex `$halos-onboard` |
 | **My company** (policy repo, gateway, IdP, fleet delivery, first PR) | `halo onboard company` | Gemini CLI / Copilot CLI: "onboard me onto Halos" |
 

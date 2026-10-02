@@ -15,7 +15,7 @@ Pick a path. Each one can be driven by an agent (Claude Code, Codex, Gemini CLI,
 
 | CLI | Say or type | Setup |
 |---|---|---|
-| Claude Code | `/halo-onboard try` (or `machine`, `company`) | `/plugin marketplace add ./plugins/claude-code` then `/plugin install halos@halos`, from a Halos checkout |
+| Claude Code | `/halos:halo-onboard try` (or `machine`, `company`) | `/plugin marketplace add ./plugins/claude-code` then `/plugin install halos@halos`, from a Halos checkout |
 | Codex | `$halos-onboard` | Run `codex` inside a Halos checkout (the skill is in `.agents/skills`); MCP snippet in [`.codex/README.md`](https://github.com/dshakes/halos/blob/main/.codex/README.md) |
 | Gemini CLI | "onboard me onto Halos" | `gemini extensions install ./extensions/gemini/halos` (or `link`), from a Halos checkout |
 | Copilot CLI | "onboard me onto Halos" | Run `copilot` inside a Halos checkout: `.github/mcp.json` adds the server and `.github/copilot-instructions.md` the rules |
