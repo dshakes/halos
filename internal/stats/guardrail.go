@@ -82,7 +82,8 @@ func zeroBaseline(res GuardrailResult, control, treatment []float64, direction s
 	v := variance(control)/float64(len(control)) + variance(treatment)/float64(len(treatment))
 	lo, hi := d, d // no variance: the difference is exact
 	if v > 0 {
-		// Mixture sd: the observed spread (power only, not validity).
+		// Mixture sd: the pooled observed spread, since a zero baseline has no
+		// natural scale. Like the plug-in variance, this makes validity approximate.
 		tau2 := variance(append(append([]float64{}, control...), treatment...))
 		sr := NewMSPRT(alpha, tau2).ObserveEstimate(d, v, len(control), len(treatment))
 		lo, hi = sr.CILo, sr.CIHi
