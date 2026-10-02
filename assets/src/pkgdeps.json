@@ -18,6 +18,7 @@
         "internal/harness/all",
         "internal/intent",
         "internal/mcpserver",
+        "internal/onboard",
         "internal/policy",
         "internal/promote",
         "internal/release",
@@ -247,6 +248,8 @@
         "internal/eval",
         "internal/harness",
         "internal/harness/all",
+        "internal/intent",
+        "internal/onboard",
         "internal/policy",
         "internal/promote",
         "internal/release",
@@ -254,6 +257,17 @@
         "internal/toggle",
         "internal/upgrade",
         "internal/yamledit"
+      ]
+    },
+    {
+      "path": "internal/onboard",
+      "imports": [
+        "internal/fsutil",
+        "internal/harness",
+        "internal/harness/all",
+        "internal/intent",
+        "internal/policy",
+        "internal/release"
       ]
     },
     {

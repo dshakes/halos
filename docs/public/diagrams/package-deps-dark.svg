@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 629" width="760" height="629" role="img" aria-labelledby="t d" font-family="ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 640" width="760" height="640" role="img" aria-labelledby="t d" font-family="ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif">
 <title id="t">Package dependency map</title>
-<desc id="d">Dependency structure matrix of the 45 packages under cmd/ and internal/, ordered by layer (leaves first). A dot in row r, column c means package r imports package c; every dot is below the diagonal because Go forbids import cycles. Generated from go list (assets/src/pkgdeps.json).</desc>
+<desc id="d">Dependency structure matrix of the 46 packages under cmd/ and internal/, ordered by layer (leaves first). A dot in row r, column c means package r imports package c; every dot is below the diagonal because Go forbids import cycles. Generated from go list (assets/src/pkgdeps.json).</desc>
 <style>
 .cv{fill:#0c0c10;stroke:#1e1e24;stroke-width:1.5}
 .card{fill:#121217;stroke:#2a2a31;stroke-width:1.5}
@@ -50,7 +50,7 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <linearGradient id="gs" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="760" y2="0"><stop offset="0" stop-color="#ffb547" stop-opacity="0.12"/><stop offset="1" stop-color="#ff7a4d" stop-opacity="0.12"/></linearGradient>
 <filter id="sh" x="-10%" y="-10%" width="120%" height="140%"><feDropShadow dx="0" dy="1" stdDeviation="1.6" flood-color="#000000" flood-opacity="0.5"/></filter>
 </defs>
-<rect class="cv" x=".75" y=".75" width="758.5" height="627.5" rx="16"/>
+<rect class="cv" x=".75" y=".75" width="758.5" height="638.5" rx="16"/>
 <text class="k ka" x="24" y="34">CMD/ + INTERNAL/ · GO LIST, DIRECT NON-TEST IMPORTS</text>
 <text class="xs" x="736" y="34" text-anchor="end">row imports column</text>
 <text class="m" x="194" y="78.6" text-anchor="end">cmd/halo/scaffold</text>
@@ -73,10 +73,10 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <text class="xs" x="214" y="166.6" text-anchor="end">9</text>
 <text class="m" x="194" y="177.6" text-anchor="end">telemetry/synth</text>
 <text class="xs" x="214" y="177.6" text-anchor="end">10</text>
-<rect class="fs" x="220" y="180" width="495" height="11"/>
+<rect class="fs" x="220" y="180" width="506" height="11"/>
 <text class="m" x="194" y="188.6" text-anchor="end">policy</text>
 <text class="xs" x="214" y="188.6" text-anchor="end">11</text>
-<rect class="fs" x="220" y="191" width="495" height="11"/>
+<rect class="fs" x="220" y="191" width="506" height="11"/>
 <text class="m" x="194" y="199.6" text-anchor="end">tools/gendocs</text>
 <text class="xs" x="214" y="199.6" text-anchor="end">12</text>
 <text class="m" x="194" y="210.6" text-anchor="end">gateway/kong</text>
@@ -89,13 +89,13 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <text class="xs" x="214" y="243.6" text-anchor="end">16</text>
 <text class="m" x="194" y="254.6" text-anchor="end">yamledit</text>
 <text class="xs" x="214" y="254.6" text-anchor="end">17</text>
-<rect class="fs" x="220" y="257" width="495" height="11"/>
+<rect class="fs" x="220" y="257" width="506" height="11"/>
 <text class="m" x="194" y="265.6" text-anchor="end">gateway/upstreamauth</text>
 <text class="xs" x="214" y="265.6" text-anchor="end">18</text>
-<rect class="fs" x="220" y="268" width="495" height="11"/>
+<rect class="fs" x="220" y="268" width="506" height="11"/>
 <text class="m" x="194" y="276.6" text-anchor="end">harness/hutil</text>
 <text class="xs" x="214" y="276.6" text-anchor="end">19</text>
-<rect class="fs" x="220" y="279" width="495" height="11"/>
+<rect class="fs" x="220" y="279" width="506" height="11"/>
 <text class="m" x="194" y="287.6" text-anchor="end">promote</text>
 <text class="xs" x="214" y="287.6" text-anchor="end">20</text>
 <text class="m" x="194" y="298.6" text-anchor="end">harness/claudecode</text>
@@ -110,10 +110,10 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <text class="xs" x="214" y="342.6" text-anchor="end">25</text>
 <text class="m" x="194" y="353.6" text-anchor="end">toggle</text>
 <text class="xs" x="214" y="353.6" text-anchor="end">26</text>
-<rect class="fs" x="220" y="356" width="495" height="11"/>
+<rect class="fs" x="220" y="356" width="506" height="11"/>
 <text class="m" x="194" y="364.6" text-anchor="end">harness/all</text>
 <text class="xs" x="214" y="364.6" text-anchor="end">27</text>
-<rect class="fs" x="220" y="367" width="495" height="11"/>
+<rect class="fs" x="220" y="367" width="506" height="11"/>
 <text class="m" x="194" y="375.6" text-anchor="end">release</text>
 <text class="xs" x="214" y="375.6" text-anchor="end">28</text>
 <text class="m" x="194" y="386.6" text-anchor="end">bundle</text>
@@ -122,40 +122,42 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <text class="xs" x="214" y="397.6" text-anchor="end">30</text>
 <text class="m" x="194" y="408.6" text-anchor="end">gateway</text>
 <text class="xs" x="214" y="408.6" text-anchor="end">31</text>
-<rect class="fs" x="220" y="411" width="495" height="11"/>
-<text class="m" x="194" y="419.6" text-anchor="end">cmd/halod</text>
+<text class="m" x="194" y="419.6" text-anchor="end">onboard</text>
 <text class="xs" x="214" y="419.6" text-anchor="end">32</text>
-<rect class="fs" x="220" y="422" width="495" height="11"/>
-<text class="m" x="194" y="430.6" text-anchor="end">delivery/devcontainer</text>
+<rect class="fs" x="220" y="422" width="506" height="11"/>
+<text class="m" x="194" y="430.6" text-anchor="end">cmd/halod</text>
 <text class="xs" x="214" y="430.6" text-anchor="end">33</text>
-<rect class="fs" x="220" y="433" width="495" height="11"/>
-<text class="m" x="194" y="441.6" text-anchor="end">shadow</text>
+<rect class="fs" x="220" y="433" width="506" height="11"/>
+<text class="m" x="194" y="441.6" text-anchor="end">delivery/devcontainer</text>
 <text class="xs" x="214" y="441.6" text-anchor="end">34</text>
-<text class="m" x="194" y="452.6" text-anchor="end">cmd/halo-kong</text>
+<rect class="fs" x="220" y="444" width="506" height="11"/>
+<text class="m" x="194" y="452.6" text-anchor="end">shadow</text>
 <text class="xs" x="214" y="452.6" text-anchor="end">35</text>
-<text class="m" x="194" y="463.6" text-anchor="end">cmd/halo-proxy</text>
+<text class="m" x="194" y="463.6" text-anchor="end">cmd/halo-kong</text>
 <text class="xs" x="214" y="463.6" text-anchor="end">36</text>
-<text class="m" x="194" y="474.6" text-anchor="end">cmd/halo-shadow</text>
+<text class="m" x="194" y="474.6" text-anchor="end">cmd/halo-proxy</text>
 <text class="xs" x="214" y="474.6" text-anchor="end">37</text>
-<text class="m" x="194" y="485.6" text-anchor="end">eval</text>
+<text class="m" x="194" y="485.6" text-anchor="end">cmd/halo-shadow</text>
 <text class="xs" x="214" y="485.6" text-anchor="end">38</text>
-<rect class="fs" x="220" y="488" width="495" height="11"/>
-<text class="m" x="194" y="496.6" text-anchor="end">rollout</text>
+<text class="m" x="194" y="496.6" text-anchor="end">eval</text>
 <text class="xs" x="214" y="496.6" text-anchor="end">39</text>
-<rect class="fs" x="220" y="499" width="495" height="11"/>
-<text class="m" x="194" y="507.6" text-anchor="end">upgrade</text>
+<rect class="fs" x="220" y="499" width="506" height="11"/>
+<text class="m" x="194" y="507.6" text-anchor="end">rollout</text>
 <text class="xs" x="214" y="507.6" text-anchor="end">40</text>
-<text class="m" x="194" y="518.6" text-anchor="end">controller</text>
+<rect class="fs" x="220" y="510" width="506" height="11"/>
+<text class="m" x="194" y="518.6" text-anchor="end">upgrade</text>
 <text class="xs" x="214" y="518.6" text-anchor="end">41</text>
-<text class="m" x="194" y="529.6" text-anchor="end">mcpserver</text>
+<text class="m" x="194" y="529.6" text-anchor="end">controller</text>
 <text class="xs" x="214" y="529.6" text-anchor="end">42</text>
-<rect class="fs" x="220" y="532" width="495" height="11"/>
-<text class="m" x="194" y="540.6" text-anchor="end">server</text>
+<text class="m" x="194" y="540.6" text-anchor="end">mcpserver</text>
 <text class="xs" x="214" y="540.6" text-anchor="end">43</text>
-<text class="m" x="194" y="551.6" text-anchor="end">cmd/halo</text>
+<rect class="fs" x="220" y="543" width="506" height="11"/>
+<text class="m" x="194" y="551.6" text-anchor="end">server</text>
 <text class="xs" x="214" y="551.6" text-anchor="end">44</text>
-<text class="m" x="194" y="562.6" text-anchor="end">cmd/halo-server</text>
+<text class="m" x="194" y="562.6" text-anchor="end">cmd/halo</text>
 <text class="xs" x="214" y="562.6" text-anchor="end">45</text>
+<text class="m" x="194" y="573.6" text-anchor="end">cmd/halo-server</text>
+<text class="xs" x="214" y="573.6" text-anchor="end">46</text>
 <text class="xs" x="225.5" y="62" text-anchor="middle">1</text>
 <text class="xs" x="280.5" y="62" text-anchor="middle">6</text>
 <text class="xs" x="335.5" y="62" text-anchor="middle">11</text>
@@ -165,8 +167,9 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <text class="xs" x="555.5" y="62" text-anchor="middle">31</text>
 <text class="xs" x="610.5" y="62" text-anchor="middle">36</text>
 <text class="xs" x="665.5" y="62" text-anchor="middle">41</text>
-<path class="lm" d="M220 70L715 565"/>
-<rect class="ghost" x="220" y="70" width="495" height="495" rx="2"/>
+<text class="xs" x="720.5" y="62" text-anchor="middle">46</text>
+<path class="lm" d="M220 70L726 576"/>
+<rect class="ghost" x="220" y="70" width="506" height="506" rx="2"/>
 <circle class="ft" cx="236.5" cy="185.5" r="3"/>
 <circle class="ft" cx="247.5" cy="196.5" r="3"/>
 <circle class="ft" cx="335.5" cy="207.5" r="3"/>
@@ -218,104 +221,113 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <circle class="ft" cx="511.5" cy="405.5" r="3"/>
 <circle class="ft" cx="335.5" cy="405.5" r="3"/>
 <circle class="ft" cx="500.5" cy="405.5" r="3"/>
-<circle class="fa" cx="533.5" cy="416.5" r="3"/>
-<circle class="fa" cx="258.5" cy="416.5" r="3"/>
-<circle class="fa" cx="555.5" cy="416.5" r="3"/>
-<circle class="fa" cx="368.5" cy="416.5" r="3"/>
-<circle class="fa" cx="511.5" cy="416.5" r="3"/>
-<circle class="fa" cx="335.5" cy="416.5" r="3"/>
-<circle class="fa" cx="522.5" cy="416.5" r="3"/>
-<circle class="fa" cx="500.5" cy="416.5" r="3"/>
-<circle class="ft" cx="544.5" cy="427.5" r="3"/>
-<circle class="ft" cx="522.5" cy="427.5" r="3"/>
-<circle class="ft" cx="258.5" cy="438.5" r="3"/>
-<circle class="ft" cx="555.5" cy="438.5" r="3"/>
-<circle class="ft" cx="335.5" cy="438.5" r="3"/>
-<circle class="fa" cx="533.5" cy="449.5" r="3"/>
-<circle class="fa" cx="555.5" cy="449.5" r="3"/>
-<circle class="fa" cx="390.5" cy="449.5" r="3"/>
-<circle class="fa" cx="335.5" cy="449.5" r="3"/>
-<circle class="fa" cx="588.5" cy="449.5" r="3"/>
+<circle class="ft" cx="258.5" cy="416.5" r="3"/>
+<circle class="ft" cx="368.5" cy="416.5" r="3"/>
+<circle class="ft" cx="511.5" cy="416.5" r="3"/>
+<circle class="ft" cx="489.5" cy="416.5" r="3"/>
+<circle class="ft" cx="335.5" cy="416.5" r="3"/>
+<circle class="ft" cx="522.5" cy="416.5" r="3"/>
+<circle class="fa" cx="533.5" cy="427.5" r="3"/>
+<circle class="fa" cx="258.5" cy="427.5" r="3"/>
+<circle class="fa" cx="555.5" cy="427.5" r="3"/>
+<circle class="fa" cx="368.5" cy="427.5" r="3"/>
+<circle class="fa" cx="511.5" cy="427.5" r="3"/>
+<circle class="fa" cx="335.5" cy="427.5" r="3"/>
+<circle class="fa" cx="522.5" cy="427.5" r="3"/>
+<circle class="fa" cx="500.5" cy="427.5" r="3"/>
+<circle class="ft" cx="544.5" cy="438.5" r="3"/>
+<circle class="ft" cx="522.5" cy="438.5" r="3"/>
+<circle class="ft" cx="258.5" cy="449.5" r="3"/>
+<circle class="ft" cx="555.5" cy="449.5" r="3"/>
+<circle class="ft" cx="335.5" cy="449.5" r="3"/>
 <circle class="fa" cx="533.5" cy="460.5" r="3"/>
 <circle class="fa" cx="555.5" cy="460.5" r="3"/>
-<circle class="fa" cx="412.5" cy="460.5" r="3"/>
 <circle class="fa" cx="390.5" cy="460.5" r="3"/>
 <circle class="fa" cx="335.5" cy="460.5" r="3"/>
-<circle class="fa" cx="588.5" cy="460.5" r="3"/>
-<circle class="fa" cx="313.5" cy="460.5" r="3"/>
+<circle class="fa" cx="599.5" cy="460.5" r="3"/>
+<circle class="fa" cx="533.5" cy="471.5" r="3"/>
 <circle class="fa" cx="555.5" cy="471.5" r="3"/>
-<circle class="fa" cx="588.5" cy="471.5" r="3"/>
-<circle class="ft" cx="588.5" cy="482.5" r="3"/>
-<circle class="ft" cx="291.5" cy="482.5" r="3"/>
-<circle class="ft" cx="632.5" cy="493.5" r="3"/>
-<circle class="ft" cx="258.5" cy="493.5" r="3"/>
-<circle class="ft" cx="335.5" cy="493.5" r="3"/>
-<circle class="ft" cx="434.5" cy="493.5" r="3"/>
+<circle class="fa" cx="412.5" cy="471.5" r="3"/>
+<circle class="fa" cx="390.5" cy="471.5" r="3"/>
+<circle class="fa" cx="335.5" cy="471.5" r="3"/>
+<circle class="fa" cx="599.5" cy="471.5" r="3"/>
+<circle class="fa" cx="313.5" cy="471.5" r="3"/>
+<circle class="fa" cx="555.5" cy="482.5" r="3"/>
+<circle class="fa" cx="599.5" cy="482.5" r="3"/>
+<circle class="ft" cx="599.5" cy="493.5" r="3"/>
 <circle class="ft" cx="291.5" cy="493.5" r="3"/>
-<circle class="ft" cx="401.5" cy="493.5" r="3"/>
-<circle class="ft" cx="632.5" cy="504.5" r="3"/>
+<circle class="ft" cx="643.5" cy="504.5" r="3"/>
 <circle class="ft" cx="258.5" cy="504.5" r="3"/>
-<circle class="ft" cx="368.5" cy="504.5" r="3"/>
-<circle class="ft" cx="511.5" cy="504.5" r="3"/>
 <circle class="ft" cx="335.5" cy="504.5" r="3"/>
 <circle class="ft" cx="434.5" cy="504.5" r="3"/>
-<circle class="ft" cx="522.5" cy="504.5" r="3"/>
+<circle class="ft" cx="291.5" cy="504.5" r="3"/>
 <circle class="ft" cx="401.5" cy="504.5" r="3"/>
+<circle class="ft" cx="643.5" cy="515.5" r="3"/>
 <circle class="ft" cx="258.5" cy="515.5" r="3"/>
+<circle class="ft" cx="368.5" cy="515.5" r="3"/>
+<circle class="ft" cx="511.5" cy="515.5" r="3"/>
 <circle class="ft" cx="335.5" cy="515.5" r="3"/>
 <circle class="ft" cx="434.5" cy="515.5" r="3"/>
-<circle class="ft" cx="643.5" cy="515.5" r="3"/>
+<circle class="ft" cx="522.5" cy="515.5" r="3"/>
 <circle class="ft" cx="401.5" cy="515.5" r="3"/>
-<circle class="ft" cx="632.5" cy="526.5" r="3"/>
-<circle class="ft" cx="368.5" cy="526.5" r="3"/>
-<circle class="ft" cx="511.5" cy="526.5" r="3"/>
+<circle class="ft" cx="258.5" cy="526.5" r="3"/>
 <circle class="ft" cx="335.5" cy="526.5" r="3"/>
 <circle class="ft" cx="434.5" cy="526.5" r="3"/>
-<circle class="ft" cx="522.5" cy="526.5" r="3"/>
-<circle class="ft" cx="643.5" cy="526.5" r="3"/>
-<circle class="ft" cx="500.5" cy="526.5" r="3"/>
 <circle class="ft" cx="654.5" cy="526.5" r="3"/>
 <circle class="ft" cx="401.5" cy="526.5" r="3"/>
-<circle class="ft" cx="533.5" cy="537.5" r="3"/>
-<circle class="ft" cx="665.5" cy="537.5" r="3"/>
-<circle class="ft" cx="258.5" cy="537.5" r="3"/>
-<circle class="ft" cx="555.5" cy="537.5" r="3"/>
+<circle class="ft" cx="643.5" cy="537.5" r="3"/>
 <circle class="ft" cx="368.5" cy="537.5" r="3"/>
 <circle class="ft" cx="511.5" cy="537.5" r="3"/>
-<circle class="ft" cx="390.5" cy="537.5" r="3"/>
+<circle class="ft" cx="489.5" cy="537.5" r="3"/>
+<circle class="ft" cx="566.5" cy="537.5" r="3"/>
 <circle class="ft" cx="335.5" cy="537.5" r="3"/>
 <circle class="ft" cx="434.5" cy="537.5" r="3"/>
-<circle class="ft" cx="643.5" cy="537.5" r="3"/>
+<circle class="ft" cx="522.5" cy="537.5" r="3"/>
+<circle class="ft" cx="654.5" cy="537.5" r="3"/>
 <circle class="ft" cx="500.5" cy="537.5" r="3"/>
+<circle class="ft" cx="665.5" cy="537.5" r="3"/>
 <circle class="ft" cx="401.5" cy="537.5" r="3"/>
-<circle class="fa" cx="225.5" cy="548.5" r="3"/>
-<circle class="fa" cx="533.5" cy="548.5" r="3"/>
-<circle class="fa" cx="665.5" cy="548.5" r="3"/>
-<circle class="fa" cx="577.5" cy="548.5" r="3"/>
-<circle class="fa" cx="544.5" cy="548.5" r="3"/>
-<circle class="fa" cx="247.5" cy="548.5" r="3"/>
-<circle class="fa" cx="632.5" cy="548.5" r="3"/>
-<circle class="fa" cx="258.5" cy="548.5" r="3"/>
-<circle class="fa" cx="555.5" cy="548.5" r="3"/>
-<circle class="fa" cx="357.5" cy="548.5" r="3"/>
-<circle class="fa" cx="368.5" cy="548.5" r="3"/>
-<circle class="fa" cx="511.5" cy="548.5" r="3"/>
-<circle class="fa" cx="489.5" cy="548.5" r="3"/>
-<circle class="fa" cx="676.5" cy="548.5" r="3"/>
-<circle class="fa" cx="335.5" cy="548.5" r="3"/>
-<circle class="fa" cx="434.5" cy="548.5" r="3"/>
-<circle class="fa" cx="522.5" cy="548.5" r="3"/>
-<circle class="fa" cx="643.5" cy="548.5" r="3"/>
-<circle class="fa" cx="687.5" cy="548.5" r="3"/>
-<circle class="fa" cx="302.5" cy="548.5" r="3"/>
-<circle class="fa" cx="500.5" cy="548.5" r="3"/>
-<circle class="fa" cx="654.5" cy="548.5" r="3"/>
-<circle class="fa" cx="401.5" cy="548.5" r="3"/>
+<circle class="ft" cx="533.5" cy="548.5" r="3"/>
+<circle class="ft" cx="676.5" cy="548.5" r="3"/>
+<circle class="ft" cx="258.5" cy="548.5" r="3"/>
+<circle class="ft" cx="555.5" cy="548.5" r="3"/>
+<circle class="ft" cx="368.5" cy="548.5" r="3"/>
+<circle class="ft" cx="511.5" cy="548.5" r="3"/>
+<circle class="ft" cx="390.5" cy="548.5" r="3"/>
+<circle class="ft" cx="335.5" cy="548.5" r="3"/>
+<circle class="ft" cx="434.5" cy="548.5" r="3"/>
+<circle class="ft" cx="654.5" cy="548.5" r="3"/>
+<circle class="ft" cx="500.5" cy="548.5" r="3"/>
+<circle class="ft" cx="401.5" cy="548.5" r="3"/>
+<circle class="fa" cx="225.5" cy="559.5" r="3"/>
 <circle class="fa" cx="533.5" cy="559.5" r="3"/>
-<circle class="fa" cx="665.5" cy="559.5" r="3"/>
+<circle class="fa" cx="676.5" cy="559.5" r="3"/>
+<circle class="fa" cx="588.5" cy="559.5" r="3"/>
+<circle class="fa" cx="544.5" cy="559.5" r="3"/>
+<circle class="fa" cx="247.5" cy="559.5" r="3"/>
+<circle class="fa" cx="643.5" cy="559.5" r="3"/>
+<circle class="fa" cx="258.5" cy="559.5" r="3"/>
+<circle class="fa" cx="555.5" cy="559.5" r="3"/>
+<circle class="fa" cx="357.5" cy="559.5" r="3"/>
+<circle class="fa" cx="368.5" cy="559.5" r="3"/>
+<circle class="fa" cx="511.5" cy="559.5" r="3"/>
+<circle class="fa" cx="489.5" cy="559.5" r="3"/>
+<circle class="fa" cx="687.5" cy="559.5" r="3"/>
+<circle class="fa" cx="566.5" cy="559.5" r="3"/>
 <circle class="fa" cx="335.5" cy="559.5" r="3"/>
 <circle class="fa" cx="434.5" cy="559.5" r="3"/>
-<circle class="fa" cx="687.5" cy="559.5" r="3"/>
-<text class="s" x="24" y="599">45 packages, 149 import edges, 13 layers (shaded bands alternate by layer).</text>
-<text class="xs" x="24" y="617">Gold dots: a binary under cmd/ importing an internal package.</text>
+<circle class="fa" cx="522.5" cy="559.5" r="3"/>
+<circle class="fa" cx="654.5" cy="559.5" r="3"/>
+<circle class="fa" cx="698.5" cy="559.5" r="3"/>
+<circle class="fa" cx="302.5" cy="559.5" r="3"/>
+<circle class="fa" cx="500.5" cy="559.5" r="3"/>
+<circle class="fa" cx="665.5" cy="559.5" r="3"/>
+<circle class="fa" cx="401.5" cy="559.5" r="3"/>
+<circle class="fa" cx="533.5" cy="570.5" r="3"/>
+<circle class="fa" cx="676.5" cy="570.5" r="3"/>
+<circle class="fa" cx="335.5" cy="570.5" r="3"/>
+<circle class="fa" cx="434.5" cy="570.5" r="3"/>
+<circle class="fa" cx="698.5" cy="570.5" r="3"/>
+<text class="s" x="24" y="610">46 packages, 158 import edges, 13 layers (shaded bands alternate by layer).</text>
+<text class="xs" x="24" y="628">Gold dots: a binary under cmd/ importing an internal package.</text>
 </svg>

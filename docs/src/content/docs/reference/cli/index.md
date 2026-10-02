@@ -41,7 +41,7 @@ halo
 | [`halo mcp`](/halos/reference/cli/mcp/) | Model Context Protocol server for agents |
 | [`halo model`](/halos/reference/cli/model/) | Change which model an alias routes to |
 | [`halo onboard`](/halos/reference/cli/onboard/) | Agent-friendly onboarding steps: detect, local, install, proxy, verify, company (dry run unless --apply) |
-| [`halo plan`](/halos/reference/cli/plan/) | Diff the release a ring would get against a previous release |
+| [`halo plan`](/halos/reference/cli/plan/) | Diff the release a ring would get against a previous release (or show it whole for a first release) |
 | [`halo quickstart`](/halos/reference/cli/quickstart/) | Try it: bring up the whole stack on Docker (make demo), open the console and print a guided tour |
 | [`halo release`](/halos/reference/cli/release/) | Build, publish and promote releases |
 | [`halo render`](/halos/reference/cli/render/) | Render a ring's harness config files under --out, mirroring absolute paths |

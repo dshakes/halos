@@ -115,6 +115,10 @@ func TestOnboardCompanyCLI(t *testing.T) {
 	if code, _, _ = halo(t, "validate", "--policy-dir", dir); code != 0 {
 		t.Fatal("company repo does not validate")
 	}
+	// The generated CI workflow and README run plan with no baseline (the first release).
+	if code, out, errOut = halo(t, "plan", "--policy-dir", dir, "--ring", "ring3-ga"); code != 0 || !strings.Contains(out, "+") {
+		t.Fatalf("plan without --against: exit %d\n%s%s", code, out, errOut)
+	}
 	if code, _, errOut = halo(t, append(args, "--apply")...); code != 0 {
 		t.Fatalf("rerun: %s", errOut)
 	}
