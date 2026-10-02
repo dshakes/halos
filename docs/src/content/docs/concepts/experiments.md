@@ -95,7 +95,7 @@ stopping: {method: msprt, alpha: 0.05, minSamples: 300, maxDays: 14, maxSpendUSD
 ```
 
 - `msprt`: mixture sequential probability ratio test, valid under continuous monitoring (no peeking penalty). `fixed`: fixed horizon.
-- Guardrail `maxRegression` is relative worsening that aborts the experiment (0.10 = 10%).
+- Guardrail `maxRegression` is relative worsening that aborts the experiment (0.10 = 10%). When the control's value is 0 (an error rate with no control errors), relative worsening is unbounded: any significant increase fails the guardrail, and two arms that are both exactly 0 pass it.
 - `maxDays` and `maxSpendUSD` are hard ceilings so a non-converging experiment stops spending.
 - Analysis: mSPRT for sequential decisions and bootstrap confidence intervals (`internal/stats`), with CUPED variance reduction available in the stats package.
 

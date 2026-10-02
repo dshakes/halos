@@ -43,6 +43,21 @@ func TestEvaluate(t *testing.T) {
 			"halo.cost.usd_per_session": {"control": normals(rng, n, costC, 1), "candidate": normals(rng, n, costT, 1)},
 		}
 	}
+	// The traffic guardrail `halo model switch --canary` generates, over a
+	// control with no errors (per-unit error rates, candidate failing trtErr of units).
+	errGuard := func(e *policy.Experiment) {
+		e.Metrics.Guardrails = append(e.Metrics.Guardrails, policy.MetricGoal{Metric: "halo.api.error_rate", Direction: "decrease", MaxRegression: 0.05})
+	}
+	withErrs := func(d map[string]map[string][]float64, trtErr float64) map[string]map[string][]float64 {
+		c, tr := make([]float64, 1000), make([]float64, 1000)
+		for i := range tr {
+			if rng.Float64() < trtErr {
+				tr[i] = 1
+			}
+		}
+		d["halo.api.error_rate"] = map[string][]float64{"control": c, "candidate": tr}
+		return d
+	}
 	tests := []struct {
 		name  string
 		src   *MemorySource
@@ -50,6 +65,8 @@ func TestEvaluate(t *testing.T) {
 		tweak func(*policy.Experiment)
 		want  Verdict
 	}{
+		{"zero-error canary with a clear win promotes", &MemorySource{Start: start, Data: withErrs(mk(0.6, 0.7, 5, 5, 1000), 0)}, start.Add(48 * time.Hour), errGuard, Promote},
+		{"errors over a zero-error control roll back", &MemorySource{Start: start, Data: withErrs(mk(0.6, 0.6, 5, 5, 1000), 0.3)}, start.Add(48 * time.Hour), errGuard, Rollback},
 		{"clear win, guardrail ok", &MemorySource{Start: start, SpendUSD: 10, Data: mk(0.6, 0.7, 5, 5, 1000)}, start.Add(48 * time.Hour), nil, Promote},
 		{"clear win, fixed horizon", &MemorySource{Start: start, Data: mk(0.6, 0.7, 5, 5, 1000)}, start.Add(48 * time.Hour), func(e *policy.Experiment) { e.Stopping.Method = "fixed" }, Promote},
 		{"guardrail breach rolls back", &MemorySource{Start: start, Data: mk(0.6, 0.7, 5, 6, 1000)}, start.Add(48 * time.Hour), nil, Rollback},
