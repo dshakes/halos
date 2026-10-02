@@ -113,7 +113,14 @@ try {
   Write-Host '== halod service install --start (SYSTEM scheduled task)'
   Remove-Item -Force $settings
   Run $halod @('service', 'install', '--start')
-  Wait-Until { Test-Path $settings } 'the SYSTEM task to write managed settings' 90
+  try { Wait-Until { Test-Path $settings } 'the SYSTEM task to write managed settings' 90 } catch {
+    Write-Host '--- task diagnostics'
+    schtasks /Query /TN Halos /FO LIST /V
+    Get-ScheduledTaskInfo -TaskName Halos | Format-List *
+    Get-Process halod -ErrorAction SilentlyContinue | Format-Table Id, SessionId, Path
+    Get-ChildItem -Recurse (Join-Path $halos 'var') -ErrorAction SilentlyContinue | Format-Table FullName, Length
+    throw
+  }
   $q = (schtasks /Query /TN Halos /FO LIST /V) -join "`n"
   if ($q -notmatch 'Run As User:\s+SYSTEM') { Fail "task does not run as SYSTEM:`n$q" }
   if ($q -notmatch 'Status:\s+Running') { Fail "task is not running:`n$q" }

@@ -55,6 +55,7 @@ echo t > "$W/fleet.token"
 python3 -m http.server 18200 --bind 127.0.0.1 --directory "$W/srv" >"$W/files.log" 2>&1 & PIDS+=($!)
 halo-server --listen 127.0.0.1:18199 --policy-dir "$W/pol" --token-file "$W/fleet.token" --portal-config "$W/portal.json" \
   --data-dir "$W/data" --dev-insecure-user dev@acme.com --dev-insecure-admin >"$W/server.log" 2>&1 & PIDS+=($!)
+for _ in $(seq 30); do curl -fs "$FILES/halod" >/dev/null && break; sleep 1; done
 for _ in $(seq 30); do curl -fs "$BASE/healthz" >/dev/null && break; sleep 1; done
 
 echo "== enroll.sh"
