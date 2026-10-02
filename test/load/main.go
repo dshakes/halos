@@ -58,6 +58,7 @@ var (
 	model       = flag.String("model", "sonnet", "target mode: model alias to request")
 	token       = flag.String("token", "", "target mode: bearer token (or env LOAD_TOKEN)")
 	duration    = flag.Duration("duration", 30*time.Second, "target mode: how long to drive load")
+	rps         = flag.Int("rps", 0, "target mode: cap total request rate (0 = unthrottled closed loop)")
 	reqBody     = `{"model":"sonnet","messages":[{"role":"user","content":"hi"}],"max_tokens":8}`
 	foBody      = `{"model":"fo","messages":[{"role":"user","content":"hi"}],"max_tokens":8}`
 	failedAny   atomic.Bool
@@ -86,6 +87,9 @@ func (r result) String() string {
 func newClient() *http.Client {
 	return &http.Client{Transport: &http.Transport{MaxIdleConnsPerHost: 256, MaxConnsPerHost: 0}}
 }
+
+// driveRPS paces drive's workers to about this many requests/s in total (0 = closed loop).
+var driveRPS int
 
 // drive runs n closed-loop workers for d and returns sorted latencies.
 func drive(ctx context.Context, url, tok, body string, n int, d time.Duration) result {
@@ -562,6 +566,7 @@ func runTarget() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	body := fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"hi"}],"max_tokens":8}`, *model)
+	driveRPS = *rps
 	res := drive(ctx, *target, tok, body, *conc, *duration)
 	fmt.Println("  target load:", res)
 	for _, e := range res.samples {

@@ -139,6 +139,8 @@ done
 echo "uat-k8s: stack up after $((SECONDS - t0))s"
 
 # ---- HA checks: halo-proxy (2 replicas behind the ingress) under test/load traffic ----
+# -rps 200 on purpose: the UAT nginx ingress opens a fresh TCP connection per request to the proxy Service, so
+# ~1000 rps (an unthrottled load) exhausts its ~28k ephemeral ports within a minute (TIME_WAIT): 502s that are the harness, not the chart.
 # These run BEFORE the scenarios because the ops scenario ends with `helm uninstall`. The load tool
 # counts any non-200 or transport error as a failure; every disruption below must leave it at zero.
 # Pod deletion is the graceful path (SIGTERM, preStop sleep, drain), i.e. what drains, evictions
@@ -163,7 +165,7 @@ await_proxies() { # until 2 Ready and none terminating
   return 1
 }
 load_start() { # outfile; sets LOAD_PID
-  "$LOADBIN" -target "http://127.0.0.1:30088/v1/messages" -token "$HA_TOK" -model haiku -c 16 -duration 15m > "$1" 2>&1 &
+  "$LOADBIN" -target "http://127.0.0.1:30088/v1/messages" -token "$HA_TOK" -model haiku -c 8 -rps 200 -duration 15m > "$1" 2>&1 &
   LOAD_PID=$!
   sleep 5   # steady state before the disruption
 }
