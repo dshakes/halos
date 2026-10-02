@@ -66,7 +66,7 @@ func allowedPath(h, goos, p string) error {
 	if goos == "windows" {
 		return allowedWindows(h, p)
 	}
-	if !path.IsAbs(p) || path.Clean(p) != p || strings.Contains(p, "\\") {
+	if !path.IsAbs(p) || path.Clean(p) != p || strings.ContainsAny(p, "\\\x00") {
 		return fmt.Errorf("path %q is not clean and absolute", p)
 	}
 	for _, d := range managedDirs(h, goos) {
@@ -88,7 +88,10 @@ func allowedWindows(h, p string) error {
 		return fmt.Errorf("path %q is not an absolute C:\\ path", p)
 	}
 	for _, c := range strings.Split(rest, `\`) {
-		if c == "" || c == "." || c == ".." || strings.ContainsAny(c, `:*?"<>|`) {
+		// Win32 strips trailing dots and spaces (".. " becomes "..") and maps
+		// DOS device names (NUL, CON.json) to devices: refuse both.
+		if c == "" || c == "." || c == ".." || strings.ContainsAny(c, ":*?\"<>|\x00") ||
+			strings.TrimRight(c, ". ") != c || windowsDevice(c) {
 			return fmt.Errorf("path %q has an invalid component %q", p, c)
 		}
 	}
@@ -98,6 +101,16 @@ func allowedWindows(h, p string) error {
 		}
 	}
 	return fmt.Errorf("path %q is outside %s's managed locations on windows", p, h)
+}
+
+// windowsDevice reports a DOS device name, with or without an extension.
+func windowsDevice(c string) bool {
+	base, _, _ := strings.Cut(strings.ToUpper(strings.TrimRight(c, " ")), ".")
+	switch base {
+	case "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$":
+		return true
+	}
+	return len(base) == 4 && (strings.HasPrefix(base, "COM") || strings.HasPrefix(base, "LPT")) && base[3] >= '0' && base[3] <= '9'
 }
 
 // allowedAny is allowedPath for any known harness (stale-file removal, where
