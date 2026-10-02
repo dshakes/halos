@@ -54,8 +54,11 @@ func SeqGuardrail(control, treatment []float64, direction string, maxRegression,
 	if tau <= 0 {
 		tau = 0.05
 	}
-	sr := NewMSPRT(alpha, tau*tau).ObserveEstimate(r, vr, len(control), len(treatment))
-	lo, hi := sr.CILo, sr.CIHi
+	lo, hi := r, r // no variance (both arms constant): the estimate is exact, not unbounded
+	if vr > 0 {
+		sr := NewMSPRT(alpha, tau*tau).ObserveEstimate(r, vr, len(control), len(treatment))
+		lo, hi = sr.CILo, sr.CIHi
+	}
 	res.Regression = r
 	if direction == "increase" { // a drop is the regression
 		res.Regression, lo, hi = -r, -hi, -lo
