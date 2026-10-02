@@ -1,0 +1,64 @@
+# yaml-language-server: $schema=../../schemas/gateway.schema.json
+# Traffic path: CLI -> Kong (public) -> custom auth API gateway -> orchestrator -> Bedrock,
+# with a direct Anthropic upstream for users/experiments that bypass Bedrock.
+# `opus` and `default` show provider-agnostic routing (halo-proxy only): a model
+# upgrade or provider move is a policy change. See `halo gateway routes`.
+apiVersion: halos.dev/v1alpha1
+kind: Gateway
+name: acme-gateway
+baseURL: https://ai.acme.example
+protocols:
+  claude-code: anthropic-messages
+  codex: openai-responses
+  gemini-cli: gemini
+auth:
+  helperCommand: /usr/local/bin/acme-token
+  ttlSeconds: 3300
+  identityHeader: x-acme-user
+upstreams:
+  orchestrator:
+    url: https://orchestrator.internal.acme.example
+    kind: orchestrator
+    serves: [anthropic-messages] # Claude Code's wire; it translates to Bedrock
+  orchestrator-responses:
+    url: https://orchestrator.internal.acme.example # base URL: halo-proxy appends /v1/responses
+    kind: openai
+  anthropic-direct:
+    url: https://api.anthropic.com
+    kind: anthropic
+  bedrock-use1:
+    url: https://bedrock-runtime.us-east-1.amazonaws.com
+    kind: bedrock
+    region: us-east-1 # halo-proxy signs with its own AWS identity
+  gemini-proxy:
+    url: https://gemini-proxy.internal.acme.example
+    kind: gemini
+models:
+  sonnet:
+    upstream: orchestrator
+    model: arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/k3x9sonnet45a
+  opus:
+    targets:
+      - upstream: bedrock-use1 # primary (priority 0)
+        model: arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/p7q2opus41bb
+        timeoutSeconds: 30
+      - upstream: anthropic-direct # failover on connect error / 5xx / 429, before any byte streams
+        model: claude-opus-4-1-20250805
+        priority: 1
+  default:
+    targets: # 90/10 split, sticky per user+session
+      - upstream: anthropic-direct
+        model: claude-sonnet-4-5-20250929
+        weight: 90
+      - upstream: anthropic-direct
+        model: claude-opus-4-1-20250805
+        weight: 10
+  haiku:
+    upstream: orchestrator
+    model: arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/m4t8haiku45c
+  codex-default:
+    upstream: orchestrator-responses
+    model: gpt-5-codex
+  gemini-default:
+    upstream: gemini-proxy
+    model: gemini-2.5-pro

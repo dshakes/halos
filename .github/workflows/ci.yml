@@ -69,6 +69,8 @@ jobs:
       - run: scripts/ci-delivery-macos.sh
   action:
     # The composite Action itself (`uses: ./`) pinned to a real release, then halo validate.
+    # The pinned release predates halos.dev/v1, so it validates the v1alpha1 copy of the example
+    # (test/ci/policy-v1alpha1/README.md); switch back to examples/acme-corp with the next release.
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -80,7 +82,7 @@ jobs:
         with: {version: v0.1.0-rc.2}
       - run: |
           halo version
-          halo validate examples/acme-corp
+          halo validate test/ci/policy-v1alpha1
         shell: bash
       - name: with-agent installs halod too
         if: runner.os != 'Windows'

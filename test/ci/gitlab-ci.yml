@@ -9,7 +9,7 @@ halo-validate:
   image: buildpack-deps:bookworm-curl
   script:
     - halo version
-    - halo validate examples/acme-corp
+    - halo validate test/ci/policy-v1alpha1 # the pinned release predates halos.dev/v1; see its README
 unpinned-is-refused:
   extends: .halos
   image: buildpack-deps:bookworm-curl
