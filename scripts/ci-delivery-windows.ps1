@@ -121,7 +121,7 @@ try {
     Get-Process halod -ErrorAction SilentlyContinue | Format-Table Id, SessionId, Path
     Get-ChildItem -Recurse (Join-Path $halos 'var') -ErrorAction SilentlyContinue | Format-Table FullName, Length
     $log = 'C:\Windows\Temp\halod-system.log'
-    $cmd = "cmd /c `\"`\"$halod`\" run --config `\"$halos\etc\halod.yaml`\" --state `\"$halos\var\state.json`\" > $log 2>&1`\""
+    $cmd = 'cmd /c ""{0}" run --config "{1}" --state "{2}" > {3} 2>&1"' -f $halod, (Join-Path $halos 'etc\halod.yaml'), (Join-Path $halos 'var\state.json'), $log
     schtasks /Create /F /TN HalosDiag /RU SYSTEM /SC ONCE /ST 23:59 /TR $cmd | Out-Host
     schtasks /Run /TN HalosDiag | Out-Host
     Start-Sleep -Seconds 15
