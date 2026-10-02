@@ -238,7 +238,8 @@ func (e *Emitter) Run(ctx context.Context, onErr func(error)) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			if err := e.Flush(ctx); err != nil && onErr != nil {
+			// A flush cut short by ctx is shutdown, not an export failure; Flush after drain carries the tail.
+			if err := e.Flush(ctx); err != nil && ctx.Err() == nil && onErr != nil {
 				onErr(err)
 			}
 		}
