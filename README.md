@@ -240,10 +240,10 @@ Every component is implemented and covered by unit, race, e2e (`make e2e`) and e
 | `make uat-k8s` | a kind cluster with the Helm chart installed | [REPORT.md](test/uat/REPORT.md) |
 | `make uat-kong` | open-source Kong 3.9.3 with the `halo-kong` plugin | [KONG-REPORT.md](test/uat/KONG-REPORT.md) |
 
-Unit tests also run on Windows and macOS in CI.
+Unit tests also run on Windows and macOS in CI. A nightly [provider smoke](https://dshakes.github.io/halos/guides/provider-smoke/) sends real requests through `halo-proxy` to Anthropic and OpenAI (streaming and non-streaming) and checks the gateway metrics.
 
 Not yet exercised against the real systems:
-- AWS Bedrock, Vertex, Azure OpenAI, OpenAI and Gemini API accounts (fixture-tested only)
+- AWS Bedrock, Vertex, Azure OpenAI and Gemini API accounts (fixture-tested only; the nightly smoke covers them once their secrets are set)
 - Kong Enterprise
 - `halod` as a service on a real Windows machine, and the PowerShell installer and enroll scripts
 - MDM-managed devices
