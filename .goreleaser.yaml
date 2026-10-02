@@ -156,9 +156,9 @@ sboms:
   - artifacts: archive # requires syft on PATH
 signs:
   - cmd: cosign
-    signature: "${artifact}.sig"
-    certificate: "${artifact}.pem"
-    args: [sign-blob, --yes, "--output-signature=${signature}", "--output-certificate=${certificate}", "${artifact}"]
+    # cosign v3 writes one Sigstore bundle (signature + certificate + tlog proof).
+    signature: "${artifact}.sigstore.json"
+    args: [sign-blob, --yes, "--bundle=${signature}", "${artifact}"]
     artifacts: checksum # keyless: uses GitHub OIDC token
 changelog:
   use: github

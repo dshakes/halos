@@ -84,12 +84,11 @@ fetch() { curl -fsSL --proto '=https' --tlsv1.2 -o "$TMP/$1" "$BASE/$1" || die "
 
 fetch checksums.txt
 if command -v cosign >/dev/null 2>&1; then
-  fetch checksums.txt.sig
-  fetch checksums.txt.pem
+  fetch checksums.txt.sigstore.json
   cosign verify-blob \
     --certificate-identity "https://github.com/$REPO/.github/workflows/release.yml@refs/tags/$VERSION" \
     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-    --signature "$TMP/checksums.txt.sig" --certificate "$TMP/checksums.txt.pem" \
+    --bundle "$TMP/checksums.txt.sigstore.json" \
     "$TMP/checksums.txt" >/dev/null 2>&1 || die "cosign signature verification FAILED for checksums.txt"
   echo "install.sh: cosign signature verified"
 else

@@ -44,12 +44,11 @@ try {
   }
   Get-Asset 'checksums.txt'
   if (Get-Command cosign -ErrorAction SilentlyContinue) {
-    Get-Asset 'checksums.txt.sig'
-    Get-Asset 'checksums.txt.pem'
+    Get-Asset 'checksums.txt.sigstore.json'
     & cosign verify-blob `
       --certificate-identity "https://github.com/$Repo/.github/workflows/release.yml@refs/tags/$Version" `
       --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' `
-      --signature (Join-Path $tmp 'checksums.txt.sig') --certificate (Join-Path $tmp 'checksums.txt.pem') `
+      --bundle (Join-Path $tmp 'checksums.txt.sigstore.json') `
       (Join-Path $tmp 'checksums.txt') *> $null
     if ($LASTEXITCODE -ne 0) { throw 'install.ps1: cosign signature verification FAILED for checksums.txt' }
     Write-Host 'cosign signature verified'
