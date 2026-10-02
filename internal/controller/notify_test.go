@@ -258,3 +258,22 @@ func TestKillOutcomeWording(t *testing.T) {
 		})
 	}
 }
+
+// The webhook secret keys the HMAC and is never sent: not in the body, not in
+// a header, not in a delivery error.
+func TestWebhookSecretNeverSent(t *testing.T) {
+	const secret = "webhook-secret-LEAKCANARY"
+	srv, ch := capture(t, http.StatusInternalServerError)
+	err := (Webhook{URL: srv.URL, Secret: []byte(secret)}).Notify(context.Background(), testEvent())
+	got := <-ch
+	if err == nil {
+		t.Fatal("want HTTP 500 error")
+	}
+	wire := string(got.body) + err.Error()
+	for k, v := range got.hdr {
+		wire += k + strings.Join(v, ",")
+	}
+	if strings.Contains(wire, secret) {
+		t.Fatal("webhook secret left the process")
+	}
+}

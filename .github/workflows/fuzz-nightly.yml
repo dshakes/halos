@@ -1,0 +1,26 @@
+name: fuzz-nightly
+# Longer pass over every native Go fuzz target. Crashers are uploaded as an artifact;
+# commit them under testdata/fuzz as regression seeds.
+on:
+  schedule:
+    - cron: "41 3 * * *"
+  workflow_dispatch:
+    inputs:
+      fuzztime: {description: "per-target budget", default: "10m"}
+permissions:
+  contents: read
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with: {persist-credentials: false}
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with: {go-version-file: go.mod}
+      - run: ./scripts/fuzz.sh
+        env:
+          FUZZTIME: ${{ inputs.fuzztime || '10m' }}
+      - if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with: {name: fuzz-crashers, path: "**/testdata/fuzz/**", if-no-files-found: ignore}

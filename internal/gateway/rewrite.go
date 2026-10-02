@@ -55,7 +55,8 @@ func ForceNonStreaming(protocol, path string, body []byte) (string, []byte, erro
 }
 
 // setJSONField replaces one top-level field, preserving all other values
-// byte-for-byte (key order is normalised).
+// byte-for-byte (key order is normalised). Duplicate and case-variant copies of
+// key are dropped, so every parser reads the same value.
 func setJSONField(body []byte, key string, val any) ([]byte, error) {
 	var m map[string]json.RawMessage
 	if err := json.Unmarshal(body, &m); err != nil {
@@ -64,6 +65,11 @@ func setJSONField(body []byte, key string, val any) ([]byte, error) {
 	raw, err := json.Marshal(val)
 	if err != nil {
 		return body, fmt.Errorf("gateway: rewrite %q: %w", key, err)
+	}
+	for k := range m {
+		if strings.EqualFold(k, key) { // Go matches keys case-insensitively; a case-sensitive upstream must not see a second "model"
+			delete(m, k)
+		}
 	}
 	m[key] = raw
 	out, err := json.Marshal(m)

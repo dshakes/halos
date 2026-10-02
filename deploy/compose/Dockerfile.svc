@@ -1,5 +1,5 @@
 # build context: repo root; --build-arg PKG=./cmd/halo-shadow
-FROM golang:1.25 AS build
+FROM golang:1.25@sha256:699337d620559a59b4a2bb298ad59611e535d2ee755a34cf2d2a98f37578dc80 AS build
 ARG PKG
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -7,6 +7,6 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 go build -o /out/app ${PKG}
 
-FROM alpine:3.20
+FROM alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
 COPY --from=build /out/app /usr/local/bin/app
 ENTRYPOINT ["/usr/local/bin/app"]

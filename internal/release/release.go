@@ -222,15 +222,16 @@ func pack(m Manifest, blobs map[string][]byte) (*Release, error) {
 	return &Release{Manifest: m, Blobs: blobs, Tar: buf.Bytes(), Digest: "sha256:" + hex.EncodeToString(sum[:])}, nil
 }
 
-// maxBundle caps what Open will read, guarding against decompression-style abuse.
-const maxBundle = 256 << 20
-
 // Open parses a bundle tar and verifies every blob against its name and every
 // manifest entry against a blob. It does NOT verify signatures; see internal/bundle.
+// Only regular files are accepted, and since the tar is uncompressed no entry
+// may yield more bytes than the tar itself holds: archive/tar expands PAX/GNU
+// sparse entries, so a few KiB could otherwise decode to gigabytes.
 func Open(tarData []byte) (*Release, error) {
 	tr := tar.NewReader(bytes.NewReader(tarData))
 	var mj []byte
 	blobs := map[string][]byte{}
+	budget := int64(len(tarData))
 	for {
 		h, err := tr.Next()
 		if err == io.EOF {
@@ -239,10 +240,17 @@ func Open(tarData []byte) (*Release, error) {
 		if err != nil {
 			return nil, fmt.Errorf("release: read tar: %w", err)
 		}
-		data, err := io.ReadAll(io.LimitReader(tr, maxBundle))
+		if h.Typeflag != tar.TypeReg {
+			return nil, fmt.Errorf("release: tar entry %q is not a regular file (type %q)", h.Name, h.Typeflag)
+		}
+		if h.Size > budget {
+			return nil, fmt.Errorf("release: tar entry %q expands to %d bytes, more than the %d-byte bundle holds", h.Name, h.Size, len(tarData))
+		}
+		data, err := io.ReadAll(io.LimitReader(tr, h.Size))
 		if err != nil {
 			return nil, fmt.Errorf("release: read %s: %w", h.Name, err)
 		}
+		budget -= int64(len(data))
 		switch {
 		case h.Name == "manifest.json":
 			mj = data

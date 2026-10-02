@@ -191,3 +191,39 @@ func TestBuildBackstop(t *testing.T) {
 		t.Fatalf("clean build failed: %v", err)
 	}
 }
+
+// TestCheckRenderedSecrets: rendered files are installed world-readable
+// (mode ceiling 0644) on every machine, so the backstop refuses any file,
+// structured or not, carrying a well-known credential shape, whatever field
+// it came in through (hook commands, MCP URLs/args, instructions, overrides).
+// Fake test values throughout.
+func TestCheckRenderedSecrets(t *testing.T) {
+	claude := func(extra string) []harness.File {
+		return []harness.File{{Path: claudePath, Data: []byte(strings.Replace(goodClaude, `"env": {`, extra+`"env": {`, 1))}}
+	}
+	tests := []struct {
+		name  string
+		files []harness.File
+		want  string // "" = passes
+	}{
+		{"anthropic key in hook", claude(`"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "curl -H 'x-api-key: sk-ant-api03-abcdefghijklmnop' https://x"}]}]}, `), "credential"},                              // allowlist secret (fake test value)
+		{"github token in mcp url", claude(`"mcpServers": {"gh": {"url": "https://x.example/?t=ghp_0123456789abcdefghij"}}, `), "credential"},                                                                              // allowlist secret (fake test value)
+		{"aws key in env", claude(`"x": {"AWS": "AKIAIOSFODNN7EXAMPLE"}, `), "credential"},                                                                                                                                 // allowlist secret (AWS documented example key)
+		{"slack token in args", claude(`"x": ["--token", "xoxb-1234-5678-abcdefghij"], `), "credential"},                                                                                                                   // allowlist secret (fake test value)
+		{"private key in instructions", append(claude(""), harness.File{Path: "/etc/claude-code/CLAUDE.md", Data: []byte("use this:\n-----BEGIN PRIVATE KEY-----\nMIIBVQ==\n-----END PRIVATE KEY-----\n")}), "credential"}, // allowlist secret (fake test value)
+		{"openssh key in profile.d", []harness.File{{Path: "/etc/profile.d/halos.sh", Data: []byte("echo '-----BEGIN OPENSSH PRIVATE KEY-----'")}}, "credential"},                                                          // allowlist secret (header only)
+		{"var reference ok", claude(`"x": {"T": "Bearer ${GH_TOKEN}", "U": "${SK:-sk-ant-placeholder-value}"}, `), ""},
+		{"digests and paths ok", claude(`"x": {"rel": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "p": "/opt/halo/task-runner"}, `), ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := CheckRendered("claude-code", harness.Linux, tt.files, checkProfile(), checkGateway())
+			switch {
+			case tt.want == "" && err != nil:
+				t.Fatalf("unexpected error: %v", err)
+			case tt.want != "" && (err == nil || !strings.Contains(err.Error(), tt.want)):
+				t.Fatalf("err = %v, want ~%q", err, tt.want)
+			}
+		})
+	}
+}

@@ -387,6 +387,22 @@ func TestAllowedPath(t *testing.T) {
 		{"claude-code", "windows", `C:\Program Files\ClaudeCode\managed-settings.json`, true},
 		{"claude-code", "windows", `c:\program files\claudecode\x.json`, false}, // drive must be C:\ as rendered
 		{"claude-code", "windows", `C:\Program Files\ClaudeCode\..\Halos\etc\halod.yaml`, false},
+		// 8.3 short names alias other entries (MANAGE~1.JSO is managed-settings.json),
+		// so the stale-file pass could delete a file the release just wrote.
+		{"claude-code", "windows", `C:\Program Files\ClaudeCode\MANAGE~1.JSO`, false},
+		{"claude-code", "windows", `C:\Program Files\ClaudeCode\SUBDIR~1\x.json`, false},
+		{"claude-code", "windows", `C:\PROGRA~1\ClaudeCode\managed-settings.json`, false},
+		{"claude-code", "windows", `\\server\share\ClaudeCode\x.json`, false},          // UNC
+		{"claude-code", "windows", `\\?\C:\Program Files\ClaudeCode\x.json`, false},    // Win32 file namespace
+		{"claude-code", "windows", `\\.\C:\Program Files\ClaudeCode\x.json`, false},    // device namespace
+		{"claude-code", "windows", `\??\C:\Program Files\ClaudeCode\x.json`, false},    // NT namespace
+		{"claude-code", "windows", `C:\Program Files\ClaudeCode\x.json:evil`, false},   // alternate data stream
+		{"claude-code", "windows", `C:\Program Files\ClaudeCode\x.json::$DATA`, false}, // default stream
+		{"claude-code", "windows", `C:/Program Files/ClaudeCode/x.json`, false},        // forward slashes
+		{"claude-code", "windows", `C:\Program Files\ClaudeCode\a\NUL.json`, false},    // DOS device
+		{"claude-code", "windows", `C:\PROGRAM FILES\claudecode\x.json`, true},         // NTFS is case-insensitive: same managed dir
+		{"claude-code", "windows", `C:\Program Files\ClaudeCodeX\x.json`, false},       // sibling with the dir as prefix
+		{"claude-code", "windows", `C:\Program Files\ClaudeCode\x.json `, false},       // trailing space stripped by Win32
 		{"claude-code", "linux", "/etc/claude-code/../sudoers", false},
 		{"claude-code", "linux", "/etc/claude-code", false},
 		{"claude-code", "linux", "etc/claude-code/x", false},

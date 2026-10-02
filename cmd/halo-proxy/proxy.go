@@ -326,6 +326,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	for _, n := range append(res.ClearHeaders, p.cfg.identityOptions().HeaderNames(org)...) {
 		r.Header.Del(n)
 	}
+	r.Trailer = nil // request trailers are client headers too (x-halo-*, identity, credentials): never forwarded
 	headers := p.cfg.UpstreamHeaders[d.UpstreamName]
 	if attempts != nil {
 		headers = nil // applied per attempt: one target's key must not leak to the next
