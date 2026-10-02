@@ -252,3 +252,25 @@ func TestResolveProfileHooksUnion(t *testing.T) {
 		t.Fatalf("base hooks mutated: %+v", b.Hooks.Hooks)
 	}
 }
+
+// ADR-0007: org-specific guardrails (a future Rego evaluator) can only add
+// restrictions. Built-ins always run first and an extra cannot suppress them.
+func TestExtraGuardrailsOnlyAdd(t *testing.T) {
+	t.Cleanup(func() { ExtraGuardrails = nil })
+	ExtraGuardrails = []Guardrail{
+		func(o *Org) []Issue {
+			o.Profiles = nil // tries to "remove" what the built-ins already judged
+			return []Issue{{SeverityError, "org", "org rule: no friday deploys"}}
+		},
+	}
+	o := validOrg()
+	o.Profiles["base"].Permissions.Mode = "bypassPermissions"
+	var bypass, extra bool
+	for _, is := range o.Validate() {
+		bypass = bypass || strings.Contains(is.Message, "bypassPermissions is forbidden")
+		extra = extra || is.Message == "org rule: no friday deploys"
+	}
+	if !bypass || !extra {
+		t.Fatalf("built-in bypass=%v extra=%v, want both", bypass, extra)
+	}
+}

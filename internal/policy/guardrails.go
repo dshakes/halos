@@ -11,12 +11,18 @@ import (
 )
 
 // Guardrail is an org-wide policy check. ponytail: guardrails are plain Go
-// funcs, not OPA. Rego can plug in later by wrapping an evaluator in a
-// Guardrail and appending it to DefaultGuardrails; no other code changes.
+// funcs, not OPA (ADR-0007). An org-specific evaluator (Rego later) plugs in
+// through ExtraGuardrails; no other code changes.
 type Guardrail func(*Org) []Issue
 
-// DefaultGuardrails run at the end of Org.Validate.
-var DefaultGuardrails = []Guardrail{
+// ExtraGuardrails run after the built-in guardrails. They can only add
+// issues: the built-ins have already been judged and recorded, so an extra
+// can never remove or downgrade one (ADR-0007). Set once at start-up.
+var ExtraGuardrails []Guardrail
+
+// builtinGuardrails always run at the end of Org.Validate. Unexported so no
+// caller can drop one.
+var builtinGuardrails = []Guardrail{
 	guardNoBypass,
 	guardTelemetryOn,
 	guardMCPServers,

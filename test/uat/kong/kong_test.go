@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -314,6 +315,13 @@ func until(d time.Duration, f func() bool) (time.Duration, bool) {
 	return time.Since(t0), false
 }
 
+// pct returns the p-th percentile (nearest rank) of ds.
+func pct(ds []time.Duration, p int) time.Duration {
+	s := slices.Clone(ds)
+	slices.Sort(s)
+	return s[(len(s)*p+99)/100-1]
+}
+
 // ---- scenarios ----
 
 func TestKong(t *testing.T) {
@@ -569,6 +577,39 @@ func TestKong(t *testing.T) {
 			r.code == 200 && srv == "a" && bad == "misconfigured" && strings.Contains(logs, "halo-kong: killswitch config invalid"),
 			"%d via mock-%s, header %q, error logged %v", r.code, srv, bad, strings.Contains(logs, "halo-kong: killswitch config invalid"))
 		check(t, g, "the flag cannot be spoofed on a healthy route", spoofed.h("x-halo-killswitch") == "", "client sent x-halo-killswitch: misconfigured; upstream saw %q", spoofed.h("x-halo-killswitch"))
+	})
+
+	// ADR-0006: a Go plugin runs as a separate plugin-server process over a socket. Measure what
+	// that hop costs: the same mock upstream through a route with no plugin vs through halo-kong.
+	t.Run("latency", func(t *testing.T) {
+		const g = "Plugin-server latency (ADR-0006)"
+		const n = 60
+		tok := mint(t, plain)
+		timeIt := func(host, token string) (time.Duration, int) {
+			t0 := time.Now()
+			r := callHost(t, host, "/v1/messages", token, msg("sonnet"), nil)
+			return time.Since(t0), r.code
+		}
+		for i := 0; i < 5; i++ { // warm both paths (TLS, plugin-server instance)
+			timeIt("raw.kong.test", "")
+			timeIt("", tok)
+		}
+		var raw, plug []time.Duration
+		ok := true
+		for i := 0; i < n; i++ { // interleaved so drift hits both samples alike
+			d, c := timeIt("raw.kong.test", "")
+			raw, ok = append(raw, d), ok && c == 200
+			d, c = timeIt("", tok)
+			plug, ok = append(plug, d), ok && c == 200
+		}
+		reset(t)
+		pr, pp := pct(raw, 50), pct(plug, 50)
+		over := pp - pr
+		// ponytail: loose bound so a busy laptop does not flake; the evidence column is the measurement.
+		check(t, g, "halo-kong adds less than 50ms at the median over a no-plugin route to the same upstream",
+			ok && over < 50*time.Millisecond,
+			"%d sequential requests each (JWT verify + decision + rewrite): no plugin p50 %s p95 %s; halo-kong p50 %s p95 %s; median overhead %s",
+			n, pr.Round(10*time.Microsecond), pct(raw, 95).Round(10*time.Microsecond), pp.Round(10*time.Microsecond), pct(plug, 95).Round(10*time.Microsecond), over.Round(10*time.Microsecond))
 	})
 
 	t.Run("kong", func(t *testing.T) {

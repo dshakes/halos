@@ -48,8 +48,9 @@ var (
 	stoppingMethods  = []string{"msprt", "fixed"}
 )
 
-// Validate runs semantic checks over the whole Org, then the default
-// guardrails. It never returns nil-vs-empty ambiguity: no issues = empty slice.
+// Validate runs semantic checks over the whole Org, then the built-in
+// guardrails and any ExtraGuardrails. It never returns nil-vs-empty
+// ambiguity: no issues = empty slice.
 func (o *Org) Validate() []Issue {
 	v := &validator{org: o, issues: []Issue{}}
 	v.gateway()
@@ -57,7 +58,10 @@ func (o *Org) Validate() []Issue {
 	v.rings()
 	v.experiments()
 	v.rollouts()
-	for _, g := range DefaultGuardrails {
+	for _, g := range builtinGuardrails {
+		v.issues = append(v.issues, g(o)...)
+	}
+	for _, g := range ExtraGuardrails {
 		v.issues = append(v.issues, g(o)...)
 	}
 	return v.issues
