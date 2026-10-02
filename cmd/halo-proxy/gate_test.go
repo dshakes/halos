@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/dshakes/halos/internal/gateway"
 	"github.com/dshakes/halos/internal/policy"
@@ -34,12 +35,17 @@ func gateEnv(t *testing.T, posture, version string, verdict *atomic.Value) (*env
 	}
 	up, s := recordingServer(t)
 	e := testEnv(t, up, func(c *Config, o *policy.Org) {
-		c.Posture = PostureConfig{URL: srv.URL + "/api/v1/gateway/posture", TokenFile: tokFile, CacheTTL: 1}
+		c.Posture = PostureConfig{URL: srv.URL + "/api/v1/gateway/posture", TokenFile: tokFile, CacheTTL: time.Second}
 		o.Profiles = map[string]*policy.Profile{"base": {Meta: policy.Meta{Name: "base"}, Harnesses: map[string]policy.HarnessSpec{"claude-code": {Version: "2.1.280"}}}}
 		for _, r := range o.Rings {
 			r.Profile, r.Posture, r.VersionGate = "base", posture, version
 		}
 	})
+	// Every check sees the clock a TTL later, so each request asks the fake
+	// server again. (A real clock with Windows' coarse resolution returned
+	// equal instants and served the stale verdict from cache.)
+	var tick atomic.Int64
+	e.p.pc.Now = func() time.Time { return time.Unix(tick.Add(1), 0) }
 	return e, s
 }
 
