@@ -195,6 +195,38 @@ var upstreamHeaders = map[string]map[string]string{
 	"gemini":    {"x-goog-api-key": "${GEMINI_API_KEY}"},
 }
 
+// upstreamHeadersYAML is halo-proxy's upstreamHeaders block for org's
+// upstreams (empty when none needs a header), each line prefixed by indent.
+func upstreamHeadersYAML(org *policy.Org, indent string) string {
+	var names []string
+	if org.Gateway != nil {
+		for n := range org.Gateway.Upstreams {
+			names = append(names, n)
+		}
+	}
+	sort.Strings(names)
+	var b strings.Builder
+	for _, n := range names {
+		hs := upstreamHeaders[org.Gateway.Upstreams[n].Kind]
+		if hs == nil {
+			continue
+		}
+		if b.Len() == 0 {
+			b.WriteString(indent + "upstreamHeaders:\n")
+		}
+		var ks []string
+		for k := range hs {
+			ks = append(ks, k)
+		}
+		sort.Strings(ks)
+		fmt.Fprintf(&b, "%s  %s:\n", indent, n)
+		for _, k := range ks {
+			fmt.Fprintf(&b, "%s    %s: %q\n", indent, k, hs[k])
+		}
+	}
+	return b.String()
+}
+
 // LocalProxy returns the files for a single-developer halo-proxy on loopback
 // (identity off: it listens on 127.0.0.1 only) keyed by path relative to the
 // policy repo, plus the command that starts it. absDir is the policy repo's
@@ -215,33 +247,7 @@ func LocalProxy(org *policy.Org, absDir, listen string) (map[string][]byte, stri
 	b.WriteString("# Loopback only and identity off: anything that can reach the port uses your provider keys.\n")
 	b.WriteString("# Keys are read from your environment at startup; this file holds none.\n")
 	fmt.Fprintf(&b, "listen: %q\nadminListen: \"\"\npolicy: %q\nidentity:\n  mode: none\n", listen, filepath.Join(absDir, LocalProxyDir, "policy.json"))
-	var names []string
-	if org.Gateway != nil {
-		for n := range org.Gateway.Upstreams {
-			names = append(names, n)
-		}
-	}
-	sort.Strings(names)
-	hdr := false
-	for _, n := range names {
-		hs := upstreamHeaders[org.Gateway.Upstreams[n].Kind]
-		if hs == nil {
-			continue
-		}
-		if !hdr {
-			b.WriteString("upstreamHeaders:\n")
-			hdr = true
-		}
-		var ks []string
-		for k := range hs {
-			ks = append(ks, k)
-		}
-		sort.Strings(ks)
-		fmt.Fprintf(&b, "  %s:\n", n)
-		for _, k := range ks {
-			fmt.Fprintf(&b, "    %s: %q\n", k, hs[k])
-		}
-	}
+	b.WriteString(upstreamHeadersYAML(org, ""))
 	cfg := filepath.Join(absDir, LocalProxyDir, "halo-proxy.yaml")
 	return map[string][]byte{
 		LocalProxyDir + "/policy.json":     snap,
