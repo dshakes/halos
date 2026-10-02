@@ -1,4 +1,4 @@
-.PHONY: build test lint vuln docs compose-up e2e obs-e2e smoke demo demo-down
+.PHONY: bench load build test lint vuln docs compose-up e2e obs-e2e smoke demo demo-down
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 
@@ -74,3 +74,11 @@ uat-kong:
 .PHONY: uat-k8s
 uat-k8s:
 	./scripts/uat-k8s.sh
+
+# halo-proxy benchmarks + load/soak test. Tune: make load LOAD_ARGS="-soak 5m -sse 90s -c 64"
+bench:
+	go test ./cmd/halo-proxy -run '^$$' -bench . -benchmem -count 3
+
+load:
+	go build -o bin/halo-proxy ./cmd/halo-proxy
+	go run ./test/load -bin bin/halo-proxy $(LOAD_ARGS)

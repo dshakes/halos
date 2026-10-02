@@ -11,6 +11,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -62,6 +63,13 @@ type routeCtx struct {
 
 type ctxKey struct{}
 
+type bufPool struct{ sync.Pool }
+
+func (b *bufPool) Get() []byte  { return *b.Pool.Get().(*[]byte) }
+func (b *bufPool) Put(p []byte) { b.Pool.Put(&p) }
+
+var copyBufs = &bufPool{sync.Pool{New: func() any { b := make([]byte, 32<<10); return &b }}}
+
 func newProxy(cfg Config, log *slog.Logger) (*Proxy, error) {
 	p := &Proxy{cfg: cfg, snap: gateway.NewSnapshot(cfg.Policy), m: newMetrics(), log: log, sigv4: &upstreamauth.Bedrock{},
 		breaker: &gateway.Breaker{Threshold: cfg.Route.BreakerFailures, Cooldown: cfg.Route.BreakerCooldown}, getenv: os.Getenv}
@@ -94,6 +102,7 @@ func newProxy(cfg Config, log *slog.Logger) (*Proxy, error) {
 	tr.MaxIdleConnsPerHost = 64
 	p.rp = &httputil.ReverseProxy{
 		Rewrite:       p.rewrite,
+		BufferPool:    copyBufs,                                          // ReverseProxy otherwise allocates a fresh 32 KiB copy buffer per response
 		Transport:     routeTransport{p: p, base: p.sigv4.Transport(tr)}, // SigV4 for kind: bedrock upstreams; failover for routed calls
 		FlushInterval: -1,                                                // flush every write: SSE / AWS eventstream must not be batched
 		ErrorHandler:  p.upstreamError,
@@ -164,6 +173,9 @@ func (p *Proxy) AdminHandler() http.Handler {
 			d, f = p.mirror.Dropped(), p.mirror.Failed()
 		}
 		p.m.write(w, d, f)
+		var ms runtime.MemStats
+		runtime.ReadMemStats(&ms)
+		fmt.Fprintf(w, "# TYPE go_goroutines gauge\ngo_goroutines %d\n# TYPE go_memstats_heap_inuse_bytes gauge\ngo_memstats_heap_inuse_bytes %d\n", runtime.NumGoroutine(), ms.HeapInuse)
 	})
 	return mux
 }
