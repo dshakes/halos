@@ -60,6 +60,7 @@ for p in cmd/halo-server cmd/halo-proxy cmd/halo-shadow cmd/halod cmd/halo deplo
   cp "$WORK/ctx/bin/$b" "$WORK/ctx/linux/$ARCH/$b"
 done
 go build -o "$WORK/hostbin/halo" ./cmd/halo
+go build -o "$WORK/hostbin/load" ./test/load
 cp test/uat/k8s/gh "$WORK/ctx/gh" && chmod 0755 "$WORK/ctx/gh"
 for b in halo-server halo-proxy halo-shadow; do
   docker build -q -f deploy/docker/Dockerfile.service --build-arg BINARY="$b" -t "ghcr.io/dshakes/$b:uat" "$WORK/ctx" >/dev/null
@@ -136,6 +137,80 @@ done
 [ "$n" = 4 ] || { echo "uat-k8s: collector never created the otel tables" >&2; "${K[@]}" -n $NS logs deploy/halos-otel --tail=50 >&2; exit 1; }
 "${CH[@]}" --multiquery < deploy/observability/clickhouse/schema.sql
 echo "uat-k8s: stack up after $((SECONDS - t0))s"
+
+# ---- HA checks: halo-proxy (2 replicas behind the ingress) under test/load traffic ----
+# These run BEFORE the scenarios because the ops scenario ends with `helm uninstall`. The load tool
+# counts any non-200 or transport error as a failure; every disruption below must leave it at zero.
+# Pod deletion is the graceful path (SIGTERM, preStop sleep, drain), i.e. what drains, evictions
+# and rolling upgrades do; a SIGKILLed pod drops its in-flight requests and is NOT covered.
+echo "uat-k8s: HA checks"
+PXD=halos-proxy
+PXSEL=app.kubernetes.io/component=proxy,app.kubernetes.io/instance=halos
+LOADBIN="$WORK/hostbin/load"
+HA_TOK=$(curl -fsS "http://127.0.0.1:30808/mint?user=ha@acme.com")
+ha_rc=0
+ha_result() { # name, ok(0|1), evidence
+  if [ "$2" = 0 ]; then echo "  [PASS] $1: $3"; else echo "  [FAIL] $1: $3"; ha_rc=1; fi
+}
+proxy_ready() { # Ready proxy pods that are not terminating
+  "${K[@]}" -n $NS get pods -l $PXSEL -o jsonpath='{range .items[*]}{.metadata.deletionTimestamp}|{.status.containerStatuses[?(@.name=="halo-proxy")].ready}{"\n"}{end}' | grep -c '^|true$' || true
+}
+await_proxies() { # until 2 Ready and none terminating
+  for _ in $(seq 150); do
+    [ "$(proxy_ready)" = 2 ] && [ "$("${K[@]}" -n $NS get pods -l $PXSEL -o name | wc -l | tr -d ' ')" = 2 ] && return 0
+    sleep 2
+  done
+  return 1
+}
+load_start() { # outfile; sets LOAD_PID
+  "$LOADBIN" -target "http://127.0.0.1:30088/v1/messages" -token "$HA_TOK" -model haiku -c 16 -duration 15m > "$1" 2>&1 &
+  LOAD_PID=$!
+  sleep 5   # steady state before the disruption
+}
+load_stop() { # outfile -> sets LOAD_RC, prints the load summary
+  sleep 3   # keep driving after the disruption settles
+  kill -INT "$LOAD_PID" 2>/dev/null || true
+  LOAD_RC=0; wait "$LOAD_PID" || LOAD_RC=$?
+  grep -E 'target load:|error:|PASS|FAIL' "$1" | sed 's/^/    /'
+}
+await_proxies || { echo "uat-k8s: proxies never became 2/2 Ready" >&2; exit 1; }
+evict() { # pod -> prints the API answer
+  printf '{"apiVersion":"policy/v1","kind":"Eviction","metadata":{"name":"%s","namespace":"%s"}}' "$1" "$NS" |
+    "${K[@]}" create --raw "/api/v1/namespaces/$NS/pods/$1/eviction" -f - 2>&1 || true
+}
+
+# 1. kill a proxy pod mid-traffic
+load_start "$WORK/ha-kill.txt"
+victim=$("${K[@]}" -n $NS get pods -l $PXSEL -o jsonpath='{.items[0].metadata.name}')
+"${K[@]}" -n $NS delete pod "$victim" --wait=false >/dev/null
+rec=0; await_proxies || rec=1
+load_stop "$WORK/ha-kill.txt"
+ha_result "kill a proxy pod mid-traffic: no client errors" $((LOAD_RC != 0 || rec)) "deleted $victim, replacement Ready: $([ $rec = 0 ] && echo yes || echo NO); load exit $LOAD_RC"
+
+# 2. rolling upgrade under traffic
+before=$("${K[@]}" -n $NS get pods -l $PXSEL -o name | sort | tr '\n' ' ')
+load_start "$WORK/ha-roll.txt"
+up=0; "${H[@]}" upgrade halos deploy/helm/halos -n $NS --reuse-values --set-string "proxy.podAnnotations.uat-ha-roll=$SECONDS" --wait --timeout 6m >/dev/null || up=1
+await_proxies || up=1
+load_stop "$WORK/ha-roll.txt"
+after=$("${K[@]}" -n $NS get pods -l $PXSEL -o name | sort | tr '\n' ' ')
+roll_changed=0; [ "$before" != "$after" ] || roll_changed=1
+ha_result "rolling upgrade: zero failed requests, both pods replaced" $((LOAD_RC != 0 || up || roll_changed)) "helm upgrade exit $up; pods [$before] -> [$after]; load exit $LOAD_RC"
+
+# 3. PDB respected: the second concurrent eviction is refused until the first pod is replaced
+allowed=$("${K[@]}" -n $NS get pdb $PXD -o jsonpath='{.status.disruptionsAllowed}/{.spec.maxUnavailable}' 2>&1 || true)
+pdb_exists=1; [ "$allowed" != 1/1 ] || pdb_exists=0
+ha_result "proxy PodDisruptionBudget exists (maxUnavailable 1, 1 disruption allowed)" "$pdb_exists" "disruptionsAllowed/maxUnavailable = $allowed"
+load_start "$WORK/ha-pdb.txt"
+read -r pod1 pod2 <<< "$("${K[@]}" -n $NS get pods -l $PXSEL -o jsonpath='{.items[*].metadata.name}')"
+e1=$(evict "$pod1"); e2=$(evict "$pod2")
+await_proxies || true
+e3=$(evict "$("${K[@]}" -n $NS get pods -l $PXSEL -o jsonpath='{.items[0].metadata.name}')")   # budget restored: allowed again
+await_proxies || true
+load_stop "$WORK/ha-pdb.txt"
+pdb_ok=1; echo "$e2" | grep -q 'disruption budget' && ! echo "$e1" | grep -qi 'error' && ! echo "$e3" | grep -qi 'error' && pdb_ok=0
+ha_result "PDB respected: 1st eviction ok, 2nd refused (429), later eviction ok; no client errors" $((pdb_ok || LOAD_RC != 0)) "1st: $(echo "$e1" | head -1 | cut -c1-60) | 2nd: $(echo "$e2" | head -1 | cut -c1-110) | 3rd: $(echo "$e3" | head -1 | cut -c1-60) | load exit $LOAD_RC"
+[ "$ha_rc" = 0 ] || { echo "uat-k8s: HA checks failed" >&2; exit 1; }
 
 # ---- scenarios ----
 export UAT_CONTEXT=$CTX UAT_NAMESPACE=$NS UAT_WORK=$WORK UAT_POLICY=$POL UAT_HALO=$WORK/hostbin/halo UAT_ARCH=$ARCH UAT_STARTED=$t0
