@@ -22,7 +22,7 @@ New warnings can appear in a minor release. They never turn into errors within v
 `halos.dev/v1alpha1` is deprecated. It still loads, with **exactly** the semantics of v1: the two versions decode into the same types, and a v1alpha1 document is treated as v1 in memory. `halo validate` reports one warning per file that still uses it:
 
 ```
-warning: profiles/base.yaml: apiVersion halos.dev/v1alpha1 is deprecated; it reads as halos.dev/v1 with identical semantics until halos.dev/v2. Run `halo migrate --policy-dir .`
+warning profiles/base.yaml  apiVersion halos.dev/v1alpha1 is deprecated; it reads as halos.dev/v1 with identical semantics until halos.dev/v2. Run `halo migrate --policy-dir .`
 ```
 
 To migrate:
@@ -39,7 +39,7 @@ The compiled snapshot records each document's `apiVersion`. The first release yo
 
 ## Deprecation policy
 
-- A deprecated version, kind or field **warns** (in `halo validate`, `halo plan`, CI and the MCP `validate` tool) for **at least one minor release** before anything else changes.
+- A deprecated version, kind or field **warns** (in `halo validate`, CI and the MCP `validate` tool) for **at least one minor release** before anything else changes.
 - It is **removed only in the next major API version** (`halos.dev/v2`). Within v1 a deprecated form keeps loading with its documented meaning.
 - Every deprecation has a mechanical migration (`halo migrate` or a documented edit) and an entry in the changelog.
 - `halos.dev/v2`, if it ever ships, comes with a `halo migrate` path from v1 and its own entry on this page.
