@@ -130,6 +130,7 @@ brews:
     license: Apache-2.0
     skip_upload: '{{ if index .Env "HOMEBREW_TAP_TOKEN" }}auto{{ else }}true{{ end }}'
     repository: {owner: dshakes, name: homebrew-tap, token: '{{ index .Env "HOMEBREW_TAP_TOKEN" }}'}
+    directory: Formula # the tap keeps every formula under Formula/ (as compass.rb, distil.rb)
     test: system "#{bin}/halo", "version"
 scoops:
   - ids: [halo]
