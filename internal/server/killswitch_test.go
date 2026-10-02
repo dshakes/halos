@@ -461,6 +461,7 @@ func TestKillAuditFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = s.Close() }) // Windows cannot remove the TempDir while devices.jsonl is open
 	h := s.Handler()
 	const exp = "/api/v1/experiments/opus-5-5-canary/"
 	killed := func() int {
