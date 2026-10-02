@@ -49,7 +49,7 @@ halo release refresh --ring ring1-canary --registry ghcr.io/acme/halos --key hal
 
 ### Signer continuity
 
-`halod` validates what it reads; the signing commands validate what they write. `publish`, `promote`, `refresh` and `rollback` keep a **signer state file** (`$XDG_STATE_HOME/halos/pointers.json`, else `~/.local/state/halos/pointers.json`; `--state-file` overrides) with the last pointer written per registry repo and ring. They refuse a registry that serves a lower `seq`, the same `seq` with a different digest, or no pointer where this signer wrote one. In CI, cache the file between runs or pass `--expect-digest sha256:<release digest>` to `refresh`/`promote`; a fresh runner without either has no replay protection.
+`halod` validates what it reads; the signing commands validate what they write. `publish`, `promote`, `refresh` and `rollback` keep a **signer state file** (`$XDG_STATE_HOME/halos/pointers.json`, else `~/.local/state/halos/pointers.json`; `--state-file` overrides) with the last pointer written per registry repo and ring. They refuse a registry that serves a lower `seq`, the same `seq` with a different digest, or no pointer where this signer wrote one. In CI, cache the file between runs or pass `--expect-digest sha256:<release digest>` to `refresh`/`promote`; a fresh runner without either is refused when the registry already serves a pointer, unless you pass `--adopt-existing`, which trusts the served pointer (no replay protection for that run).
 
 Every signature is announced on stderr first, which is the line to read in a CI log:
 

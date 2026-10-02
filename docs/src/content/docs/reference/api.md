@@ -67,7 +67,7 @@ State-changing Session and Admin requests (anything but `GET`) are rejected with
 | `GET /api/v1/rollouts/{name}` | Admin | One rollout, same shape |
 | `GET /api/v1/killswitch` | Admin | Active kills with who, when and why, and the list `version` |
 | `GET /api/v1/gateway/killswitch` | Gateway token | The signed kill list for `halo-proxy` and `halo-kong` |
-| `GET /api/v1/fleet/killswitch` | Device token | The same signed list for `halod` (client-axis devices; opt-in via `killSwitch` in `halod.yaml`). 404 when the server has no kill key |
+| `GET /api/v1/fleet/killswitch` | Device token | The same signed list for `halod` (client-axis devices; configured via `killSwitch` in `halod.yaml`; portal enrollment sets it when the server has a kill key). 404 when the server has no kill key |
 | `GET /api/v1/capabilities` | Session | Optional features this server is configured for. `killSwitch` is true only when a kill-list signing key (`--killswitch-key-file`) is set and the kill route is registered, so the console never probes with a real POST |
 
 ### Developer self-service

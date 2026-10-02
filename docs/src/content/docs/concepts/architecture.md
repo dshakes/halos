@@ -36,7 +36,7 @@ The mirror is asynchronous and dropped when its queue is full. A shadow job carr
 | Component | Language | Notes |
 |---|---|---|
 | `halo` | Go | Compiler and operator CLI |
-| `halod` | Go | Static binary; `run`/`once`/`status`; launchd plist in `cmd/halod/packaging`, systemd unit in `deploy/packaging/halod.service` (both also printed by `halod service print`), scheduled task on Windows |
+| `halod` | Go | Static binary; `run`/`once`/`status`/`service`; `halod service install` writes the launchd plist or systemd unit (templates embedded in `cmd/halod/service.go`, also printed by `halod service print`; the plist also lives in `cmd/halod/packaging`, the deb/rpm unit in `deploy/packaging/halod.service`), a scheduled task on Windows |
 | `halo-proxy` | Go | Stack-agnostic proxy; `/healthz` and `/metrics` on the admin listener (`--admin-listen`) |
 | `halo-kong` | Go (go-pdk) | External Kong plugin, same decision code |
 | `halo-shadow` | Go | Async mirror, optional AES-256-GCM pair store |

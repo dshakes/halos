@@ -73,7 +73,7 @@ gemini@0.35.0/gemini-2.5-pro/anthropic    100%    100%    100%    $0.120    72.0
 gate: BLOCK
 ```
 
-The table is a text rendering of the matrix test fixture (the same numbers as `internal/eval/testdata/golden/matrix.md`), not the output of `upgrade-gate.yaml`, whose cells are named after its own providers and models. You produce the real thing with `halo eval run evals/suites/upgrade-gate.yaml --matrix --report report.md --fail-on block`. A live run needs Docker and the harness images in `evals/images/`. `--report` writes a Markdown scorecard ready for a PR comment. `--fail-on block|hold` exits 3, which makes it a CI gate. Trials run with no network egress by default.
+The numbers come from the matrix test fixture (`internal/eval/matrix_test.go`); the table is a text rendering of them that no test pins, not the golden Markdown PR-comment report (`internal/eval/testdata/golden/matrix.md`) and not the output of `upgrade-gate.yaml`, whose cells are named after its own providers and models. You produce the real thing with `halo eval run evals/suites/upgrade-gate.yaml --matrix --report report.md --fail-on block`. A live run needs Docker and the harness images in `evals/images/`. `--report` writes a Markdown scorecard ready for a PR comment. `--fail-on block|hold` exits 3, which makes it a CI gate. Trials run with no network egress by default.
 
 ## The online loop
 

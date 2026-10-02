@@ -154,6 +154,6 @@ killSwitch:
   # interval: 60s
 ```
 
-It needs `deviceToken` or `deviceTokenFile` (the endpoint is device-authenticated). Enrollment does not add this block; add it to the `halod.yaml` you distribute. `status` then shows `"killed": true` for the experiment. Unkilling returns the device to its variant at the next poll. Without `killSwitch` configured, a kill reaches gateways only, and devices revert on pause and republish.
+It needs `deviceToken` or `deviceTokenFile` (the endpoint is device-authenticated). Portal enrollment adds this block when `halo-server` has a kill key; for MDM or hand-written configs, add it to the `halod.yaml` you distribute. `status` then shows `"killed": true` for the experiment. Unkilling returns the device to its variant at the next poll. Without `killSwitch` configured, a kill reaches gateways only, and devices revert on pause and republish.
 
 The ClickHouse steps need the telemetry pipeline running (`halo telemetry collector-config`).
