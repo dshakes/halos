@@ -28,6 +28,7 @@ var builtinGuardrails = []Guardrail{
 	guardMCPServers,
 	guardEgressHasGateway,
 	guardGARing,
+	guardSandboxEgress,
 	guardReservedOverrides,
 	guardNames,
 	guardRingProfiles,
@@ -143,6 +144,20 @@ func guardGARing(o *Org) []Issue {
 		}
 		if p, err := o.ResolveProfile(r.Profile); err == nil && len(p.Hooks.Hooks) > 0 && !p.Hooks.ManagedOnly {
 			out = append(out, gi(SeverityError, "rings["+r.Name+"].profile", "the default (GA) ring ships hooks, so hooks.managedOnly must be true (profile %q)", r.Profile))
+		}
+	}
+	return out
+}
+
+// guardSandboxEgress (ADR-0007): a profile that requires the sandbox is a
+// managed environment, so its egress allowlist must be non-empty; an empty list
+// renders a sandbox with the network wide open. Checked on what ships: ring
+// profiles (variants may not widen them).
+func guardSandboxEgress(o *Org) []Issue {
+	var out []Issue
+	for _, r := range o.Rings {
+		if p, err := o.ResolveProfile(r.Profile); err == nil && p.Permissions.SandboxRequired && len(p.Egress.AllowedDomains) == 0 {
+			out = append(out, gi(SeverityError, "rings["+r.Name+"].profile", "permissions.sandboxRequired is true, so egress.allowedDomains must be non-empty (profile %q)", r.Profile))
 		}
 	}
 	return out

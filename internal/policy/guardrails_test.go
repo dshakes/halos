@@ -303,3 +303,31 @@ func TestGARingHooksManagedOnly(t *testing.T) {
 		t.Fatal("hooks on a non-default ring flagged")
 	}
 }
+
+// ADR-0007: a managed (required) sandbox must restrict egress; an empty
+// allowlist leaves the sandboxed network wide open.
+func TestSandboxRequiredNeedsEgress(t *testing.T) {
+	has := func(o *Org) bool {
+		for _, is := range o.Validate() {
+			if is.Severity == SeverityError && strings.Contains(is.Message, "egress.allowedDomains must be non-empty") {
+				return true
+			}
+		}
+		return false
+	}
+	o := validOrg()
+	o.Profiles["base"].Permissions.SandboxRequired = true
+	o.Profiles["base"].Egress.AllowedDomains = nil
+	if !has(o) {
+		t.Fatal("required sandbox with open egress passed validation")
+	}
+	o.Profiles["base"].Egress.AllowedDomains = []string{"gw.example.com"}
+	if has(o) {
+		t.Fatal("required sandbox with an egress allowlist flagged")
+	}
+	o.Profiles["base"].Permissions.SandboxRequired = false
+	o.Profiles["base"].Egress.AllowedDomains = nil
+	if has(o) {
+		t.Fatal("optional sandbox with open egress flagged")
+	}
+}

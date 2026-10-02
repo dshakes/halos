@@ -182,6 +182,8 @@ See [experiments](/halos/concepts/experiments/).
 | Telemetry on | error | Every ring's profile must enable telemetry |
 | MCP servers | error | Exactly one of `url` (https only) or `command` |
 | Egress has gateway | error | A non-empty `egress.allowedDomains` must include the gateway host |
+| Sandbox egress | error | A ring profile with `permissions.sandboxRequired: true` must set a non-empty `egress.allowedDomains` (an empty list leaves the sandboxed network open) |
+| GA hooks managed-only | error | The default (GA) ring's profile ships hooks only with `hooks.managedOnly: true` |
 | Override allowlist | error | `harnesses.<h>.overrides` may set only the allowlisted keys for that harness (list below); any other key is an error, and a harness with no allowlist accepts no overrides |
 | Names | error | Identifiers must match `^[a-z0-9][a-z0-9._-]{0,62}$` |
 | Widening | warning | A child profile that adds `permissions.allow`, `permissions.ask` or `egress.allowedDomains` entries beyond its parent |
