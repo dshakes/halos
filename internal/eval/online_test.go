@@ -50,6 +50,10 @@ func TestRunOnline(t *testing.T) {
 	errored := pair("p6", "sonnet-next-shadow", "ok", "good")
 	errored.Candidate.Status, errored.Candidate.Error = 529, "overloaded"
 	src = append(src, errored)
+	for i := range src { // ADR-0004: latency and cost are read from every pair
+		src[i].Control.LatencyMS, src[i].Candidate.LatencyMS = 100, 300
+		src[i].Control.OutputTokens, src[i].Candidate.OutputTokens = 10, 40
+	}
 
 	llm := &fakeLLM{reply: scoreByText}
 	o := OnlineOptions{Judge: &Judge{LLM: llm, Model: "judge-1"}, Rubric: testRubric(t), Seed: 3}
@@ -69,6 +73,12 @@ func TestRunOnline(t *testing.T) {
 	}
 	if r.CandidateVariant != "sonnet-next" || r.Rubric != "code-quality@1" || r.JudgeModel != "judge-1" {
 		t.Fatalf("labels %+v", r)
+	}
+	// Operational readings cover all 5 eligible pairs, errored ones included:
+	// the candidate failed 1 of 5, is 3x slower and 4x more verbose.
+	if r.Ops.Pairs != 5 || r.Ops.Control.ErrorRate != 0 || r.Ops.Candidate.ErrorRate != 0.2 ||
+		r.Ops.Control.LatencyMS != 100 || r.Ops.Candidate.LatencyMS != 300 || r.Ops.Candidate.OutputTokens != 40 {
+		t.Fatalf("ops %+v", r.Ops)
 	}
 	// control 0.5,0.5,0.9 ; candidate 0.9 x3 -> delta mean 0.2667, 2 wins + 1 tie.
 	if d := r.Candidate - r.Control; d < 0.266 || d > 0.267 || r.WinRate < 0.83 || r.WinRate > 0.84 || r.Delta.CILo < 0 {
@@ -143,6 +153,7 @@ func TestOnlineHistoryAndOTLP(t *testing.T) {
 	}
 	b, _ := json.Marshal(body)
 	for _, want := range []string{MetricJudgeScore, MetricJudgeDelta, MetricJudgeWinRate, MetricPairsGraded, MetricJudgeErrors,
+		MetricShadowErrorRate, MetricShadowLatency, MetricShadowOutputTokens,
 		`"halo.experiment"`, `"halo.variant"`, `"sonnet-next"`, `"code-quality@1"`, `"aggregationTemporality":1`} {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("OTLP body missing %s", want)

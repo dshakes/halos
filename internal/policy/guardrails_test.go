@@ -269,3 +269,82 @@ func TestResolveProfileHooksUnion(t *testing.T) {
 		t.Fatalf("base hooks mutated: %+v", b.Hooks.Hooks)
 	}
 }
+
+// ADR-0007: org-specific guardrails (a future Rego evaluator) can only add
+// restrictions. Built-ins always run first and an extra cannot suppress them.
+func TestExtraGuardrailsOnlyAdd(t *testing.T) {
+	t.Cleanup(func() { ExtraGuardrails = nil })
+	ExtraGuardrails = []Guardrail{
+		func(o *Org) []Issue {
+			o.Profiles = nil // tries to "remove" what the built-ins already judged
+			return []Issue{{SeverityError, "org", "org rule: no friday deploys"}}
+		},
+	}
+	o := validOrg()
+	o.Profiles["base"].Permissions.Mode = "bypassPermissions"
+	var bypass, extra bool
+	for _, is := range o.Validate() {
+		bypass = bypass || strings.Contains(is.Message, "bypassPermissions is forbidden")
+		extra = extra || is.Message == "org rule: no friday deploys"
+	}
+	if !bypass || !extra {
+		t.Fatalf("built-in bypass=%v extra=%v, want both", bypass, extra)
+	}
+	if o.Profiles == nil {
+		t.Fatal("an extra guardrail mutated the policy the release is built from")
+	}
+}
+
+// ADR-0007: hooks on the default (GA) ring must be managed-only.
+func TestGARingHooksManagedOnly(t *testing.T) {
+	has := func(o *Org) bool {
+		for _, is := range o.Validate() {
+			if is.Severity == SeverityError && strings.Contains(is.Message, "hooks.managedOnly must be true") {
+				return true
+			}
+		}
+		return false
+	}
+	o := validOrg()
+	o.Profiles["base"].Hooks = Hooks{Hooks: []Hook{{Event: "PostToolUse", Command: "fmt"}}}
+	if !has(o) {
+		t.Fatal("GA ring with unmanaged hooks passed validation")
+	}
+	o.Profiles["base"].Hooks.ManagedOnly = true
+	if has(o) {
+		t.Fatal("managed-only hooks on GA flagged")
+	}
+	o.Profiles["base"].Hooks.ManagedOnly = false
+	o.Rings[1].Membership.Default = false
+	if has(o) {
+		t.Fatal("hooks on a non-default ring flagged")
+	}
+}
+
+// ADR-0007: a managed (required) sandbox must restrict egress; an empty
+// allowlist leaves the sandboxed network wide open.
+func TestSandboxRequiredNeedsEgress(t *testing.T) {
+	has := func(o *Org) bool {
+		for _, is := range o.Validate() {
+			if is.Severity == SeverityError && strings.Contains(is.Message, "egress.allowedDomains must be non-empty") {
+				return true
+			}
+		}
+		return false
+	}
+	o := validOrg()
+	o.Profiles["base"].Permissions.SandboxRequired = true
+	o.Profiles["base"].Egress.AllowedDomains = nil
+	if !has(o) {
+		t.Fatal("required sandbox with open egress passed validation")
+	}
+	o.Profiles["base"].Egress.AllowedDomains = []string{"gw.example.com"}
+	if has(o) {
+		t.Fatal("required sandbox with an egress allowlist flagged")
+	}
+	o.Profiles["base"].Permissions.SandboxRequired = false
+	o.Profiles["base"].Egress.AllowedDomains = nil
+	if has(o) {
+		t.Fatal("optional sandbox with open egress flagged")
+	}
+}

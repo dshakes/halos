@@ -59,3 +59,23 @@ Option 3.
 - Walkthrough: [A/B a CLI upgrade](/halos/guides/cli-upgrade-ab/)
 - Code: `internal/policy/channel.go`, `internal/policy/guardrails.go` (`guardClientVariants`), `internal/release/channels.go`, `internal/bundle/channels.go`, `cmd/halod/agent.go` (`selectVariant`), `internal/gateway/decision.go`
 - Test: `test/e2e/experiment_test.go`
+
+## Addendum 2026-10-02: every harness carries attribution
+
+"Other harnesses warn" and the limit "only Claude Code carries experiment attribution in CLI metrics" are superseded. Codex, Gemini CLI and Copilot CLI have no resource-attribute config key, so the variant release ships a `/etc/profile.d` shell function (`hutil.OTELShellWrapper`) that runs the CLI with the release's `OTEL_RESOURCE_ATTRIBUTES`, including `halo.experiment` and `halo.variant`. It covers login shells and their bash children; an exec that bypasses the shell (`timeout`, `env`, `xargs`) runs unlabeled, which the gateway-side attribution still covers for traffic.
+
+## Implementation status (2026-10-02)
+
+| Commitment | Code | Test | Status |
+|---|---|---|---|
+| Channel `R.x-E.V`; tags `v<ver>-x-E.V`, `ring-R.x-E.V`, `ring-R.x-E.V.pointer`; long names hashed to fit 128-char tags | `internal/policy/channel.go` (`ChannelName`); `internal/bundle/channels.go` | `policy` `TestChannelName` (length, collision); `bundle` `TestChannelBindingRefusals` | Done |
+| Channel pointer is an ordinary ring pointer bound to org and channel, with `seq`, 7-day expiry and its own anti-rollback mark in `halod` | `internal/bundle/pointer.go`; `cmd/halod/agent.go` state `Pointers[channel]` | `cmd/halod` `TestExperimentApplyLifecycle` ("replayed channel pointer refused", "signed by another key refused") | Done |
+| Signed `experiments` section in the ring manifest; `halod` recomputes channel names and refuses a mismatch | `internal/release/channels.go` (`BuildRing`); `cmd/halod/agent.go` (`selectVariant`) | `release` `TestBuildRingClientExperiment`; `cmd/halod` `TestVariantSelectionMatchesGateway` | Done |
+| Assignment via `policy.Experiment.ResolveVariant` (the gateway's function); subject from ring endpoint, then `halod.yaml`, then last saved; no subject means ring release and `no_subject_for_experiment` | `cmd/halod/agent.go` (`selectVariant`, `subject`); `internal/policy/resolve.go` | `TestVariantSelectionMatchesGateway`; `TestExperimentApplyLifecycle` ("unknown subject stays on the ring release"); `TestRingEndpoint` | Done |
+| A channel that fails verification fails the cycle and keeps last-good; no fallback to the ring release | `cmd/halod/agent.go` (`cycle`) | `TestExperimentApplyLifecycle` (refusals keep the previous release) | Done |
+| Publish variants first, then the ring; `refresh` and `rollback` move ring and channels together; cross-ring `promote` moves only the ring; a variant is refused on any channel but its own | `internal/bundle/channels.go` (`PublishRing`, `RefreshRing`, `PromoteRing`; rollback is `PromoteRing` with a `Source` version or digest) | `bundle` `TestPublishPromoteRefreshRing`, `TestChannelBindingRefusals` | Done |
+| Variant guardrails as errors (pins, telemetry, `disableBypass`, no widening, no MCP changes, no weaker sandbox, managed/enforce kept, mode, hooks subset, OTLP and `logPrompts` equal, models subset, instructions and env equal); one running client-axis experiment per ring; unique channel names | `internal/policy/guardrails.go` (`guardClientVariants`, `variantProfileIssues`) | `policy` `TestClientVariantGuardrails`, `TestClientExperimentsAndBaseline` | Done |
+| Attribution: `halo.experiment` / `halo.variant` in `OTEL_RESOURCE_ATTRIBUTES`; gateway attributes to a client-axis experiment only when no traffic-axis experiment applies | `internal/harness/hutil/hutil.go` (`OTELResourceAttributes`, `OTELShellWrapper`); every adapter; `internal/gateway/decision.go` | `claudecode` `TestGolden`; `gateway` `TestDecideClientAxisAttribution`; `test/uat` `TestCLIs` | Done (all harnesses, see addendum) |
+| Older `halod` ignores `experiments` and stays on control | the section is additive in the manifest | `release` `TestBuildRingClientExperiment` | Done |
+| Kill list reaches client-axis devices where `halod` has `killSwitch` | `cmd/halod/agent.go`, `config.go` | `cmd/halod` `TestKillSwitchRevertsClientExperiment` | Done (opt-in, see ADR-0009 addendum) |
+| End-to-end | `test/e2e/experiment_test.go` `TestClientAxisExperiment` | `make e2e` | Done |

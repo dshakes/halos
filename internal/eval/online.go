@@ -106,6 +106,40 @@ type OnlineResult struct {
 	PairIDs          []string `json:"pairIds"`
 	// Scores are the per-pair readings the exporter sends (not kept in history).
 	Scores []PairScore `json:"-"`
+	// Ops are the operational readings over every eligible pair, errored ones
+	// included (they are the point): the refusal, latency and cost regressions
+	// ADR-0004 says shadow catches beside quality.
+	Ops OpsResult `json:"ops"`
+}
+
+// OpsResult is one experiment's per-arm operational reading.
+type OpsResult struct {
+	Pairs     int      `json:"pairs"`
+	Control   ArmStats `json:"control"`
+	Candidate ArmStats `json:"candidate"`
+}
+
+// ArmStats summarises one arm over all pairs: ErrorRate is the share of
+// sides that errored or answered non-200 (refusals and overloads included);
+// LatencyMS and OutputTokens are means.
+type ArmStats struct {
+	ErrorRate    float64 `json:"errorRate"`
+	LatencyMS    float64 `json:"latencyMs"`
+	OutputTokens float64 `json:"outputTokens"`
+}
+
+func armStats(sides []shadow.Side) ArmStats {
+	var a ArmStats
+	for _, s := range sides {
+		if s.Error != "" || s.Status != http.StatusOK {
+			a.ErrorRate++
+		}
+		a.LatencyMS += float64(s.LatencyMS)
+		a.OutputTokens += float64(s.OutputTokens)
+	}
+	n := float64(len(sides))
+	a.ErrorRate, a.LatencyMS, a.OutputTokens = a.ErrorRate/n, a.LatencyMS/n, a.OutputTokens/n
+	return a
 }
 
 // judgeSideCap bounds each request/response handed to the judge.
@@ -142,12 +176,16 @@ func RunOnline(ctx context.Context, src PairSource, o OnlineOptions) ([]OnlineRe
 	if err != nil {
 		return nil, fmt.Errorf("online eval: %w", err)
 	}
-	byExp := map[string][]shadow.Pair{}
+	byExp := map[string][]shadow.Pair{} // judged: both sides usable
+	all := map[string][]shadow.Pair{}   // operational: every eligible pair
 	for _, p := range pairs {
-		if (o.Experiment != "" && p.Experiment != o.Experiment) || o.Skip[p.ID] || !usable(p.Control) || !usable(p.Candidate) {
+		if (o.Experiment != "" && p.Experiment != o.Experiment) || o.Skip[p.ID] {
 			continue
 		}
-		byExp[p.Experiment] = append(byExp[p.Experiment], p)
+		all[p.Experiment] = append(all[p.Experiment], p)
+		if usable(p.Control) && usable(p.Candidate) {
+			byExp[p.Experiment] = append(byExp[p.Experiment], p)
+		}
 	}
 	exps := make([]string, 0, len(byExp))
 	for e := range byExp {
@@ -157,13 +195,18 @@ func RunOnline(ctx context.Context, src PairSource, o OnlineOptions) ([]OnlineRe
 	var out []OnlineResult
 	for _, e := range exps {
 		ps := byExp[e]
+		var ctl, cand []shadow.Side
+		for _, p := range all[e] {
+			ctl, cand = append(ctl, p.Control), append(cand, p.Candidate)
+		}
+		ops := OpsResult{Pairs: len(ctl), Control: armStats(ctl), Candidate: armStats(cand)}
 		sort.Slice(ps, func(i, j int) bool { return ps[i].ID < ps[j].ID })
 		rng := rand.New(rand.NewPCG(o.Seed, o.Seed^0x9e3779b97f4a7c15)) //nolint:gosec // reproducible sampling, not security
 		rng.Shuffle(len(ps), func(i, j int) { ps[i], ps[j] = ps[j], ps[i] })
 		if o.Sample > 0 && len(ps) > o.Sample {
 			ps = ps[:o.Sample]
 		}
-		r := OnlineResult{Experiment: e, Rubric: o.Rubric.Ref(), JudgeModel: o.Judge.Model, Pairs: len(byExp[e]),
+		r := OnlineResult{Experiment: e, Rubric: o.Rubric.Ref(), JudgeModel: o.Judge.Model, Pairs: len(byExp[e]), Ops: ops,
 			ControlVariant: or(ps[0].Control.Target.Variant, or(o.ControlNames[e], "control")), CandidateVariant: or(ps[0].Candidate.Target.Variant, "candidate")}
 		var cs, ts []float64
 		wins := 0.0
@@ -293,6 +336,10 @@ const (
 	MetricJudgeWinRate = "halo.eval.judge.win_rate" // gauge
 	MetricPairsGraded  = "halo.eval.pairs.graded"   // sum (delta)
 	MetricJudgeErrors  = "halo.eval.judge.errors"   // sum (delta)
+	// Operational readings per arm over every pair (ADR-0004: refusal, latency, cost).
+	MetricShadowErrorRate    = "halo.eval.shadow.error_rate"    // gauge, 0..1
+	MetricShadowLatency      = "halo.eval.shadow.latency_ms"    // gauge, mean
+	MetricShadowOutputTokens = "halo.eval.shadow.output_tokens" // gauge, mean
 )
 
 // Export sends one data point per metric per result, stamped at now.
@@ -313,9 +360,16 @@ func (x *OTLPExporter) Export(ctx context.Context, rs []OnlineResult, start, now
 	count := func(v int, attrs []m) m {
 		return m{"attributes": attrs, "startTimeUnixNano": st, "timeUnixNano": et, "asInt": strconv.Itoa(v)}
 	}
-	var score, delta, win, graded, errs []m
+	var score, delta, win, graded, errs, erate, lat, otok []m
 	for _, r := range rs {
 		base := []string{"halo.experiment", r.Experiment, "halo.eval.rubric", r.Rubric, "halo.eval.judge", r.JudgeModel}
+		for _, arm := range []struct {
+			v string
+			s ArmStats
+		}{{r.ControlVariant, r.Ops.Control}, {r.CandidateVariant, r.Ops.Candidate}} {
+			attrs := kvs(append(base, "halo.variant", arm.v)...)
+			erate, lat, otok = append(erate, gauge(arm.s.ErrorRate, attrs)), append(lat, gauge(arm.s.LatencyMS, attrs)), append(otok, gauge(arm.s.OutputTokens, attrs))
+		}
 		// One judge.score point per pair and arm, unit = pair: what analyze
 		// samples (promote reads halo.source=eval rows per (variant, unit)).
 		for _, ps := range r.Scores {
@@ -339,6 +393,9 @@ func (x *OTLPExporter) Export(ctx context.Context, rs []OnlineResult, start, now
 			{"name": MetricJudgeWinRate, "unit": "1", "gauge": m{"dataPoints": win}},
 			{"name": MetricPairsGraded, "unit": "{pair}", "sum": sum(graded)},
 			{"name": MetricJudgeErrors, "unit": "{pair}", "sum": sum(errs)},
+			{"name": MetricShadowErrorRate, "unit": "1", "gauge": m{"dataPoints": erate}},
+			{"name": MetricShadowLatency, "unit": "ms", "gauge": m{"dataPoints": lat}},
+			{"name": MetricShadowOutputTokens, "unit": "{token}", "gauge": m{"dataPoints": otok}},
 		}}},
 	}}}
 	b, err := json.Marshal(body)
@@ -382,6 +439,13 @@ func OnlineTable(rs []OnlineResult) string {
 	for _, r := range rs {
 		fmt.Fprintf(&b, "%-24s  %6d  %6d  %7.2f  %7.2f  %-22s  %3.0f%%  %s\n", r.Experiment, r.Graded, r.JudgeErrors, r.Control, r.Candidate,
 			fmt.Sprintf("%+.2f (%+.2f..%+.2f)", r.Delta.Mean, r.Delta.CILo, r.Delta.CIHi), 100*r.WinRate, r.Rubric)
+	}
+	// Operational readings (ADR-0004): every pair, errored ones included.
+	fmt.Fprintf(&b, "\n%-24s  %5s  %-20s  %-20s  %s\n", "EXPERIMENT", "PAIRS", "ERROR RATE ctl/cand", "LATENCY ms ctl/cand", "OUTPUT TOKENS ctl/cand")
+	for _, r := range rs {
+		c, d := r.Ops.Control, r.Ops.Candidate
+		fmt.Fprintf(&b, "%-24s  %5d  %-20s  %-20s  %s\n", r.Experiment, r.Ops.Pairs,
+			fmt.Sprintf("%.1f%% / %.1f%%", 100*c.ErrorRate, 100*d.ErrorRate), fmt.Sprintf("%.0f / %.0f", c.LatencyMS, d.LatencyMS), fmt.Sprintf("%.0f / %.0f", c.OutputTokens, d.OutputTokens))
 	}
 	return b.String()
 }

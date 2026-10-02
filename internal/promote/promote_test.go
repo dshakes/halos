@@ -106,6 +106,30 @@ func TestEvaluate(t *testing.T) {
 	}
 }
 
+// ADR-0004: shadow judge scores (eval-sourced) can roll back but never promote.
+func TestShadowEvidenceNeverPromotes(t *testing.T) {
+	rng := rand.New(rand.NewPCG(2, 2))
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	e := exp()
+	e.Metrics.Guardrails = nil
+	e.Metrics.Primary.Metric = "halo.eval.judge.score"
+	for _, tc := range []struct {
+		ctl, trt float64
+		want     Verdict
+	}{{0.6, 0.8, Continue}, {0.8, 0.6, Rollback}} {
+		src := &MemorySource{Start: start, Source: SourceEval, Data: map[string]map[string][]float64{
+			"halo.eval.judge.score": {"control": normals(rng, 1000, tc.ctl, 0.3), "candidate": normals(rng, 1000, tc.trt, 0.3)},
+		}}
+		rep, err := EvaluateAt(context.Background(), e, src, start.Add(48*time.Hour))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rep.Verdict != tc.want {
+			t.Fatalf("judge %v -> %v: got %v (%s), want %v", tc.ctl, tc.trt, rep.Verdict, rep.Reason, tc.want)
+		}
+	}
+}
+
 func TestEvaluateErrors(t *testing.T) {
 	src := &MemorySource{Data: map[string]map[string][]float64{}}
 	bad := exp()

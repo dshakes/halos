@@ -165,6 +165,10 @@ func EvaluateAt(ctx context.Context, exp *policy.Experiment, data MetricSource, 
 		rep.Verdict, rep.Source, rep.Reason = Rollback, psrc, fmt.Sprintf("primary %s significantly worse (effect %+.4g, p=%.4f)", exp.Metrics.Primary.Metric, effect, p)
 	case !allPass:
 		rep.Reason = "primary improved but guardrails not yet all passing"
+	case psrc == SourceEval:
+		// ADR-0004: judge scores come from single-turn shadow pairs, which say
+		// nothing about multi-step agent quality. They can roll back, never promote.
+		rep.Reason = fmt.Sprintf("primary %s improved, but it is shadow judge evidence; promote needs gateway canary evidence (ADR-0004)", exp.Metrics.Primary.Metric)
 	default:
 		rep.Verdict, rep.Source, rep.Reason = Promote, psrc, fmt.Sprintf("primary %s improved (effect %+.4g, p=%.4f) and guardrails pass", exp.Metrics.Primary.Metric, effect, p)
 	}

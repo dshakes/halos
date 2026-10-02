@@ -11,16 +11,24 @@ import (
 )
 
 // Guardrail is an org-wide policy check. ponytail: guardrails are plain Go
-// funcs, not OPA. Rego can plug in later by wrapping an evaluator in a
-// Guardrail and appending it to DefaultGuardrails; no other code changes.
+// funcs, not OPA (ADR-0007). An org-specific evaluator (Rego later) plugs in
+// through ExtraGuardrails; no other code changes.
 type Guardrail func(*Org) []Issue
 
-// DefaultGuardrails run at the end of Org.Validate.
-var DefaultGuardrails = []Guardrail{
+// ExtraGuardrails run after the built-in guardrails. They can only add
+// issues: the built-ins have already been judged and recorded, so an extra
+// can never remove or downgrade one (ADR-0007). Set once at start-up.
+var ExtraGuardrails []Guardrail
+
+// builtinGuardrails always run at the end of Org.Validate. Unexported so no
+// caller can drop one.
+var builtinGuardrails = []Guardrail{
 	guardNoBypass,
 	guardTelemetryOn,
 	guardMCPServers,
 	guardEgressHasGateway,
+	guardGARing,
+	guardSandboxEgress,
 	guardReservedOverrides,
 	guardNames,
 	guardRingProfiles,
@@ -129,6 +137,35 @@ func guardEgressHasGateway(o *Org) []Issue {
 		}
 		if !ok {
 			out = append(out, gi(SeverityError, "profiles["+name+"].egress.allowedDomains", "must include gateway host %q", host))
+		}
+	}
+	return out
+}
+
+// guardGARing (ADR-0007): a default (GA) ring that ships org hooks must make
+// them managed-only, so user and project hooks cannot run beside them.
+func guardGARing(o *Org) []Issue {
+	var out []Issue
+	for _, r := range o.Rings {
+		if !r.Membership.Default {
+			continue
+		}
+		if p, err := o.ResolveProfile(r.Profile); err == nil && len(p.Hooks.Hooks) > 0 && !p.Hooks.ManagedOnly {
+			out = append(out, gi(SeverityError, "rings["+r.Name+"].profile", "the default (GA) ring ships hooks, so hooks.managedOnly must be true (profile %q)", r.Profile))
+		}
+	}
+	return out
+}
+
+// guardSandboxEgress (ADR-0007): a profile that requires the sandbox is a
+// managed environment, so its egress allowlist must be non-empty; an empty list
+// renders a sandbox with the network wide open. Checked on what ships: ring
+// profiles (variants may not widen them).
+func guardSandboxEgress(o *Org) []Issue {
+	var out []Issue
+	for _, r := range o.Rings {
+		if p, err := o.ResolveProfile(r.Profile); err == nil && p.Permissions.SandboxRequired && len(p.Egress.AllowedDomains) == 0 {
+			out = append(out, gi(SeverityError, "rings["+r.Name+"].profile", "permissions.sandboxRequired is true, so egress.allowedDomains must be non-empty (profile %q)", r.Profile))
 		}
 	}
 	return out

@@ -231,6 +231,24 @@ func (a *app) buildRing(dir, ring, ver string) (*release.Release, []*release.Rel
 	return rel, variants, nil
 }
 
+// refusePinned stops publish from moving a ring that policy pins to another
+// release (ADR-0002): a pinned ring follows Ring.release, so re-point it with
+// `halo rollback --to <version> --expect-digest <pin>` or clear the pin; it never builds from Profile.
+func (a *app) refusePinned(dir, ring, digest string) error {
+	org, err := a.load(dir)
+	if err != nil {
+		return err
+	}
+	r, err := findRing(org, ring)
+	if err != nil {
+		return err
+	}
+	if r.Release != "" && r.Release != digest {
+		return fmt.Errorf("ring %s is pinned to release %s in policy; publishing a build from profile %s would bypass the pin. Re-point with `halo rollback --ring %s --to <version> --expect-digest %s` or remove `release:` from the ring", ring, r.Release, r.Profile, ring, r.Release)
+	}
+	return nil
+}
+
 // safeJoin joins a (possibly absolute, possibly Windows) path under out,
 // neutralising drive letters and "..".
 func safeJoin(out, p string) string {

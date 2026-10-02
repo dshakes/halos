@@ -246,7 +246,7 @@ type HarnessSpec struct {
 	// for it (e.g. codex-default, so codex does not ask for a Claude alias).
 	// Must be a gateway.models alias, and in models.allowed when enforced.
 	Model string `yaml:"model,omitempty" json:"model,omitempty"`
-	// Overrides are raw, harness-native keys merged last. Escape hatch; OPA still checks them.
+	// Overrides are raw, harness-native keys merged last. Escape hatch; the Go guardrails still check them (ADR-0007).
 	Overrides map[string]any `yaml:"overrides,omitempty" json:"overrides,omitempty"`
 }
 

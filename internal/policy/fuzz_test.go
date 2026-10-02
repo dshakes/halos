@@ -79,7 +79,7 @@ func FuzzLoadValidate(f *testing.F) {
 				t.Fatalf("ring %q validated without disableBypass", r.Name)
 			}
 		}
-		for i, g := range DefaultGuardrails {
+		for i, g := range builtinGuardrails {
 			if HasErrors(g(o)) {
 				t.Fatalf("guardrail %d reports errors on a validated policy: %v", i, g(o))
 			}

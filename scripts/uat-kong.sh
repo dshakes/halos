@@ -94,8 +94,20 @@ find "$POL" -name '*.bak' -delete
 #    --forward-client-credentials` would;
 #  - halo-bad-killswitch (Host: bad.kong.test): an unusable kill-switch public key (traffic must keep
 #    flowing but be flagged x-halo-killswitch: misconfigured);
+#  - halo-raw (Host: raw.kong.test): the same mock upstream with no plugin, the baseline for the
+#    plugin-server latency measurement (ADR-0006);
 #  - Kong's prometheus plugin.
 cat >> "$WORK/kong.yml" <<'EOF'
+    - name: halo-raw
+      url: http://mock-a:8080
+      retries: 0
+      routes:
+        - name: raw-messages
+          hosts: [raw.kong.test]
+          paths: ['~/v1/messages$']
+          protocols: [https]
+          strip_path: false
+          request_buffering: true
     - name: halo-anon-default
       url: http://mock-a:8080
       retries: 0

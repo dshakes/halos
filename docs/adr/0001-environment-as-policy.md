@@ -42,3 +42,19 @@ Chosen: **option 2**. The environment definition is the primary delivery path. A
 
 - Option 1: weakest enforcement, slowest rollback.
 - Option 3: not available on the Bedrock/custom-gateway path.
+
+## Addendum 2026-10-02: exact pins, not version ranges
+
+The consequence above mentions "version-range pins where the CLI supports them" as a mitigation for long-lived containers. That is superseded. Every ring profile pins each harness to an exact version (`policy.Validate` refuses ranges, and [ADR-0010](/halos/adr/0010-release-channels-for-client-experiments/) needs exact pins to compare a variant with its ring). Claude Code receives the pin as `requiredMinimumVersion` and `requiredMaximumVersion` set to the same value. A range would make "which bytes did this client run" ([ADR-0002](/halos/adr/0002-rings-point-at-immutable-releases/)) unanswerable. Lag in long-lived containers is handled by `halod` instead: the Feature runs `halod once --install` at start, and a running container stays current with `"postStartCommand": "sudo /usr/local/lib/halos/halod once --install"` (see the [dev containers guide](/halos/guides/dev-containers/)).
+
+## Implementation status (2026-10-02)
+
+| Commitment | Code | Test | Status |
+|---|---|---|---|
+| Dev Container Feature consumes the signed release | `features/halos/install.sh` (sha256-pinned `halod`, inline release key, `halod once --install`); `internal/delivery/devcontainer` refuses an unverified release | `devcontainer_test.go` `TestExportRefusals`; `test/uat` `TestCLIs` (feature step); `scripts/package-check.sh feature` (`devcontainer up`) | Done |
+| Coder module | `features/coder/main.tf` | none: Terraform is not executed in CI | Partial (UNVERIFIED, tracked in [delivery](/halos/concepts/delivery/)) |
+| Codespaces prebuilds | portal launcher `internal/server/portal.go`; prebuilds use the Feature | `portal_test.go` (launcher URL) | Partial: the prebuild itself is the org's GitHub config, not shipped here (UNVERIFIED) |
+| `halod` and MDM consume the same release | `cmd/halod/agent.go` (`cycle`); `internal/delivery/mdm` (`ExportJamf` also serves Kandji, `ExportIntune`) | `cmd/halod` `TestRefusesUnverified`; `mdm_test.go` `TestJamf`, `TestIntune`, `TestUnverifiedRefused` | Done |
+| `halod` inside the container | Feature `install.sh`; `postStartCommand` for running containers | `TestCLIs` | Done |
+| Version-range pins | superseded by exact pins (addendum above) | `claudecode_test.go` `TestSemantics` | Superseded |
+| Egress firewalled to the gateway | `features/halos/init-firewall.sh` (default drop, gateway and registry allowed) | `devcontainer_test.go` `TestExport`; `scripts/package-check.sh feature` | Done (containers only; laptops are the weaker sink by design) |
