@@ -56,6 +56,7 @@ export default defineConfig({
           label: 'Getting started',
           items: [
             'getting-started/introduction',
+            'getting-started/start-here',
             'getting-started/playground',
             'getting-started/install',
             'getting-started/quickstart',
