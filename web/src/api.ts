@@ -146,10 +146,20 @@ const Me = z.object({
   release: z.string().optional(),
   variants: arr(z.object({ experiment: z.string(), status: z.string(), variant: z.string().optional(), control: z.boolean().optional() })),
   profile: z
-    .object({ name: z.string(), harnesses: rec(z.string()), models: arr(z.string()), defaultModel: z.string(), mcpServers: arr(z.string()), sandbox: z.string().optional() })
+    .object({
+      name: z.string(),
+      harnesses: rec(z.string()),
+      models: arr(z.string()),
+      defaultModel: z.string(),
+      mcpServers: arr(z.string()),
+      sandbox: z.string().optional(),
+      harnessModels: rec(arr(z.string())),
+      harnessDefault: rec(z.string()),
+    })
     .optional(),
   selfService: z.boolean(),
   launchers: arr(z.string()),
+  launcherSetup: arr(z.object({ launcher: z.string(), missing: z.string() })),
   requestable: arr(z.string()),
   optInRings: arr(z.string()),
   devInsecure: z.boolean().optional(),

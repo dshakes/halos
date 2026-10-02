@@ -49,6 +49,14 @@ const tiles: Record<string, { title: string; sub: string; icon: string }> = {
   laptop: { title: "Set up my laptop", sub: "One-time command, expires quickly", icon: "⌘" },
 };
 
+const SETUP_DOCS = "https://dshakes.github.io/halos/concepts/self-service-portal/";
+
+// The aliases this harness can reach through the gateway (server-side, the check `halo validate` runs).
+function HarnessModels({ models, start }: { models: string[]; start: string }) {
+  if (models.length === 0) return <div className="mt-1 text-mute">Uses its vendor's models directly.</div>;
+  return <div className="mt-1 flex flex-wrap gap-1">{models.map((m) => <Pill key={m} tone={m === start ? "ok" : "mute"}>{m}</Pill>)}</div>;
+}
+
 function LaunchResult({ r, onRegenerate }: { r: Launch; onRegenerate: () => void }) {
   return (
     <div className="space-y-3 border-t border-line p-4">
@@ -175,7 +183,7 @@ export function Kiosk() {
               <Card key={name} className="px-4 py-3.5">
                 <div className="flex items-center justify-between"><span className="font-medium">{name}</span><Pill tone="info">v{version}</Pill></div>
                 <div className="mt-3 text-mute">Models</div>
-                <div className="mt-1 flex flex-wrap gap-1">{(p.models.length ? p.models : [p.defaultModel]).map((m) => <Pill key={m} tone={m === p.defaultModel ? "ok" : "mute"}>{m}</Pill>)}</div>
+                <HarnessModels models={p.harnessModels[name] ?? []} start={p.harnessDefault[name] ?? p.defaultModel} />
                 {p.mcpServers.length > 0 && <><div className="mt-3 text-mute">Approved MCP servers</div><div className="mt-1 flex flex-wrap gap-1">{p.mcpServers.map((m) => <Pill key={m}>{m}</Pill>)}</div></>}
               </Card>
             ))}
@@ -183,9 +191,16 @@ export function Kiosk() {
         )}
       </Section>
 
-      {me.selfService && me.launchers.length > 0 && (
+      {me.selfService && (me.launchers.length > 0 || me.launcherSetup.length > 0) && (
         <Section title="Get started">
           <div className="grid items-start gap-3 md:grid-cols-2">{me.launchers.map((l) => <LauncherTile key={l} id={l} />)}</div>
+          {me.launcherSetup.map((s) => (
+            <p key={s.launcher} className="text-mute">
+              <span className="text-fg">{tiles[s.launcher]?.title ?? s.launcher}</span> is not set up yet: the portal config needs {s.missing}.{" "}
+              <a className="text-accent hover:underline" href={SETUP_DOCS} target="_blank" rel="noopener noreferrer">Setup guide</a>
+              <span className="ml-1">(only admins see this)</span>
+            </p>
+          ))}
         </Section>
       )}
 

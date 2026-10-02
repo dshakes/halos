@@ -40,6 +40,12 @@ services:
     image: halos-demo/mockllm
     environment: {MOCK_NAME: anthropic}
 
+  # halod for every OS/arch + SHA256SUMS: what the laptop enroll script downloads and pins.
+  downloads:
+    build: {context: ../.., dockerfile: deploy/compose/demo/Dockerfile.halod}
+    image: halos-demo/halod-downloads
+    ports: ["127.0.0.1:${HALO_DEMO_DL_PORT:-18082}:8080"]
+
   seed:
     build: {<<: *svc, args: {PKG: ./cmd/halo}}
     image: halos-demo/halo
@@ -47,12 +53,13 @@ services:
     restart: "no"
     environment:
       CONSOLE_URL: ${HALO_DEMO_CONSOLE_URL:-http://localhost:18080} # portal baseURL; OIDC redirect_uri is <it>/auth/callback
+      DL_URL: ${HALO_DEMO_DL_URL:-http://localhost:18082} # portal halodURL host (the downloads service)
     volumes:
       - demo:/demo
       - ./demo/seed.sh:/seed.sh:ro
       - ../../examples/acme-corp:/src/acme-corp:ro
       - ./demo/policy:/src/overlay:ro
-    depends_on: [registry]
+    depends_on: [registry, downloads]
 
   # A local bare repo as the policy remote + the clone halo-server proposes from (see init-policy-repo.sh).
   policy-repo:

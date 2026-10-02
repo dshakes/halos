@@ -39,9 +39,19 @@ done
 # compiled gateway snapshot for halo-proxy / halo-shadow
 $halo gateway compile --policy-dir /demo/policy -o /demo/policy.json
 
+# halod pins for the laptop launcher, from the downloads service's SHA256SUMS
+sums=""
+for i in $(seq 60); do sums=$(wget -qO- http://downloads:8080/SHA256SUMS 2>/dev/null) && break; sleep 1; done
+[ -n "$sums" ] || { echo "seed: downloads service has no SHA256SUMS" >&2; exit 1; }
+pins=$(echo "$sums" | awk '{sub(/^halod-/, "", $2); printf "%s\"%s\": \"%s\"", (NR > 1 ? ", " : ""), $2, $1}')
+
+# Codespaces needs a server it can reach (not localhost) and the Dev Container
+# Feature needs https + a TLS registry: neither is offered by this plain-HTTP
+# demo (see make feature-test for the Feature end to end).
 cat >/demo/portal.json <<EOF
 {"baseURL": "${CONSOLE_URL}", "registry": "$repo", "registryPlainHTTP": true,
  "pubKeyFile": "/demo/keys/halo.pub", "sessionKeyFile": "/demo/session.key",
+ "halodURL": "${DL_URL}/halod-{os}-{arch}", "halodSHA256": {$pins},
  "policyRepoDir": "/repo/writer", "policyBase": "main"}
 EOF
 chmod -R a+rX /demo
