@@ -51,7 +51,7 @@ var (
 // Validate runs semantic checks over the whole Org, then the default
 // guardrails. It never returns nil-vs-empty ambiguity: no issues = empty slice.
 func (o *Org) Validate() []Issue {
-	v := &validator{org: o, issues: []Issue{}}
+	v := &validator{org: o, issues: append([]Issue{}, o.Deprecations...)}
 	v.gateway()
 	v.profiles()
 	v.rings()
