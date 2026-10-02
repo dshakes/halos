@@ -67,8 +67,8 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 - The policy API is `halos.dev/v1alpha1` and may change until v1.
 
 ### Known gaps
-- No tagged release, published images or goreleaser run yet.
-- UNVERIFIED against the real system: Kong Enterprise/Konnect, real AWS Bedrock (signing is tested against a test vector and a fake Bedrock), MDM pushes on real devices, PowerShell and Terraform artifacts, `halod` as root on real hosts and on Windows, the Helm chart in a cluster, the GitHub PR flow against real GitHub, every harness capability against a real CLI.
+- This is the first tagged release: the release workflow's image push, cosign signing and SBOMs run for real for the first time here.
+- UNVERIFIED against the real system: Kong Enterprise/Konnect, real AWS Bedrock (signing is tested against a test vector and a fake Bedrock), MDM pushes on real devices, PowerShell and Terraform artifacts, `halod` as root on real hosts and on Windows, the Helm chart on a managed cloud cluster (`make uat-k8s` runs it on kind), the GitHub PR flow against real GitHub, every harness capability against a real CLI.
 - The controller and kill switch have not run against a live gateway plus live ClickHouse; `make obs-e2e` uses synthetic telemetry.
 - The kill switch does not reach client-axis variants on machines unless `halod` has the opt-in `killSwitch` setting. `halo gateway deck --killswitch-url` does not emit `killswitch_allow_insecure_in_cluster`.
 - Stateless CI has no signer state file; cache `pointers.json` or use `--expect-digest`, or the signer replay check does not run.
