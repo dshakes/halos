@@ -141,9 +141,11 @@ release: sha256:9f2c...    # empty = build from profile (dev only)
 membership:
   percent: 5
   optIn: true       # developers may ask to join from the portal
+posture: enforce    # off | warn (default) | enforce: gateway refuses non-compliant devices
+versionGate: warn   # off | warn (default) | enforce: gateway checks the CLI version in the User-Agent
 ```
 
-`membership.users` and `groups` are always in the ring (users are checked first); `percent` is the share of *remaining* users hashed in; `default: true` marks the GA catch-all; `optIn` lets developers request the ring in the portal. See [rings and releases](/halos/concepts/rings-and-releases/).
+`membership.users` and `groups` are always in the ring (users are checked first); `percent` is the share of *remaining* users hashed in; `default: true` marks the GA catch-all; `optIn` lets developers request the ring in the portal. `posture` and `versionGate` are the ring's [gateway gates](/halos/concepts/delivery/#gateway-gates). See [rings and releases](/halos/concepts/rings-and-releases/).
 
 ## Experiment
 

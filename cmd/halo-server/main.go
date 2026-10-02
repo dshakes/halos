@@ -44,7 +44,7 @@ type options struct {
 	policyDir, listen, tokenFile, dataDir, verdicts, portalCfg, devUser string
 	devGroups                                                           []string
 	devAdmin                                                            bool
-	deviceTTL                                                           time.Duration
+	deviceTTL, postureMaxAge                                            time.Duration
 	trusted                                                             []netip.Prefix
 
 	// automated experiment loop + kill switch
@@ -80,7 +80,8 @@ func parseFlags(args []string) (options, error) {
 	fs.StringVar(&o.chUser, "clickhouse-user", "", "ClickHouse user")
 	fs.StringVar(&o.chPasswordFile, "clickhouse-password-file", "", "file holding the ClickHouse password")
 	fs.StringVar(&o.killKeyFile, "killswitch-key-file", "", "ed25519 PKCS#8 PEM private key signing the gateway kill list (halo keys generate --name killswitch)")
-	fs.StringVar(&o.gatewayTokenFile, "gateway-token-file", "", "file holding the bearer token gateways use for GET /api/v1/gateway/killswitch")
+	fs.StringVar(&o.gatewayTokenFile, "gateway-token-file", "", "file holding the bearer token gateways use for GET /api/v1/gateway/killswitch and /api/v1/gateway/posture")
+	fs.DurationVar(&o.postureMaxAge, "posture-max-age", server.DefaultPostureMaxAge, "a device whose last halod report is older is non-compliant for the gateway posture gate")
 	fs.StringVar(&o.slackURLFile, "notify-slack-url-file", "", "file holding a Slack incoming-webhook URL")
 	fs.StringVar(&o.webhookURLFile, "notify-webhook-url-file", "", "file holding a generic webhook URL (JSON event, signed with X-Halo-Signature)")
 	fs.StringVar(&o.webhookSecretFile, "notify-webhook-secret-file", "", "file holding the webhook HMAC-SHA256 secret")
@@ -115,8 +116,11 @@ func parseFlags(args []string) (options, error) {
 	if o.policyDir == "" || o.tokenFile == "" {
 		return o, errors.New("--policy-dir and --token-file are required")
 	}
-	if (o.killKeyFile == "") != (o.gatewayTokenFile == "") {
+	if o.killKeyFile != "" && o.gatewayTokenFile == "" { // a gateway token alone serves only the posture endpoint
 		return o, errors.New("--killswitch-key-file and --gateway-token-file must be set together")
+	}
+	if o.postureMaxAge < time.Minute {
+		return o, errors.New("--posture-max-age must be at least 1m")
 	}
 	if o.killKeyFile != "" && o.dataDir == "" {
 		return o, errors.New("--killswitch-key-file requires --data-dir (kills must survive a restart)")
@@ -229,7 +233,7 @@ func run(ctx context.Context, args []string) error {
 		PolicyDir: o.policyDir, Token: strings.TrimSpace(string(tok)), VerdictsPath: o.verdicts, Store: store,
 		SessionKey: []byte(sessionKey), OIDCClientSecret: clientSecret, Portal: portal, DataDir: o.dataDir, Writer: writer,
 		DeviceTTL: o.deviceTTL, DevUser: o.devUser, DevGroups: o.devGroups, DevAdmin: o.devAdmin, TrustedProxies: o.trusted,
-		KillStore: kills, KillKey: killKey, GatewayToken: gwToken,
+		KillStore: kills, KillKey: killKey, GatewayToken: gwToken, PostureMaxAge: o.postureMaxAge,
 	})
 	if err != nil {
 		return err

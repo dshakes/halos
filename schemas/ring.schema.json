@@ -39,6 +39,16 @@
       "type": "string",
       "description": "Immutable published release digest to pin to; empty builds from the profile."
     },
+    "posture": {
+      "type": "string",
+      "description": "Gate gateway access on the device posture halod reports to halo-server (fresh, no drift, on this ring's release). off, warn (default: log and count) or enforce (403). Applies only on gateways configured with a halo-server posture URL.",
+      "enum": ["off", "warn", "enforce"]
+    },
+    "versionGate": {
+      "type": "string",
+      "description": "Check the CLI version in the request User-Agent against the ring's pinned harness version. off, warn (default: log and count) or enforce (403). An unknown or missing User-Agent follows the same mode.",
+      "enum": ["off", "warn", "enforce"]
+    },
     "membership": {
       "type": "object",
       "description": "Who belongs to the ring.",

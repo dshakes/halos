@@ -27,7 +27,7 @@ routing and no shadow mirroring.
 | `--killswitch-key-file` | ed25519 PKCS#8 PEM private key (`halo keys generate --name killswitch`). It signs the kill list. Use a dedicated key, not the release key. **Requires `--data-dir`** (kills must survive a restart). |
 | `--gateway-token-file` | Bearer token (16+ chars) that gateways present to `GET /api/v1/gateway/killswitch`. |
 
-Set both flags or neither; startup fails otherwise, and fails if the key is set without `--data-dir`. Without a key the server is honest about it: no kill list is served, kill and unkill return 501, `GET /api/v1/capabilities` reports `killSwitch: false`, and the in-process controller reports rollbacks as **not enforced** ("merge the pause PR urgently") instead of recording a kill nobody reads. The gateway endpoint returns
+The key needs the token; startup fails otherwise, and fails if the key is set without `--data-dir`. The token alone serves only `GET /api/v1/gateway/posture` (below). Without a key the server is honest about it: no kill list is served, kill and unkill return 501, `GET /api/v1/capabilities` reports `killSwitch: false`, and the in-process controller reports rollbacks as **not enforced** ("merge the pause PR urgently") instead of recording a kill nobody reads. The gateway endpoint returns
 `{"payload": base64(JSON {version, experiments, issuedAt}), "signature": base64(ed25519("halo-killswitch-v1\n" + payload))}`.
 
 Gateways reject a list if:
@@ -91,3 +91,11 @@ kills to `audit.jsonl`, so it must not run against a data dir a live
 halo-server is writing; use `--controller` there. Pass `--killswitch-served` to
 `halo controller run` only when this server (with `--killswitch-key-file`)
 serves that data dir; otherwise its messages say the kill is only recorded.
+
+## Device posture
+
+`GET /api/v1/gateway/posture?subject=<id>` (gateway token) answers `{"compliant": bool, "reason": "..."}` for the
+posture gate of rings with `posture: warn|enforce`. Compliant means the subject has at least one enrolled device and
+every enrolled device (not revoked, not expired) reported within `--posture-max-age` (default 45m), with no drift, on
+its ring's current verified release or one of that release's experiment channels (checked only when the portal config
+names a registry). See ADR-0011.
