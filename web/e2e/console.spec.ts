@@ -108,35 +108,34 @@ test("kiosk: launchers produce working output; unconfigured ones stay calm", asy
   await login(page, "bob@acme.com");
   await page.goto("/#/kiosk");
   await settle(page);
-  // A user only sees launchers that work.
-  await expect(page.getByRole("button", { name: /GitHub Codespaces/ })).toHaveCount(0);
-  await expect(page.getByText("Not set up yet")).toHaveCount(0);
+  // A developer only sees launchers that work (the demo can run only the laptop one).
+  const started = page.locator("section", { has: page.getByRole("heading", { name: "Get started" }) });
+  await expect(started.getByRole("button")).toHaveText([/Set up my laptop/]);
+  await expect(page.getByText("not set up yet")).toHaveCount(0);
 
   // Each harness card lists only the models its wire can reach.
-  const claude = page.locator("section", { has: page.getByText("claude-code", { exact: true }) }).last();
-  await expect(claude).not.toContainText("codex-default");
-  await expect(claude).not.toContainText("gemini-default");
+  const card = (h: string) => page.locator("div", { has: page.getByText(h, { exact: true }) }).filter({ hasText: "Models" }).last();
+  await expect(card("claude-code")).not.toContainText(/codex-default|gemini-default/);
+  await expect(card("codex")).toContainText("codex-default");
+  await expect(card("codex")).not.toContainText(/gemini-default|sonnet/);
 
-  await page.getByRole("button", { name: /Set up my laptop/ }).click();
+  await started.getByRole("button", { name: /Set up my laptop/ }).click();
   await settle(page);
   const bash = await page.locator("pre").filter({ hasText: "enroll.sh" }).first().innerText();
   expect(bash).toMatch(/^curl -fsSL http\S+\/enroll\.sh \| sh -s -- \S+$/);
-  writeFileSync(`${OUT}/laptop.sh`, bash + "\n");
+  writeFileSync(`${OUT}/laptop.sh`, bash + "\n"); // scripts/demo-e2e.sh runs it in a container
+  await expectHealthy(page, errs, "kiosk launchers (developer)");
+  await page.screenshot({ path: `${OUT}/kiosk-developer.png`, fullPage: true });
 
-  await page.getByRole("button", { name: /Dev container/ }).click();
-  await settle(page);
-  const snippet = await page.locator("pre").filter({ hasText: '"features"' }).first().innerText();
-  writeFileSync(`${OUT}/devcontainer.json`, snippet);
-  const dc = JSON.parse(snippet) as { features: Record<string, Record<string, unknown>> };
-  expect(Object.keys(dc.features)).toHaveLength(1);
-  await expectHealthy(page, errs, "kiosk launchers (user)");
-
-  // An admin sees what is missing, calmly, with where to set it.
+  // An admin sees what is missing, calmly, with where to set it; API clients keep the 409.
   await login(page, "alice@acme.com");
   await page.goto("/#/kiosk");
   await settle(page);
-  await expect(page.getByText("Not set up yet")).toBeVisible();
-  await expect(page.getByText("codespacesURL")).toBeVisible();
+  await expect(page.getByText(/is not set up yet/)).toContainText("https halodURL");
+  await expect(page.getByRole("link", { name: "Setup guide" })).toHaveAttribute("href", /self-service-portal/);
   await expectHealthy(page, errs, "kiosk launchers (admin)");
+  const res = await page.request.post("/api/v1/launch/devcontainer", { headers: { Origin: new URL(page.url()).origin } });
+  expect(res.status()).toBe(409);
+  expect(((await res.json()) as { error: string }).error).toContain("https halodURL");
   await page.screenshot({ path: `${OUT}/kiosk-admin.png`, fullPage: true });
 });

@@ -1,4 +1,4 @@
-.PHONY: bench load build test lint vuln docs compose-up e2e obs-e2e smoke demo demo-down
+.PHONY: bench load build test lint vuln docs compose-up e2e obs-e2e smoke demo demo-down demo-e2e
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 
@@ -57,6 +57,10 @@ demo:
 
 demo-down:
 	./scripts/demo.sh down
+
+# Headless-Chromium click-through of every console page/button + the kiosk's laptop command, against `make demo`.
+demo-e2e:
+	./scripts/demo-e2e.sh
 
 # Real CLIs (claude/codex/gemini/copilot at the acme pins) via the Dev Container Feature,
 # halo-proxy and mock upstreams, plus halo eval run with real drivers (Docker + network).

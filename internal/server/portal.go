@@ -396,8 +396,8 @@ func (s *Server) launcherGap(name string, r *http.Request) string {
 		set(pc.HalodURL == "", "halodURL")
 		set(len(linuxShas(pc)) == 0, "halodSHA256 for linux-amd64 or linux-arm64")
 		set(pc.PubKeyPEM == "", "pubKeyFile")
-		set(pc.HalodURL != "" && !strings.HasPrefix(pc.HalodURL, "https://"), "an https halodURL (the Dev Container Feature refuses http)")
-		set(pc.RegistryPlainHTTP, "a TLS registry (registryPlainHTTP is on; the Dev Container Feature needs TLS)")
+		set(pc.RegistryPlainHTTP || (pc.HalodURL != "" && !strings.HasPrefix(pc.HalodURL, "https://")),
+			"an https halodURL and a TLS registry (the Dev Container Feature refuses plain HTTP)")
 	case "codespaces":
 		set(pc.CodespacesURL == "", "codespacesURL")
 	case "coder":
