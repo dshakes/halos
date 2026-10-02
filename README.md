@@ -245,10 +245,10 @@ Unit tests also run on Windows and macOS in CI. A nightly [provider smoke](https
 Not yet exercised against the real systems:
 - AWS Bedrock, Vertex, Azure OpenAI and Gemini API accounts (fixture-tested only; the nightly smoke covers them once their secrets are set)
 - Kong Enterprise
-- `halod` as a service on a real Windows machine, and the PowerShell installer and enroll scripts
-- MDM-managed devices
-- Codespaces and Coder workspaces
-- the GitHub Action and GitLab CI template
+- Windows beyond a CI runner: Intune, Authenticode, an interactive logged-in user (CI runs `install.ps1`, `enroll.ps1` and `halod` as a SYSTEM scheduled task on a hosted Windows runner)
+- MDM-managed devices (Jamf, Kandji, Intune)
+- Codespaces and Coder workspaces (CI builds the dev container and the Feature with the devcontainer CLI)
+- the GitLab CI template on a real GitLab runner (CI runs its script in a container with `gitlab-ci-local`, an emulation)
 - the Helm chart on a managed cloud cluster
 
 ## Contributing

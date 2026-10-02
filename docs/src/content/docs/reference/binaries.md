@@ -178,6 +178,7 @@ Flags: `--config` and `--state` default to the per-OS paths in [delivery](/halos
 | `plainHTTP` | no | Registry over HTTP (development only) |
 | `allowShellInstall` | no | **Insecure.** Permits the legacy `installCommand` when no verified artifact exists. Default `false` |
 | `maxBundleBytes` | no | Cap on the release download, default 256 MiB |
+| `immutable` | no | Set the system-immutable flag on managed files after each write (`chflags schg` on macOS, `chattr +i` on Linux) and clear it before a rewrite or removal. Default `false`; ignored on Windows; a missing tool or permission is logged once per run and ignored ([delivery](/halos/concepts/delivery/#immutable-managed-files)) |
 
 `ringEndpoint` and `reportURL` must be https (plain http only to loopback).
 
@@ -191,6 +192,10 @@ Flags (env `HALO_PROXY_<FLAG>`, YAML `--config`): `--listen :8088` (proxied mode
 | `--killswitch-token-file` | `killSwitch.tokenFile` | File holding the gateway token |
 | `--killswitch-pubkey-file` | `killSwitch.pubkeyFile` | ed25519 PEM public key verifying the kill list |
 | `--killswitch-interval` | `killSwitch.interval` | Poll interval, default `10s` |
+| `--posture-url` | `posture.url` | halo-server `/api/v1/gateway/posture`; empty disables the [posture gate](/halos/concepts/delivery/#gateway-gates) |
+| `--posture-token-file` | `posture.tokenFile` | File holding the gateway token (same as the kill switch's) |
+| | `posture.cacheTTL`, `posture.grace` | YAML only. Per-user verdict cache, default `1m`; how long the last verdict serves while halo-server is unreachable, default `15m` (after it the posture is unknown and requests pass) |
+| | `posture.allowInsecureInCluster` | YAML only, default `false`; as `killSwitch.allowInsecureInCluster` |
 | `--telemetry-otlp-endpoint` | `telemetry.otlpEndpoint` | OTLP/HTTP collector base URL for `halo.gateway.*` per-request metrics; use the collector's gateway receiver (`:4319`). Empty disables |
 | `--telemetry-token-file` | `telemetry.tokenFile` | File holding the bearer token for that receiver (the collector's `HALO_OTLP_GATEWAY_TOKEN`), read once at startup. Without it the collector answers 401 and the controller sees no gateway evidence, so it cannot auto-kill |
 | `--telemetry-unit-salt-file` | `telemetry.unitSalt` (inline) | File holding the `halo.unit` hash salt. Use the same salt on every replica so one user stays one unit; empty means a random per-process salt. The flag takes a file because flags leak through `ps` |
@@ -198,7 +203,7 @@ Flags (env `HALO_PROXY_<FLAG>`, YAML `--config`): `--listen :8088` (proxied mode
 | | `killSwitch.allowInsecureInCluster` | YAML only, default `false`. Plain `http://` to a non-loopback kill-switch URL is refused (the gateway token would travel in the clear) unless this is `true`; for a trusted in-cluster Service URL |
 | | `signHosts` | YAML only, list of exact hostnames. Extra hosts a `kind: bedrock` upstream may be SigV4-signed for, besides `*.amazonaws.com`, `*.amazonaws.com.cn` and `*.api.aws` (for example a private VPC endpoint DNS name) |
 
-The kill-switch URL, token file and public key must be set together. `kind: bedrock` upstreams are SigV4-signed by `halo-proxy` with its own AWS credentials, configured in policy plus `signHosts`. It signs only for AWS endpoint hosts or `signHosts`; any other host with a region gets a 502, and every client `x-amz*` / `x-amzn*` header is stripped first ([direct Bedrock](/halos/concepts/stack-agnostic/#direct-bedrock-sigv4-in-halo-proxy)).
+The kill-switch URL, token file and public key must be set together. `/metrics` counts gate outcomes as `halo_proxy_gate_total{gate,ring,outcome}` (`outcome` is `warn`, `enforce` or `unknown`). `kind: bedrock` upstreams are SigV4-signed by `halo-proxy` with its own AWS credentials, configured in policy plus `signHosts`. It signs only for AWS endpoint hosts or `signHosts`; any other host with a region gets a 502, and every client `x-amz*` / `x-amzn*` header is stripped first ([direct Bedrock](/halos/concepts/stack-agnostic/#direct-bedrock-sigv4-in-halo-proxy)).
 
 ## `halo-server`
 
@@ -216,7 +221,8 @@ Flags (Go style, single or double dash):
 | `-device-ttl` | `2160h` (90 days) | Device token lifetime after enrollment; expired devices must re-enroll |
 | `-dev-insecure-user`, `-dev-insecure-groups`, `-dev-insecure-admin` | | Demo only: disable login and act as this user |
 | `-killswitch-key-file` | | ed25519 PKCS#8 PEM private key signing the kill list (`halo keys generate --name killswitch`). Use a dedicated key. Requires `-data-dir`. Without it the kill and unkill endpoints return 501, no kill list is served, `GET /api/v1/capabilities` reports `killSwitch: false`, and the in-process controller reports rollbacks as **not enforced** ("merge urgently": only the pause PR stops traffic). Startup fails if `-killswitch-key-file` is set without `-data-dir` or without `-gateway-token-file` |
-| `-gateway-token-file` | | Bearer token (16+ characters) gateways present to `GET /api/v1/gateway/killswitch`. Set with `-killswitch-key-file` or not at all |
+| `-gateway-token-file` | | Bearer token (16+ characters) gateways present to `GET /api/v1/gateway/killswitch` and `GET /api/v1/gateway/posture`. Alone, it serves only posture |
+| `-posture-max-age` | `45m` | A device whose last `halod` report is older is non-compliant for the [posture gate](/halos/concepts/delivery/#gateway-gates); minimum `1m` |
 | `-controller` | off | Run the automated experiment loop. Requires `-clickhouse-url` and `-data-dir` |
 | `-interval` (deprecated alias `-controller-interval`) | `5m` | Controller tick interval; minimum `1m` |
 | `-clickhouse-url`, `-clickhouse-database`, `-clickhouse-user`, `-clickhouse-password-file` | | Evidence source |

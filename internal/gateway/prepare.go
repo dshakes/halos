@@ -37,6 +37,7 @@ type Rejection struct {
 	Status   int
 	Protocol string // selects the error body shape
 	Message  string
+	Code     string // OpenAI Responses error code; "" = derived from Status
 }
 
 func (r *Rejection) Error() string { return fmt.Sprintf("gateway: %d %s", r.Status, r.Message) }
@@ -47,6 +48,9 @@ func (r *Rejection) JSON() []byte {
 	switch r.Protocol {
 	case ProtoResponses:
 		code := map[int]string{400: "model_not_allowed", 401: "invalid_api_key", 403: "model_not_allowed", 404: "unknown_url", 413: "request_too_large"}[r.Status]
+		if r.Code != "" {
+			code = r.Code
+		}
 		v = map[string]any{"error": map[string]any{"message": r.Message, "type": "invalid_request_error", "param": nil, "code": code}}
 	case ProtoBedrock:
 		v = map[string]any{"message": r.Message}

@@ -47,7 +47,7 @@ Halos borrows the vocabulary (toggles, percentage rollouts, a kill switch, exper
 
 - The policy API is `halos.dev/v1alpha1` and may change before v1. There is no tagged release yet.
 - It is an open-source project with a small maintainer group, not a vendor with an SLA.
-- Several integrations are labelled **UNVERIFIED** in the docs (Kong Enterprise, real Bedrock traffic, MDM on real devices, Windows `halod`). Believe those labels.
+- Several integrations are labelled **UNVERIFIED** in the docs (Kong Enterprise, real Bedrock traffic, MDM on real devices). Believe those labels.
 - It is self-hosted only. You run the proxy, the registry and the telemetry store.
 
 ## When Halos is the wrong choice

@@ -55,6 +55,9 @@ type Config struct {
 	// KillSwitch polls halo-server's signed kill list; killed experiments get
 	// control routing and no shadow. Empty URL disables.
 	KillSwitch KillSwitchConfig `yaml:"killSwitch"`
+	// Posture asks halo-server for device posture (rings with posture warn or
+	// enforce). Empty URL disables: the posture gate is then never applied.
+	Posture PostureConfig `yaml:"posture"`
 	// Telemetry exports per-request OTLP metrics (halo.gateway.*) for
 	// experiment analysis. Empty otlpEndpoint disables.
 	Telemetry gwmetrics.Config `yaml:"telemetry"`
@@ -170,6 +173,8 @@ func loadConfig(args []string, getenv func(string) string, usage io.Writer) (Con
 	fs.StringVar(&cfg.KillSwitch.TokenFile, "killswitch-token-file", cfg.KillSwitch.TokenFile, "file holding the halo-server gateway token")
 	fs.StringVar(&cfg.KillSwitch.PubkeyFile, "killswitch-pubkey-file", cfg.KillSwitch.PubkeyFile, "ed25519 PEM public key verifying the kill list")
 	fs.DurationVar(&cfg.KillSwitch.Interval, "killswitch-interval", cfg.KillSwitch.Interval, "kill list poll interval (default 10s)")
+	fs.StringVar(&cfg.Posture.URL, "posture-url", cfg.Posture.URL, "halo-server /api/v1/gateway/posture URL; empty disables the posture gate")
+	fs.StringVar(&cfg.Posture.TokenFile, "posture-token-file", cfg.Posture.TokenFile, "file holding the halo-server gateway token for the posture URL")
 	fs.StringVar(&cfg.Telemetry.OTLPEndpoint, "telemetry-otlp-endpoint", cfg.Telemetry.OTLPEndpoint, "OTLP/HTTP collector base URL for halo.gateway.* request metrics; empty disables")
 	fs.StringVar(&cfg.Telemetry.Protocol, "telemetry-protocol", cfg.Telemetry.Protocol, "OTLP protocol: http/protobuf (default) | http/json")
 	fs.DurationVar(&cfg.Telemetry.Interval, "telemetry-interval", cfg.Telemetry.Interval, "OTLP export interval (default 10s, min 1s)")

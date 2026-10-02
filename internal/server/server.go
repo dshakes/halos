@@ -55,6 +55,10 @@ type Config struct {
 	KillKey      ed25519.PrivateKey
 	GatewayToken string
 
+	// PostureMaxAge: a device whose last report is older is stale (GET
+	// /api/v1/gateway/posture, served whenever GatewayToken is set). 0 = DefaultPostureMaxAge.
+	PostureMaxAge time.Duration
+
 	// DevUser disables authentication and acts as this user. INSECURE: local demos only.
 	DevUser   string
 	DevGroups []string
@@ -180,6 +184,7 @@ func (s *Server) Handler() http.Handler {
 	m.HandleFunc("POST /api/v1/toggles/{name}/propose", s.admin(s.postToggleProposal))
 	m.HandleFunc("GET /api/v1/killswitch", s.admin(s.getKills))
 	m.HandleFunc("GET /api/v1/gateway/killswitch", s.getGatewayKillswitch)
+	m.HandleFunc("GET /api/v1/gateway/posture", s.getGatewayPosture)
 	m.HandleFunc("POST /api/v1/devices/{id}/revoke", s.admin(s.revokeDevice))
 	m.HandleFunc("POST /api/v1/users/{id}/revoke-sessions", s.admin(s.revokeSessions))
 	// admin-only operator views
