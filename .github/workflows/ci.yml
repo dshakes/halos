@@ -102,6 +102,7 @@ jobs:
       - run: make e2e
   obs-e2e:
     # Evidence plane: otel-collector-contrib -> ClickHouse -> halo exp analyze + Grafana, synthetic telemetry.
+    # Closed loop: halo-proxy traffic -> ClickHouse -> halo-server controller -> signed kill list -> proxy stops routing.
     runs-on: ubuntu-latest
     needs: [test]
     timeout-minutes: 20
