@@ -232,8 +232,28 @@ func TestPrompts(t *testing.T) {
 		t.Fatalf("argument not interpolated: %s", txt)
 	}
 	ps, err := cs.ListPrompts(context.Background(), nil)
-	if err != nil || len(ps.Prompts) != 3 {
-		t.Fatalf("want 3 prompts, got %v %v", ps, err)
+	if err != nil || len(ps.Prompts) != 4 {
+		t.Fatalf("want 4 prompts, got %v %v", ps, err)
+	}
+	// onboard: path is optional (the agent asks); every tool it names must exist.
+	res, err = cs.GetPrompt(context.Background(), &mcp.GetPromptParams{Name: "onboard"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	txt := res.Messages[0].Content.(*mcp.TextContent).Text
+	ts, err := cs.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	have := map[string]bool{}
+	for _, tl := range ts.Tools {
+		have[tl.Name] = true
+	}
+	for _, name := range []string{"doctor", "detect_harnesses", "init_policy", "plan", "local_install", "local_proxy", "verify_harness",
+		"onboard_company", "validate", "harness_matrix", "eval_scorecard"} {
+		if !strings.Contains(txt, name) || !have[name] {
+			t.Fatalf("onboard prompt: %s mentioned=%t registered=%t", name, strings.Contains(txt, name), have[name])
+		}
 	}
 }
 

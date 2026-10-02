@@ -1,9 +1,9 @@
 ---
 title: "halo plan"
-description: "Diff the release a ring would get against a previous release"
+description: "Diff the release a ring would get against a previous release (or show it whole for a first release)"
 ---
 
-Diff the release a ring would get against a previous release
+Diff the release a ring would get against a previous release (or show it whole for a first release)
 
 ## Usage
 
@@ -15,7 +15,7 @@ halo plan [flags]
 
 | Flag | Shorthand | Type | Default | Description |
 |---|---|---|---|---|
-| `--against` |  | string |  | release.tar or registry ref host/org/name[:tag] (required) |
+| `--against` |  | string |  | release.tar or registry ref host/org/name[:tag] (default: none, the first release) |
 | `--cosign-key` |  | string |  | cosign public key reference to verify with |
 | `--plain-http` |  | bool | false | use HTTP instead of HTTPS (local registries) |
 | `--policy-dir` |  | string |  | policy repo directory (default ".") |
