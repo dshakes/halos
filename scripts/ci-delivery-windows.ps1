@@ -92,6 +92,7 @@ try {
   Spawn 'server' (Join-Path $bin 'halo-server.exe') @('--listen', '127.0.0.1:18199', '--policy-dir', $pol,
     '--token-file', (Join-Path $w 'fleet.token'), '--portal-config', (Join-Path $w 'portal.json'),
     '--data-dir', (Join-Path $w 'data'), '--dev-insecure-user', 'dev@acme.com', '--dev-insecure-admin')
+  Wait-Until { try { (Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:18200/halod.exe' -Method Head).StatusCode -eq 200 } catch { $false } } 'the file server'
   Wait-Until { try { (Invoke-WebRequest -UseBasicParsing "$base/healthz").StatusCode -eq 200 } catch { $false } } 'halo-server'
 
   Write-Host '== enroll.ps1 (the exact command the portal hands out)'
