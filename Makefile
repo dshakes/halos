@@ -1,4 +1,4 @@
-.PHONY: bench load build test lint vuln docs compose-up e2e obs-e2e smoke demo demo-down
+.PHONY: bench load build test lint vuln fuzz docs compose-up e2e obs-e2e smoke demo demo-down
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 
@@ -11,6 +11,9 @@ test:
 
 lint:
 	golangci-lint run ./...
+
+fuzz: ## every Fuzz* target for FUZZTIME (default 30s) each
+	./scripts/fuzz.sh
 
 vuln:
 	go run golang.org/x/vuln/cmd/govulncheck@latest ./...
