@@ -5,7 +5,7 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 ## [Unreleased]
 
 ### Added
-- The policy API is GA as `apiVersion: halos.dev/v1`. Every kind and field is frozen as it was in v1alpha1; see [Compatibility](https://dshakes.github.io/halos/reference/compatibility/) and [ADR-0011](https://dshakes.github.io/halos/adr/0011-policy-api-v1/).
+- The policy API is GA as `apiVersion: halos.dev/v1`. Every kind and field is frozen as it was in v1alpha1; see [Compatibility](https://dshakes.github.io/halos/reference/compatibility/) and [ADR-0012](https://dshakes.github.io/halos/adr/0012-policy-api-v1/).
 - `halo migrate --policy-dir DIR [--dry-run]` rewrites `halos.dev/v1alpha1` documents to `halos.dev/v1` in place, keeping comments and formatting. It is idempotent.
 
 ### Changed

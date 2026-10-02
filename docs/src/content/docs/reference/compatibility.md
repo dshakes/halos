@@ -3,7 +3,7 @@ title: Compatibility
 description: What halos.dev/v1 guarantees, how deprecations work, and which binary versions can run together.
 ---
 
-`apiVersion: halos.dev/v1` is the stable policy API. This page covers what it promises, how anything in it can be deprecated, and how `halo`, `halod`, `halo-server` and `halo-proxy` (and `halo-kong`) can run at different versions. The decision record is [ADR-0011](/halos/adr/0011-policy-api-v1/).
+`apiVersion: halos.dev/v1` is the stable policy API. This page covers what it promises, how anything in it can be deprecated, and how `halo`, `halod`, `halo-server` and `halo-proxy` (and `halo-kong`) can run at different versions. The decision record is [ADR-0012](/halos/adr/0012-policy-api-v1/).
 
 ## v1 guarantees
 

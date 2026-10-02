@@ -1,11 +1,11 @@
 ---
-title: "ADR-0011: halos.dev/v1 is the stable policy API"
+title: "ADR-0012: halos.dev/v1 is the stable policy API"
 description: The policy kinds and fields freeze as halos.dev/v1; v1alpha1 keeps loading with identical semantics and a deprecation warning until halos.dev/v2.
 status: accepted
 date: 2026-10-02
 ---
 
-# ADR-0011: halos.dev/v1 is the stable policy API
+# ADR-0012: halos.dev/v1 is the stable policy API
 
 ## Context and problem statement
 

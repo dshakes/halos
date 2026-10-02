@@ -163,7 +163,7 @@ export default defineConfig({
             'adr/0008-signed-ring-pointers-and-verified-artifacts',
             'adr/0009-signed-kill-switch',
             'adr/0010-release-channels-for-client-experiments',
-            'adr/0011-policy-api-v1',
+            'adr/0012-policy-api-v1',
           ],
         },
       ],
