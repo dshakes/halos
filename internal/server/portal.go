@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cmp"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -106,6 +107,12 @@ type profileSummary struct {
 	DefaultModel string            `json:"defaultModel"`
 	MCPServers   []string          `json:"mcpServers"`
 	Sandbox      string            `json:"sandbox,omitempty"`
+	// HarnessModels are the Models each harness can use: those whose route
+	// answers the harness's wire (the check `halo validate` runs on start
+	// models). Empty for a harness the gateway does not route.
+	HarnessModels map[string][]string `json:"harnessModels"`
+	// HarnessDefault is the model each harness starts on (harnesses.<h>.model, else models.default).
+	HarnessDefault map[string]string `json:"harnessDefault"`
 }
 
 // Me is GET /api/v1/me.
@@ -116,17 +123,17 @@ type Me struct {
 	Variants    []AssignmentRow `json:"variants"`
 	Profile     *profileSummary `json:"profile,omitempty"`
 	SelfService bool            `json:"selfService"`
-	Launchers   []string        `json:"launchers"`
-	Requestable []string        `json:"requestable"`
-	OptInRings  []string        `json:"optInRings"` // rings the user may still ask to join
-	DevInsecure bool            `json:"devInsecure,omitempty"`
+	Launchers   []string        `json:"launchers"` // enabled in policy AND configured on this server
+	// LauncherSetup lists enabled launchers this server cannot run yet (admins only).
+	LauncherSetup []LauncherSetup `json:"launcherSetup,omitempty"`
+	Requestable   []string        `json:"requestable"`
+	OptInRings    []string        `json:"optInRings"` // rings the user may still ask to join
+	DevInsecure   bool            `json:"devInsecure,omitempty"`
 }
 
 func summarize(p *policy.Profile, gw *policy.Gateway) *profileSummary {
-	ps := &profileSummary{Name: p.Name, Harnesses: map[string]string{}, DefaultModel: p.Models.Default, Sandbox: p.Permissions.Sandbox, Models: []string{}, MCPServers: []string{}}
-	for n, h := range p.Harnesses {
-		ps.Harnesses[n] = h.Version
-	}
+	ps := &profileSummary{Name: p.Name, Harnesses: map[string]string{}, DefaultModel: p.Models.Default, Sandbox: p.Permissions.Sandbox, Models: []string{}, MCPServers: []string{},
+		HarnessModels: map[string][]string{}, HarnessDefault: map[string]string{}}
 	ps.Models = append(ps.Models, p.Models.Allowed...)
 	if len(ps.Models) == 0 && gw != nil {
 		for a := range gw.Models {
@@ -134,6 +141,23 @@ func summarize(p *policy.Profile, gw *policy.Gateway) *profileSummary {
 		}
 	}
 	sort.Strings(ps.Models)
+	for n, h := range p.Harnesses {
+		ps.Harnesses[n] = h.Version
+		ps.HarnessDefault[n] = cmp.Or(h.Model, p.Models.Default)
+		if gw == nil { // nothing to check the wire against
+			ps.HarnessModels[n] = ps.Models
+			continue
+		}
+		usable := []string{}
+		if wire := gw.HarnessWire(n); wire != "" {
+			for _, m := range ps.Models {
+				if fit, _ := gw.WireFit(m, wire); fit == policy.WireYes {
+					usable = append(usable, m)
+				}
+			}
+		}
+		ps.HarnessModels[n] = usable
+	}
 	for _, m := range p.MCP.Servers {
 		ps.MCPServers = append(ps.MCPServers, m.Name)
 	}
@@ -180,7 +204,7 @@ func known(list []string) []string {
 
 var allLaunchers = []string{"devcontainer", "codespaces", "coder", "laptop"}
 
-func (s *Server) me(w http.ResponseWriter, _ *http.Request, p Principal) {
+func (s *Server) me(w http.ResponseWriter, r *http.Request, p Principal) {
 	org, _, err := s.pol.Get()
 	if org == nil {
 		apiErr(w, http.StatusServiceUnavailable, "policy not loaded: "+err.Error())
@@ -198,7 +222,11 @@ func (s *Server) me(w http.ResponseWriter, _ *http.Request, p Principal) {
 		}
 	}
 	if org.SelfService.Enabled {
-		m.Launchers = known(org.SelfService.Launchers)
+		var setup []LauncherSetup
+		m.Launchers, setup = s.launchers(org, r)
+		if p.Admin {
+			m.LauncherSetup = setup
+		}
 		m.Requestable = append(m.Requestable, org.SelfService.Requestable...)
 		if slices.Contains(m.Requestable, "ring-opt-in") {
 			m.OptInRings = optInRings(org, ring, p.ID, p.Groups)
@@ -241,13 +269,14 @@ type Catalog struct {
 	Items     []CatalogItem `json:"items"`
 }
 
-func (s *Server) catalog(w http.ResponseWriter, _ *http.Request, p Principal) {
+func (s *Server) catalog(w http.ResponseWriter, r *http.Request, p Principal) {
 	org := s.selfService(w)
 	if org == nil {
 		return
 	}
 	ring := org.ResolveRing(p.subject())
-	cat := Catalog{Harnesses: []HarnessPin{}, Launchers: known(org.SelfService.Launchers), Items: []CatalogItem{}}
+	cat := Catalog{Harnesses: []HarnessPin{}, Items: []CatalogItem{}}
+	cat.Launchers, _ = s.launchers(org, r)
 	var prof *policy.Profile
 	if ring != nil {
 		prof, _ = org.ResolveProfile(ring.Profile)
@@ -326,6 +355,74 @@ type Launch struct {
 	PowerShell string     `json:"powershell,omitempty"`
 }
 
+// LauncherSetup is a policy-enabled launcher this server is not configured to run.
+type LauncherSetup struct {
+	Launcher string `json:"launcher"`
+	Missing  string `json:"missing"` // what the operator must change in the portal config
+}
+
+// launchers splits the policy's launchers into those this server can run and
+// those it cannot yet (with what is missing), so the kiosk never offers a
+// button that can only fail.
+func (s *Server) launchers(org *policy.Org, r *http.Request) ([]string, []LauncherSetup) {
+	ok, setup := []string{}, []LauncherSetup{}
+	for _, l := range known(org.SelfService.Launchers) {
+		if gap := s.launcherGap(l, r); gap != "" {
+			setup = append(setup, LauncherSetup{l, gap})
+		} else {
+			ok = append(ok, l)
+		}
+	}
+	return ok, setup
+}
+
+// launcherGap says what the portal config lacks for launcher name ("" = ready).
+// It is the only availability check: /me, /catalog and /launch all use it.
+func (s *Server) launcherGap(name string, r *http.Request) string {
+	pc := s.cfg.Portal
+	var need []string
+	set := func(missing bool, what string) {
+		if missing {
+			need = append(need, what)
+		}
+	}
+	switch name {
+	case "devcontainer":
+		// The feature refuses to install without org, halodUrl, halodSha256 and an
+		// inline (or hash-pinned) key, downloads over https only and runs halod
+		// with no plain-HTTP registry mode: emit all of them or nothing.
+		set(pc.DevcontainerFeature == "", "devcontainerFeature")
+		set(pc.Registry == "", "registry")
+		set(pc.HalodURL == "", "halodURL")
+		set(len(linuxShas(pc)) == 0, "halodSHA256 for linux-amd64 or linux-arm64")
+		set(pc.PubKeyPEM == "", "pubKeyFile")
+		set(pc.RegistryPlainHTTP || (pc.HalodURL != "" && !strings.HasPrefix(pc.HalodURL, "https://")),
+			"an https halodURL and a TLS registry (the Dev Container Feature refuses plain HTTP)")
+	case "codespaces":
+		set(pc.CodespacesURL == "", "codespacesURL")
+	case "coder":
+		set(pc.CoderURL == "", "coderURL")
+	case "laptop":
+		set(s.baseURL(r) == "", "baseURL")
+		set(pc.Registry == "", "registry")
+		set(pc.PubKeyPEM == "", "pubKeyFile")
+		set(pc.HalodURL == "", "halodURL")
+		set(len(pc.HalodSHA256) == 0, "halodSHA256")
+	}
+	return strings.Join(need, ", ")
+}
+
+// linuxShas are the feature's halodSha256 entries ("amd64=<hex>").
+func linuxShas(pc Portal) []string {
+	var shas []string
+	for _, arch := range []string{"amd64", "arm64"} {
+		if h := pc.HalodSHA256["linux-"+arch]; h != "" {
+			shas = append(shas, arch+"="+h)
+		}
+	}
+	return shas
+}
+
 func expand(tmpl string, kv map[string]string) string {
 	for k, v := range kv {
 		tmpl = strings.ReplaceAll(tmpl, "{"+k+"}", url.QueryEscape(v))
@@ -349,24 +446,15 @@ func (s *Server) launch(w http.ResponseWriter, r *http.Request, p Principal) {
 		return
 	}
 	pc := s.cfg.Portal
+	if gap := s.launcherGap(name, r); gap != "" {
+		apiErr(w, http.StatusConflict, "launcher not configured: "+gap)
+		return
+	}
 	out := Launch{Launcher: name}
-	notConfigured := func(what string) { apiErr(w, http.StatusConflict, "launcher not configured: "+what) }
 	switch name {
 	case "devcontainer":
-		// The feature refuses to install without org, halodUrl, halodSha256 and an
-		// inline (or hash-pinned) key: emit all of them or nothing.
-		var shas []string
-		for _, arch := range []string{"amd64", "arm64"} {
-			if h := pc.HalodSHA256["linux-"+arch]; h != "" {
-				shas = append(shas, arch+"="+h)
-			}
-		}
-		if pc.DevcontainerFeature == "" || pc.Registry == "" || pc.HalodURL == "" || len(shas) == 0 || pc.PubKeyPEM == "" {
-			notConfigured("devcontainerFeature, registry, halodURL, linux halodSHA256 and pubKeyFile")
-			return
-		}
 		opts := map[string]any{"registry": pc.Registry, "org": org.Name, "ring": ring.Name, "firewall": true,
-			"halodUrl": pc.HalodURL, "halodSha256": strings.Join(shas, ","),
+			"halodUrl": pc.HalodURL, "halodSha256": strings.Join(linuxShas(pc), ","),
 			"pubkeyPem": strings.ReplaceAll(strings.TrimSpace(pc.PubKeyPEM), "\n", `\n`)}
 		if org.Gateway != nil {
 			if u, err := url.Parse(org.Gateway.BaseURL); err == nil && u.Host != "" {
@@ -388,17 +476,9 @@ func (s *Server) launch(w http.ResponseWriter, r *http.Request, p Principal) {
 		if name == "coder" {
 			tmpl = pc.CoderURL
 		}
-		if tmpl == "" {
-			notConfigured(name + "URL")
-			return
-		}
 		out.URL = expand(tmpl, map[string]string{"ring": ring.Name, "user": p.ID})
 	case "laptop":
 		base := s.baseURL(r)
-		if base == "" || pc.HalodURL == "" || len(pc.HalodSHA256) == 0 || pc.Registry == "" || pc.PubKeyPEM == "" {
-			notConfigured("baseURL, registry, pubKeyFile, halodURL and halodSHA256")
-			return
-		}
 		ttl := time.Duration(org.SelfService.EnrollmentTTLSeconds) * time.Second
 		if ttl <= 0 {
 			ttl = 15 * time.Minute

@@ -1,0 +1,17 @@
+# halod for every OS/arch the enroll scripts pin, served over HTTP with a
+# SHA256SUMS file the seed bakes into portal.json (make demo). DEV ONLY.
+# Build context: repo root.
+FROM golang:1.25 AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN set -e; mkdir /dl; for t in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do \
+      CGO_ENABLED=0 GOOS=${t%/*} GOARCH=${t#*/} go build -trimpath -ldflags '-s -w' -o /dl/halod-${t%/*}-${t#*/} ./cmd/halod; \
+    done; cd /dl && sha256sum halod-* >SHA256SUMS
+
+FROM alpine:3.20
+RUN apk add --no-cache busybox-extras
+COPY --from=build /dl /dl
+USER 65534
+ENTRYPOINT ["busybox-extras", "httpd", "-f", "-p", "8080", "-h", "/dl"]

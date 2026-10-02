@@ -191,6 +191,25 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with: {go-version-file: go.mod}
       - run: make obs-e2e
+  demo-e2e:
+    # `make demo` from clean, then headless Chromium clicks every console page and button
+    # (fails on any visible or console error) and the kiosk's laptop command enrolls a halod.
+    runs-on: ubuntu-latest
+    needs: [test]
+    timeout-minutes: 30
+    env:
+      PLAYWRIGHT_DEPS: "1" # install chromium's system libraries on the runner
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: {node-version: 22, cache: npm, cache-dependency-path: web/package-lock.json}
+      - run: make demo
+      - run: make demo-e2e
+      - if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with: {name: demo-e2e, path: web/e2e-results, if-no-files-found: ignore}
+      - if: always()
+        run: make demo-down
   smoke:
     # Real Claude Code (downloads.claude.ai + npm) in a container: network-bound, run on demand.
     if: github.event_name == 'workflow_dispatch'

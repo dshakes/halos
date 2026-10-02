@@ -12,7 +12,9 @@ identity:
   adminGroups: [ai-platform]
 selfService:
   enabled: true
-  launchers: [devcontainer, codespaces, laptop]
+  # No codespaces: a Codespace cannot reach a laptop-local server. devcontainer
+  # stays so admins see why it is not offered here (plain-HTTP demo).
+  launchers: [devcontainer, laptop]
   requestable: [mcp-server, ring-opt-in]
   catalog:
     - name: linear

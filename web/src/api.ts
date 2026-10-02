@@ -1,6 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 
+// The server CSP has no unsafe-eval: without jitless, zod probes `new Function` and
+// every page load logs a CSP violation (the probe's throw is caught, the report is not).
+z.config({ jitless: true });
+
 // Go encodes nil slices/maps as null; normalise so the UI never sees null.
 const arr = <T extends z.ZodType>(t: T) => z.array(t).nullish().transform((v) => v ?? []);
 const rec = <T extends z.ZodType>(t: T) => z.record(z.string(), t).nullish().transform((v) => v ?? {});
@@ -142,10 +146,20 @@ const Me = z.object({
   release: z.string().optional(),
   variants: arr(z.object({ experiment: z.string(), status: z.string(), variant: z.string().optional(), control: z.boolean().optional() })),
   profile: z
-    .object({ name: z.string(), harnesses: rec(z.string()), models: arr(z.string()), defaultModel: z.string(), mcpServers: arr(z.string()), sandbox: z.string().optional() })
+    .object({
+      name: z.string(),
+      harnesses: rec(z.string()),
+      models: arr(z.string()),
+      defaultModel: z.string(),
+      mcpServers: arr(z.string()),
+      sandbox: z.string().optional(),
+      harnessModels: rec(arr(z.string())),
+      harnessDefault: rec(z.string()),
+    })
     .optional(),
   selfService: z.boolean(),
   launchers: arr(z.string()),
+  launcherSetup: arr(z.object({ launcher: z.string(), missing: z.string() })),
   requestable: arr(z.string()),
   optInRings: arr(z.string()),
   devInsecure: z.boolean().optional(),
