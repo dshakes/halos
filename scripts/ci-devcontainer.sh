@@ -14,6 +14,7 @@ W=$(mktemp -d)
 mkdir -p "$W/bin" "$W/srv/halod/linux-amd64"
 export GOBIN=$W/bin PATH="$W/bin:$PATH"
 PIDS=()
+# shellcheck disable=SC2154 # p is the loop variable inside the trap string
 trap 'for p in "${PIDS[@]}"; do kill "$p" 2>/dev/null || true; done' EXIT
 fail() { echo "FAIL: $*" >&2; exit 1; }
 dc() { devcontainer "$@"; }
