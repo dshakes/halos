@@ -283,7 +283,7 @@ func WriteCompany(dir string, o CompanyOptions, apply bool) (*CompanyResult, err
 		"halo validate --policy-dir "+dir,
 		"halo explain --policy-dir "+dir+" --kind Ring",
 		"halo onboard install --policy-dir "+dir+" --ring "+ring+" --root /tmp/halos-preview   (what a laptop would get; writes only under /tmp)",
-		"halo eval run "+filepath.Join(dir, "evals/suites/onboarding-smoke.yaml")+" --network bridge --pass-env <PROVIDER_KEY_VAR>   (Docker; one tiny task per CLI)",
+		"halo eval run "+filepath.Join(dir, ".halos/evals/suites/onboarding-smoke.yaml")+" --network bridge --pass-env <PROVIDER_KEY_VAR>   (Docker; one tiny task per CLI)",
 		"git init, commit on a branch, push and open a PR: a human reviews and merges",
 		"then the human steps in "+filepath.Join(dir, "README.md")+" (IdP client, signing key, helm install, publish, enroll)")
 	return res, nil

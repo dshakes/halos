@@ -60,6 +60,8 @@ func (o *CompanyOptions) check() error {
 // registration, enrollment config per delivery channel, a CI workflow, a smoke
 // eval suite and a README of next steps. Keys are paths relative to the repo.
 // Nothing here is secret: every credential is a reference to a Secret or env var.
+// Everything but halos.yaml and gateway.yaml lives under .halos/: the policy
+// loader reads every other YAML file in the repo as a policy document.
 func Company(o CompanyOptions) (map[string][]byte, error) {
 	if err := o.check(); err != nil {
 		return nil, err
@@ -81,8 +83,8 @@ func Company(o CompanyOptions) (map[string][]byte, error) {
 			policy.APIVersion, policy.SimpleGatewayName(in.Org), o.AuthHelper)
 	}
 
-	files["deploy/helm-values.yaml"] = helmValues(o, in, portal)
-	files["identity/oidc-client.yaml"] = fmt.Appendf(nil, `# Register ONE OIDC client for Halos in your IdP (%[1]s), then create the
+	files[".halos/helm-values.yaml"] = helmValues(o, in, portal)
+	files[".halos/oidc-client.yaml"] = fmt.Appendf(nil, `# Register ONE OIDC client for Halos in your IdP (%[1]s), then create the
 # Secret at the bottom. Nothing in this file is secret.
 issuer: %[1]s
 clientID: %[2]s
@@ -101,7 +103,7 @@ adminGroups: [%[4]s]
 	for _, d := range o.Delivery {
 		switch d {
 		case "halod", "mdm":
-			files["enroll/halod.yaml"] = fmt.Appendf(nil, `# halod config for managed laptops and CI runners (%[1]s). Install it root-owned:
+			files[".halos/enroll/halod.yaml"] = fmt.Appendf(nil, `# halod config for managed laptops and CI runners (%[1]s). Install it root-owned:
 #   macOS: /Library/Halos/etc/halod.yaml   Linux: /etc/halos/halod.yaml
 registry: %[2]s
 org: %[3]s
@@ -112,7 +114,7 @@ reportURL: %[4]s/api/v1/fleet/report
 deviceTokenFile: /etc/halos/device.token   # mode 0600; issued by portal enrollment
 `, d, o.Registry, in.Org, portal)
 		case "devcontainer":
-			files["enroll/devcontainer.json"] = fmt.Appendf(nil, `{
+			files[".halos/enroll/devcontainer.json"] = fmt.Appendf(nil, `{
   "name": "%[1]s-dev",
   "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
   "features": {
@@ -136,8 +138,8 @@ deviceTokenFile: /etc/halos/device.token   # mode 0600; issued by portal enrollm
 	files[".github/workflows/halos.yml"] = ciWorkflow(o.HaloVersion, lastRing(in.Rollout))
 	tools := sortedTools(in.Tools)
 	if suite := smokeSuite(in, tools); suite != nil { // copilot-cli alone has no eval driver
-		files["evals/suites/onboarding-smoke.yaml"] = suite
-		files["evals/tasks/hello-halos/task.yaml"] = []byte(`id: hello-halos
+		files[".halos/evals/suites/onboarding-smoke.yaml"] = suite
+		files[".halos/evals/tasks/hello-halos/task.yaml"] = []byte(`id: hello-halos
 repo: repo
 prompt: Create a file named HELLO.txt whose only content is the word halos.
 check: test "$(tr -d '[:space:]' < HELLO.txt)" = halos
@@ -146,7 +148,7 @@ budget_usd: 0.25
 max_turns: 5
 tags: [smoke, onboarding]
 `)
-		files["evals/tasks/hello-halos/repo/README.md"] = []byte("Smoke-test workspace for the onboarding eval.\n")
+		files[".halos/evals/tasks/hello-halos/repo/README.md"] = []byte("Smoke-test workspace for the onboarding eval.\n")
 	}
 	files["README.md"] = companyReadme(o, in, tools)
 	return files, nil
@@ -234,7 +236,7 @@ var evalDriver = map[string]string{"claude-code": "claude", "codex": "codex", "g
 func smokeSuite(in intent.InitOptions, tools []string) []byte {
 	var b strings.Builder
 	b.WriteString("# One tiny task per CLI: proves each pinned CLI + model completes work end to end.\n" +
-		"# Run: halo eval run evals/suites/onboarding-smoke.yaml   (Docker; pass provider keys with --pass-env)\n" +
+		"# Run: halo eval run .halos/evals/suites/onboarding-smoke.yaml --network bridge --pass-env <KEY_VAR>\n" +
 		"name: onboarding-smoke\ntasks: [hello-halos]\nrepeats: 1\nvariants:\n")
 	n := 0
 	for _, t := range tools {
@@ -264,18 +266,18 @@ func companyReadme(o CompanyOptions, in intent.InitOptions, tools []string) []by
 	b.WriteString("## Check it (safe, local)\n\n```sh\nhalo validate --policy-dir .\nhalo plan --policy-dir . --ring " + ring + "\nhalo explain --policy-dir .\n```\n\n")
 	b.WriteString("## Human steps, in order (each is outward-facing: an admin runs it)\n\n")
 	b.WriteString("1. Review and merge this repo's PR. CI (`.github/workflows/halos.yml`) validates and plans; it never publishes.\n")
-	fmt.Fprintf(&b, "2. Register the OIDC client in `identity/oidc-client.yaml` with your IdP and create the `halos-oidc` Secret it describes.\n")
+	fmt.Fprintf(&b, "2. Register the OIDC client in `.halos/oidc-client.yaml` with your IdP and create the `halos-oidc` Secret it describes.\n")
 	b.WriteString("3. Generate the release signing key and keep the private half in CI secrets or KMS: `halo keys generate --name release`.\n")
-	fmt.Fprintf(&b, "4. Deploy the control plane: `helm upgrade --install halo deploy/helm/halos -n halos -f deploy/helm-values.yaml` (from a Halos checkout).\n")
+	fmt.Fprintf(&b, "4. Deploy the control plane: `helm upgrade --install halo deploy/helm/halos -n halos -f .halos/helm-values.yaml` (from a Halos checkout).\n")
 	fmt.Fprintf(&b, "5. Publish the first release per ring: `halo release publish --ring %s --release-version 0.1.0 --registry %s --key release.key`.\n", ring, o.Registry)
 	for _, d := range o.Delivery {
 		switch d {
 		case "halod":
-			b.WriteString("6. Enroll laptops and CI runners with halod using `enroll/halod.yaml` (or the portal's enroll script).\n")
+			b.WriteString("6. Enroll laptops and CI runners with halod using `.halos/enroll/halod.yaml` (or the portal's enroll script).\n")
 		case "mdm":
 			fmt.Fprintf(&b, "6. Export MDM payloads: `halo export jamf --registry %s --pubkey release.pub --ring %s --org %s --download-url <halod URL> --halod-sha256 <os/arch=hex> --out dist/jamf` (or `halo export intune`).\n", o.Registry, ring, in.Org)
 		case "devcontainer":
-			b.WriteString("6. Fill in the REPLACE_ placeholders in `enroll/devcontainer.json` and add it to your repos' `.devcontainer/`.\n")
+			b.WriteString("6. Fill in the REPLACE_ placeholders in `.halos/enroll/devcontainer.json` and add it to your repos' `.devcontainer/`.\n")
 		}
 	}
 	b.WriteString("\nThen roll changes ring by ring with `halo upgrade start` / `halo model switch` and the halos-rollout skill.\n")

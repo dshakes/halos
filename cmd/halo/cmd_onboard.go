@@ -370,8 +370,8 @@ func (a *app) cmdOnboardCompany() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "company",
 		Short: "My company: generate the policy repo, Helm values, IdP client and enrollment config from interview answers",
-		Long: "Writes (with --apply) into an empty --policy-dir: halos.yaml, deploy/helm-values.yaml,\n" +
-			"identity/oidc-client.yaml, enroll/* per delivery channel, a validate+plan CI workflow, a smoke eval\n" +
+		Long: "Writes (with --apply) into an empty --policy-dir: halos.yaml, .halos/helm-values.yaml,\n" +
+			".halos/oidc-client.yaml, .halos/enroll/* per delivery channel, a validate+plan CI workflow, a smoke eval\n" +
 			"and a README of the human steps. Nothing is secret, published, enrolled or pushed.",
 		Example: "  halo onboard company --policy-dir acme-halos --org acme --tools claude-code@2.1.280,codex@0.99.0 \\\n" +
 			"    --provider bedrock --gateway https://ai.acme.com --gateway-kind halo-proxy --issuer https://login.acme.com \\\n" +

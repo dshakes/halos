@@ -19,6 +19,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/dshakes/halos/internal/onboard"
 	"github.com/dshakes/halos/internal/policy"
 	"github.com/dshakes/halos/internal/promote"
 	"github.com/dshakes/halos/internal/upgrade"
@@ -37,6 +38,9 @@ type Options struct {
 	// Upgrade, when set, supplies upgrade_candidates' Registry, Models and
 	// Verifier (tests); nil = npm and the vendors' release metadata.
 	Upgrade *upgrade.Watcher
+	// Onboard, when set, is the machine the onboarding tools probe (tests);
+	// nil = the real one.
+	Onboard *onboard.Env
 }
 
 type srv struct {
@@ -59,9 +63,12 @@ func New(o Options) (*mcp.Server, error) {
 	s := &srv{Options: o, dir: abs}
 	m := mcp.NewServer(&mcp.Implementation{Name: "halos", Version: o.Version}, &mcp.ServerOptions{
 		Instructions: "Halos policy control plane. Read tools are always safe. Write tools (if present) default to dry_run " +
-			"and only edit a local branch or open a PR; a human publishes releases, retags rings and merges.",
+			"and only edit a local branch or open a PR; a human publishes releases, retags rings and merges. " +
+			"Onboarding: doctor, detect_harnesses, init_policy, local_install, local_proxy, verify_harness, onboard_company " +
+			"preview by default; they write files only with dry_run false on a server started with --allow-writes.",
 	})
 	s.addReadTools(m)
+	s.addOnboardTools(m)
 	if o.AllowWrites {
 		s.addWriteTools(m)
 	}
