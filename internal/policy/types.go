@@ -3,8 +3,14 @@
 // every other package (compiler, gateway, delivery, eval) consumes.
 package policy
 
-// APIVersion is the only document version this build understands.
-const APIVersion = "halos.dev/v1alpha1"
+// APIVersion is the stable document version this build writes.
+const APIVersion = "halos.dev/v1"
+
+// APIVersionV1Alpha1 is the pre-GA document version. It is still read, with
+// semantics identical to APIVersion and a deprecation warning from Validate;
+// `halo migrate` rewrites it. Removed only in halos.dev/v2 (see
+// docs/reference/compatibility).
+const APIVersionV1Alpha1 = "halos.dev/v1alpha1"
 
 // Kind names a policy document type.
 type Kind string
@@ -37,6 +43,10 @@ type Org struct {
 
 	// Rollouts are omitted when empty, like Toggles.
 	Rollouts []*Rollout `json:",omitempty"`
+
+	// Deprecations are load-time warnings (one per file still on a deprecated
+	// apiVersion) that Validate reports. Not part of the snapshot.
+	Deprecations []Issue `json:"-"`
 }
 
 // Identity is the org's OIDC provider. Any compliant IdP works (Okta, Entra ID,
@@ -309,6 +319,28 @@ type Ring struct {
 	// Release pins the ring to an immutable published release digest; empty = build from Profile.
 	Release    string     `yaml:"release,omitempty" json:"release,omitempty"`
 	Membership Membership `yaml:"membership" json:"membership"`
+	// Posture gates gateway access on the device posture halod reports to
+	// halo-server (fresh, drift-free, on this ring's release): off | warn | enforce.
+	// Empty means warn. Takes effect only on gateways wired to halo-server.
+	Posture string `yaml:"posture,omitempty" json:"posture,omitempty"`
+	// VersionGate checks the CLI version in the User-Agent against the ring's
+	// pinned harness version: off | warn | enforce. Empty means warn.
+	VersionGate string `yaml:"versionGate,omitempty" json:"versionGate,omitempty"`
+}
+
+// Gate modes for Ring.Posture and Ring.VersionGate.
+const (
+	GateOff     = "off"
+	GateWarn    = "warn"
+	GateEnforce = "enforce"
+)
+
+// GateMode is m with the default (warn) applied.
+func GateMode(m string) string {
+	if m == "" {
+		return GateWarn
+	}
+	return m
 }
 
 type Membership struct {

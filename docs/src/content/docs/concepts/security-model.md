@@ -90,6 +90,15 @@ For `kind: bedrock` upstreams `halo-proxy` signs with SigV4 using **its own** AW
 
 The release manifest carries, per harness, OS and architecture, an https URL with an exact size and a sha256 (binary) or sha512 integrity (npm tarball). `halod` refuses artifacts that do not match. The old install path (`installCommand`: `curl | bash`, `npm install -g` running lifecycle scripts as root) is disabled unless `allowShellInstall: true`, which logs a warning on every use. An artifact cannot replace `halod` itself.
 
+## Gateway gates
+
+Two per-ring policies enforce in the traffic path, which developers do not control ([ADR-0011](/halos/adr/0011-gateway-enforced-posture-and-version/); details in [delivery](/halos/concepts/delivery/#gateway-gates)):
+
+- **`posture`.** The gateway asks `halo-server` (`GET /api/v1/gateway/posture`, gateway token, rate-limited) whether every enrolled device of the verified caller reported recently, without drift, on its ring's release. Reports are authenticated with the device token `halod` already holds; no new credential or crypto. It fails closed only on a verdict the server returned: an unreachable server leaves the last verdict in force for a grace window, then the request passes and is counted as unknown. An anonymous caller is unknown too.
+- **`versionGate`.** The gateway parses the CLI version from the User-Agent and refuses one the ring does not pin. An unknown or missing User-Agent follows the same mode.
+
+Both default to `warn` (log and count). In `enforce` they answer 403 with the reason and the fix (`halod status`). Neither reads a client `x-halo-*` header; `halo-kong`'s `x-halo-gate` upstream tag is stripped from the client first like every other `x-halo-*`.
+
 ## Root-side hardening in `halod`
 
 `halod` runs as root and applies configuration delivered over the network, so it treats the signing key as *necessary but not sufficient*:
@@ -127,7 +136,8 @@ Default guardrails are Go code ([ADR-0007](/halos/adr/0007-guardrails-in-go-not-
 
 ## Limits
 
-- Harness enforcement is only as strong as the harness. Where the [matrix](/halos/reference/harness-matrix/) says `halod` enforces, a local admin can defeat it.
+- Harness enforcement is only as strong as the harness. Where the [matrix](/halos/reference/harness-matrix/) says `halod` enforces, root can still stop `halod` or edit its files; on rings with `posture: enforce` that device then loses gateway access, and `versionGate: enforce` refuses CLIs off the pin ([gateway gates](#gateway-gates)).
+- Posture is `halod`'s own report, not hardware attestation: root can read the device token and post a forged clean report. Posture is checked per user, not per request, so a user with a compliant laptop can use their credential from an unmanaged machine. The User-Agent is client-controlled: the version gate catches stale and unmanaged installs, not a forged header.
 - The signing key is a single point of trust. There is no threshold signing. The kill-switch key is a second, narrower one.
 - The audit log is tamper-evident, not tamper-proof, and tail truncation is undetectable on its own (see [Audit log](#audit-log)).
 - The enrollment bootstrap (`curl -fsSL <server>/enroll.sh | sh -s -- <token>`) is itself a piped script whose integrity rests on TLS to your server. It pins the `halod` binary by sha256 and refuses to install without a pinned checksum.

@@ -1,0 +1,309 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://halos.dev/schemas/v1alpha1/profile.schema.json",
+  "title": "Profile",
+  "description": "Desired harness behaviour, independent of any one CLI. Supports inheritance via extends.",
+  "type": "object",
+  "properties": {
+    "apiVersion": {
+      "type": "string",
+      "description": "Document version.",
+      "const": "halos.dev/v1alpha1"
+    },
+    "kind": {
+      "type": "string",
+      "description": "Document kind.",
+      "const": "Profile"
+    },
+    "name": {
+      "type": "string",
+      "description": "Unique name within its kind.",
+      "pattern": "^[a-z0-9][a-zA-Z0-9._-]*$"
+    },
+    "labels": {
+      "type": "object",
+      "description": "Free-form labels.",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "extends": {
+      "type": "string",
+      "description": "Parent profile. Scalars: child wins; lists: child replaces; maps: merged."
+    },
+    "harnesses": {
+      "type": "object",
+      "description": "Enabled harnesses keyed by adapter name (claude-code, codex, gemini-cli, copilot-cli).",
+      "additionalProperties": {
+        "type": "object",
+        "description": "Harness settings.",
+        "properties": {
+          "version": {
+            "type": "string",
+            "description": "Exact CLI version pin such as 2.1.280 (no ranges or latest); required for profiles used by rings."
+          },
+          "model": {
+            "type": "string",
+            "description": "This harness's default model alias, replacing models.default for it (e.g. codex-default). Must be a gateway.models alias, and in models.allowed when enforce is set."
+          },
+          "overrides": {
+            "type": "object",
+            "description": "Raw harness-native keys merged last (escape hatch; guardrails still apply)."
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "models": {
+      "type": "object",
+      "description": "Model policy.",
+      "properties": {
+        "default": {
+          "type": "string",
+          "description": "Default model alias (a gateway.models key)."
+        },
+        "allowed": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Allowed model aliases."
+        },
+        "enforce": {
+          "type": "boolean",
+          "description": "Reject models outside allowed rather than only hiding them; default must then be in allowed."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "permissions": {
+      "type": "object",
+      "description": "Permission policy.",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "description": "Default permission mode.",
+          "enum": [
+            "default",
+            "acceptEdits",
+            "plan",
+            "auto"
+          ]
+        },
+        "allow": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Allow rules."
+        },
+        "deny": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Deny rules."
+        },
+        "ask": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Ask rules."
+        },
+        "disableBypass": {
+          "type": "boolean",
+          "description": "Disable the harness's bypass-permissions mode."
+        },
+        "sandbox": {
+          "type": "string",
+          "description": "Harness sandbox policy.",
+          "enum": [
+            "off",
+            "workspace-write",
+            "read-only"
+          ]
+        },
+        "sandboxRequired": {
+          "type": "boolean",
+          "description": "Fail closed: the harness refuses to run (Claude: sandbox.failIfUnavailable) instead of running unsandboxed when its sandbox dependencies are missing."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "mcp": {
+      "type": "object",
+      "description": "MCP policy.",
+      "properties": {
+        "managedOnly": {
+          "type": "boolean",
+          "description": "Block every server not listed."
+        },
+        "servers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "description": "An allowed MCP server.",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Server name."
+              },
+              "url": {
+                "type": "string",
+                "description": "https URL (exclusive with command).",
+                "format": "uri"
+              },
+              "command": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "stdio command line (exclusive with url)."
+              },
+              "headers": {
+                "type": "object",
+                "description": "HTTP headers.",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "additionalProperties": false
+          },
+          "description": "Allowed MCP servers."
+        },
+        "denied": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Denied server names."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "hooks": {
+      "type": "object",
+      "description": "Hook policy.",
+      "properties": {
+        "managedOnly": {
+          "type": "boolean",
+          "description": "Only managed hooks may run."
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "description": "A managed hook.",
+            "properties": {
+              "event": {
+                "type": "string",
+                "description": "Hook event.",
+                "enum": [
+                  "PreToolUse",
+                  "PostToolUse",
+                  "SessionStart",
+                  "Stop",
+                  "UserPromptSubmit"
+                ]
+              },
+              "matcher": {
+                "type": "string",
+                "description": "Tool matcher."
+              },
+              "command": {
+                "type": "string",
+                "description": "Command to run."
+              }
+            },
+            "required": [
+              "event",
+              "command"
+            ],
+            "additionalProperties": false
+          },
+          "description": "Managed hooks."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "telemetry": {
+      "type": "object",
+      "description": "Telemetry policy.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Emit OTEL telemetry. Must be true for profiles used by rings."
+        },
+        "otlpEndpoint": {
+          "type": "string",
+          "description": "OTLP endpoint URL."
+        },
+        "protocol": {
+          "type": "string",
+          "description": "OTLP protocol.",
+          "enum": [
+            "grpc",
+            "http/protobuf"
+          ]
+        },
+        "logPrompts": {
+          "type": "boolean",
+          "description": "Include prompt text in telemetry."
+        },
+        "attributes": {
+          "type": "object",
+          "description": "Extra resource attributes.",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "egress": {
+      "type": "object",
+      "description": "Egress policy.",
+      "properties": {
+        "allowedDomains": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Only egress permitted from managed environments; must include the gateway host when non-empty."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "instructions": {
+      "type": "string",
+      "description": "Org-wide memory rendered as managed CLAUDE.md / AGENTS.md / GEMINI.md."
+    },
+    "env": {
+      "type": "object",
+      "description": "Extra environment applied to every harness.",
+      "additionalProperties": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "apiVersion",
+    "kind",
+    "name"
+  ],
+  "additionalProperties": false
+}

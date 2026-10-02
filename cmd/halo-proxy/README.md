@@ -178,6 +178,24 @@ models:
 - Verified with fixed-key tests (AWS SigV4 test-suite vector + a fake Bedrock that re-computes the
   signature). **Not verified against real AWS** in CI.
 
+## Gates
+
+Per ring, `posture` and `versionGate` (`off | warn | enforce`, default `warn`) apply to model calls. The version gate
+needs nothing extra: the CLI version comes from the User-Agent and is compared with the ring's pins. The posture gate
+asks halo-server for the verified caller's device posture:
+
+```yaml
+posture:
+  url: https://halo.internal.example.com/api/v1/gateway/posture   # empty disables the posture gate
+  tokenFile: /run/secrets/halo-gateway-token                     # halo-server --gateway-token-file
+  cacheTTL: 1m                                                   # per-user verdict cache
+  grace: 15m                                                     # last verdict kept while halo-server is unreachable
+```
+
+Enforce answers 403 in the caller's wire format with the reason and `halod status`. Warn passes and records `gates=`
+on the request log line. An unreachable halo-server past `grace` makes the posture unknown: the request passes.
+`/metrics` counts `halo_proxy_gate_total{gate,ring,outcome}`.
+
 ## Kill switch
 
 halo-proxy can poll halo-server's signed kill list and treat killed experiments as **not running**:

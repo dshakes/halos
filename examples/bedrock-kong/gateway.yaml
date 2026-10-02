@@ -1,7 +1,7 @@
 # yaml-language-server: $schema=../../schemas/gateway.schema.json
 # Claude Code -> Kong (halo-kong plugin) -> your auth gateway -> orchestrator -> Bedrock.
 # halo-kong does not sign SigV4: the orchestrator holds the AWS identity.
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Gateway
 name: corp-gateway
 engine: kong

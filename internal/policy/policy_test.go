@@ -25,7 +25,7 @@ func writeRepo(t *testing.T, files map[string]string) string {
 	return dir
 }
 
-const hdr = "apiVersion: halos.dev/v1alpha1\n"
+const hdr = "apiVersion: halos.dev/v1\n"
 
 func TestLoadErrors(t *testing.T) {
 	tests := []struct {
@@ -299,6 +299,8 @@ func TestValidate(t *testing.T) {
 			o.Profiles["base"].Permissions.Sandbox, o.Profiles["base"].Permissions.SandboxRequired = "off", true
 		}, "permissions.sandboxRequired", "contradicts", SeverityError},
 		{"bad sandbox", func(o *Org) { o.Profiles["base"].Permissions.Sandbox = "x" }, "permissions.sandbox", "invalid", SeverityError},
+		{"bad posture", func(o *Org) { o.Rings[0].Posture = "block" }, "posture", "invalid", SeverityError},
+		{"bad versionGate", func(o *Org) { o.Rings[0].VersionGate = "on" }, "versionGate", "invalid", SeverityError},
 		{"bad hook event", func(o *Org) { o.Profiles["base"].Hooks.Hooks = []Hook{{Event: "Nope", Command: "c"}} }, "hooks.items[0].event", "invalid", SeverityError},
 		{"bad telemetry protocol", func(o *Org) { o.Profiles["base"].Telemetry.Protocol = "smtp" }, "telemetry.protocol", "invalid", SeverityError},
 		{"extends cycle", func(o *Org) { o.Profiles["base"].Extends = "next" }, "extends", "cycle", SeverityError},

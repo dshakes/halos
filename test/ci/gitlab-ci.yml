@@ -1,0 +1,17 @@
+# Run by `gitlab-ci-local --file test/ci/gitlab-ci.yml` in CI (job gitlab): consumes the shipped
+# template the way a user's pipeline does, except `include: local` stands in for `include: remote`.
+include:
+  - local: deploy/ci/gitlab/halos.gitlab-ci.yml
+variables:
+  HALOS_VERSION: v0.1.0-rc.2
+halo-validate:
+  extends: .halos
+  image: buildpack-deps:bookworm-curl
+  script:
+    - halo version
+    - halo validate test/ci/policy-v1alpha1 # the pinned release predates halos.dev/v1; see its README
+unpinned-is-refused:
+  extends: .halos
+  image: buildpack-deps:bookworm-curl
+  variables: {HALOS_VERSION: ""}
+  script: [echo "must not run"]

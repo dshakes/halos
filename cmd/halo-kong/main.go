@@ -29,6 +29,10 @@
 // killswitch_pubkey resolve the same way. With killswitch_url set, the plugin
 // polls halo-server's signed kill list (every 10s) and treats killed
 // experiments as not running; on fetch failure it keeps the last-known list.
+// posture_url (with posture_token) applies the posture gate of rings that set
+// posture warn|enforce; every ring's versionGate is applied from the policy
+// alone. Enforce answers 403; warn-mode failures and unknown posture pass,
+// logged at NOTICE and flagged upstream as x-halo-gate.
 // killswitch_url must be https unless it targets loopback or
 // killswitch_allow_insecure_in_cluster is true. An invalid kill-switch config
 // does not block traffic, but is logged at ERROR once a minute and flagged
@@ -101,6 +105,13 @@ type Config struct {
 	// KillswitchAllowInsecure permits plain http to a non-loopback host (an
 	// in-cluster Service URL on a trusted pod network). Default: https required.
 	KillswitchAllowInsecure bool `json:"killswitch_allow_insecure_in_cluster"`
+
+	// Posture: halo-server's per-subject device posture verdicts, applied on
+	// rings with posture warn|enforce. Empty URL disables the posture gate.
+	PostureURL   string `json:"posture_url"`   // https://halo-server/api/v1/gateway/posture
+	PostureToken string `json:"posture_token"` // {vault://env/NAME} or literal (the halo-server gateway token)
+	// PostureAllowInsecure permits plain http to a non-loopback host.
+	PostureAllowInsecure bool `json:"posture_allow_insecure_in_cluster"`
 }
 
 var (
@@ -196,6 +207,53 @@ func (c Config) killPoller(kong kongAPI) (k *gateway.KillSwitch, misconfigured b
 		_ = kong.Err("halo-kong: killswitch config invalid; kill switch not (re)configured, killed experiments may keep running: ", e.badErr.Error())
 	}
 	return e.k, true
+}
+
+var (
+	postureMu      sync.Mutex
+	postureClients = map[string]*gateway.PostureClient{} // by url, token, insecure
+)
+
+// postureClient returns the process-wide client for this config (its verdict
+// cache is shared by every route); nil when unconfigured or invalid (logged).
+func (c Config) postureClient(kong kongAPI) *gateway.PostureClient {
+	if c.PostureURL == "" {
+		return nil
+	}
+	tok := secret(c.PostureToken)
+	key := c.PostureURL + "\x00" + tok + "\x00" + strconv.FormatBool(c.PostureAllowInsecure)
+	postureMu.Lock()
+	defer postureMu.Unlock()
+	if pc, ok := postureClients[key]; ok {
+		return pc
+	}
+	pc, err := gateway.NewPostureClient(c.PostureURL, tok, 0, 0, nil, c.PostureAllowInsecure)
+	if err != nil {
+		_ = kong.Err("halo-kong: posture config invalid; posture gate off: ", err.Error())
+		return nil
+	}
+	postureClients[key] = pc
+	return pc
+}
+
+// gate applies the ring's posture and version gates; outcomes is what failed
+// or was unknown (for the x-halo-gate upstream header), rej the 403 to answer.
+func (c Config) gate(kong kongAPI, org *policy.Org, ring string, sub *policy.Subject, h http.Header, proto string) (outcomes []string, rej *gateway.Rejection) {
+	pf, unknown := gateway.CheckPosture(context.Background(), c.postureClient(kong), org, ring, sub)
+	if unknown {
+		outcomes = append(outcomes, "posture=unknown")
+	}
+	for _, f := range []*gateway.Finding{pf, gateway.CheckVersion(org, ring, h.Get("User-Agent"))} {
+		if f == nil {
+			continue
+		}
+		outcomes = append(outcomes, f.Gate+"="+f.Mode)
+		_ = kong.Notice("halo-kong: ", f.Gate, " check failed (", f.Mode, ", ring ", ring, "): ", f.Reason)
+		if rej == nil {
+			rej = f.Reject(proto)
+		}
+	}
+	return outcomes, rej
 }
 
 var envVaultRef = regexp.MustCompile(`^\{vault://env/([A-Za-z0-9_-]+)\}$`)
@@ -360,6 +418,14 @@ func (c Config) access(kong kongAPI) {
 		return
 	}
 	d := res.Decision
+	var gates []string
+	if res.Protocol != "" {
+		var rej *gateway.Rejection
+		if gates, rej = c.gate(kong, org, d.Ring, sub, h, res.Protocol); rej != nil {
+			exit(kong, rej)
+			return
+		}
+	}
 
 	for _, n := range append(res.ClearHeaders, c.identityOptions(org).HeaderNames(org)...) {
 		_ = kong.ClearHeader(n)
@@ -374,6 +440,9 @@ func (c Config) access(kong kongAPI) {
 	}
 	if ksBad {
 		_ = kong.SetHeader("x-halo-killswitch", "misconfigured") // alertable; client copies were cleared above
+	}
+	if len(gates) > 0 {
+		_ = kong.SetHeader("x-halo-gate", strings.Join(gates, ",")) // warn-mode and unknown outcomes, for the log pipeline
 	}
 	prefix := ""
 	if d.Upstream != "" {

@@ -47,7 +47,7 @@ func TestClientAxisExperiment(t *testing.T) {
 	dir := t.TempDir()
 	pol := filepath.Join(dir, "policy")
 	gatewayPolicy(t, pol, iss.URL, "http://127.0.0.1:1", "http://127.0.0.1:1")
-	writeFile(t, filepath.Join(pol, "profiles/cli-next.yaml"), `apiVersion: halos.dev/v1alpha1
+	writeFile(t, filepath.Join(pol, "profiles/cli-next.yaml"), `apiVersion: halos.dev/v1
 kind: Profile
 name: cli-next
 extends: base
@@ -56,7 +56,7 @@ harnesses:
     version: `+pinNext+`
 `)
 	expFile := filepath.Join(pol, "experiments/cli-upgrade.yaml")
-	writeFile(t, expFile, `apiVersion: halos.dev/v1alpha1
+	writeFile(t, expFile, `apiVersion: halos.dev/v1
 kind: Experiment
 name: cli-upgrade
 type: ab

@@ -1,7 +1,7 @@
 # yaml-language-server: $schema=../../../schemas/experiment.schema.json
 # Shadow: 5% of first-turn sonnet requests are mirrored to the candidate route
 # on direct Anthropic and graded offline. Users only ever see the primary response.
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Experiment
 name: sonnet-next-shadow
 type: shadow

@@ -9,7 +9,7 @@ Generated from `schemas/ring.schema.json`; do not edit. Nested fields use dotted
 
 | Field | Type | Required | Default | Allowed values | Constraints | Description |
 |---|---|---|---|---|---|---|
-| `apiVersion` | string | yes |  | const halos.dev/v1alpha1 |  | Document version. |
+| `apiVersion` | string | yes |  | const halos.dev/v1 |  | Document version. |
 | `kind` | string | yes |  | const Ring |  | Document kind. |
 | `labels` | object |  |  |  |  | Free-form labels. |
 | `labels.*` | string |  |  |  |  |  |
@@ -23,5 +23,7 @@ Generated from `schemas/ring.schema.json`; do not edit. Nested fields use dotted
 | `membership.users[]` | string |  |  |  |  |  |
 | `name` | string | yes |  |  | pattern ^[a-z0-9][a-zA-Z0-9._-]*$ | Unique name within its kind. |
 | `order` | integer | yes |  |  |  | Position in the rollout; earliest ring has the lowest order. Must be unique. |
+| `posture` | string |  |  | off, warn, enforce |  | Gate gateway access on the device posture halod reports to halo-server (fresh, no drift, on this ring's release). off, warn (default: log and count) or enforce (403). Applies only on gateways configured with a halo-server posture URL. |
 | `profile` | string | yes |  |  |  | Name of the Profile applied to members. |
 | `release` | string |  |  |  |  | Immutable published release digest to pin to; empty builds from the profile. |
+| `versionGate` | string |  |  | off, warn, enforce |  | Check the CLI version in the request User-Agent against the ring's pinned harness version. off, warn (default: log and count) or enforce (403). An unknown or missing User-Agent follows the same mode. |

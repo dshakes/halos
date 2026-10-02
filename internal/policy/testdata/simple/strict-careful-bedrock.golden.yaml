@@ -1,4 +1,4 @@
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Gateway
 name: bank-gateway
 baseURL: https://ai.bank.example
@@ -25,7 +25,7 @@ upstreams:
     kind: bedrock
     region: eu-west-1
 ---
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Profile
 name: default
 harnesses:
@@ -71,7 +71,7 @@ egress:
     - pypi.org
     - files.pythonhosted.org
 ---
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Ring
 name: ring0-team
 order: 0
@@ -82,7 +82,7 @@ membership:
   groups:
     - ai-platform
 ---
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Ring
 name: ring1-canary
 order: 1
@@ -90,7 +90,7 @@ profile: default
 membership:
   percent: 1
 ---
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Ring
 name: ring2-early
 order: 2
@@ -98,7 +98,7 @@ profile: default
 membership:
   percent: 5
 ---
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Ring
 name: ring3-broad
 order: 3
@@ -106,7 +106,7 @@ profile: default
 membership:
   percent: 25
 ---
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Ring
 name: ring4-ga
 order: 4

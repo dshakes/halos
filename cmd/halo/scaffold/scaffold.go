@@ -8,11 +8,11 @@ import (
 )
 
 var files = map[string]string{
-	"halos.yaml": `apiVersion: halos.dev/v1alpha1
+	"halos.yaml": `apiVersion: halos.dev/v1
 kind: Halos
 org: {{.Org}}
 `,
-	"gateway.yaml": `apiVersion: halos.dev/v1alpha1
+	"gateway.yaml": `apiVersion: halos.dev/v1
 kind: Gateway
 name: {{.Org}}-gateway
 baseURL: https://ai.{{.Org}}.example
@@ -31,7 +31,7 @@ models:
     upstream: anthropic-direct
     model: claude-sonnet-4-5
 `,
-	"profiles/base.yaml": `apiVersion: halos.dev/v1alpha1
+	"profiles/base.yaml": `apiVersion: halos.dev/v1
 kind: Profile
 name: base
 harnesses:
@@ -66,7 +66,7 @@ instructions: |
   - Run tests before proposing a commit.
   - Never paste secrets into prompts.
 `,
-	"rings/ring0-canary.yaml": `apiVersion: halos.dev/v1alpha1
+	"rings/ring0-canary.yaml": `apiVersion: halos.dev/v1
 kind: Ring
 name: ring0-canary
 order: 0
@@ -74,7 +74,7 @@ profile: base
 membership:
   percent: 5
 `,
-	"rings/ring1-ga.yaml": `apiVersion: halos.dev/v1alpha1
+	"rings/ring1-ga.yaml": `apiVersion: halos.dev/v1
 kind: Ring
 name: ring1-ga
 order: 1

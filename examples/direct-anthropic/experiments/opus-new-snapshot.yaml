@@ -1,7 +1,7 @@
 # yaml-language-server: $schema=../../../schemas/experiment.schema.json
 # Traffic-axis canary: 5% of the platform ring gets a newer Opus snapshot at the
 # gateway. Status is draft: nothing is exposed until a human starts it.
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Experiment
 name: opus-new-snapshot
 type: canary

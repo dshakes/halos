@@ -1,7 +1,7 @@
 # yaml-language-server: $schema=../../schemas/gateway.schema.json
 # Claude Code -> halo-proxy (inside the VPC) -> Bedrock in one region, signed with
 # the proxy's own AWS identity. No direct-to-provider path exists for developers.
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Gateway
 name: regulated-gateway
 engine: halo-proxy

@@ -3,13 +3,13 @@
 # repo, mock OIDC login and mock model upstreams. DEV ONLY.
 #   scripts/demo.sh        bring it up and print the URLs   (make demo)
 #   scripts/demo.sh down   stop it and delete its volumes   (make demo-down)
-# Ports: HALO_DEMO_{CONSOLE,IDP,PROXY,SHADOW_METRICS}_PORT, HALO_OBS_GRAFANA_PORT.
+# Ports: HALO_DEMO_{CONSOLE,IDP,DL,PROXY,SHADOW_METRICS}_PORT, HALO_OBS_GRAFANA_PORT.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-: "${HALO_DEMO_CONSOLE_PORT:=18080}" "${HALO_DEMO_IDP_PORT:=18081}" "${HALO_DEMO_PROXY_PORT:=18088}"
+: "${HALO_DEMO_CONSOLE_PORT:=18080}" "${HALO_DEMO_IDP_PORT:=18081}" "${HALO_DEMO_DL_PORT:=18082}" "${HALO_DEMO_PROXY_PORT:=18088}"
 : "${HALO_DEMO_SHADOW_METRICS_PORT:=18090}" "${HALO_OBS_GRAFANA_PORT:=13000}"
-export HALO_DEMO_CONSOLE_PORT HALO_DEMO_IDP_PORT HALO_DEMO_PROXY_PORT HALO_DEMO_SHADOW_METRICS_PORT HALO_OBS_GRAFANA_PORT
+export HALO_DEMO_CONSOLE_PORT HALO_DEMO_IDP_PORT HALO_DEMO_DL_PORT HALO_DEMO_PROXY_PORT HALO_DEMO_SHADOW_METRICS_PORT HALO_OBS_GRAFANA_PORT
 # Browser-facing URLs. In a Codespace the browser reaches forwarded ports at
 # https://<codespace>-<port>.<domain>, not localhost, so the OIDC round trip uses those.
 url() { # port
@@ -20,7 +20,8 @@ url() { # port
   fi
 }
 : "${HALO_DEMO_CONSOLE_URL:=$(url "$HALO_DEMO_CONSOLE_PORT")}" "${HALO_DEMO_IDP_URL:=$(url "$HALO_DEMO_IDP_PORT")}"
-export HALO_DEMO_CONSOLE_URL HALO_DEMO_IDP_URL
+: "${HALO_DEMO_DL_URL:=$(url "$HALO_DEMO_DL_PORT")}"
+export HALO_DEMO_CONSOLE_URL HALO_DEMO_IDP_URL HALO_DEMO_DL_URL
 # Generated collector config (gitignored); the included obs compose bind-mounts it.
 export HALO_OTELCOL_CONFIG="$PWD/deploy/compose/demo/.otelcol.yaml"
 dc() { docker compose -f deploy/compose/docker-compose.demo.yml "$@"; }
@@ -50,6 +51,7 @@ wait_for() { # name url [status]: default any 2xx; halo-proxy answers 401 withou
   exit 1
 }
 wait_for halo-server "http://localhost:$HALO_DEMO_CONSOLE_PORT/healthz"
+wait_for downloads "http://localhost:$HALO_DEMO_DL_PORT/SHA256SUMS"
 wait_for mock-idp "http://localhost:$HALO_DEMO_IDP_PORT/.well-known/openid-configuration"
 wait_for halo-shadow "http://localhost:$HALO_DEMO_SHADOW_METRICS_PORT/metrics"
 wait_for grafana "http://localhost:$HALO_OBS_GRAFANA_PORT/api/health"
@@ -62,6 +64,7 @@ Halos demo is up (DEV ONLY: mock IdP, mock models, throwaway keys).
   What                      URL
   Console + portal          $HALO_DEMO_CONSOLE_URL   (Sign in -> pick a demo user)
   Mock IdP (OIDC)           $HALO_DEMO_IDP_URL/.well-known/openid-configuration
+  halod downloads           $HALO_DEMO_DL_URL/SHA256SUMS   (kiosk -> Set up my laptop)
   halo-proxy (model API)    http://localhost:$HALO_DEMO_PROXY_PORT/v1/messages
   halo-shadow metrics       http://localhost:$HALO_DEMO_SHADOW_METRICS_PORT/metrics
   Grafana                   http://localhost:$HALO_OBS_GRAFANA_PORT   (admin / halo-dev-only)

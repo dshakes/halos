@@ -44,10 +44,11 @@ type metrics struct {
 	ttfb, total  hist
 	authFailures uint64
 	attempts     map[[2]string]uint64 // {provider kind, outcome}
+	gates        map[[3]string]uint64 // {gate, ring, outcome}
 }
 
 func newMetrics() *metrics {
-	return &metrics{reqs: map[reqKey]uint64{}, attempts: map[[2]string]uint64{}}
+	return &metrics{reqs: map[reqKey]uint64{}, attempts: map[[2]string]uint64{}, gates: map[[3]string]uint64{}}
 }
 
 // attempt counts one upstream target try; outcome is ok | failed | circuit_open | skipped.
@@ -67,6 +68,14 @@ func (m *metrics) observe(ring, variant string, status int, ttfb, total float64)
 		m.ttfb.observe(ttfb)
 	}
 	m.total.observe(total)
+}
+
+// gate counts one gate outcome: warn | enforce (the check failed under that
+// mode) or unknown (posture gate on, no verdict available).
+func (m *metrics) gate(gate, ring, outcome string) {
+	m.mu.Lock()
+	m.gates[[3]string{gate, ring, outcome}]++
+	m.mu.Unlock()
 }
 
 func (m *metrics) authFailed() {
@@ -113,6 +122,16 @@ func (m *metrics) write(w io.Writer, shadowDropped, shadowFailed int64) {
 	sort.Slice(ak, func(i, j int) bool { return ak[i][0]+"\x00"+ak[i][1] < ak[j][0]+"\x00"+ak[j][1] })
 	for _, k := range ak {
 		fmt.Fprintf(w, "halo_proxy_upstream_attempts_total{provider=\"%s\",outcome=\"%s\"} %d\n", esc(k[0]), esc(k[1]), m.attempts[k])
+	}
+	fmt.Fprintln(w, "# HELP halo_proxy_gate_total Posture and version gate outcomes by ring: warn or enforce (check failed under that mode), unknown (no posture verdict).")
+	fmt.Fprintln(w, "# TYPE halo_proxy_gate_total counter")
+	gk := make([][3]string, 0, len(m.gates))
+	for k := range m.gates {
+		gk = append(gk, k)
+	}
+	sort.Slice(gk, func(i, j int) bool { return strings.Join(gk[i][:], "\x00") < strings.Join(gk[j][:], "\x00") })
+	for _, k := range gk {
+		fmt.Fprintf(w, "halo_proxy_gate_total{gate=\"%s\",ring=\"%s\",outcome=\"%s\"} %d\n", esc(k[0]), esc(k[1]), esc(k[2]), m.gates[k])
 	}
 	fmt.Fprintf(w, "# HELP halo_proxy_auth_failures_total Requests whose caller identity could not be verified.\n# TYPE halo_proxy_auth_failures_total counter\nhalo_proxy_auth_failures_total %d\n", m.authFailures)
 	fmt.Fprintf(w, "# HELP halo_proxy_shadow_dropped_total Shadow jobs dropped because the mirror queue was full.\n# TYPE halo_proxy_shadow_dropped_total counter\nhalo_proxy_shadow_dropped_total %d\n", shadowDropped)

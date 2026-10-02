@@ -1,4 +1,4 @@
 # yaml-language-server: $schema=../../schemas/halos.schema.json
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Halos
 org: startup-minimal

@@ -47,7 +47,7 @@ const (
 // traffic axis (internal/intent/rollout.go trafficGuardrails), standalone (no
 // Rollout), so the controller's own experiment verdicts act on it; primary is
 // p50 latency so a faster candidate has something to win on.
-const loopExperiment = `apiVersion: halos.dev/v1alpha1
+const loopExperiment = `apiVersion: halos.dev/v1
 kind: Experiment
 name: %s
 type: ab

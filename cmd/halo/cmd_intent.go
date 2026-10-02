@@ -44,6 +44,11 @@ func (a *app) applyChange(c *intent.Change, dry bool, before ...func() error) er
 	if policy.HasErrors(issues) {
 		return &exitErr{code: exitValidation, err: errors.New("the generated policy does not validate; nothing written")}
 	}
+	return a.writeChange(c, dry, before...)
+}
+
+// writeChange writes (or, dry, prints) c without validating it first.
+func (a *app) writeChange(c *intent.Change, dry bool, before ...func() error) error {
 	created, changed := c.Paths()
 	patch := ""
 	if dry {
@@ -817,6 +822,37 @@ func (a *app) cmdEject() *cobra.Command {
 				return err
 			}
 			return a.applyChange(ch, dry)
+		},
+	}
+	c.Flags().BoolVar(&dry, "dry-run", false, "print the diff instead of writing")
+	return c
+}
+
+func (a *app) cmdMigrate() *cobra.Command {
+	var dry bool
+	c := &cobra.Command{
+		Use:   "migrate",
+		Short: "Rewrite policy documents from apiVersion " + policy.APIVersionV1Alpha1 + " to " + policy.APIVersion,
+		Long: "Only the apiVersion value changes: comments, formatting and every other byte stay as they are. " +
+			"Semantics are identical, so the policy loads to the same thing afterwards. Running it again is a no-op.",
+		Args: cobra.NoArgs, Annotations: policyDirAnno,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			dir, err := policyDir(cmd, nil)
+			if err != nil {
+				return err
+			}
+			ch, err := intent.Migrate(dir)
+			if err != nil {
+				return err
+			}
+			if len(ch.Files) == 0 {
+				return a.emit(map[string]any{"dryRun": dry, "created": []string{}, "changed": []string{}}, func() {
+					fmt.Fprintln(a.out, a.green("OK")+": every document already uses "+policy.APIVersion)
+				})
+			}
+			// ponytail: no validate gate; the rewrite is semantics-preserving and
+			// must also work on partial overlay dirs that do not load alone.
+			return a.writeChange(ch, dry)
 		},
 	}
 	c.Flags().BoolVar(&dry, "dry-run", false, "print the diff instead of writing")

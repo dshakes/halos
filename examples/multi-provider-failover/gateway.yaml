@@ -5,7 +5,7 @@
 # halo-proxy only: Kong would use each route's first target.
 # Credentials never live in policy: halo-proxy signs Bedrock with its own AWS
 # identity and uses Google ADC for Vertex; the Anthropic key is on the proxy host.
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Gateway
 name: multi-gateway
 engine: halo-proxy

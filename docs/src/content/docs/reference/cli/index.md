@@ -39,6 +39,7 @@ halo
 | [`halo keys`](/halos/reference/cli/keys/) | Signing key management |
 | [`halo kill`](/halos/reference/cli/kill/) | Kill an experiment, toggle or rollout fleet-wide via halo-server (effective at the next poll) |
 | [`halo mcp`](/halos/reference/cli/mcp/) | Model Context Protocol server for agents |
+| [`halo migrate`](/halos/reference/cli/migrate/) | Rewrite policy documents from apiVersion halos.dev/v1alpha1 to halos.dev/v1 |
 | [`halo model`](/halos/reference/cli/model/) | Change which model an alias routes to |
 | [`halo onboard`](/halos/reference/cli/onboard/) | Agent-friendly onboarding steps: detect, local, install, proxy, verify, company (dry run unless --apply) |
 | [`halo plan`](/halos/reference/cli/plan/) | Diff the release a ring would get against a previous release (or show it whole for a first release) |

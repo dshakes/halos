@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=../../../schemas/experiment.schema.json
 # Client-axis A/B: the newer Claude Code build (engineering-next) vs the current pin.
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Experiment
 name: claude-cli-2.1.3xx-ab
 type: ab

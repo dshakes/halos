@@ -1,7 +1,7 @@
 # yaml-language-server: $schema=../../../schemas/rollout.schema.json
 # Every step past the security ring needs a recorded human approval.
 # Digests are placeholders; `halo release build` produces the real ones.
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Rollout
 name: settings-change-example
 axis: client

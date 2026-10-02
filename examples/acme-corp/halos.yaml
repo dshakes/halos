@@ -1,5 +1,5 @@
 # yaml-language-server: $schema=../../schemas/halos.schema.json
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Halos
 org: acme-corp
 # Any OIDC IdP works (Okta, Entra ID, Google, Keycloak, ...). halo-proxy / halo-kong

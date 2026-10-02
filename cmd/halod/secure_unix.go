@@ -13,6 +13,9 @@ import (
 	"syscall"
 )
 
+// stateMode is state.json's mode: root-only.
+const stateMode fs.FileMode = 0o600
+
 // trustedUID is accepted as an owner in addition to root. It stays 0 in
 // production; tests set it to their own uid.
 var trustedUID uint32

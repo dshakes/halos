@@ -1,6 +1,6 @@
 # DEMO OVERLAY (make demo): examples/acme-corp with identity pointed at the
 # compose mock IdP. Dev only; never use the mock IdP outside a laptop demo.
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Halos
 org: acme-corp
 identity:
@@ -12,7 +12,9 @@ identity:
   adminGroups: [ai-platform]
 selfService:
   enabled: true
-  launchers: [devcontainer, codespaces, laptop]
+  # No codespaces: a Codespace cannot reach a laptop-local server. devcontainer
+  # stays so admins see why it is not offered here (plain-HTTP demo).
+  launchers: [devcontainer, laptop]
   requestable: [mcp-server, ring-opt-in]
   catalog:
     - name: linear

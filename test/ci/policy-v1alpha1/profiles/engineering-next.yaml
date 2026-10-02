@@ -1,0 +1,12 @@
+# yaml-language-server: $schema=../../../schemas/profile.schema.json
+apiVersion: halos.dev/v1alpha1
+kind: Profile
+name: engineering-next
+extends: engineering
+harnesses:
+  claude-code:
+    version: 2.1.312
+  codex:
+    version: 0.100.0
+  gemini-cli:
+    version: 0.35.0

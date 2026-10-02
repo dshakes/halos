@@ -15,15 +15,15 @@ func toggleRepo(t *testing.T, toggle string) string {
 	dir := t.TempDir()
 	for f, c := range map[string]string{
 		"halos.yaml": toggleRepoRoot,
-		"profiles/base.yaml": `apiVersion: halos.dev/v1alpha1
+		"profiles/base.yaml": `apiVersion: halos.dev/v1
 kind: Profile
 name: base
 harnesses: {claude-code: {version: 2.1.0}}
 telemetry: {enabled: true}
 permissions: {disableBypass: true}
 `,
-		"rings/r1.yaml":  "apiVersion: halos.dev/v1alpha1\nkind: Ring\nname: r1\norder: 1\nprofile: base\nmembership: {percent: 10}\n",
-		"rings/ga.yaml":  "apiVersion: halos.dev/v1alpha1\nkind: Ring\nname: ga\norder: 9\nprofile: base\nmembership: {default: true}\n",
+		"rings/r1.yaml":  "apiVersion: halos.dev/v1\nkind: Ring\nname: r1\norder: 1\nprofile: base\nmembership: {percent: 10}\n",
+		"rings/ga.yaml":  "apiVersion: halos.dev/v1\nkind: Ring\nname: ga\norder: 9\nprofile: base\nmembership: {default: true}\n",
 		"toggles/t.yaml": toggle,
 	} {
 		p := filepath.Join(dir, f)
@@ -38,7 +38,7 @@ permissions: {disableBypass: true}
 }
 
 const toggleDoc = `# my toggle
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Toggle
 name: t
 owner: me
@@ -55,7 +55,7 @@ client:
     claude-code:
       env: {MY_FLAG: "on"}
 ---
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Toggle
 name: other
 owner: me
