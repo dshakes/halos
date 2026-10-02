@@ -53,6 +53,12 @@ type Config struct {
 	// client-axis experiment is killed reverts to the ring release (control)
 	// within one kill-poll interval, without waiting for a republish.
 	KillSwitch KillSwitchConfig `yaml:"killSwitch"`
+	// Immutable sets the system-immutable flag on every managed file after
+	// halod writes it (macOS chflags schg, Linux chattr +i) and clears it just
+	// before a rewrite or removal, so nothing short of root clearing the flag
+	// can edit the file between runs. Default false. Ignored on Windows; a
+	// missing tool or permission is logged and halod carries on without it.
+	Immutable bool `yaml:"immutable"`
 }
 
 // KillSwitchConfig: enabled when PubKey is set.
