@@ -68,7 +68,7 @@ type env struct {
 
 // testEnv wires: OIDC issuer, a policy whose "sonnet" alias routes to the
 // fake upstream (model real-model), ga/ring0 rings, and a halo-proxy in front.
-func testEnv(t *testing.T, upstream *httptest.Server, mod func(*Config, *policy.Org)) *env {
+func testEnv(t testing.TB, upstream *httptest.Server, mod func(*Config, *policy.Org)) *env {
 	t.Helper()
 	iss, err := identitytest.NewIssuer("k1")
 	if err != nil {
@@ -107,7 +107,7 @@ func testEnv(t *testing.T, upstream *httptest.Server, mod func(*Config, *policy.
 	return e
 }
 
-func (e *env) writePolicy(t *testing.T, org *policy.Org) {
+func (e *env) writePolicy(t testing.TB, org *policy.Org) {
 	t.Helper()
 	b, err := policy.Compile(org)
 	if err != nil {
@@ -118,7 +118,7 @@ func (e *env) writePolicy(t *testing.T, org *policy.Org) {
 	}
 }
 
-func (e *env) token(t *testing.T, user string, groups ...string) string {
+func (e *env) token(t testing.TB, user string, groups ...string) string {
 	t.Helper()
 	tok, err := e.iss.Mint(map[string]any{"aud": testAud, "email": user, "groups": groups})
 	if err != nil {
