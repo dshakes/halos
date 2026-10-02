@@ -196,8 +196,63 @@ func TestSeqGuardrail(t *testing.T) {
 	if r, err := SeqGuardrail(base[:1], base, "increase", 0.05, 0.05); err != ErrTooFewSamples || r.Status != Inconclusive {
 		t.Fatalf("want ErrTooFewSamples + inconclusive, got %v %v", r.Status, err)
 	}
-	if r, err := SeqGuardrail([]float64{0, 0, 0}, []float64{1, 2, 3}, "decrease", 0.05, 0.05); err != nil || r.Status != Inconclusive {
-		t.Fatalf("zero control mean must be inconclusive, got %v %v", r.Status, err)
+}
+
+// A zero control mean (an error rate with no control errors) has no relative
+// scale: any significant worsening must fail, identical zero arms must pass.
+// Before the fix both were inconclusive forever, so a 0% -> 30% error rate
+// never rolled back and a healthy zero-error canary could never promote.
+func TestSeqGuardrailZeroBaseline(t *testing.T) {
+	zeros := make([]float64, 60)
+	rng := rand.New(rand.NewPCG(5, 6))
+	errs := func(p float64) []float64 { // per-unit error rates over 20 requests
+		out := make([]float64, 60)
+		for i := range out {
+			for j := 0; j < 20; j++ {
+				if rng.Float64() < p {
+					out[i] += 1.0 / 20
+				}
+			}
+		}
+		return out
+	}
+	for _, tc := range []struct {
+		name               string
+		control, treatment []float64
+		dir                string
+		max                float64
+		want               GuardrailStatus
+	}{
+		{"0% -> 30% errors fails", zeros, errs(0.30), "decrease", 0.05, Fail},
+		{"0 -> {1,2,3} fails", []float64{0, 0, 0}, []float64{1, 2, 3}, "decrease", 0.05, Fail},
+		{"both exactly zero passes", zeros, zeros, "decrease", 0.05, Pass},
+		{"both zero, zero tolerance stays inconclusive", zeros, zeros, "decrease", 0, Inconclusive},
+		{"one stray error is not significant", zeros, append([]float64{0.05}, zeros[1:]...), "decrease", 0.05, Inconclusive},
+		{"increase: a drop below zero fails", zeros, []float64{-1, -2, -3, -1, -2, -3}, "increase", 0.05, Fail},
+		{"increase: a rise from zero passes", zeros, errs(0.30), "increase", 0.05, Pass},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r, err := SeqGuardrail(tc.control, tc.treatment, tc.dir, tc.max, 0.025)
+			if err != nil || r.Status != tc.want || !(r.Lower <= r.Regression && r.Regression <= r.Upper) {
+				t.Fatalf("got %v %v (%+v), want %v", r.Status, err, r, tc.want)
+			}
+		})
+	}
+	// Equal, rare errors: the control is often exactly 0 by chance; the
+	// absolute test must still keep false fails within alpha.
+	const sims, alpha = 400, 0.05
+	fails, zeroCtl := 0, 0
+	for i := 0; i < sims; i++ {
+		c, tr := errs(0.001), errs(0.001)
+		if mean(c) == 0 {
+			zeroCtl++
+		}
+		if r, _ := SeqGuardrail(c, tr, "decrease", 0.05, alpha); r.Status == Fail {
+			fails++
+		}
+	}
+	if zeroCtl < sims/10 || float64(fails)/sims > alpha {
+		t.Fatalf("null with rare errors: %d/%d false fails (%d zero-control draws)", fails, sims, zeroCtl)
 	}
 }
 

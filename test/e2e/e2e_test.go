@@ -49,9 +49,6 @@ func TestMain(m *testing.M) { os.Exit(mainE2E(m)) }
 
 func mainE2E(m *testing.M) int {
 	var err error
-	if os.Getenv("HALO_OBS_E2E") == "1" { // scripts/obs-e2e.sh: obs_test.go needs no registry or prebuilt binaries
-		return m.Run()
-	}
 	if repoRoot, err = filepath.Abs("../.."); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
@@ -77,6 +74,9 @@ func mainE2E(m *testing.M) int {
 			fmt.Fprintf(os.Stderr, "e2e: build %s: %v\n", name, err)
 			return 1
 		}
+	}
+	if os.Getenv("HALO_OBS_E2E") == "1" { // scripts/obs-e2e.sh: the obs tests need the binaries, not a registry
+		return m.Run()
 	}
 	registry = os.Getenv("HALO_E2E_REGISTRY")
 	if registry == "" {

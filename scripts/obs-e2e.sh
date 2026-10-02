@@ -2,6 +2,8 @@
 # Evidence-plane e2e: brings up deploy/observability (otel-collector-contrib,
 # ClickHouse, Grafana), sends synthetic harness telemetry, and asserts rows,
 # `halo exp analyze` verdicts and Grafana panels (test/e2e/obs_test.go).
+# Then the closed loop (test/e2e/obs_loop_test.go): real traffic through
+# halo-proxy -> ClickHouse -> halo-server --controller -> signed kill -> proxy.
 # Needs Docker + network (image pulls, Grafana plugin download). Extra args go to `go test`.
 set -euo pipefail
 cd "$(dirname "$0")/.."

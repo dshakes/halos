@@ -18,7 +18,7 @@ const (
 // (positive = worse) with a one-sided (1-alpha) bound on each side.
 type GuardrailResult struct {
 	Status        GuardrailStatus `json:"status"`
-	Regression    float64         `json:"regression"` // point estimate, relative to control mean
+	Regression    float64         `json:"regression"` // point estimate, relative to control mean (absolute when that is 0)
 	Lower         float64         `json:"lower"`      // one-sided (1-alpha) bounds on Regression
 	Upper         float64         `json:"upper"`
 	MaxRegression float64         `json:"maxRegression"`
@@ -43,10 +43,10 @@ func SeqGuardrail(control, treatment []float64, direction string, maxRegression,
 		return res, ErrTooFewSamples
 	}
 	mc, mt := mean(control), mean(treatment)
-	if mc == 0 {
-		return res, nil
-	}
 	nc, nt := float64(len(control)), float64(len(treatment))
+	if mc == 0 {
+		return zeroBaseline(res, control, treatment, direction, maxRegression, alpha), nil
+	}
 	r := (mt - mc) / math.Abs(mc)
 	vr := variance(treatment)/nt/(mc*mc) + mt*mt*variance(control)/nc/(mc*mc*mc*mc)
 	// Mixture sd: the size of regression we care about (power only, not validity).
@@ -68,4 +68,36 @@ func SeqGuardrail(control, treatment []float64, direction string, maxRegression,
 		res.Status = Pass
 	}
 	return res, nil
+}
+
+// zeroBaseline decides a guardrail whose control mean is 0 (typically an
+// error rate with no control errors). The relative regression is then 0 when
+// the arms agree and unbounded otherwise, so the test runs on the absolute
+// difference (Regression/Lower/Upper are absolute here): Fail when the
+// treatment is significantly worse, since any worsening of a zero baseline
+// exceeds every relative limit; Pass when it is certainly no worse (both arms
+// exactly 0) and the limit allows no change.
+func zeroBaseline(res GuardrailResult, control, treatment []float64, direction string, maxRegression, alpha float64) GuardrailResult {
+	d := mean(treatment)
+	v := variance(control)/float64(len(control)) + variance(treatment)/float64(len(treatment))
+	lo, hi := d, d // no variance: the difference is exact
+	if v > 0 {
+		// Mixture sd: the pooled observed spread, since a zero baseline has no
+		// natural scale. Like the plug-in variance, this makes validity approximate.
+		tau2 := variance(append(append([]float64{}, control...), treatment...))
+		sr := NewMSPRT(alpha, tau2).ObserveEstimate(d, v, len(control), len(treatment))
+		lo, hi = sr.CILo, sr.CIHi
+	}
+	res.Regression = d
+	if direction == "increase" {
+		res.Regression, lo, hi = -d, -hi, -lo
+	}
+	res.Lower, res.Upper = lo, hi
+	switch {
+	case lo > 0:
+		res.Status = Fail
+	case hi <= 0 && maxRegression > 0:
+		res.Status = Pass
+	}
+	return res
 }
