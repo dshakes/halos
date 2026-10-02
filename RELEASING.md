@@ -6,7 +6,8 @@ GoReleaser (`.goreleaser.yaml`) and publishes:
 - GitHub Release with archives for `halo`, `halod`, `halo-shadow`, `halo-server`, `halo-proxy`
   (darwin/linux/windows, amd64/arm64) and `halo-kong` (linux), plus `checksums.txt`
 - deb/rpm/apk packages for `halo` and `halod`
-- SBOMs (syft) and keyless cosign signatures for the checksums and images
+- SBOMs (syft) and keyless cosign signatures for the checksums and images. `checksums.txt` is signed
+  as a Sigstore bundle, `checksums.txt.sigstore.json` (cosign v3), which `install.sh`/`install.ps1` verify
 - multi-arch images on `ghcr.io/dshakes/{halo-server,halo-proxy,halo-shadow,kong-halo}`, signed with cosign
 - Homebrew formula (`dshakes/homebrew-tap`) and Scoop manifest (`dshakes/scoop-bucket`)
 - winget manifest, written to `dist/winget` only; submit it to `microsoft/winget-pkgs` by hand
@@ -19,7 +20,9 @@ GoReleaser (`.goreleaser.yaml`) and publishes:
 3. Watch the `release` workflow. A tag with a prerelease suffix (`v1.0.0-rc.1`) builds everything
    but GoReleaser does not push the tap/bucket manifests.
 
-Re-run for an existing tag: Actions > release > Run workflow, with `tag` set to it.
+Re-run for an existing tag: Actions > release > Run workflow, choosing the tag itself under "Use workflow
+from" and setting `tag` to it. The installers pin the signing identity to
+`release.yml@refs/tags/<tag>`, so a run started from a branch produces a signature they reject.
 
 Dry run on a laptop (no publish, signing, SBOM or Docker):
 `goreleaser release --snapshot --clean --skip=publish,sign,sbom,docker`
