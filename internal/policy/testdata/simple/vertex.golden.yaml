@@ -1,4 +1,4 @@
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Gateway
 name: gco-gateway
 baseURL: https://ai.gco.example
@@ -15,7 +15,7 @@ upstreams:
     project: gco-ai
     region: us-east5
 ---
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Profile
 name: default
 harnesses:
@@ -44,7 +44,7 @@ telemetry:
   enabled: true
 egress: {}
 ---
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Ring
 name: ring0-team
 order: 0
@@ -53,7 +53,7 @@ membership:
   groups:
     - gco-ai-platform
 ---
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Ring
 name: ring1-canary
 order: 1
@@ -61,7 +61,7 @@ profile: default
 membership:
   percent: 5
 ---
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Ring
 name: ring2-early
 order: 2
@@ -69,7 +69,7 @@ profile: default
 membership:
   percent: 25
 ---
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Ring
 name: ring3-ga
 order: 3

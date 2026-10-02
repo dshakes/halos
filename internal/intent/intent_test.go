@@ -13,7 +13,7 @@ import (
 	"github.com/dshakes/halos/internal/release"
 )
 
-const simpleRoot = `apiVersion: halos.dev/v1alpha1
+const simpleRoot = `apiVersion: halos.dev/v1
 kind: Halos
 org: acme
 tools: {claude-code: 2.1.280, codex: {version: 0.99.0, model: codex}}
@@ -417,7 +417,7 @@ func TestEjectRefusesToClobber(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 	dir = simpleRepo(t)
-	multi := "apiVersion: halos.dev/v1alpha1\nkind: Ring\nname: ring3-ga\n---\napiVersion: halos.dev/v1alpha1\nkind: Ring\nname: ring9-lab\norder: 9\nprofile: default\nmembership: {groups: [lab]}\n"
+	multi := "apiVersion: halos.dev/v1\nkind: Ring\nname: ring3-ga\n---\napiVersion: halos.dev/v1\nkind: Ring\nname: ring9-lab\norder: 9\nprofile: default\nmembership: {groups: [lab]}\n"
 	if err := os.WriteFile(filepath.Join(dir, "rings.yaml"), []byte(multi), 0o644); err != nil {
 		t.Fatal(err)
 	}

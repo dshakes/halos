@@ -27,7 +27,7 @@ Against a real registry drop `--plain-http` and use your `ghcr.io/...` repositor
 
 ```yaml
 # profiles/engineering-next.yaml
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Profile
 name: engineering-next
 extends: engineering

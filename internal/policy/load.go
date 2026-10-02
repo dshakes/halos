@@ -45,7 +45,32 @@ func ReadRoot(dir string) (*Root, error) {
 	if root.Org == "" {
 		return nil, fmt.Errorf("policy: %s: org is required", rootPath)
 	}
+	if root.APIVersion != "" { // optional on the root document
+		if _, err := checkAPIVersion(root.APIVersion); err != nil {
+			return nil, fmt.Errorf("policy: %s: %w", rootPath, err)
+		}
+	}
 	return &root, nil
+}
+
+// checkAPIVersion accepts APIVersion and the deprecated APIVersionV1Alpha1
+// (reporting deprecated=true); anything else is an error.
+func checkAPIVersion(v string) (deprecated bool, err error) {
+	switch v {
+	case APIVersion:
+		return false, nil
+	case APIVersionV1Alpha1:
+		return true, nil
+	}
+	return false, fmt.Errorf("apiVersion %q not supported (want %q)", v, APIVersion)
+}
+
+// deprecation is the warning for a file that still uses APIVersionV1Alpha1.
+func deprecation(dir, path string) Issue {
+	if rel, err := filepath.Rel(dir, path); err == nil {
+		path = filepath.ToSlash(rel)
+	}
+	return Issue{SeverityWarning, path, fmt.Sprintf("apiVersion %s is deprecated; it reads as %s with identical semantics until halos.dev/v2. Run `halo migrate --policy-dir %s`", APIVersionV1Alpha1, APIVersion, dir)}
 }
 
 // Load reads every *.yaml/*.yml under dir (multi-document files supported),
@@ -59,6 +84,9 @@ func Load(dir string) (*Org, error) {
 	}
 
 	org := &Org{Name: root.Org, Identity: root.Identity, SelfService: root.SelfService, Profiles: map[string]*Profile{}}
+	if root.APIVersion == APIVersionV1Alpha1 {
+		org.Deprecations = append(org.Deprecations, deprecation(dir, rootPath))
+	}
 	var files []string
 	// WalkDir does not descend into a symlinked root, and git-sync (the Helm chart's
 	// --policy-dir=/policy/current) serves the repo through exactly that: walk the
@@ -94,8 +122,12 @@ func Load(dir string) (*Org, error) {
 	sort.Strings(files) // deterministic order
 
 	for _, f := range files {
-		if err := loadFile(org, f); err != nil {
+		deprecated, err := loadFile(org, f)
+		if err != nil {
 			return nil, err
+		}
+		if deprecated {
+			org.Deprecations = append(org.Deprecations, deprecation(dir, f))
 		}
 	}
 	if root.Enabled() {
@@ -119,10 +151,11 @@ func strictDecode(b []byte, out any) error {
 // loadFile decodes each document of a file. Pass 1 (yaml.Node) finds each
 // document's kind; pass 2 decodes strictly into the matching type. Line
 // numbers in pass-2 errors are relative to the file since it is one stream.
-func loadFile(org *Org, path string) error {
+// deprecated reports whether any document used APIVersionV1Alpha1.
+func loadFile(org *Org, path string) (deprecated bool, err error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return fmt.Errorf("policy: read %s: %w", path, err)
+		return false, fmt.Errorf("policy: read %s: %w", path, err)
 	}
 	var kinds []Kind
 	nd := yaml.NewDecoder(bytes.NewReader(b))
@@ -131,11 +164,11 @@ func loadFile(org *Org, path string) error {
 		if err := nd.Decode(&n); errors.Is(err, io.EOF) {
 			break
 		} else if err != nil {
-			return fmt.Errorf("policy: %s: %w", path, err)
+			return false, fmt.Errorf("policy: %s: %w", path, err)
 		}
 		k, err := nodeKind(&n)
 		if err != nil {
-			return fmt.Errorf("policy: %s:%d: %w", path, n.Line, err)
+			return false, fmt.Errorf("policy: %s:%d: %w", path, n.Line, err)
 		}
 		kinds = append(kinds, k)
 	}
@@ -160,16 +193,18 @@ func loadFile(org *Org, path string) error {
 		case KindRollout:
 			target = new(Rollout)
 		default:
-			return fmt.Errorf("policy: %s: document %d: unknown kind %q", path, i+1, k)
+			return false, fmt.Errorf("policy: %s: document %d: unknown kind %q", path, i+1, k)
 		}
 		if err := dec.Decode(target); err != nil {
-			return fmt.Errorf("policy: %s: document %d (%s): %w", path, i+1, k, err)
+			return false, fmt.Errorf("policy: %s: document %d (%s): %w", path, i+1, k, err)
 		}
-		if err := org.add(target); err != nil {
-			return fmt.Errorf("policy: %s: document %d (%s): %w", path, i+1, k, err)
+		dep, err := org.add(target)
+		if err != nil {
+			return false, fmt.Errorf("policy: %s: document %d (%s): %w", path, i+1, k, err)
 		}
+		deprecated = deprecated || dep
 	}
-	return nil
+	return deprecated, nil
 }
 
 func nodeKind(n *yaml.Node) (Kind, error) {
@@ -191,56 +226,60 @@ func nodeKind(n *yaml.Node) (Kind, error) {
 	return "", errors.New("document has no kind")
 }
 
-func (o *Org) add(v any) error {
-	check := func(m Meta) error {
-		if m.APIVersion != APIVersion {
-			return fmt.Errorf("apiVersion %q not supported (want %q)", m.APIVersion, APIVersion)
+// add appends a decoded document. A v1alpha1 document is normalised to
+// APIVersion (same semantics, same snapshot bytes) and reported deprecated.
+func (o *Org) add(v any) (deprecated bool, err error) {
+	check := func(m *Meta) error {
+		dep, err := checkAPIVersion(m.APIVersion)
+		if err != nil {
+			return err
 		}
 		if m.Name == "" {
 			return errors.New("name is required")
 		}
+		m.APIVersion, deprecated = APIVersion, dep
 		return nil
 	}
 	switch t := v.(type) {
 	case *Profile:
-		if err := check(t.Meta); err != nil {
-			return err
+		if err := check(&t.Meta); err != nil {
+			return false, err
 		}
 		if _, dup := o.Profiles[t.Name]; dup {
-			return fmt.Errorf("duplicate profile %q", t.Name)
+			return false, fmt.Errorf("duplicate profile %q", t.Name)
 		}
 		o.Profiles[t.Name] = t
 	case *Ring:
-		if err := check(t.Meta); err != nil {
-			return err
+		if err := check(&t.Meta); err != nil {
+			return false, err
 		}
 		o.Rings = append(o.Rings, t)
 	case *Experiment:
-		if err := check(t.Meta); err != nil {
-			return err
+		if err := check(&t.Meta); err != nil {
+			return false, err
 		}
 		o.Experiments = append(o.Experiments, t)
 	case *Toggle:
-		if err := check(t.Meta); err != nil {
-			return err
+		if err := check(&t.Meta); err != nil {
+			return false, err
 		}
 		if slices.ContainsFunc(o.Toggles, func(e *Toggle) bool { return e.Name == t.Name }) {
-			return fmt.Errorf("duplicate toggle %q", t.Name)
+			return false, fmt.Errorf("duplicate toggle %q", t.Name)
 		}
 		o.Toggles = append(o.Toggles, t)
 	case *Rollout:
-		if err := check(t.Meta); err != nil {
-			return err
+		if err := check(&t.Meta); err != nil {
+			return false, err
 		}
 		o.Rollouts = append(o.Rollouts, t)
 	case *Gateway:
-		if err := check(t.Meta); err != nil {
-			return err
+		if err := check(&t.Meta); err != nil {
+			return false, err
 		}
 		if o.Gateway != nil {
-			return fmt.Errorf("multiple Gateway documents (%q and %q)", o.Gateway.Name, t.Name)
+			return false, fmt.Errorf("multiple Gateway documents (%q and %q)", o.Gateway.Name, t.Name)
 		}
 		o.Gateway = t
 	}
-	return nil
+	return deprecated, nil
 }

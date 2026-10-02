@@ -1,5 +1,5 @@
 # yaml-language-server: $schema=../../../schemas/ring.schema.json
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Ring
 name: ring3-ga
 order: 3

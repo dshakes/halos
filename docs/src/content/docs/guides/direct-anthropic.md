@@ -19,7 +19,7 @@ Whether Claude Code fetches server-managed settings with a first-party login is 
 ## Gateway with an Anthropic upstream
 
 ```yaml
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Gateway
 name: acme-direct
 baseURL: https://ai.acme.example

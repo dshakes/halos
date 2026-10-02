@@ -1,7 +1,7 @@
 # yaml-language-server: $schema=../../schemas/halos.schema.json
 # Simple mode: this one file is the whole policy repo. `halo explain` prints
 # the Gateway, Profile and Rings it expands to; `halo eject` writes them out.
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Halos
 org: acme
 tools:

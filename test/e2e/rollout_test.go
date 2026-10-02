@@ -20,7 +20,7 @@ import (
 	"github.com/dshakes/halos/internal/gateway"
 )
 
-const rolloutYAML = `apiVersion: halos.dev/v1alpha1
+const rolloutYAML = `apiVersion: halos.dev/v1
 kind: Rollout
 name: sonnet-next
 axis: traffic
@@ -84,7 +84,7 @@ func newRolloutRepo(t *testing.T, dir string) rolloutRepo {
 	t.Helper()
 	pol := filepath.Join(dir, "policy")
 	newPolicy(t, pol)
-	writeFile(t, filepath.Join(pol, "gateway.yaml"), `apiVersion: halos.dev/v1alpha1
+	writeFile(t, filepath.Join(pol, "gateway.yaml"), `apiVersion: halos.dev/v1
 kind: Gateway
 name: acme-gateway
 baseURL: https://ai.acme.example
@@ -95,7 +95,7 @@ upstreams:
 models:
   sonnet: {upstream: primary, model: claude-sonnet-4-5}
 `)
-	writeFile(t, filepath.Join(pol, "experiments/sonnet-next-canary.yaml"), `apiVersion: halos.dev/v1alpha1
+	writeFile(t, filepath.Join(pol, "experiments/sonnet-next-canary.yaml"), `apiVersion: halos.dev/v1
 kind: Experiment
 name: sonnet-next-canary
 type: canary

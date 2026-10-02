@@ -1,6 +1,6 @@
 # UAT gateway: examples/acme-corp's aliases re-pointed at in-cluster mock upstreams
 # (scripts/uat-k8s.sh overlays this on a copy of examples/acme-corp).
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Gateway
 name: acme-gateway
 baseURL: https://ai.acme.example

@@ -1,4 +1,4 @@
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Gateway
 name: startup-gateway
 baseURL: https://ai.startup.example
@@ -30,7 +30,7 @@ upstreams:
     credential:
       env: OPENAI_API_KEY
 ---
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Profile
 name: default
 harnesses:
@@ -65,7 +65,7 @@ telemetry:
   enabled: true
 egress: {}
 ---
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Ring
 name: ring0-team
 order: 0
@@ -74,7 +74,7 @@ membership:
   groups:
     - startup-ai-platform
 ---
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Ring
 name: ring1-ga
 order: 1

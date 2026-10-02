@@ -25,7 +25,7 @@ func writeRepo(t *testing.T, files map[string]string) string {
 	return dir
 }
 
-const hdr = "apiVersion: halos.dev/v1alpha1\n"
+const hdr = "apiVersion: halos.dev/v1\n"
 
 func TestLoadErrors(t *testing.T) {
 	tests := []struct {

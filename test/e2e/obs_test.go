@@ -120,7 +120,7 @@ func waitFor(t *testing.T, d time.Duration, what string, cond func() bool) {
 	t.Fatalf("timed out after %s waiting for %s", d, what)
 }
 
-const obsExperiment = `apiVersion: halos.dev/v1alpha1
+const obsExperiment = `apiVersion: halos.dev/v1
 kind: Experiment
 name: %s
 type: ab
@@ -142,7 +142,7 @@ stopping: {method: msprt, alpha: 0.05, minSamples: 20, maxDays: 21}
 
 // obsJudgeExperiment: a running shadow experiment whose primary metric is the
 // online LLM-judge score (graded on halo-shadow pairs, eval evidence).
-const obsJudgeExperiment = `apiVersion: halos.dev/v1alpha1
+const obsJudgeExperiment = `apiVersion: halos.dev/v1
 kind: Experiment
 name: ` + expJudge + `
 type: shadow

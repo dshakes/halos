@@ -199,7 +199,7 @@ func startProxy(t *testing.T, bins map[string]string, p provider) (base, admin s
 	if p.harness != "claude-code" {
 		protocols += fmt.Sprintf("  %s: %s\n", p.harness, p.wire)
 	}
-	write(t, filepath.Join(pol, "gateway.yaml"), fmt.Sprintf(`apiVersion: halos.dev/v1alpha1
+	write(t, filepath.Join(pol, "gateway.yaml"), fmt.Sprintf(`apiVersion: halos.dev/v1
 kind: Gateway
 name: smoke-gateway
 baseURL: https://ai.smoke.example

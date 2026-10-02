@@ -140,6 +140,8 @@ No OpenTelemetry SDK runs in a Halos binary. The collector, ClickHouse and Grafa
 | `typescript` | `^7.0.2` | Type checking (`tsc --noEmit` in `npm run build`) |
 | `@types/react` | `^19.3.0` | React types |
 | `@types/react-dom` | `^19.3.0` | React DOM types |
+| `@types/node` | `^22.20.5` | Node types for the Playwright config |
+| `@playwright/test` | `^1.63.0` | Headless Chromium click-through of the console (`make demo-e2e`) |
 <!-- /check -->
 
 ## Docs site

@@ -51,7 +51,7 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <filter id="sh" x="-10%" y="-10%" width="120%" height="140%"><feDropShadow dx="0" dy="1" stdDeviation="1.6" flood-color="#3c280a" flood-opacity="0.08"/></filter>
 </defs>
 <rect class="cv" x=".75" y=".75" width="758.5" height="450.5" rx="16"/>
-<text class="k ka" x="24" y="34">KINDS · APIVERSION HALOS.DEV/V1ALPHA1</text>
+<text class="k ka" x="24" y="34">KINDS · APIVERSION HALOS.DEV/V1</text>
 <rect class="card" x="24" y="56" width="196" height="104" rx="12" filter="url(#sh)"/>
 <text class="tm" x="40" y="96.5">halos.yaml</text>
 <text class="m" x="40" y="114.5">org, identity (OIDC)</text>

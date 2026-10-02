@@ -1,0 +1,23 @@
+# yaml-language-server: $schema=../../../schemas/toggle.schema.json
+# GitHub MCP server for 10% of ring1-canary. Kill it fleet-wide, no release needed:
+#   halo toggle kill github-mcp --reason "..."
+apiVersion: halos.dev/v1alpha1
+kind: Toggle
+name: github-mcp
+description: GitHub MCP server (issues, PRs) for a slice of the canary ring
+owner: ai-platform
+expires: "2026-12-31"
+default: false
+axis: client
+rules:
+  - name: ring1-ten-percent
+    rings: [ring1-canary]
+    percent: 10
+client:
+  harnesses:
+    claude-code:
+      mcpServers:
+        - name: github
+          url: https://api.githubcopilot.com/mcp/
+          headers:
+            Authorization: Bearer ${GITHUB_MCP_TOKEN}

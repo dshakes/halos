@@ -27,7 +27,7 @@ identity:
 Then the gateway document:
 
 ```yaml
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Gateway
 name: acme
 baseURL: https://ai.acme.example

@@ -18,7 +18,7 @@ func (o *recOpener) OpenPR(_ context.Context, r promote.PRRequest) (string, erro
 }
 
 const expYAML = `# keep this comment
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Experiment
 name: exp-a
 status: running # inline

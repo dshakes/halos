@@ -173,7 +173,7 @@ func TestPlan(t *testing.T) {
 
 func TestPlanCompleteSimpleRoute(t *testing.T) {
 	dir := exampleCopy(t)
-	mustWrite(t, filepath.Join(dir, "rollouts", "sonnet.yaml"), `apiVersion: halos.dev/v1alpha1
+	mustWrite(t, filepath.Join(dir, "rollouts", "sonnet.yaml"), `apiVersion: halos.dev/v1
 kind: Rollout
 name: sonnet-next
 axis: traffic
@@ -279,7 +279,7 @@ func TestTimeline(t *testing.T) {
 func TestPlanCompleteSimpleMode(t *testing.T) {
 	const generated = "labels:\n  halos.dev/generated-by: rollout/opus-next\n"
 	override := func(labels, extra, route string) string {
-		return "apiVersion: halos.dev/v1alpha1\nkind: Gateway\nname: acme-gateway\n" + labels + extra + "models:\n  opus:\n" + route
+		return "apiVersion: halos.dev/v1\nkind: Gateway\nname: acme-gateway\n" + labels + extra + "models:\n  opus:\n" + route
 	}
 	single := "    upstream: anthropic\n    model: claude-opus-4-1\n"
 	tests := []struct {
@@ -312,7 +312,7 @@ func TestPlanCompleteSimpleMode(t *testing.T) {
 			dir := t.TempDir()
 			mustWrite(t, filepath.Join(dir, "halos.yaml"), "org: acme\ntools:\n  claude-code: 2.1.300\nprovider: anthropic\nmodels:\n"+
 				"  default: claude-sonnet-4-5\n  opus: "+tc.opus+"\n  haiku: bedrock/anthropic.claude-haiku-4-5\ngateway: https://ai.acme.example\n")
-			mustWrite(t, filepath.Join(dir, "experiments/opus-next.yaml"), `apiVersion: halos.dev/v1alpha1
+			mustWrite(t, filepath.Join(dir, "experiments/opus-next.yaml"), `apiVersion: halos.dev/v1
 kind: Experiment
 name: opus-next
 type: canary
@@ -327,7 +327,7 @@ metrics:
   guardrails: [{metric: halo.latency.p95_ms, direction: decrease, maxRegression: 0.15}]
 stopping: {method: msprt, alpha: 0.05}
 `)
-			mustWrite(t, filepath.Join(dir, "rollouts/opus-next.yaml"), `apiVersion: halos.dev/v1alpha1
+			mustWrite(t, filepath.Join(dir, "rollouts/opus-next.yaml"), `apiVersion: halos.dev/v1
 kind: Rollout
 name: opus-next
 axis: traffic
