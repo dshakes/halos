@@ -1,6 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 
+// The server CSP has no unsafe-eval: without jitless, zod probes `new Function` and
+// every page load logs a CSP violation (the probe's throw is caught, the report is not).
+z.config({ jitless: true });
+
 // Go encodes nil slices/maps as null; normalise so the UI never sees null.
 const arr = <T extends z.ZodType>(t: T) => z.array(t).nullish().transform((v) => v ?? []);
 const rec = <T extends z.ZodType>(t: T) => z.record(z.string(), t).nullish().transform((v) => v ?? {});

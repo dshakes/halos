@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cmp"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -106,6 +107,12 @@ type profileSummary struct {
 	DefaultModel string            `json:"defaultModel"`
 	MCPServers   []string          `json:"mcpServers"`
 	Sandbox      string            `json:"sandbox,omitempty"`
+	// HarnessModels are the Models each harness can use: those whose route
+	// answers the harness's wire (the check `halo validate` runs on start
+	// models). Empty for a harness the gateway does not route.
+	HarnessModels map[string][]string `json:"harnessModels"`
+	// HarnessDefault is the model each harness starts on (harnesses.<h>.model, else models.default).
+	HarnessDefault map[string]string `json:"harnessDefault"`
 }
 
 // Me is GET /api/v1/me.
@@ -123,10 +130,8 @@ type Me struct {
 }
 
 func summarize(p *policy.Profile, gw *policy.Gateway) *profileSummary {
-	ps := &profileSummary{Name: p.Name, Harnesses: map[string]string{}, DefaultModel: p.Models.Default, Sandbox: p.Permissions.Sandbox, Models: []string{}, MCPServers: []string{}}
-	for n, h := range p.Harnesses {
-		ps.Harnesses[n] = h.Version
-	}
+	ps := &profileSummary{Name: p.Name, Harnesses: map[string]string{}, DefaultModel: p.Models.Default, Sandbox: p.Permissions.Sandbox, Models: []string{}, MCPServers: []string{},
+		HarnessModels: map[string][]string{}, HarnessDefault: map[string]string{}}
 	ps.Models = append(ps.Models, p.Models.Allowed...)
 	if len(ps.Models) == 0 && gw != nil {
 		for a := range gw.Models {
@@ -134,6 +139,23 @@ func summarize(p *policy.Profile, gw *policy.Gateway) *profileSummary {
 		}
 	}
 	sort.Strings(ps.Models)
+	for n, h := range p.Harnesses {
+		ps.Harnesses[n] = h.Version
+		ps.HarnessDefault[n] = cmp.Or(h.Model, p.Models.Default)
+		if gw == nil { // nothing to check the wire against
+			ps.HarnessModels[n] = ps.Models
+			continue
+		}
+		usable := []string{}
+		if wire := gw.HarnessWire(n); wire != "" {
+			for _, m := range ps.Models {
+				if fit, _ := gw.WireFit(m, wire); fit == policy.WireYes {
+					usable = append(usable, m)
+				}
+			}
+		}
+		ps.HarnessModels[n] = usable
+	}
 	for _, m := range p.MCP.Servers {
 		ps.MCPServers = append(ps.MCPServers, m.Name)
 	}
