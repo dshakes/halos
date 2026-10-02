@@ -64,6 +64,12 @@ func checkTrusted(p string, fi fs.FileInfo) error {
 	return checkACEs(p, aces, !fi.IsDir() || strictWindowsPath(p))
 }
 
+// stateMode is state.json's mode. 0600 would make fsutil grant the *writing user* alone, so a
+// state file first written by an admin running `halod once` (enrollment) is rejected by checkTrusted
+// when the SYSTEM task later runs. 0644 leaves the file with the DACL it inherits from the managed
+// var dir: SYSTEM and Administrators full control, Users read-only.
+const stateMode fs.FileMode = 0o644
+
 // managedDACL: SYSTEM and Administrators full control, Users read/execute,
 // inherited by everything below, not inheriting from the parent (protected).
 const managedDACL = "D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)"

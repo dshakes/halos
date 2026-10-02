@@ -4,7 +4,7 @@ description: Deliver releases to laptops with the halod agent, portal enrollment
 ---
 
 :::caution[UNVERIFIED on real devices]
-`halod` runs as root inside Linux containers in `make uat-clis`; it has not run on real macOS or Windows hosts or as a long-running service. MDM exports (Jamf, Kandji, Intune) are generated and unit-tested but were **not pushed to any real tenant or device**. The PowerShell they emit (and `enroll.ps1`) has not been executed.
+`halod` runs as root inside Linux containers in `make uat-clis`; CI runs it as a launchd daemon on a hosted macOS runner and as a SYSTEM scheduled task on a hosted Windows runner (`scripts/ci-delivery-*`), but not on real fleets. MDM exports (Jamf, Kandji, Intune) are generated and unit-tested but were **not pushed to any real tenant or device**, and the PowerShell they emit has not been executed (`install.ps1` and `enroll.ps1` are, in CI).
 :::
 
 Laptops are the weakest delivery path: a local admin can stop an agent or edit files. Use them as the last ring, and rely on the gateway for authoritative cohort and model enforcement.
