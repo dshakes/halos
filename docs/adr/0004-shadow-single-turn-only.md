@@ -35,3 +35,15 @@ Chosen: **option 2**. `halo-shadow` mirrors sampled, first-turn requests asynchr
 - Good: safe, cheap, off the hot path; catches regressions in format, refusal rate, latency and cost.
 - Bad: does not measure multi-step agent quality. Documented prominently; do not promote on shadow alone (the recipe is shadow, then canary, gated by replay evals).
 - Bad: judge bias; mitigate with rubric pinning and paired comparison.
+
+## Implementation status (2026-10-02)
+
+| Commitment | Code | Test | Status |
+|---|---|---|---|
+| Mirror sampled, first-turn requests asynchronously; no primary-latency impact | `internal/gateway/decision.go` (`req.FirstTurn`, sample rate); `internal/shadow/mirror.go` (non-blocking queue, drops when full) | `decision_test.go` `TestShadowSampling`, `TestShadowEligibility`; `shadow_test.go` `TestMirrorerNonBlockingDrop`, `TestQueueFullDrops` | Done |
+| Replay to control and candidate, non-streaming, with halo-shadow's own credentials | `internal/gateway/rewrite.go` (`stream: false` in the mirror body); `internal/shadow/server.go` `UpstreamHeaders` (per-upstream, never forwarded elsewhere) | `shadow_test.go` `TestPairCaptured`, `TestMirrorerURLValidation`, `TestBedrockPathStaysOnPolicyHost`; `cmd/halo-shadow` `TestLoadUpstreamHeaders` | Done |
+| Store request/response pairs | `internal/shadow/shadow.go` (`FileStore`, encrypted, pruned) | `TestFileStore`, `TestFileStoreEncryptedAndPruned`, `TestDecryptPairs` | Done |
+| Grade with an LLM judge; rubric pinning and paired comparison | `internal/eval/online.go` `RunOnline` (same pinned rubric `id@version` on both sides, delta paired by pair, bootstrap CI, win rate) | `online_test.go` `TestRunOnline`, `TestOnlineHistoryAndOTLP` | Done |
+| Never cause side effects from a shadow | tool calls are never executed: the pair stores the response only (`internal/shadow/server.go`) | `TestPairCaptured` | Done |
+| Whole-task comparison via containerized replay evals | `internal/eval` (`docker.go`, `driver.go`), `halo eval run` | `eval_test.go` `TestRunTrial`, `TestRunSuiteErrors`; `test/e2e` | Done |
+| Do not promote on shadow alone; documented prominently | `internal/promote/promote.go` (judge evidence yields `hold`, promote needs gateway canary evidence); [shadow traffic](/halos/concepts/shadow-traffic/) and [security model](/halos/concepts/security-model/) | `promote_test.go` `TestShadowEvidenceNeverPromotes` | Done |
