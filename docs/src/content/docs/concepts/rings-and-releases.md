@@ -114,7 +114,7 @@ halo rollback --ring ring1-canary --to sha256:...            # or OCI manifest d
 
 `--to <version>` resolves tag `v<version>` and is refused unless the release's **signed manifest** carries that version, so a retagged `v` tag cannot redirect a rollback. `--to sha256:...` is the OCI **manifest** digest (the `manifest` field of `halo release publish --output json`), content-addressed; it is not the release digest that `publish` prints and `--expect-digest` takes. Rollback also works on a ring whose pointer has expired.
 
-`--registry`, `--key` and (for a local registry) `--plain-http` are required as for `publish`. If the ring runs a client-axis experiment, its [channels](#experiment-channels) roll back with it. Dev containers pick it up on rebuild; `halod` on its next pull (default every 15 minutes). Traffic-axis changes roll back at the gateway immediately: pause or conclude the experiment (`halo exp pause`, `halo exp conclude`) and let the policy reload.
+`--registry`, `--key` and (for a local registry) `--plain-http` are required as for `publish`. If the ring runs a client-axis experiment, its [channels](#experiment-channels) roll back with it. Dev containers pick it up on rebuild; `halod` on its next pull (default every 15 minutes). Traffic-axis changes roll back at the gateway without a release: kill the experiment (`halo kill <name> --reason ...`, effective at the next poll: by default 10 s at gateways and 60 s on devices), then pause or conclude it in policy (`halo exp pause`, `halo exp conclude`).
 
 ## Sample timeline
 

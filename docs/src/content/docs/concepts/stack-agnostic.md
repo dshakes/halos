@@ -62,7 +62,7 @@ Each YAML key has a flag of the same intent (`--listen`, `--policy`, `--next-hop
 ### Behavior worth knowing
 
 - **Identity.** With an issuer known (flag or policy) the default mode is `jwt`. Failed verification returns 401 unless `allowAnonymous`, in which case the caller gets default routing and ring `unknown` (useful when the token is an opaque API key meant for the next hop). With no issuer, no CIDRs and no explicit mode, `halo-proxy` fails closed with 503.
-- **Model allowlist fails closed**, 413 on oversize bodies, batches API 403. See [security model](/halos/concepts/security-model/#model-allowlist-fails-closed).
+- **Model allowlist fails closed**, 413 on oversize bodies, batches API 400. See [security model](/halos/concepts/security-model/#model-allowlist-fails-closed).
 - **Streaming is never buffered**: SSE and AWS eventstream stay incremental; there are no retries (a retried LLM call is a duplicated bill).
 - **Client credentials** (`Authorization`, `x-api-key`) are stripped unless `forwardAuth: true`, and are never included in shadow jobs.
 - **Endpoints:** the public `listen` address serves only proxied model calls and `GET /v1/models` (passthrough); every other path is 404. `GET /healthz` (503 until a policy snapshot loads) and `GET /metrics` live on a separate unauthenticated admin listener, `--admin-listen` / `adminListen` (default `127.0.0.1:9090`, empty disables); in Kubernetes set `:9090` and restrict it with a NetworkPolicy. Metrics (Prometheus: `halo_proxy_requests_total{ring,variant,status}`, TTFB and duration histograms, auth-failure and shadow counters). Access log is one JSON line per request with no bodies, headers or user ids.
@@ -82,9 +82,9 @@ Starting points in `deploy/integrations/`, not turnkey deployments. Files marked
 
 | Stack | What is provided | Checked | UNVERIFIED |
 |---|---|---|---|
-| **Kong** (OSS, Enterprise, Konnect) | Route to `halo-proxy` (`kong.yml`, no plugin server), or the `halo-kong` plugin (`halo gateway deck`) | `kong config parse` (3.8, db-less) OK; the `deploy/compose` demo runs Kong OSS + `halo-kong` end to end; `make uat-kong` runs Kong OSS 3.9.3 + `halo-kong` in CI (31 checks, `test/uat/KONG-REPORT.md`) | Live traffic through the route-to-`halo-proxy` template; **Kong Enterprise and Konnect** |
-| **Envoy / Istio** | Static bootstrap with route `timeout: 0s` and `stream_idle_timeout` | `envoy --mode validate` (v1.32) OK | Live traffic |
-| **nginx** | `location` with `proxy_buffering off`, HTTP/1.1, long timeouts; `proxy_pass` without a URI so encoded Bedrock paths survive | `nginx -t` OK | Live traffic |
+| **Kong** (OSS, Enterprise, Konnect) | Route to `halo-proxy` (`kong.yml`, no plugin server), or the `halo-kong` plugin (`halo gateway deck`) | `kong config parse` (3.8, db-less) OK, run by hand when the template was written and not part of CI; the `deploy/compose` demo runs Kong OSS + `halo-kong` end to end; `make uat-kong` runs Kong OSS 3.9.3 + `halo-kong` in CI (31 checks, `test/uat/KONG-REPORT.md`) | Live traffic through the route-to-`halo-proxy` template; **Kong Enterprise and Konnect** |
+| **Envoy / Istio** | Static bootstrap with route `timeout: 0s` and `stream_idle_timeout` | `envoy --mode validate` (v1.32) OK, run by hand, not part of CI | Live traffic |
+| **nginx** | `location` with `proxy_buffering off`, HTTP/1.1, long timeouts; `proxy_pass` without a URI so encoded Bedrock paths survive | `nginx -t` OK, run by hand, not part of CI | Live traffic |
 | **AWS API Gateway** | HTTP API to VPC link to internal ALB to `halo-proxy` (`openapi.yaml`) | nothing | Everything: not imported into AWS. HTTP APIs cap integration time and do not stream; verify quotas before routing agent traffic through it |
 | **LiteLLM** | `halo-proxy` in front of LiteLLM (`--next-hop`), or LiteLLM as a policy upstream | nothing | Everything: written from LiteLLM's documented config, not run |
 
@@ -121,14 +121,14 @@ See exactly what a user would hit:
 ```console
 $ halo gateway routes --user alice@acme.com --session s-42 --policy-dir examples/acme-corp
 Routes for user "alice@acme.com" session "s-42"
-ALIAS           ORDER  UPSTREAM                KIND          MODEL                         WEIGHT  PRIORITY  TIMEOUT  NOTES
-default         1      anthropic-direct        anthropic     claude-opus-4-1-20250805      10      0         -        <- hit when healthy
-default         2      anthropic-direct        anthropic     claude-sonnet-4-5-20250929    90      0         -
-opus            1      bedrock-use1            bedrock       arn:aws:bedrock:…:p7q2opus41bb  -     0         30s      <- hit when healthy; skipped by codex,gemini-cli
-opus            2      anthropic-direct        anthropic     claude-opus-4-1-20250805      -       1         -
+ALIAS           ORDER  UPSTREAM                KIND          MODEL                                                                               WEIGHT  PRIORITY  TIMEOUT  NOTES
+default         1      anthropic-direct        anthropic     claude-opus-4-1-20250805                                                            10      0         -        <- hit when healthy; skipped by gemini-cli
+default         2      anthropic-direct        anthropic     claude-sonnet-4-5-20250929                                                          90      0         -        skipped by gemini-cli
+opus            1      bedrock-use1            bedrock       arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/p7q2opus41bb   -       0         30s      <- hit when healthy; skipped by codex,gemini-cli
+opus            2      anthropic-direct        anthropic     claude-opus-4-1-20250805                                                            -       1         -        skipped by gemini-cli
 ```
 
-Output trimmed to two aliases, with the ARN shortened. Without `--user`, weighted tiers are shown in policy order. A model upgrade or a provider move is a one-line policy change; [toggles](/halos/concepts/toggles/) and canary experiments can switch a route for a cohort first.
+Output trimmed to two aliases; the NOTES column is verbatim (gemini-cli has no usable target for `default` or `opus` here). Without `--user`, weighted tiers are shown in policy order. A model upgrade or a provider move is a one-line policy change; [toggles](/halos/concepts/toggles/) and canary experiments can switch a route for a cohort first.
 
 ## Providers
 

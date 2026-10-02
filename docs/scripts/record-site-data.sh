@@ -25,7 +25,7 @@ mkdir -p "$tmp/acme" && cd "$tmp/acme"
 steps=(
   "halo init --org acme|$halo init --org acme"
   "|$halo release publish --ring ring3-ga --release-version 1.0.0 --plain-http --registry $HALO_REGISTRY --key $HALO_KEY"
-  "halo upgrade start claude-code $claude|$halo upgrade start claude-code $claude --plain-http"
+  "halo upgrade start claude-code $claude  # needs HALO_REGISTRY + HALO_KEY, and ring3-ga already published as the baseline|$halo upgrade start claude-code $claude --plain-http"
   "halo rollout simulate claude-code-$claude --scenario regression|$halo rollout simulate claude-code-$claude --scenario regression"
 )
 : > "$tmp/term.tsv"

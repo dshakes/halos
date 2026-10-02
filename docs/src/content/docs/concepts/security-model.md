@@ -112,7 +112,7 @@ Clients can send any header. The gateway deletes every inbound `x-halo-*` (and t
 
 ## Model allowlist fails closed
 
-Only exact model-call paths are accepted (`/v1/messages`, `/v1/messages/count_tokens`, `/v1/responses`, Bedrock `/model/{id}/invoke*` and `converse*`). Any other path under those prefixes is 404, `/v1/messages/batches*` is 403, oversize or unreadable bodies are 413, and a model that is not a policy alias is 403 with an error body in the caller's wire format. Nothing rejected is forwarded, and a rewrite failure is never forwarded un-rewritten.
+Only exact model-call paths are accepted (`/v1/messages`, `/v1/messages/count_tokens`, `/v1/responses`, Bedrock `/model/{id}/invoke*` and `converse*`). Any other path under those prefixes is 404, `/v1/messages/batches*` is 400, oversize or unreadable bodies are 413, and a model that is not a policy alias is 400 (`invalid_request_error`) with an error body in the caller's wire format. Nothing rejected is forwarded, and a rewrite failure is never forwarded un-rewritten.
 
 ## Guardrails
 

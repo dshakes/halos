@@ -3,7 +3,7 @@ title: Introduction
 description: What Halos is, the problem it solves, and how the pieces fit.
 ---
 
-Halos (`halo`) is a control plane for AI developer tools in organizations. It treats configuration of Claude Code, Codex, Gemini CLI, Copilot CLI and similar harnesses as a **signed, ring-deployed release**, gates promotion on evidence, and routes model traffic through a plane you control so the most common rollback is instant.
+Halos (`halo`) is a control plane for AI developer tools in organizations. It treats configuration of Claude Code, Codex, Gemini CLI, Copilot CLI and similar harnesses as a **signed, ring-deployed release**, gates promotion on evidence, and routes model traffic through a plane you control so the most common rollback needs no release: a signed kill reaches gateways at their next poll (about 10 s).
 
 ## The problem
 

@@ -81,7 +81,7 @@ Each harness speaks one wire to the gateway: Claude Code `anthropic-messages`, C
 - **Error:** no target of that alias can answer the wire, for example Codex starting on an alias that only reaches `kind: anthropic`. The message names the alias and upstream to add.
 - **Warning:** the only candidates are `kind: orchestrator`, which may translate. Declare what an orchestrator answers with `serves: [<wire>, ...]` (valid on `kind: orchestrator` only) and the warning goes away.
 
-Clients request stable **aliases** (`sonnet`); the gateway maps them to upstream model ids, which is what lets a model upgrade be a route change. Model ids above are examples; use your own inference profile ARNs. An alias that is not in `models` is rejected with 403 (the allowlist fails closed). Alias, upstream, profile, ring, experiment, variant and MCP server names must match `^[a-z0-9][a-z0-9._-]{0,62}$` because they flow into scripts, paths and headers.
+Clients request stable **aliases** (`sonnet`); the gateway maps them to upstream model ids, which is what lets a model upgrade be a route change. Model ids above are examples; use your own inference profile ARNs. An alias that is not in `models` is rejected with 400 `invalid_request_error` (the allowlist fails closed). Alias, upstream, profile, ring, experiment, variant and MCP server names must match `^[a-z0-9][a-z0-9._-]{0,62}$` because they flow into scripts, paths and headers.
 
 ## Profile
 
@@ -162,10 +162,10 @@ variants:
     routes:
       opus: {upstream: orchestrator, model: us.anthropic.claude-opus-5-5-v1:0}
 metrics:
-  primary: {metric: halo.task.success, direction: increase}
+  primary: {metric: halo.api.error_rate, direction: decrease}
   guardrails:
-    - {metric: halo.cost.usd_per_session, direction: decrease, maxRegression: 0.10}
     - {metric: halo.api.error_rate, direction: decrease, maxRegression: 0.02}
+    - {metric: halo.latency.p95_ms, direction: decrease, maxRegression: 0.15}
 stopping: {method: msprt, alpha: 0.05, minSamples: 300, maxDays: 14, maxSpendUSD: 500}
 ```
 

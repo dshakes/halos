@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://halos.dev/schemas/toggle.schema.json",
   "title": "Toggle",
-  "description": "A feature toggle: one capability turned on for a targeted cohort and killable instantly without a new release.",
+  "description": "A feature toggle: one capability turned on for a targeted cohort and killable fleet-wide at the next kill-list poll, without a new release.",
   "type": "object",
   "properties": {
     "apiVersion": {

@@ -5,8 +5,8 @@ description: What each harness adapter renders, what Halos enforces instead, and
 
 The capability sets below are what `halo harnesses` prints (from each adapter's `Capabilities()`); the mechanisms and paths come from [`internal/harness/FACTS.md`](https://github.com/dshakes/halos/blob/main/internal/harness/FACTS.md), which cites the vendor page for every claim. Facts were last verified against vendor documentation on 2026-09-30.
 
-:::caution[Nothing here was executed against a real CLI]
-Every cell was read from vendor documentation or schemas. No adapter output has been loaded by the real Claude Code, Codex, Gemini CLI or Copilot CLI (UNVERIFIED against the real CLIs; `internal/harness/FACTS.md` currently records documentation-sourced facts only). Golden tests check the *rendered bytes*, not the CLI's behavior.
+:::note[What was executed]
+`make uat-clis` runs the real Claude Code 2.1.280, Codex 0.99.0, Gemini CLI 0.34.0 and Copilot CLI 1.0.90 against `halod`-applied config on every PR (`test/uat/CLI-REPORT.md`). Cells marked UNVERIFIED there, for example Copilot `disableBypassPermissionsMode` and Copilot gateway routing, are documentation-sourced only. Golden tests check the *rendered bytes*, not the CLI's behavior.
 :::
 
 Legend: **Rendered** = the adapter writes the harness's native enforcement. **`halod`** = the CLI cannot enforce it, so Halos's agent installs the pinned version and reports drift (a local admin can defeat it). **No** = not rendered; the adapter emits a warning in the release manifest rather than dropping the setting silently.

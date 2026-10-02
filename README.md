@@ -57,10 +57,13 @@ safety: standard                       # strict | standard | relaxed: never bypa
 rollout: standard                      # fast | standard | careful: rings, canary steps, bake times, gates
 ```
 
-Presets expand into profiles, rings and gateway routes. Intent commands write the rest for you. The ones that write policy (`upgrade start`, `model switch`, `enable`, `eject`) support `--dry-run`, validate their output and list the files they change; `halo kill` acts on halo-server immediately:
+Presets expand into profiles, rings and gateway routes. Intent commands write the rest for you. The ones that write policy (`upgrade start`, `model switch`, `enable`, `eject`) support `--dry-run`, validate their output and list the files they change; `halo kill` writes to halo-server at once (no release) and takes effect at the next poll, by default 10 s at gateways and 60 s on devices:
 
 ```sh
-halo upgrade start claude-code 2.1.300        # A/B + gated rollout for a CLI upgrade
+# A/B + gated rollout for a CLI upgrade. Builds and signs a candidate release, so it needs a registry
+# and key (HALO_REGISTRY / HALO_KEY) and the GA ring's published pointer, or --baseline <digest>.
+# --dry-run still reads that pointer.
+halo upgrade start claude-code 2.1.300 --registry ghcr.io/acme/halos --key halo.key
 halo model switch strong claude-opus-5 --canary
 halo enable mcp github --url https://… --for 10%
 halo kill <experiment|toggle|rollout> --reason "…"
@@ -120,7 +123,7 @@ steps:
     gates: {approval: true}
 ```
 
-The controller evaluates every step continuously:
+The controller evaluates every active step on each tick (default every 5 minutes):
 - **A guardrail breach measured at the gateway trips the signed kill switch on its own** (traffic axis, when halo-server serves a kill list). Any other breach opens a rollback PR and notifies.
 - **Progress always opens a PR that a human merges.** Nothing auto-promotes.
 
@@ -162,7 +165,7 @@ Commands: `halo rollout plan | status | simulate | advance | rollback` ([docs](h
 | Version pin | CLI-enforced | `halod` | `halod` | `halod` |
 | Model lock | ✓ | ✓ | ✓ | default only |
 | MCP allowlist | ✓ | ✓ | ✓ | ✓ |
-| Permissions | ✓ | ✓ | partial | ✓ |
+| Permissions | ✓ | ✓ | partial | partial (bypass disable only; UNVERIFIED) |
 | Gateway + telemetry | ✓ | ✓ | partial | telemetry only |
 
 A setting a CLI can't enforce produces a warning in the release manifest; it is never silently dropped. The full matrix and its sources are in the [harness reference](https://dshakes.github.io/halos/reference/harness-matrix/).
@@ -181,11 +184,10 @@ Traffic goes through `halo-proxy` to Anthropic, Bedrock (SigV4), Vertex, OpenAI,
 
 > **Pre-release.** No version is tagged yet, so build from source:
 > `git clone https://github.com/dshakes/halos && cd halos && make build && bin/halo validate --policy-dir examples/acme-corp`
-> The channels below activate with the first tagged release.
+> The binaries, deb/rpm/apk packages and `install.sh`/`install.ps1` come from the GitHub release once a version is tagged. Homebrew and Scoop publish only after the `HOMEBREW_TAP_TOKEN` secret and the tap and bucket repos are set up; the winget manifest is submitted by hand (see [RELEASING.md](RELEASING.md)).
 
 ```sh
 # macOS / Linux: the CLI
-brew install dshakes/tap/halo
 curl -fsSL https://raw.githubusercontent.com/dshakes/halos/main/install/install.sh | sh -s -- --version vX.Y.Z
 
 # The halod agent runs as root from a root-owned prefix
@@ -196,7 +198,7 @@ irm https://raw.githubusercontent.com/dshakes/halos/main/install/install.ps1 | i
 ```
 
 Also available:
-- deb, rpm and apk packages, and Scoop
+- deb, rpm and apk packages (Homebrew and Scoop once their repos are set up)
 - a [Dev Container Feature](features/halos) and a Coder module
 - Jamf, Kandji and Intune exports
 - a [GitHub Action](action.yml) and a GitLab template for CI runners

@@ -99,7 +99,7 @@ Telemetry from the gateway and the CLIs feeds back into experiment verdicts. A b
 |---|---|---|
 | `halo` | CI, platform laptops | Validate, plan, render, publish, eval, rollouts |
 | `halod` | Every developer machine | Pull, verify, apply the ring's release; honour the kill switch |
-| `halo-proxy` / `halo-kong` | Your network | Model routing, experiments, failover, header stripping |
+| `halo-proxy` / `halo-kong` | Your network | Model routing, experiments, header stripping; failover and wire translation in `halo-proxy` only |
 | `halo-server` | Your network | Console, self-service enrollment portal, signed kill switch |
 | `halo-shadow` | Your network | Mirror sampled requests to a candidate for shadow evals |
 

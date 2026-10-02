@@ -13,4 +13,4 @@ Generated from `schemas/*.schema.json`; do not edit. Regenerate with `make docs-
 | [`profile`](/halos/reference/policy/profile/) | Desired harness behaviour, independent of any one CLI. Supports inheritance via extends. |
 | [`ring`](/halos/reference/policy/ring/) | An ordered rollout cohort pointing at a profile. |
 | [`rollout`](/halos/reference/policy/rollout/) | A phased rollout of one change: ordered steps with a ring, percent, bake, gates and a failure action. Advancing only opens a PR; rollback and pause are automatic. |
-| [`toggle`](/halos/reference/policy/toggle/) | A feature toggle: one capability turned on for a targeted cohort and killable instantly without a new release. |
+| [`toggle`](/halos/reference/policy/toggle/) | A feature toggle: one capability turned on for a targeted cohort and killable fleet-wide at the next kill-list poll, without a new release. |

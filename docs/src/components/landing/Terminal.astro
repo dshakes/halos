@@ -28,7 +28,7 @@ const cls = (t: string) =>
     )
   }</pre>
   <figcaption class="term-cap">
-    Real output, recorded {rec.recorded} with halo <code>{rec.halo}</code> against a local registry.
+    Real output, recorded {rec.recorded} with halo <code>{rec.halo}</code> against a local registry (<code>HALO_REGISTRY</code> and <code>HALO_KEY</code> set, <code>--plain-http</code> omitted from the display, and ring3-ga already published as the rollback baseline).
     <a href="https://github.com/dshakes/halos/blob/main/docs/src/data/terminal.json">Transcript</a>
   </figcaption>
   <script type="application/json" data-steps set:html={JSON.stringify(rec.steps)} />

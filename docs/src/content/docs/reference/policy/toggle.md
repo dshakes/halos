@@ -1,9 +1,9 @@
 ---
 title: "Toggle"
-description: "A feature toggle: one capability turned on for a targeted cohort and killable instantly without a new release."
+description: "A feature toggle: one capability turned on for a targeted cohort and killable fleet-wide at the next kill-list poll, without a new release."
 ---
 
-A feature toggle: one capability turned on for a targeted cohort and killable instantly without a new release.
+A feature toggle: one capability turned on for a targeted cohort and killable fleet-wide at the next kill-list poll, without a new release.
 
 Generated from `schemas/toggle.schema.json`; do not edit. Nested fields use dotted paths, `[]` marks array items and `.*` map values.
 
