@@ -18,7 +18,8 @@ GoReleaser (`.goreleaser.yaml`) and publishes:
 2. Tag the merge commit and push the tag (needs a human; the tag is the release gate):
    `git tag -a vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z`
 3. Watch the `release` workflow. A tag with a prerelease suffix (`v1.0.0-rc.1`) builds everything
-   but GoReleaser does not push the tap/bucket manifests.
+   but is published as a GitHub prerelease, does not move the `latest` image tag, and GoReleaser does
+   not push the tap/bucket manifests.
 
 Re-run for an existing tag: Actions > release > Run workflow, choosing the tag itself under "Use workflow
 from" and setting `tag` to it. The installers pin the signing identity to

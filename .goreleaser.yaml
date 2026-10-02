@@ -45,7 +45,7 @@ dockers_v2:
     id: halo-server
     ids: [halo-server]
     images: [ghcr.io/dshakes/halo-server]
-    tags: ["{{ .Version }}", latest]
+    tags: ["{{ .Version }}", "{{ if not .Prerelease }}latest{{ end }}"] # an rc never moves latest
     dockerfile: deploy/docker/Dockerfile.service
     platforms: [linux/amd64, linux/arm64]
     build_args: {BINARY: halo-server}
@@ -169,3 +169,4 @@ docker_signs:
     args: [sign, --yes, "${artifact}@${digest}"]
 release:
   github: {owner: dshakes, name: halos}
+  prerelease: auto # vX.Y.Z-rc.N is a prerelease, never "Latest"
