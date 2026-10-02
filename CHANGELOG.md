@@ -4,6 +4,8 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.1.0-rc.1] - 2026-10-02
+
 ### Added
 - Client-axis experiments are delivered end to end: `halo release publish` writes a signed channel per variant (`<ring>.x-<experiment>.<variant>`), the ring manifest lists the experiment, and `halod` picks its variant with the gateway's hash and pulls that channel (subject from the ring endpoint, `halod.yaml` `subject:` or the last saved one). A channel that fails verification keeps last-good. Variant profiles are checked as guardrail errors. `refresh`, `rollback` and `promote` handle channels; `GET /api/v1/fleet/ring` returns `subject`; status and reports carry `experiment`/`variant`. See [ADR-0010](https://dshakes.github.io/halos/adr/0010-release-channels-for-client-experiments/) and [A/B a CLI upgrade](https://dshakes.github.io/halos/guides/cli-upgrade-ab/).
 - `halod` can poll the signed kill list (`killSwitch` in `halod.yaml`, `GET /api/v1/fleet/killswitch`); a killed client-axis experiment reverts the device to the ring release.
@@ -25,7 +27,23 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 - **Evidence trust**: `halo telemetry collector-config` generates two receivers: CLI (4317/4318; drops `halo.gateway.*`, stamps `halo.source=cli`, 4 MiB request cap, optional per-device bearer tokens via `--cli-token-file`) and gateway (4319, `--gateway-endpoint`, bearer token `HALO_OTLP_GATEWAY_TOKEN`, stamps `halo.source=gateway`). `halo-proxy` takes `--telemetry-token-file` and `--telemetry-unit-salt-file`. `halo exp analyze --output json` reports `source`. The controller auto-kills only on gateway-sourced evidence (`killOutcome: not_gateway_evidence` otherwise).
 - **Controller and kill-switch wiring**: `halo controller run --killswitch-served`; canonical `--verdicts-file` and `--interval` (`--verdicts`, `--controller-interval` deprecated); webhook timestamp header `X-Halo-Timestamp` with a timestamped HMAC and a 5-minute receiver tolerance (Go and Python verification snippets in the [CLI reference](https://dshakes.github.io/halos/reference/cli/#verifying-the-webhook-signature)); per-channel notification retries; a killed running experiment is held (not evaluated); `GET /api/v1/capabilities` reflects whether a kill key is configured; `halo gateway deck --killswitch-url` emits `killswitch_*` with vault references.
 - **Helm**: one writable policy clone for console proposals and controller PRs, made by an init container with a real `git clone` (credentials through `GIT_ASKPASS` or `GIT_SSH_COMMAND`, never the URL); the server image must contain `git`, `gh` and, for ssh, `ssh`. `proxy.telemetry` (token and unit-salt Secrets) and `otel.gatewayToken`; automatic proxy-to-otel NetworkPolicy rules.
+- Simple mode: a one-file `halos.yaml` with safety and rollout presets, and intent commands: `halo init`, `upgrade start|publish`, `model switch`, `enable`, `kill`, `status`, `explain` (prints the low-level policy it expands to) and `eject`. `halo init` picks a model each CLI can reach.
+- `Rollout` kind with strategies `progressive`, `canary`, `blue-green`, `dark-launch` and `holdout`; gated steps (bake time, samples, guardrails, eval scorecard, approval). `halo rollout list|plan|status|simulate|advance`: the controller rolls back on its own, and advancing only opens a PR.
+- `Toggle` kind: ring, group and percent targeting, signed toggle fragments in the release, evaluated by `halod` and the gateway, killable through the signed kill list. `halo toggle list|eval|stale|kill`; the `halo-server` console has a Toggles page (list, drawer, tester, kill/restore, propose change).
+- Evals: pass@k and pass^k, LLM-judge rubrics, paired bootstrap confidence intervals, flake detection, `halo eval run --matrix` (harness x model x provider), `halo eval online` (judges `halo-shadow` pairs), `halo.eval.*` metrics, and `halo upgrade check|watch` (watch upstream CLIs and models, open eval-gated upgrade PRs; never merges).
+- Providers and routing: Vertex, OpenAI, Azure OpenAI and Gemini-wire upstreams alongside Bedrock; model routes with weights, priority failover and a circuit breaker per target; `halo gateway routes`; per-alias experiment selection.
+- `halo validate` checks that each harness a ring or client-axis variant delivers starts on a model whose upstream answers the harness's wire (error naming what to add; warning for orchestrator targets). The new upstream field `serves: [<wire>...]` (kind `orchestrator` only) declares what an orchestrator answers.
+- Packaging and release: GoReleaser on `v*.*.*` tags (archives, deb/rpm/apk, checksums, SBOMs, cosign signatures, ghcr.io images, Homebrew/Scoop manifests, winget manifest; see RELEASING.md), `install.sh`/`install.ps1`, GitHub Action, GitLab CI template, `halod` service install, and CI on linux, macOS and Windows.
+- UAT suites: `make uat-clis` (real Claude Code, Codex, Gemini and Copilot CLIs), `make uat-k8s` (kind plus Helm) and `make uat-kong` (`halo-kong` in open-source Kong 3.9.3); reports in `test/uat/`. `halo gateway deck --killswitch-allow-insecure-in-cluster`, `--allow-unverified`, `--forward-client-credentials`.
+- `halo-proxy` benchmarks (`make bench`) and a load/soak test (`make load`: direct-vs-proxy latency, soak, failover and breaker, long SSE); pooled proxy copy buffers; `go_goroutines` and heap on the admin `/metrics`. Nightly provider smoke workflow (`halo-proxy` against real providers).
+- `TestObsClosedLoop` in `make obs-e2e`: synthetic users through `halo-proxy` and the collector into ClickHouse; the controller kills a regressed candidate on gateway evidence (and opens a pause PR), and opens a promotion PR, never merged, for a healthy one.
 - Docs: rewritten to match the code. New pages: self-service portal, stack-agnostic traffic plane, agentic operations, production deployment, threat model. ADR-0008 (signed ring pointers and verified artifacts) and ADR-0009 (signed kill switch).
+
+### Fixed
+- Guardrails on a zero control mean (the normal state of `halo.api.error_rate`) no longer return inconclusive: a significant worsening now fails, and two all-zero arms pass. Before, a 0% to 30% error-rate regression never tripped its guardrail and a healthy canary never got a promotion proposal.
+- Release bundles are reproducible: the manifest `created` annotation is pinned, so republishing the same release gives the same digest instead of an immutable-tag refusal.
+- `halo-kong` is secure by default: JWT callers that fail verification get 401, and client credentials (`Authorization`, `x-api-key`, `api-key`, `x-goog-api-key`, `Proxy-Authorization`) are stripped before the upstream (opt out with `allow_unverified` / `forward_client_credentials`). `halo gateway deck` chains Kong's `nginx_main_env` correctly so the kill-switch key reaches the plugin server.
+- `halo-proxy` records the served route in `halo.gateway.provider`, `target` and `failover`.
 
 ### Security
 - Signer-side replay protection: `promote` takes its source from `--from-ring`'s signed pointer (never the `ring-<name>` tag); `rollback --to <version>` refuses a release whose signed manifest does not carry that version; `refresh` refuses an expired pointer (recover with `halo rollback --to <version>`); the signer state file refuses a registry that serves an older or forked pointer. A missing state file is silently empty, so stateless CI must cache it or pass `--expect-digest`.
@@ -40,6 +58,13 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 - CLI installs use hash-pinned artifacts. The legacy shell `installCommand` runs only with `allowShellInstall: true`.
 - Guardrails: reserved override keys and env prefixes, literal-secret detection, strict names, and a release-time backstop that parses rendered files for `bypassPermissions` and `danger-full-access`.
 - Gateway verifies OIDC JWTs and fails closed on the model allowlist; `x-halo-*` headers are stripped.
+
+### Known limitations
+- Real cloud providers (Bedrock, Vertex, Azure OpenAI, OpenAI, Gemini API) are fixture-tested only.
+- Signing, SBOM and image publishing have never run on a real tag; this RC is the first run.
+- Homebrew and Scoop need the `HOMEBREW_TAP_TOKEN` secret and the tap and bucket repos; a prerelease tag does not push them anyway. The winget manifest is submitted by hand.
+- `halod` as a Windows service, MDM-managed devices and the Helm chart on a managed cloud cluster are unverified.
+- The policy API is `halos.dev/v1alpha1` and may change until v1.
 
 ### Known gaps
 - No tagged release, published images or goreleaser run yet.
