@@ -283,3 +283,31 @@ func TestCUPEDPreservesMean(t *testing.T) {
 		t.Fatalf("CUPED %v: mean %v var %v", out, mean(out), variance(out))
 	}
 }
+
+// Both arms constant with a non-zero baseline: the estimate is exact, the
+// bounds must be finite (a ±Inf bound is not JSON-encodable and broke
+// `halo exp analyze` whenever a look had no variance yet).
+func TestSeqGuardrailZeroVariance(t *testing.T) {
+	same := func(v float64) []float64 {
+		x := make([]float64, 30)
+		for i := range x {
+			x[i] = v
+		}
+		return x
+	}
+	for _, tc := range []struct {
+		control, treatment float64
+		want               GuardrailStatus
+	}{{1, 1, Pass}, {1, 1.2, Fail}, {1, 0.9, Pass}} {
+		r, err := SeqGuardrail(same(tc.control), same(tc.treatment), "decrease", 0.05, 0.05)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if math.IsInf(r.Lower, 0) || math.IsInf(r.Upper, 0) || math.IsNaN(r.Lower) || math.IsNaN(r.Upper) {
+			t.Fatalf("%v: unbounded CI %+v", tc, r)
+		}
+		if r.Status != tc.want {
+			t.Fatalf("%v: got %+v", tc, r)
+		}
+	}
+}
