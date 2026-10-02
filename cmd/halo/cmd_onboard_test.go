@@ -64,7 +64,9 @@ func TestOnboardLocalE2E(t *testing.T) {
 		t.Fatalf("install exit %d:\n%s%s", code, out, errOut)
 	}
 	var plan struct {
-		Plan struct{ Files []struct{ Harness, Dest string } }
+		Plan struct {
+			Files []struct{ Harness, Dest string }
+		}
 	}
 	_, out, _ = halo(t, "onboard", "install", "--policy-dir", dir, "--root", root, "--output", "json")
 	if err := json.Unmarshal([]byte(out), &plan); err != nil {
