@@ -1,0 +1,40 @@
+name: release-drift
+
+# The Homebrew formula and Scoop manifest must track the latest final release, so
+# `brew install`/`scoop install` never go stale behind a green release run.
+# Skips until there is a final (non-rc) release.
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+    steps:
+      - name: Tap formula and Scoop manifest are at the latest final release
+        run: |
+          # gh prints the 404 body on stdout, so branch on the exit code, not the output.
+          if ! latest=$(gh api "repos/$REPO/releases/latest" --jq .tag_name 2>/dev/null); then
+            finals=$(gh api "repos/$REPO/releases?per_page=100" --jq '[.[] | select((.prerelease or .draft) | not)] | length')
+            if [ "$finals" = 0 ]; then echo "::notice::no final release yet; nothing to check"; exit 0; fi
+            echo "::error::could not resolve the latest release of $REPO"; exit 1
+          fi
+          v=${latest#v}
+          fix="re-run the release workflow from refs/tags/$latest (RELEASING.md)"
+          formula=$(gh api repos/dshakes/homebrew-tap/contents/Formula/halo.rb -H "Accept: application/vnd.github.raw" 2>/dev/null || true)
+          grep -qF "version \"$v\"" <<<"$formula" || { echo "::error::dshakes/homebrew-tap Formula/halo.rb is not at $v (latest release $latest); $fix"; exit 1; }
+          scoop=$(gh api repos/dshakes/scoop-bucket/contents/halo.json -H "Accept: application/vnd.github.raw" 2>/dev/null | jq -r .version || true)
+          [ "$scoop" = "$v" ] || { echo "::error::dshakes/scoop-bucket halo.json is at '${scoop}', want $v; $fix"; exit 1; }
+          echo "tap and bucket at $v ($latest)"
