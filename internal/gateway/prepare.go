@@ -158,7 +158,11 @@ func PrepareVerified(org *policy.Org, sub *policy.Subject, h http.Header, path s
 	if res.Reject = admit(org, req, res.Decision, path); res.Reject != nil {
 		return res
 	}
-	if m := res.Decision.UpstreamModel; m != "" && m != req.ModelAlias {
+	// JSON-body wires are always re-encoded, even when the alias is the upstream
+	// id: the client's body may hold duplicate or case-variant "model" keys that
+	// encoding/json resolved differently from the upstream's parser.
+	jsonModel := req.Protocol == ProtoAnthropic || req.Protocol == ProtoResponses
+	if m := res.Decision.UpstreamModel; m != "" && (m != req.ModelAlias || jsonModel) {
 		p, b, err := RewriteRequest(req.Protocol, path, body, m)
 		if err != nil {
 			res.RewriteErr = err

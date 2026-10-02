@@ -361,7 +361,9 @@ func (c Config) access(kong kongAPI) {
 	}
 	d := res.Decision
 
-	for _, n := range append(res.ClearHeaders, c.identityOptions(org).HeaderNames(org)...) {
+	// x-halo-killswitch is set below; clear any client copy even if Kong's
+	// header list (capped at 1000) was truncated before it.
+	for _, n := range append(append(res.ClearHeaders, "x-halo-killswitch"), c.identityOptions(org).HeaderNames(org)...) {
 		_ = kong.ClearHeader(n)
 	}
 	if !c.ForwardClientCredentials {
