@@ -241,6 +241,8 @@ type InitOptions struct {
 	ToolModels map[string]string
 	Gateway    string
 	Issuer     string
+	ClientID   string   // OIDC client id (portal login); optional
+	Admins     []string // identity.adminGroups (ring0 team and portal admins); optional
 	Safety     string
 	Rollout    string
 }
@@ -319,7 +321,19 @@ func InitFile(o InitOptions) []byte {
 	}
 	fmt.Fprintf(&b, "gateway: %s\n", o.Gateway)
 	if o.Issuer != "" {
-		fmt.Fprintf(&b, "identity: {issuer: %s, audience: halos}\n", o.Issuer)
+		fmt.Fprintf(&b, "identity: {issuer: %s", o.Issuer)
+		if o.ClientID != "" {
+			fmt.Fprintf(&b, ", clientID: %s", yamledit.Quote(o.ClientID, 0))
+		}
+		fmt.Fprint(&b, ", audience: halos")
+		if len(o.Admins) > 0 {
+			q := make([]string, len(o.Admins))
+			for i, g := range o.Admins {
+				q[i] = yamledit.Quote(g, 0)
+			}
+			fmt.Fprintf(&b, ", adminGroups: [%s]", strings.Join(q, ", "))
+		}
+		fmt.Fprint(&b, "}\n")
 	}
 	fmt.Fprintf(&b, "safety: %s   # strict | standard | relaxed\n", o.Safety)
 	fmt.Fprintf(&b, "rollout: %s   # fast | standard | careful\n", o.Rollout)

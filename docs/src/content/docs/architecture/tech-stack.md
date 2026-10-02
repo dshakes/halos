@@ -65,7 +65,7 @@ Most of the core is the Go standard library:
 | Module | Version | Used for | Used by |
 | --- | --- | --- | --- |
 | `oras.land/oras-go/v2` | `v2.6.2` | Pushing and pulling release bundles and signed ring pointers as OCI artifacts ([`internal/bundle/bundle.go:50-125`](https://github.com/dshakes/halos/blob/main/internal/bundle/bundle.go#L50-L125)). | `cmd/halo`, `cmd/halod`, `internal/bundle`, `internal/server` |
-| `github.com/opencontainers/image-spec` | `v1.1.1` | OCI manifest and descriptor types. | `internal/bundle`; tests: `cmd/halo` |
+| `github.com/opencontainers/image-spec` | `v1.1.1` | OCI manifest and descriptor types. | `internal/bundle`; tests: `cmd/halo`, `cmd/halod` |
 | `github.com/opencontainers/go-digest` | `v1.0.0` | Content digests for blobs and pointer statements. | `internal/bundle` |
 <!-- /check -->
 
@@ -140,6 +140,8 @@ No OpenTelemetry SDK runs in a Halos binary. The collector, ClickHouse and Grafa
 | `typescript` | `^7.0.2` | Type checking (`tsc --noEmit` in `npm run build`) |
 | `@types/react` | `^19.3.0` | React types |
 | `@types/react-dom` | `^19.3.0` | React DOM types |
+| `@types/node` | `^22.20.5` | Node types for the Playwright config |
+| `@playwright/test` | `^1.63.0` | Headless Chromium click-through of the console (`make demo-e2e`) |
 <!-- /check -->
 
 ## Docs site

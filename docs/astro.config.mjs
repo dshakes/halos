@@ -56,6 +56,7 @@ export default defineConfig({
           label: 'Getting started',
           items: [
             'getting-started/introduction',
+            'getting-started/start-here',
             'getting-started/playground',
             'getting-started/install',
             'getting-started/quickstart',
@@ -141,6 +142,7 @@ export default defineConfig({
             'reference/api',
             'reference/binaries',
             'reference/policy-schema',
+            'reference/compatibility',
             'reference/harness-matrix',
             'reference/metrics',
             'reference/gateway-headers',
@@ -164,6 +166,7 @@ export default defineConfig({
             'adr/0008-signed-ring-pointers-and-verified-artifacts',
             'adr/0009-signed-kill-switch',
             'adr/0010-release-channels-for-client-experiments',
+            'adr/0012-policy-api-v1',
           ],
         },
       ],

@@ -133,8 +133,12 @@ func (s *Server) principal(r *http.Request) (Principal, bool) {
 
 type authedHandler func(http.ResponseWriter, *http.Request, Principal)
 
-// sameOrigin rejects cross-origin state-changing requests (defence in depth on top of SameSite=Lax).
+// sameOrigin rejects cross-origin state-changing requests (defence in depth on
+// top of SameSite=Lax): by Fetch Metadata, which a page cannot set, then by Origin.
 func sameOrigin(r *http.Request) bool {
+	if sfs := r.Header.Get("Sec-Fetch-Site"); sfs == "cross-site" || sfs == "same-site" {
+		return false
+	}
 	o := r.Header.Get("Origin")
 	if o == "" {
 		return true // non-browser client
@@ -316,7 +320,17 @@ func principalFromClaims(claims map[string]any, id policy.Identity) (Principal, 
 }
 
 func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
+	// Failed callbacks are rate limited per IP on their own budget (an office
+	// NAT retrying logins must not lock its devices out): each one can cost a
+	// token exchange with the IdP and a consumed-state entry held until expiry.
+	ip := s.clientIP(r)
+	if s.loginFails.blocked(ip) {
+		w.Header().Set("Retry-After", "60")
+		apiErr(w, http.StatusTooManyRequests, "too many failed logins")
+		return
+	}
 	fail := func(code int, msg string, err error) {
+		s.loginFails.fail(ip)
 		s.cfg.Log.Warn("oidc callback failed", "msg", msg, "err", err)
 		apiErr(w, code, msg)
 	}

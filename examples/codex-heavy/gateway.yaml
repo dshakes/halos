@@ -2,7 +2,7 @@
 # Codex -> halo-proxy -> OpenAI, with Azure OpenAI as the failover tier.
 # The provider keys are read by halo-proxy from its own environment; policy only
 # names the variable. Developers never see an OpenAI or Azure key.
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Gateway
 name: codex-gateway
 engine: halo-proxy

@@ -463,7 +463,7 @@ func (a *app) cmdPlan() *cobra.Command {
 	c := &cobra.Command{
 		Use:         "plan",
 		Annotations: policyDirAnno,
-		Short:       "Diff the release a ring would get against a previous release",
+		Short:       "Diff the release a ring would get against a previous release (or show it whole for a first release)",
 		Args:        cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dir, err := policyDir(cmd, args)
@@ -474,9 +474,11 @@ func (a *app) cmdPlan() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			prev, err := a.openBaseline(cmd.Context(), against, ring, &rf)
-			if err != nil {
-				return err
+			prev := &release.Release{} // no --against: the first release, so everything is new
+			if against != "" {
+				if prev, err = a.openBaseline(cmd.Context(), against, ring, &rf); err != nil {
+					return err
+				}
 			}
 			diff := release.Diff(prev, cur)
 			bumps := versionBumps(prev, cur)
@@ -502,11 +504,10 @@ func (a *app) cmdPlan() *cobra.Command {
 		},
 	}
 	c.Flags().StringVar(&ring, "ring", "", "ring to plan (required)")
-	c.Flags().StringVar(&against, "against", "", "release.tar or registry ref host/org/name[:tag] (required)")
+	c.Flags().StringVar(&against, "against", "", "release.tar or registry ref host/org/name[:tag] (default: none, the first release)")
 	c.Flags().StringVar(&ver, "release-version", "0.0.0-dev", "release version label")
 	rf.add(c, false, true)
 	_ = c.MarkFlagRequired("ring")
-	_ = c.MarkFlagRequired("against")
 	return c
 }
 

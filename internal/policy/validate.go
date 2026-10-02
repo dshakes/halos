@@ -54,7 +54,7 @@ var (
 // guardrails and any ExtraGuardrails. It never returns nil-vs-empty
 // ambiguity: no issues = empty slice.
 func (o *Org) Validate() []Issue {
-	v := &validator{org: o, issues: []Issue{}}
+	v := &validator{org: o, issues: append([]Issue{}, o.Deprecations...)}
 	v.gateway()
 	v.profiles()
 	v.rings()

@@ -206,20 +206,20 @@ func TestClickHouse(t *testing.T) {
 }
 
 const ringYAML = `# ring config
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Ring
 name: ring1-canary
 order: 1
 profile: base
 release: sha256:old # current
 ---
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Ring
 name: ring2
 release: sha256:other
 `
 
-const expYAML = `apiVersion: halos.dev/v1alpha1
+const expYAML = `apiVersion: halos.dev/v1
 kind: Experiment
 name: sonnet-next
 type: canary

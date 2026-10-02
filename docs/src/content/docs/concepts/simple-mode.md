@@ -8,7 +8,7 @@ Simple mode is the default way to run Halos. `halo init` writes a single `halos.
 ## The file
 
 ```yaml
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Halos
 org: acme
 tools:                                         # exact version pins
@@ -121,7 +121,7 @@ A field set to its zero value counts as unset, so an overlay cannot set a ring's
 ```console
 $ halo explain --kind ring
 # source: halos.yaml (simple mode), overlaid by rings/ring0-team.yaml
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Ring
 name: ring0-team
 order: 0

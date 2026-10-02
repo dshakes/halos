@@ -49,7 +49,9 @@ func NewMirrorer(url, token string, queue int) (*Mirrorer, error) {
 	if queue <= 0 {
 		queue = 32
 	}
-	m := &Mirrorer{url: url, token: token, q: make(chan Job, queue), client: &http.Client{Timeout: 5 * time.Second}}
+	m := &Mirrorer{url: url, token: token, q: make(chan Job, queue), client: &http.Client{Timeout: 5 * time.Second,
+		// The job carries the token and the prompt: a 3xx is a failed send, never followed.
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
 	go m.loop()
 	return m, nil
 }

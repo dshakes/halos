@@ -4,7 +4,7 @@
 # breach rolls back automatically (pause PR + rings re-pointed at the
 # baseline); every advance is a PR a human merges.
 # `halo rollout plan claude-code-2.1.300` shows the timeline.
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Rollout
 name: claude-code-2.1.300
 axis: client

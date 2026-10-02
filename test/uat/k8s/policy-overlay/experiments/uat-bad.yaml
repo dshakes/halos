@@ -1,5 +1,5 @@
 # UAT traffic canary on alias "slow" (ring3-ga), backing rollout uat-bad.
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Experiment
 name: uat-bad
 type: canary

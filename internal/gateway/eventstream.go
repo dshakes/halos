@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"hash/crc32"
 	"io"
+	"strings"
 )
 
 // EventStreamToSSE converts an AWS event stream (Bedrock
@@ -85,11 +86,20 @@ func (s *sseReader) next() error {
 	if err := json.Unmarshal(payload, &chunk); err != nil || len(chunk.Bytes) == 0 {
 		return nil // not an Anthropic chunk (e.g. initial-response): skip
 	}
+	// Compact JSON has no line breaks, and the event name must not have any:
+	// either would let the upstream inject SSE events or fields.
+	var data bytes.Buffer
+	if err := json.Compact(&data, chunk.Bytes); err != nil {
+		return fmt.Errorf("gateway: event stream chunk is not JSON: %w", err)
+	}
 	var ev struct {
 		Type string `json:"type"`
 	}
 	_ = json.Unmarshal(chunk.Bytes, &ev)
-	fmt.Fprintf(&s.buf, "event: %s\ndata: %s\n\n", ev.Type, chunk.Bytes)
+	if strings.ContainsAny(ev.Type, "\r\n") {
+		return errors.New("gateway: event stream chunk type contains a line break")
+	}
+	fmt.Fprintf(&s.buf, "event: %s\ndata: %s\n\n", ev.Type, data.Bytes())
 	return nil
 }
 

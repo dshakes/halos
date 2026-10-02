@@ -36,6 +36,21 @@ func addPrompts(m *mcp.Server) {
 			"the first ring, and draft an experiment (axis: traffic, guardrails on error rate, cost and latency). Validate the draft, "+
 			"use eval_scorecard on any existing scorecard as evidence, and present the plan for human approval before start_experiment.",
 		"from_model", "to_model")
+	add("onboard", "Onboard onto Halos: try it, my machine, or my company. Dry run every write; approval before each; nothing outward.",
+		[]*mcp.PromptArgument{{Name: "path", Description: "try | machine | company (ask when empty)"}},
+		"Onboard me onto Halos, path: %[1]s (ask which if empty: try it, my machine, my company). Hard rules: call doctor first "+
+			"and relay each fix verbatim; show every write as a dry run and wait for a yes before dry_run false (one yes per step); "+
+			"never print or ask for a credential value (doctor and detect_harnesses only say whether a variable is set); never "+
+			"publish, enroll, retag, push, merge or deploy, hand me the command and stop. Try it: doctor, then I run `halo quickstart` "+
+			"(Docker, mock IdP and models) and you walk me through the tour it prints. My machine: detect_harnesses; confirm CLIs "+
+			"(default: those found, at their versions), provider (default: suggested_provider) and whether to use a local halo-proxy; "+
+			"init_policy dry run, show halos.yaml and validation, then write; plan; local_install dry run with show true, explain what "+
+			"lands where, then write (admin paths: give me the sudo command) and re-run to prove it is idempotent; local_proxy and its "+
+			"start command; verify_harness per CLI, dry run then real, assume_auth true if the CLI is logged in. My company: interview "+
+			"(org, CLIs and versions, provider and models, gateway kind and URL, OIDC issuer, client id, admin groups, delivery "+
+			"channels, registry, policy repo URL, console URL, safety, rollout), onboard_company dry run then write, validate, plan, "+
+			"harness_matrix, eval_scorecard, commit on a branch and open a PR after I approve the push, then list the remaining human "+
+			"steps from the generated README and stop.", "path")
 	add("triage-experiment", "Diagnose an experiment whose guardrail is failing.",
 		[]*mcp.PromptArgument{arg("experiment", "experiment name")},
 		"Experiment %[1]s has a failing guardrail. Call show_experiment and analyze_experiment, identify which metric regressed "+

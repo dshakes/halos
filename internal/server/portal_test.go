@@ -27,7 +27,7 @@ import (
 var sha = strings.Repeat("ab", 32)
 
 // portalPolicy copies acme-corp and enables identity + self-service + one opt-in ring.
-func portalPolicy(t *testing.T) string {
+func portalPolicy(t testing.TB) string {
 	t.Helper()
 	dst := t.TempDir()
 	if err := os.CopyFS(dst, os.DirFS("../../examples/acme-corp")); err != nil {
@@ -70,7 +70,7 @@ type env struct {
 	w   *fakeWriter
 }
 
-func newEnv(t *testing.T, mutate func(*Config)) *env {
+func newEnv(t testing.TB, mutate func(*Config)) *env {
 	t.Helper()
 	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	e := &env{now: &now, w: &fakeWriter{}}
@@ -111,7 +111,7 @@ var (
 	admin = Principal{ID: "boss@acme.example", Groups: []string{"platform-admins"}}
 )
 
-func decode[T any](t *testing.T, w *httptest.ResponseRecorder) T {
+func decode[T any](t testing.TB, w *httptest.ResponseRecorder) T {
 	t.Helper()
 	var v T
 	if err := json.Unmarshal(w.Body.Bytes(), &v); err != nil {

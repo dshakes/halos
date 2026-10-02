@@ -1,6 +1,8 @@
 # Halos plugin for Claude Code
 
-Skills (`halos-rollout`, `halos-author-policy`, `halos-triage`), commands (`/halo-rollout`, `/halo-status`), an agent (`halos-release-manager`) and an MCP server wiring for `halo mcp serve`.
+Skills (`halos-onboard`, `halos-rollout`, `halos-author-policy`, `halos-triage`), commands (`/halos:halo-onboard`, `/halo-rollout`, `/halo-status`), an agent (`halos-release-manager`) and an MCP server wiring for `halo mcp serve`.
+
+New here? `/halos:halo-onboard` walks you through try it, my machine or my company (see the Start here docs page).
 
 Requires `halo` on PATH. Set `HALOS_POLICY_DIR` to your policy repo (default: the current directory).
 

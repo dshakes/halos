@@ -49,7 +49,7 @@ func TestTogglesConsole(t *testing.T) {
 	dir := t.TempDir()
 	pol := filepath.Join(dir, "policy")
 	gatewayPolicy(t, pol, iss.URL, "http://"+primary, "http://"+candidate)
-	writeFile(t, filepath.Join(pol, "toggles/e2e-flag.yaml"), `apiVersion: halos.dev/v1alpha1
+	writeFile(t, filepath.Join(pol, "toggles/e2e-flag.yaml"), `apiVersion: halos.dev/v1
 kind: Toggle
 name: e2e-flag
 description: env flag for half of GA
@@ -66,7 +66,7 @@ client:
     claude-code:
       env: {E2E_FLAG: "on"}
 `)
-	writeFile(t, filepath.Join(pol, "toggles/e2e-route.yaml"), `apiVersion: halos.dev/v1alpha1
+	writeFile(t, filepath.Join(pol, "toggles/e2e-route.yaml"), `apiVersion: halos.dev/v1
 kind: Toggle
 name: e2e-route
 owner: e2e

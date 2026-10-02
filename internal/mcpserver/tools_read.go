@@ -36,7 +36,7 @@ type validateOut struct {
 
 type planIn struct {
 	Ring           string `json:"ring" jsonschema:"ring to plan"`
-	Against        string `json:"against" jsonschema:"path to a baseline release.tar (registry refs are not supported over MCP)"`
+	Against        string `json:"against,omitempty" jsonschema:"path to a baseline release.tar (registry refs are not supported over MCP); empty = first release, everything shows as added"`
 	ReleaseVersion string `json:"release_version,omitempty" jsonschema:"release version label (default 0.0.0-dev)"`
 }
 
@@ -172,9 +172,11 @@ func (s *srv) plan(_ context.Context, _ *mcp.CallToolRequest, in planIn) (*mcp.C
 	if err != nil {
 		return nil, planOut{}, err
 	}
-	prev, err := openRelease(in.Against)
-	if err != nil {
-		return nil, planOut{}, err
+	prev := &release.Release{} // no baseline: the first release
+	if in.Against != "" {
+		if prev, err = openRelease(in.Against); err != nil {
+			return nil, planOut{}, err
+		}
 	}
 	return nil, diffOut(prev, cur), nil
 }

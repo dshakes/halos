@@ -76,6 +76,7 @@ type Server struct {
 
 	devices     *deviceStore
 	authFails   authLimiter
+	loginFails  authLimiter // failed OIDC callbacks; separate so logins cannot lock out devices
 	revoked     *sessionRevocations
 	auditLog    *auditLog
 	relCache    *releaseCache

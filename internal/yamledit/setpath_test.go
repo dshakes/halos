@@ -9,7 +9,7 @@ import (
 
 func TestSetPath(t *testing.T) {
 	src := `# keep me
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Experiment
 name: e # trailing
 status: draft

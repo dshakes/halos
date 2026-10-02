@@ -3,7 +3,7 @@
 # engineering profile): the new release is built, signed and published ahead
 # of time (the standby), so each step is one atomic pointer switch, and
 # rollback switches straight back to the baseline digest.
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Rollout
 name: engineering-settings-2026-10
 axis: client

@@ -30,6 +30,11 @@ var forbiddenValues = []string{"bypassPermissions", "danger-full-access"}
 func CheckRendered(harnessName string, os harness.OS, files []harness.File, p *policy.Profile, g *policy.Gateway) error {
 	strict := slices.Contains(strictHarnesses, harnessName)
 	for _, f := range files {
+		// Every file, any format: bundles land world-readable (0644 ceiling).
+		// The value is not echoed, so the error itself never leaks it.
+		if policy.HasTokenShape(string(f.Data)) {
+			return fmt.Errorf("%s/%s %s: security invariant violated: contains a literal credential (token, access key or private key); use a ${VAR} reference resolved on the client", harnessName, os, f.Path)
+		}
 		var doc map[string]any
 		var err error
 		switch {

@@ -36,32 +36,16 @@ func guardHarnessWire(o *Org) []Issue {
 			continue // reported by Validate
 		}
 		for _, h := range sortedKeys(p.Harnesses) {
-			wire := g.Protocols[h]
-			if wire == "" {
-				wire = toolProtocols[h]
-			}
+			wire := g.HarnessWire(h)
 			alias, path := p.Harnesses[h].Model, fmt.Sprintf("profiles[%s].harnesses.%s.model", name, h)
 			if alias == "" {
 				alias, path = p.Models.Default, fmt.Sprintf("profiles[%s].models.default", name)
 			}
-			route, ok := g.Models[alias]
-			if wire == "" || alias == "" || !ok {
+			if _, ok := g.Models[alias]; wire == "" || alias == "" || !ok {
 				continue // not routed, no model, or an unknown alias (reported by Validate)
 			}
-			var kinds []string
-			can, maybe := false, false
-			for _, t := range route.Candidates() {
-				k := g.Upstreams[t.Upstream].Kind
-				kinds = append(kinds, t.Upstream+" ("+k+")")
-				switch {
-				case slices.Contains(providerWires[k], wire):
-					can = true
-				case k == "orchestrator" && slices.Contains(g.Upstreams[t.Upstream].Serves, wire):
-					can = true // declared by the operator
-				case k == "orchestrator":
-					maybe = true
-				}
-			}
+			fit, kinds := g.WireFit(alias, wire)
+			can, maybe := fit == WireYes, fit == WireMaybe
 			switch {
 			case can:
 			case maybe:
@@ -74,6 +58,43 @@ func guardHarnessWire(o *Org) []Issue {
 		}
 	}
 	return out
+}
+
+// WireFitness is how well a model alias's route can answer a client wire.
+type WireFitness int
+
+const (
+	WireNo    WireFitness = iota // no target can answer it (or the alias is unknown)
+	WireMaybe                    // only orchestrators that do not declare it: they may translate
+	WireYes                      // a target's provider (or a declaring orchestrator) answers it
+)
+
+// HarnessWire is the wire harness h speaks to this gateway ("" = the gateway does not route it).
+func (g *Gateway) HarnessWire(h string) string {
+	if w := g.Protocols[h]; w != "" {
+		return w
+	}
+	return toolProtocols[h]
+}
+
+// WireFit reports whether alias routes to an upstream that answers wire, and
+// lists each candidate target as "upstream (kind)". It is the check
+// `halo validate` applies to a harness's start model (guardHarnessWire).
+func (g *Gateway) WireFit(alias, wire string) (WireFitness, []string) {
+	var kinds []string
+	fit := WireNo
+	for _, t := range g.Models[alias].Candidates() {
+		up := g.Upstreams[t.Upstream]
+		kinds = append(kinds, t.Upstream+" ("+up.Kind+")")
+		switch {
+		case slices.Contains(providerWires[up.Kind], wire),
+			up.Kind == "orchestrator" && slices.Contains(up.Serves, wire): // declared by the operator
+			fit = WireYes
+		case up.Kind == "orchestrator" && fit == WireNo:
+			fit = WireMaybe
+		}
+	}
+	return fit, kinds
 }
 
 // wireFix says exactly what to add so harness h starts on a model that speaks wire.

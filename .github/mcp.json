@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "halos": {
+      "type": "local",
+      "command": "halo",
+      "args": ["mcp", "serve", "--policy-dir", "."],
+      "tools": ["*"]
+    }
+  }
+}

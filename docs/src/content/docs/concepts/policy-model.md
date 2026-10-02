@@ -8,7 +8,7 @@ Most repos start in [simple mode](/halos/concepts/simple-mode/): `halo init` wri
 A policy repo is a directory of YAML documents plus one root file, `halos.yaml`. Every other document has the common header:
 
 ```yaml
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Profile          # Profile | Ring | Experiment | Gateway
 name: baseline
 labels: {team: platform}
@@ -21,7 +21,7 @@ The Go types in `internal/policy/types.go` are the source of truth. Full field l
 The root file names the org and configures identity and the developer portal. It is required; `halo validate` fails without `org`. It may also carry the simple-mode keys (`tools`, `provider`, `models`, `gateway`, `telemetry`, `team`, `safety`, `rollout`); see [simple mode](/halos/concepts/simple-mode/). The example below is a full-mode root without them.
 
 ```yaml
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Halos
 org: acme-corp
 identity:
@@ -53,7 +53,7 @@ Decoding is strict: an unknown field is an error reported with file and line.
 ## Gateway
 
 ```yaml
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Gateway
 name: acme
 baseURL: https://ai.acme.example
@@ -86,7 +86,7 @@ Clients request stable **aliases** (`sonnet`); the gateway maps them to upstream
 ## Profile
 
 ```yaml
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Profile
 name: baseline
 harnesses:
@@ -132,7 +132,7 @@ Notes:
 ## Ring
 
 ```yaml
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Ring
 name: ring1-canary
 order: 1
@@ -150,7 +150,7 @@ versionGate: warn   # off | warn (default) | enforce: gateway checks the CLI ver
 ## Experiment
 
 ```yaml
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Experiment
 name: opus-5-5-canary
 type: canary

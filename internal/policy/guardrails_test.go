@@ -96,6 +96,16 @@ func TestSecurityGuardrails(t *testing.T) {
 			o.SelfService.Catalog = []MCPServer{{Name: "a b", URL: "https://x.example"}}
 		}, "selfService.catalog[0].name", "invalid", SeverityError},
 
+		// Overrides and env are emitted as config values: a forbidden mode there
+		// must fail validate, as it does for toggles (not only the build backstop).
+		{"override value bypass", func(o *Org) {
+			o.Profiles["base"].Harnesses["claude-code"] = HarnessSpec{Version: "2.1.280", Overrides: map[string]any{"outputStyle": "bypassPermissions"}}
+		}, "profiles[base]", "forbidden", SeverityError},
+		{"inherited override value danger", func(o *Org) {
+			o.Profiles["base"].Harnesses["codex"] = HarnessSpec{Version: "0.58.0", Overrides: map[string]any{"tui": map[string]any{"x": []any{"danger-full-access"}}}}
+		}, "profiles[next]", "forbidden", SeverityError},
+		{"env value bypass", func(o *Org) { o.Profiles["next"].Env = map[string]string{"MODE": "bypassPermissions"} }, "profiles[next]", "forbidden", SeverityError},
+
 		// M3
 		{"ring without disableBypass", func(o *Org) { o.Profiles["base"].Permissions.DisableBypass = false }, "rings[r1].profile", "disableBypass", SeverityError},
 		{"logPrompts on GA warns", func(o *Org) { o.Profiles["base"].Telemetry.LogPrompts = true }, "rings[r1].profile", "logPrompts", SeverityWarning},
@@ -214,10 +224,17 @@ func TestLooksSecret(t *testing.T) {
 		{"Bearer ${TOKEN}", false},
 		{"${TOKEN}", false},
 		{"${TOKEN:-fallback}", false},
-		{"sk-ant-api03-abcdefghij", true},          // allowlist secret (fake test value)
-		{"ghp_abcdefghijklmnop", true},             // allowlist secret (fake test value)
-		{"xoxb-1234-5678-abcdefg", true},           // allowlist secret (fake test value)
-		{"AKIAIOSFODNN7EXAMPLE", true},             // allowlist secret (AWS documented example key)
+		{"sk-ant-api03-abcdefghij", true},               // allowlist secret (fake test value)
+		{"ghp_abcdefghijklmnop", true},                  // allowlist secret (fake test value)
+		{"xoxb-1234-5678-abcdefg", true},                // allowlist secret (fake test value)
+		{"AKIAIOSFODNN7EXAMPLE", true},                  // allowlist secret (AWS documented example key)
+		{"github_pat_11ABCDEFG0123456789_abcdef", true}, // allowlist secret (fake test value)
+		{"-----BEGIN PRIVATE KEY-----\nMIIBVQ==\n-----END PRIVATE KEY-----", true}, // allowlist secret (fake test value, short PEM body: no entropy hit)
+		{"-----BEGIN OPENSSH PRIVATE KEY-----", true},                              // allowlist secret (header only)
+		{"-----BEGIN EC PRIVATE KEY-----", true},                                   // allowlist secret (header only)
+		{"-----BEGIN PUBLIC KEY-----", false},
+		{"https://x.example/sse?token=ghp_0123456789abcdef", true}, // allowlist secret (fake test value, '=' no longer hides the prefix)
+		{"/opt/acme/task-runner --disk-cache", false},
 		{"0123456789abcdef0123456789abcdef", true}, // 32 hex, allowlist secret (fake test value)
 		{"q8Zr2LkP0xVt7NwYc4HbJ1mFe9SgDa6U", true}, // 32 mixed, allowlist secret (fake test value)
 		{"acme", false},

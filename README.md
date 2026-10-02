@@ -17,6 +17,7 @@
 </p>
 
 <p align="center">
+  <a href="https://dshakes.github.io/halos/getting-started/start-here/">Start here</a> ·
   <a href="https://dshakes.github.io/halos/getting-started/quickstart/">Quickstart</a> ·
   <a href="https://dshakes.github.io/halos/concepts/architecture/">Architecture</a> ·
   <a href="https://dshakes.github.io/halos/reference/cli/">CLI</a> ·
@@ -40,6 +41,18 @@
 | Rollback is a Slack message | A signed kill switch that gateways pick up within ~10 s, plus rollback PRs |
 
 <img src="assets/rollout.gif" alt="halo rollout plan prints a six-step dark-launch, canary and holdout plan; halo rollout simulate shows a regression caught and rolled back at the 1% step" width="880">
+
+## Start here
+
+Three ways in, each driven by hand or by the AI CLI you already use ([Start here](https://dshakes.github.io/halos/getting-started/start-here/)):
+
+| | First command | From your CLI |
+|---|---|---|
+| **Try it** (~2 min, Docker) | `halo quickstart` | Claude Code `/halos:halo-onboard try` |
+| **My machine** (pin your CLIs, manage their config, local proxy, verified round trip) | `halo doctor`, then `halo onboard local` | Codex `$halos-onboard` |
+| **My company** (policy repo, gateway, IdP, fleet delivery, first PR) | `halo onboard company` | Gemini CLI / Copilot CLI: "onboard me onto Halos" |
+
+The agent shows every write as a dry run and waits for your yes, never prints a credential, and stops before anything outward: publishing, enrolling, pushing and merging stay yours.
 
 ## How it works
 
@@ -96,7 +109,7 @@ A `Rollout` is an ordered list of steps. Each step sets:
 - gates: metric guardrails, an eval scorecard, a human approval
 
 ```yaml
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Rollout
 name: opus-5-5-upgrade
 axis: traffic                    # client: a CLI/config release · traffic: a model route
@@ -210,7 +223,7 @@ The installers verify sha256 checksums, and verify the cosign signature on `chec
 
 `halo mcp serve` exposes these to any MCP client: validate, plan, rollout status, experiment analysis, toggle evaluation and eval scorecards.
 
-The write tools (propose a rollout step, a rollback or a toggle change) are opt-in and dry-run by default. They commit to a new local branch. Only `propose_promotion` opens a PR, which pushes its own review branch; none pushes to the base branch, merges or publishes. The [Claude Code plugin](plugins/claude-code) and the [Codex config](.codex) drive the same flow: edit → validate → eval → experiment → propose.
+The write tools (propose a rollout step, a rollback or a toggle change) are opt-in and dry-run by default. They commit to a new local branch. Only `propose_promotion` opens a PR, which pushes its own review branch; none pushes to the base branch, merges or publishes. The [Claude Code plugin](plugins/claude-code), the [Codex config](.codex), the [Gemini CLI extension](extensions/gemini/halos) and the [Copilot CLI config](.github/mcp.json) drive the same flows: onboarding (`doctor` → dry run → approve → write → verify) and rollout (edit → validate → eval → experiment → propose).
 
 ## Architecture
 

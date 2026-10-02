@@ -4,7 +4,7 @@
 # 5% holdout kept on the old model for 14 days to measure the long-term effect. A guardrail breach on gateway
 # evidence trips the signed kill switch at once. Completing re-points
 # gateway.models.opus; its failover targets make that a human edit in the PR.
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Rollout
 name: opus-5-5-upgrade
 axis: traffic

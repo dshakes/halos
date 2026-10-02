@@ -40,6 +40,10 @@ Before finishing: `gofmt -l .` empty, `go build ./... && go vet ./... && go test
 
 `halo mcp serve --policy-dir DIR [--allow-writes] [--clickhouse URL]` serves read tools (validate, plan, render_preview, whoami, list_rings, list_experiments, show_experiment, harness_matrix, explain_release_diff, eval_scorecard, analyze_experiment when ClickHouse is set), resources (`halos://policy/<path>`, `halos://schema/<kind>`) and prompts. Write tools (`start|pause|conclude_experiment`, `propose_promotion`, `propose_rollback`) exist only with `--allow-writes`, default to `dry_run`, require a `reason` recorded in the commit message, and only commit to a local branch or open a PR. No tool publishes releases, retags registry rings, merges, or pushes to main: a human owns every irreversible step. Do not add one.
 
+### Onboarding a user or a company
+
+Follow `plugins/claude-code/skills/halos-onboard/SKILL.md` (Claude Code: `/halos:halo-onboard`; Codex: `$halos-onboard`; Gemini CLI and Copilot CLI: the `onboard` MCP prompt, or read the skill file). Three paths: try it (`halo quickstart`), my machine (`halo doctor` -> `halo onboard local` -> `install` -> `proxy` -> `verify`), my company (`halo onboard company` -> validate/plan/eval -> PR). The MCP tools `doctor`, `detect_harnesses`, `init_policy`, `local_install`, `local_proxy`, `verify_harness` and `onboard_company` mirror those commands; every one with a side effect (writing files, or `verify_harness` spawning a CLI that spends the human's credentials) defaults to `dry_run` and refuses `dry_run: false` without `--allow-writes`. Show every write as a dry run and wait for a yes; never print or ask for a credential value; stop before publish, enroll, push, merge or deploy.
+
 ### Driving Halos from Codex
 
 See `.codex/README.md` for the config snippet. Follow the same flow as the Claude plugin's `halos-rollout` skill (`plugins/claude-code/skills/`): edit YAML -> `validate` -> `plan` -> eval -> start experiment in ring1 -> `analyze_experiment` -> `propose_promotion`, stopping for human approval before starting and before promoting.

@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -94,9 +95,27 @@ func openAuditLog(dir string) (*auditLog, error) {
 
 func (l *auditLog) close() error { return closeFile(&l.mu, l.f) }
 
+// validUTF8 makes every string valid UTF-8. JSON writes an invalid byte as
+// � but re-encodes the decoded U+FFFD raw, so without this the hash of an
+// entry carrying, say, a percent-decoded path segment would not survive a
+// re-read and the chain would never verify again.
+func (e AuditEntry) validUTF8() AuditEntry {
+	fix := func(s string) string { return strings.ToValidUTF8(s, "�") }
+	e.Actor, e.Action, e.Target, e.IP, e.RequestID = fix(e.Actor), fix(e.Action), fix(e.Target), fix(e.IP), fix(e.RequestID)
+	if e.Details != nil {
+		d := make(map[string]string, len(e.Details))
+		for k, v := range e.Details {
+			d[fix(k)] = fix(v)
+		}
+		e.Details = d
+	}
+	return e
+}
+
 func (l *auditLog) append(e AuditEntry) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	e = e.validUTF8()
 	e.Seq, e.Prev = l.seq+1, l.head
 	e.Hash = e.sum()
 	if l.f != nil {

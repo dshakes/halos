@@ -1,5 +1,5 @@
 # UAT: every first-turn sonnet request from ring2 is mirrored to mock-b.
-apiVersion: halos.dev/v1alpha1
+apiVersion: halos.dev/v1
 kind: Experiment
 name: sonnet-next-shadow
 type: shadow
