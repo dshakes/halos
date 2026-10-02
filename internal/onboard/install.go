@@ -144,7 +144,7 @@ var ErrPermission = errors.New("permission denied")
 // replaced its original is kept at <dest>.halos-backup. Idempotent: a second
 // Apply finds every file unchanged and writes nothing.
 func (p *InstallPlan) Apply() ([]string, error) {
-	var written []string
+	written := []string{}
 	for _, f := range p.Files {
 		if f.Action == ActionUnchanged {
 			continue
@@ -299,7 +299,7 @@ func Verify(ctx context.Context, e Env, h string, assumeAuth, dry bool, timeout 
 		r.Status, r.Detail = VerifySkipped, "no credential variable set ("+strings.Join(harnessEnvs[h], ", ")+"); if "+m.Binary+" is logged in, pass --assume-auth"
 		return r
 	case dry:
-		r.Status, r.Detail = VerifyDryRun, "would run the command above (one short model call)"
+		r.Status, r.Detail = VerifyDryRun, "would run this command (one short model call)"
 		return r
 	}
 	if timeout <= 0 {

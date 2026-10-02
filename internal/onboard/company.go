@@ -135,8 +135,9 @@ deviceTokenFile: /etc/halos/device.token   # mode 0600; issued by portal enrollm
 
 	files[".github/workflows/halos.yml"] = ciWorkflow(o.HaloVersion, lastRing(in.Rollout))
 	tools := sortedTools(in.Tools)
-	files["evals/suites/onboarding-smoke.yaml"] = smokeSuite(in, tools)
-	files["evals/tasks/hello-halos/task.yaml"] = []byte(`id: hello-halos
+	if suite := smokeSuite(in, tools); suite != nil { // copilot-cli alone has no eval driver
+		files["evals/suites/onboarding-smoke.yaml"] = suite
+		files["evals/tasks/hello-halos/task.yaml"] = []byte(`id: hello-halos
 repo: repo
 prompt: Create a file named HELLO.txt whose only content is the word halos.
 check: test "$(tr -d '[:space:]' < HELLO.txt)" = halos
@@ -145,7 +146,8 @@ budget_usd: 0.25
 max_turns: 5
 tags: [smoke, onboarding]
 `)
-	files["evals/tasks/hello-halos/repo/README.md"] = []byte("Smoke-test workspace for the onboarding eval.\n")
+		files["evals/tasks/hello-halos/repo/README.md"] = []byte("Smoke-test workspace for the onboarding eval.\n")
+	}
 	files["README.md"] = companyReadme(o, in, tools)
 	return files, nil
 }
@@ -249,7 +251,7 @@ func smokeSuite(in intent.InitOptions, tools []string) []byte {
 		n++
 	}
 	if n == 0 {
-		b.WriteString("  []  # no tool here has an eval driver (claude-code, codex, gemini-cli)\n")
+		return nil
 	}
 	return []byte(b.String())
 }

@@ -108,7 +108,8 @@ func newRoot(out, errw io.Writer) *cobra.Command {
 	root.AddCommand(a.cmdInit(), a.cmdValidate(), a.cmdRender(), a.cmdPlan(), a.cmdRelease(),
 		a.cmdRollback(), a.cmdKeys(), a.cmdWhoami(), a.cmdHarnesses(), a.cmdExport(),
 		a.cmdExp(), a.cmdController(), a.cmdGateway(), a.cmdTelemetry(), a.cmdEval(), a.cmdUpgrade(), a.cmdMCP(), a.cmdToggle(), a.cmdRollout(), a.cmdVersion(), a.cmdDocs(),
-		a.cmdModel(), a.cmdEnable(), a.cmdKill(), a.cmdStatus(), a.cmdExplain(), a.cmdEject())
+		a.cmdModel(), a.cmdEnable(), a.cmdKill(), a.cmdStatus(), a.cmdExplain(), a.cmdEject(),
+		a.cmdDoctor(), a.cmdOnboard(), a.cmdQuickstart())
 	addPolicyDirFlags(root)
 	return root
 }
