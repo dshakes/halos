@@ -39,7 +39,7 @@ Read tools are always on and annotated read-only.
 | `list_toggles`, `evaluate_toggle` | Toggles, and the rule trace for a user |
 | `eval_matrix`, `upgrade_candidates` | Expand an eval suite's matrix without running it; list upstream CLI and model candidates |
 | `doctor`, `detect_harnesses` | This machine: CLIs and versions, tools, which credential variables are set (never values), policy validity, gateway reachability, with a fix per problem |
-| `verify_harness` | One headless model call per CLI (`claude -p`, `codex exec`, `gemini -p`, `copilot -p`); `dry_run` (default) returns the command; output is redacted |
+| `verify_harness` | The command for one headless model call per CLI (`claude -p`, `codex exec`, `gemini -p`, `copilot -p`); `dry_run` (default) only returns it. A real run is gated like a write (below) |
 
 Resources: `halos://policy/<path>` (every policy file) and `halos://schema/<kind>` (JSON Schema for `profile`, `experiment`, `gateway`, and so on). Prompts: `onboard` (the [Start here](/halos/getting-started/start-here/) procedure), `plan-cli-upgrade`, `plan-model-upgrade`, `triage-experiment`.
 
@@ -54,7 +54,7 @@ Write tools exist only with `--allow-writes`:
 | `propose_rollback` | Pause an experiment and optionally re-point a ring at a known-good release **in policy YAML**. Does not touch the registry |
 | `propose_rollout_advance`, `propose_rollout_rollback` | Move a rollout to its next step or abort it in policy YAML (advance is refused when a gate failed) |
 | `propose_toggle_change` | Change a toggle's default, a rule's rollout percent or its expiry |
-| `init_policy`, `local_install`, `local_proxy`, `onboard_company` | Onboarding writes (`halo onboard local\|install\|proxy\|company --apply`). Registered always so every step can be previewed; `dry_run: false` needs `--allow-writes`, otherwise the tool returns the preview plus the `halo` command for the human. They write files only: no commit, no publish, no enrollment |
+| `init_policy`, `local_install`, `local_proxy`, `onboard_company`, `verify_harness` | Onboarding side effects (`halo onboard local\|install\|proxy\|company --apply`, `halo onboard verify`). Registered always so every step can be previewed; `dry_run: false` needs `--allow-writes`, otherwise the tool returns the preview plus the `halo` command for the human. They write local files or run one CLI with the human's own credentials: no commit, no publish, no enrollment |
 
 Rules enforced in code, not just in the prompt:
 

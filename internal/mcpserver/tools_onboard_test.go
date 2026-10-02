@@ -105,6 +105,14 @@ func TestOnboardToolsFromEmptyDir(t *testing.T) {
 	if vr, err = call(t, rw, "verify_harness", map[string]any{"harness": "claude-code"}); err != nil || vr["status"] != onboard.VerifySkipped {
 		t.Fatalf("verify without credentials: %v %v", err, vr)
 	}
+	// A real run spawns the CLI and spends the human's credentials: read-only refuses it, --allow-writes runs it.
+	real := map[string]any{"harness": "claude-code", "assume_auth": true, "dry_run": false}
+	if vr, err = call(t, ro, "verify_harness", real); err == nil || !strings.Contains(err.Error(), "halo onboard verify claude-code") {
+		t.Fatalf("read-only verify_harness must refuse a real run: %v %v", err, vr)
+	}
+	if vr, err = call(t, rw, "verify_harness", real); err != nil || vr["status"] != onboard.VerifyFail || !strings.Contains(vr["detail"].(string), "HALOS_OK") {
+		t.Fatalf("verify with --allow-writes must run the fake CLI: %v %v", err, vr)
+	}
 }
 
 func TestOnboardCompanyTool(t *testing.T) {

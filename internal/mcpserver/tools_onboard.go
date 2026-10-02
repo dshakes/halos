@@ -15,8 +15,8 @@ import (
 
 // Onboarding tools mirror `halo doctor` and `halo onboard`. They are always
 // registered so an agent can preview every step, but each one that writes
-// files does so only with dry_run false AND the server started with
-// --allow-writes; otherwise it returns the preview plus the CLI command a
+// files or runs a CLI does so only with dry_run false AND the server started
+// with --allow-writes; otherwise it returns the preview plus the CLI command a
 // human runs. None publishes, enrolls, pushes or merges.
 
 type initPolicyIn struct {
@@ -119,9 +119,14 @@ func (s *srv) addOnboardTools(m *mcp.Server) {
 			return nil, r, err
 		})
 	mcp.AddTool(m, &mcp.Tool{Name: "verify_harness", Annotations: &mcp.ToolAnnotations{DestructiveHint: boolp(false), OpenWorldHint: boolp(true)},
-		Description: "Run one CLI headless (claude -p, codex exec, gemini -p, copilot -p) with a fixed prompt and check the reply. dry_run (default true) returns the command; false makes one short model call. Output is redacted."},
+		Description: "Run one CLI headless (claude -p, codex exec, gemini -p, copilot -p) with a fixed prompt and check the reply. dry_run (default true) returns the command; false makes one short model call and, like every write, needs --allow-writes. Output is redacted."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in verifyIn) (*mcp.CallToolResult, onboard.VerifyResult, error) {
-			return nil, onboard.Verify(ctx, s.env(), in.Harness, in.AssumeAuth, isDry(in.DryRun), 2*time.Minute), nil
+			// Spawning a CLI that spends the human's credentials is a side effect: same gate as the writes.
+			run, err := s.mayWrite(in.DryRun, "halo onboard verify "+in.Harness)
+			if err != nil {
+				return nil, onboard.VerifyResult{}, err
+			}
+			return nil, onboard.Verify(ctx, s.env(), in.Harness, in.AssumeAuth, !run, 2*time.Minute), nil
 		})
 	mcp.AddTool(m, &mcp.Tool{Name: "onboard_company", Annotations: write,
 		Description: "My-company path: generate the policy repo (halos.yaml, Helm values, IdP client, enrollment per delivery channel, CI, smoke eval, README of human steps) into the policy dir, validated. Refuses to overwrite differing files. Writes only with dry_run false and --allow-writes; never publishes, enrolls or pushes."},
