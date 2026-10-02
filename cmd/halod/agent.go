@@ -171,7 +171,7 @@ func (a *Agent) saveState(s State) error {
 	if err != nil {
 		return err
 	}
-	return writeAtomic(a.path(a.StatePath), b, 0o600)
+	return writeAtomic(a.path(a.StatePath), b, stateMode)
 }
 
 // Once performs one pull -> verify -> apply -> report cycle. On any failure

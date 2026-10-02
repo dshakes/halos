@@ -105,4 +105,4 @@ Two common reasons, both visible in the notification and the webhook event's `ki
 
 ## Is it production ready?
 
-It is `v1alpha1`: the components are built and unit-tested, but several integrations have never run against the real system (Kong Enterprise, Bedrock, MDM on real devices, PowerShell, Terraform, `halod` on Windows). Pages label those **UNVERIFIED**; believe those labels.
+It is `v1alpha1`: the components are built and unit-tested, but several integrations have never run against the real system (Kong Enterprise, Bedrock, MDM on real devices, Terraform, Codespaces). Pages label those **UNVERIFIED**; believe those labels.

@@ -13,11 +13,11 @@ Claude Code's server-managed settings are not fetched with Bedrock or a custom `
 
 | Sink | Mechanism | Strength | Verification status |
 |---|---|---|---|
-| Dev Container Feature (`features/halos`) | Installs `halod` (sha256-pinned), embeds the release key, runs `halod once --install` at start, optional gateway-only firewall | Strongest: rebuilt from release | **UNVERIFIED** end to end: not built into a real dev container here |
+| Dev Container Feature (`features/halos`) | Installs `halod` (sha256-pinned), embeds the release key, runs `halod once --install` at start, optional gateway-only firewall | Strongest: rebuilt from release | Built with the devcontainer CLI in CI (pinned CLI and managed settings asserted); firewall option and a published Feature **UNVERIFIED** |
 | Coder module (`features/coder`) | Terraform `coder_script` that installs `halod` (sha256-pinned) and runs `halod once --install` | Strong | **UNVERIFIED**: Terraform not executed |
-| Codespaces | Prebuilds using the Feature; portal launcher builds a URL | Strong | **UNVERIFIED** |
-| `halod` agent | `run` (loop, default every 15m), `once`, `status`; launchd unit, systemd unit | Medium: root can stop it, but then loses gateway access on rings with `posture: enforce` | Unit-tested with a fake root; not run as root on real hosts |
-| MDM exports (`halo export jamf\|intune\|devcontainer`) | Jamf/Kandji `.mobileconfig` plus a `halod` postinstall; Intune PowerShell script writing the registry policy | Medium: slow, coarse | **UNVERIFIED**: no real Jamf, Kandji or Intune tenant; PowerShell not executed |
+| Codespaces | Prebuilds using the Feature; portal launcher builds a URL | Strong | **UNVERIFIED** in a real Codespace (the Feature and `.devcontainer` build in CI) |
+| `halod` agent | `run` (loop, default every 15m), `once`, `status`; launchd unit, systemd unit | Medium: root can stop it, but then loses gateway access on rings with `posture: enforce` | Unit-tested with a fake root; CI runs it as a real launchd daemon (macOS runner) and a SYSTEM scheduled task (Windows runner), and as root in `make uat-clis` containers; not run on real fleets |
+| MDM exports (`halo export jamf\|intune\|devcontainer`) | Jamf/Kandji `.mobileconfig` plus a `halod` postinstall; Intune PowerShell script writing the registry policy | Medium: slow, coarse | **UNVERIFIED**: no real Jamf, Kandji or Intune tenant; the Intune script itself is not executed (`install.ps1` and `enroll.ps1` are, in CI) |
 | Self-service portal | Launchers and one-time enrollment for the above | n/a | Implemented in `halo-server`; see [portal](/halos/concepts/self-service-portal/) |
 
 <img class="diagram dark:sl-hidden" src="/halos/diagrams/delivery-light.svg" alt="A signed release and pointer reach disposable environments (Dev Container Feature, Coder module, Codespaces prebuild) and laptops (halod, MDM export). Every path verifies pointer and signature: invalid means refuse and keep the last good release; valid means atomic apply and report the digest." width="760" />
