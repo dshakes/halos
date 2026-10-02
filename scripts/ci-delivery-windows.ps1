@@ -120,6 +120,13 @@ try {
     Get-ScheduledTaskInfo -TaskName Halos | Format-List *
     Get-Process halod -ErrorAction SilentlyContinue | Format-Table Id, SessionId, Path
     Get-ChildItem -Recurse (Join-Path $halos 'var') -ErrorAction SilentlyContinue | Format-Table FullName, Length
+    $log = 'C:\Windows\Temp\halod-system.log'
+    $cmd = "cmd /c `\"`\"$halod`\" run --config `\"$halos\etc\halod.yaml`\" --state `\"$halos\var\state.json`\" > $log 2>&1`\""
+    schtasks /Create /F /TN HalosDiag /RU SYSTEM /SC ONCE /ST 23:59 /TR $cmd | Out-Host
+    schtasks /Run /TN HalosDiag | Out-Host
+    Start-Sleep -Seconds 15
+    Write-Host '--- halod run as SYSTEM'; Get-Content $log -ErrorAction SilentlyContinue
+    schtasks /Delete /F /TN HalosDiag | Out-Null
     throw
   }
   $q = (schtasks /Query /TN Halos /FO LIST /V) -join "`n"
