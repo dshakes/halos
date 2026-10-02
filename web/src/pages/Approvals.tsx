@@ -1,9 +1,10 @@
-import { useDecide, useRequests } from "../api";
+import { useDecide, useMe, useRequests } from "../api";
 import { Card, Empty, ErrorBox, Pill, ago, statusTone } from "../ui";
 
 export function Approvals() {
   const { data, error, isLoading } = useRequests();
   const decide = useDecide();
+  const me = useMe().data;
   if (error) return <ErrorBox error={error} />;
   if (isLoading || !data) return <Empty>Loading…</Empty>;
   const pending = data.filter((r) => r.status === "pending" || r.status === "approving");
@@ -18,10 +19,13 @@ export function Approvals() {
               <div className="flex items-center gap-2"><span className="font-medium">{r.user}</span><Pill>{r.kind}</Pill><span className="font-mono text-[12px]">{r.item}</span><span className="text-mute">{r.ring} · {ago(r.createdAt)}</span></div>
               <p className="mt-1 text-mute">{r.justification}</p>
             </div>
-            <div className="flex gap-2">
-              <button disabled={decide.isPending} onClick={() => decide.mutate({ id: r.id, action: "deny" })} className="rounded-md border border-line px-3 py-1.5 hover:bg-panel2 disabled:opacity-50">Deny</button>
-              <button disabled={decide.isPending} onClick={() => decide.mutate({ id: r.id, action: "approve" })} className="rounded-md bg-accent px-3 py-1.5 font-medium text-white disabled:opacity-50">Approve</button>
-            </div>
+            {/* The server refuses self-decisions (403) and anything not pending (409): offer neither. */}
+            {r.status !== "pending" ? <Pill tone="info">opening PR…</Pill> : r.user === me?.id ? <span className="text-mute">another admin decides</span> : (
+              <div className="flex gap-2">
+                <button disabled={decide.isPending} onClick={() => decide.mutate({ id: r.id, action: "deny" })} className="rounded-md border border-line px-3 py-1.5 hover:bg-panel2 disabled:opacity-50">Deny</button>
+                <button disabled={decide.isPending} onClick={() => decide.mutate({ id: r.id, action: "approve" })} className="rounded-md bg-accent px-3 py-1.5 font-medium text-white disabled:opacity-50">Approve</button>
+              </div>
+            )}
           </div>
         ))}
       </Card>

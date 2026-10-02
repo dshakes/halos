@@ -33,7 +33,7 @@ async function expectHealthy(page: Page, errs: string[], where: string) {
   const alerts = await page.locator('[role="alert"]:visible').allInnerTexts();
   const broken = (await page.locator("body").innerText()).match(BROKEN);
   const problems = [...errs.splice(0), ...alerts.map((a) => `error box: ${a}`), ...(broken ? [`broken text: "${broken[0]}"`] : [])];
-  expect(problems, where).toEqual([]);
+  expect.soft(problems, where).toEqual([]); // soft: one run reports every broken page and button
 }
 
 // Fill whatever form a click revealed with plausible values, then submit it.
@@ -64,7 +64,8 @@ async function clickEverything(page: Page, errs: string[], route: string) {
   await expectHealthy(page, errs, `#/${route} initial form`);
   const count = await page.locator("main button:visible").count();
   for (let i = 0; i < count; i++) {
-    await page.goto(`/#/${route}`); // fresh state per button
+    await page.goto(`/#/${route}`);
+    await page.reload(); // fresh state per button: a hash-only goto keeps open drawers and results
     await settle(page);
     const btn = page.locator("main button:visible").nth(i);
     if (!(await btn.count()) || !(await btn.isEnabled())) continue;
@@ -114,7 +115,7 @@ test("kiosk: launchers produce working output; unconfigured ones stay calm", asy
   await expect(page.getByText("not set up yet")).toHaveCount(0);
 
   // Each harness card lists only the models its wire can reach.
-  const card = (h: string) => page.locator("div", { has: page.getByText(h, { exact: true }) }).filter({ hasText: "Models" }).last();
+  const card = (h: string) => page.locator("section", { has: page.getByText(h, { exact: true }) }).filter({ hasText: "Models" }).last();
   await expect(card("claude-code")).not.toContainText(/codex-default|gemini-default/);
   await expect(card("codex")).toContainText("codex-default");
   await expect(card("codex")).not.toContainText(/gemini-default|sonnet/);

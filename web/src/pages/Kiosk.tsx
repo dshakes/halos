@@ -3,18 +3,20 @@ import { useCatalog, useCreateRequest, useLaunch, useMe, useRequests, type Launc
 import { Card, Empty, ErrorBox, Mono, Pill, statusTone, ago } from "../ui";
 
 function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) {
-  const [done, setDone] = useState(false);
+  const [done, setDone] = useState<string>();
+  const flash = (msg: string) => {
+    setDone(msg);
+    setTimeout(() => setDone(undefined), 1500);
+  };
   return (
     <button
       className="rounded-md border border-line px-2.5 py-1 text-[12px] text-mute hover:text-fg"
       onClick={() => {
-        void navigator.clipboard.writeText(text).then(() => {
-          setDone(true);
-          setTimeout(() => setDone(false), 1500);
-        });
+        // The clipboard API is refused on plain-http origins and without permission: say so, never throw.
+        (navigator.clipboard?.writeText(text) ?? Promise.reject(new Error("no clipboard"))).then(() => flash("Copied"), () => flash("Select and copy"));
       }}
     >
-      {done ? "Copied" : label}
+      {done ?? label}
     </button>
   );
 }
@@ -111,8 +113,15 @@ function RequestForm({ kind, item, onDone }: { kind: string; item: string; onDon
 
 const kindLabel: Record<string, string> = { "mcp-server": "MCP servers", model: "Models", "ring-opt-in": "Beta rings", harness: "Harnesses" };
 
+// Items the user already asked for and that are still open: offer no second request (the API answers 409).
+function usePending(user: string): Set<string> {
+  const { data } = useRequests(user !== ""); // "" = self-service off: nothing to ask the API
+  return new Set((data ?? []).filter((r) => r.user === user && (r.status === "pending" || r.status === "approving")).map((r) => `${r.kind}/${r.item}`));
+}
+
 function Requestable({ me }: { me: Me }) {
   const cat = useCatalog(me.selfService);
+  const pending = usePending(me.id);
   const [open, setOpen] = useState<string>();
   if (cat.error) return <ErrorBox error={cat.error} />;
   const groups = new Map<string, { item: string; desc?: string }[]>();
@@ -129,7 +138,7 @@ function Requestable({ me }: { me: Me }) {
               return (
                 <div key={key} className="rounded-md border border-line px-3 py-2">
                   <div className="flex items-center gap-2"><span className="font-medium">{it.item}</span>{it.desc && <span className="truncate text-mute">{it.desc}</span>}
-                    {open !== key && <button onClick={() => setOpen(key)} className="ml-auto rounded-md border border-line px-2 py-0.5 text-accent hover:bg-panel2">Request</button>}
+                    {pending.has(key) ? <span className="ml-auto"><Pill>requested</Pill></span> : open !== key && <button onClick={() => setOpen(key)} className="ml-auto rounded-md border border-line px-2 py-0.5 text-accent hover:bg-panel2">Request</button>}
                   </div>
                   {open === key && <RequestForm kind={kind} item={it.item} onDone={() => setOpen(undefined)} />}
                 </div>
@@ -163,6 +172,7 @@ function MyRequests({ me }: { me: Me }) {
 export function Kiosk() {
   const { data: me, error, isLoading } = useMe();
   const [optin, setOptin] = useState<string>();
+  const pending = usePending(me?.selfService ? me.id : "");
   if (error) return <ErrorBox error={error} />;
   if (isLoading || !me) return <Empty>Loading…</Empty>;
   const p = me.profile;
@@ -210,7 +220,7 @@ export function Kiosk() {
             <Card key={ring} className="px-4 py-4">
               <div className="flex items-center gap-3"><span className="grid size-9 place-items-center rounded-lg bg-amber-500/10 text-amber-500">★</span>
                 <div><div className="font-medium">Join {ring}</div><div className="text-mute">Get new versions earlier. Ask for access; an admin reviews it.</div></div>
-                {optin !== ring && <button onClick={() => setOptin(ring)} className="ml-auto rounded-md bg-accent px-3 py-1.5 font-medium text-white">Opt in</button>}</div>
+                {pending.has(`ring-opt-in/${ring}`) ? <span className="ml-auto"><Pill>requested</Pill></span> : optin !== ring && <button onClick={() => setOptin(ring)} className="ml-auto rounded-md bg-accent px-3 py-1.5 font-medium text-white">Opt in</button>}</div>
               {optin === ring && <RequestForm kind="ring-opt-in" item={ring} onDone={() => setOptin(undefined)} />}
             </Card>
           ))}
