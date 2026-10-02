@@ -35,7 +35,7 @@ Things you must do:
 
 - **Grant network access.** The default-deny policy allows only DNS and proxy to halo-shadow. Grant the IdP, model upstreams, git host, registry, ClickHouse, ingress controller and Prometheus through `networkPolicy.ingressFrom.*`, `networkPolicy.egress.*` and `networkPolicy.metricsFrom`, or the pods cannot reach them.
 - **Terminate TLS** in front of `halo-proxy` (it serves plain HTTP). The default ingress annotations assume nginx with 3600s timeouts and buffering off.
-- **Keep single-replica components single.** `halo-server` and `halo-shadow` use RWO volumes with a Recreate strategy; `values.schema.json` pins their replicas to 1.
+- **Keep single-replica components single.** `halo-server` and `halo-shadow` use RWO volumes with a Recreate strategy; `values.schema.json` pins their replicas to 1. Why, and what that costs during an upgrade: [Operations](/halos/guides/operations/#what-is-highly-available-and-what-is-not).
 - **Set the policy repo.** `policy.gitSync.repo` ships as a placeholder and `NOTES.txt` warns until you change it.
 
 ### Secrets
@@ -181,17 +181,7 @@ If the private key is **compromised**, add its fingerprint to `revokedKeys` (`ha
 
 ## Backups and state
 
-| Data | Location | Why it matters | Backup |
-|---|---|---|---|
-| Device store | `<data-dir>/devices.jsonl` | Losing it means every enrolled laptop's token is unknown and all must re-enroll. Contains SHA-256 of tokens, not tokens | Snapshot the PVC or copy the file. The chart keeps PVCs with `helm.sh/resource-policy: keep` |
-| Request log | `<data-dir>/requests.jsonl` | Audit trail of access requests and decisions | Same |
-| Fleet reports | `<data-dir>/reports.jsonl` | Last report per host; rebuilds itself as `halod` reports | Optional |
-| Verdicts | file passed as `--verdicts-file` | Last analysis result per experiment | Recomputable from ClickHouse |
-| Shadow pairs | halo-shadow `-out` file | Contains prompts and responses | Only if you need the evidence; encrypt (`-pair-key-file`) and set `-retention`. Back up the key separately or the pairs are unrecoverable |
-| Policy repo | git | Source of truth for everything else | Your git host |
-| Signing key | CI secret or KMS | Needed to publish and refresh | Sealed offline copy per your key policy |
-
-The device and request stores are append-only JSONL files, last line per id wins, and are not compacted; plan to rotate them if `devices × lastSeen` writes grow (`lastSeen` is persisted at most every 10 minutes per device). Restore by putting the files back before starting `halo-server`.
+Every file `halo-server` writes, what losing each one costs, and the restore procedure are in [Operations: backup and restore](/halos/guides/operations/#backup-and-restore); the signing keys and the signer state file are covered above. The chart keeps PVCs on uninstall (`helm.sh/resource-policy: keep`). SLOs, Prometheus alert rules and the incident runbook are on the same page; the [support and versioning policy](/halos/reference/support-policy/) gives the upgrade order.
 
 ## Before you go live
 

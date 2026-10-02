@@ -90,6 +90,11 @@ unencrypted. Terminate TLS in front of halo-server, set proxy.killSwitch.url to 
 
 WARNING: kong kill switch polls halo-server over plain http (allowInsecureInCluster); see proxy warning above for the https switch.
 {{- end }}
+{{- if and .Values.proxy.enabled (lt (int (ternary .Values.proxy.autoscaling.minReplicas .Values.proxy.replicas .Values.proxy.autoscaling.enabled)) 2) }}
+
+WARNING: halo-proxy will run with fewer than 2 replicas: a pod restart, node drain or rolling upgrade drops client requests
+(the PodDisruptionBudget cannot protect a single pod). Use proxy.replicas >= 2 (or autoscaling.minReplicas >= 2).
+{{- end }}
 {{- if .Values.shadow.enabled }}
 
 shadow: needs the compiled policy snapshot (`halo gateway compile`, produced in CI) mounted like halo-proxy's; it is not
