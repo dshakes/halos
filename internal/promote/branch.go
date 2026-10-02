@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -38,6 +39,9 @@ type BranchCommit struct {
 // the user's branch, index and working tree are never touched. It never pushes.
 // run nil means Run.
 func CommitOnBranch(ctx context.Context, run RunFunc, dir string, bc BranchCommit) (branch, commit string, err error) {
+	if !validBranchPrefix(bc.Branch) {
+		return "", "", fmt.Errorf("promote: refusing branch %q: want halos/<name> (letters, digits, . _ -)", bc.Branch)
+	}
 	if run == nil {
 		run = Run
 	}
@@ -122,6 +126,15 @@ func CommitOnBranch(ctx context.Context, run RunFunc, dir string, bc BranchCommi
 		return "", "", fmt.Errorf("promote: %w", err)
 	}
 	return branch, commit, nil
+}
+
+var branchPrefix = regexp.MustCompile(`^halos(/[A-Za-z0-9][A-Za-z0-9._-]*)+$`)
+
+// validBranchPrefix keeps every Halos branch under halos/ and out of git's
+// option and refspec syntax (no leading '-', no ':'), so it can never name main
+// or inject into git argv, whatever a caller passes.
+func validBranchPrefix(b string) bool {
+	return branchPrefix.MatchString(b) && !strings.Contains(b, "..") && !strings.Contains(b+"/", ".lock/")
 }
 
 // PushBranch runs CommitOnBranch, pushes the branch to origin and then deletes

@@ -547,9 +547,12 @@ func (a *Agent) checkTarget(harnessName string, f release.FileEntry) error {
 // was already managed at this same release yet no longer matches.
 func (a *Agent) ensureFile(f release.FileEntry, data []byte, sameRelease bool) (drift bool, err error) {
 	p := a.path(f.Path)
-	if fi, err := os.Lstat(p); err == nil && !fi.Mode().IsRegular() {
-		// symlink or special file where a managed file belongs: replace it
-		// (rename swaps the link itself; nothing is followed)
+	if fi, err := os.Lstat(p); err == nil && (!fi.Mode().IsRegular() || checkTrusted(p, fi) != nil) {
+		// symlink, special file, or a file root does not exclusively control
+		// (foreign owner, group/other-writable, loose DACL) where a managed
+		// file belongs: replace it, never adopt it (a chmod would leave fds
+		// opened while it was writable live). rename swaps the entry itself;
+		// nothing is followed.
 		return sameRelease, writeAtomic(p, data, fs.FileMode(f.Mode&0o777))
 	}
 	cur, rerr := os.ReadFile(p)

@@ -469,8 +469,15 @@ func (s *Server) postEnroll(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, http.StatusBadRequest, "token required")
 		return
 	}
+	ip := s.clientIP(r)
+	if s.authFails.blocked(ip) { // checked before consume: a blocked attempt never burns a token
+		w.Header().Set("Retry-After", "60")
+		apiErr(w, http.StatusTooManyRequests, "too many failed attempts")
+		return
+	}
 	p, ok := s.enroll.consume(body.Token, s.cfg.Now())
 	if !ok {
+		s.authFails.fail(ip)
 		s.cfg.Log.Warn("enrollment rejected", "remote", r.RemoteAddr)
 		apiErr(w, http.StatusUnauthorized, "invalid, expired or already used token")
 		return

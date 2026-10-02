@@ -49,6 +49,14 @@ func guardNoBypass(o *Org) []Issue {
 		if p.Permissions.Mode == "bypassPermissions" {
 			out = append(out, gi(SeverityError, "profiles["+name+"].permissions.mode", "bypassPermissions is forbidden by org guardrail"))
 		}
+		// overrides and env are emitted as config values (same rule as toggles)
+		forbidden := forbiddenValue(p.Env)
+		for _, h := range sortedKeys(p.Harnesses) {
+			forbidden = forbidden || forbiddenValue(p.Harnesses[h].Overrides)
+		}
+		if forbidden {
+			out = append(out, gi(SeverityError, "profiles["+name+"]", "bypassPermissions / danger-full-access in env or harness overrides are forbidden by org guardrail"))
+		}
 	}
 	for _, r := range o.Rings {
 		p, err := o.ResolveProfile(r.Profile)
@@ -491,16 +499,41 @@ var (
 	tokenSplit = regexp.MustCompile(`[^A-Za-z0-9+/=_-]+`)
 	hexRe      = regexp.MustCompile(`^[0-9a-fA-F]+$`)
 	tokPrefix  = []string{"sk-", "ghp_", "gho_", "ghs_", "ghu_", "github_pat_", "xoxb-", "xoxp-", "xoxa-", "xoxs-", "xapp-"}
+	pemKeyRe   = regexp.MustCompile(`-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----`)
+	// vendor tokens are [A-Za-z0-9_-]: split on anything else so "?t=ghp_..." and "/sk-..." are seen
+	prefixSplit = regexp.MustCompile(`[^A-Za-z0-9_-]+`)
 )
 
 // LooksSecret reports whether v looks like a literal credential (see looksSecret).
 func LooksSecret(v string) bool { return looksSecret(v) }
+
+// HasTokenShape reports whether s contains a well-known credential shape
+// (vendor token prefixes such as sk-ant-, ghp_, xoxb-; AWS access key ids;
+// PEM private key blocks) outside ${VAR} references. It is the low-false-
+// positive subset of looksSecret, safe to run over whole rendered files.
+func HasTokenShape(s string) bool {
+	s = varRef.ReplaceAllString(s, "")
+	if awsKeyRe.MatchString(s) || pemKeyRe.MatchString(s) {
+		return true
+	}
+	for _, t := range prefixSplit.Split(s, -1) {
+		for _, p := range tokPrefix {
+			if strings.HasPrefix(t, p) && len(t) >= len(p)+10 {
+				return true
+			}
+		}
+	}
+	return false
+}
 
 // looksSecret flags literal credentials. ${VAR} / ${VAR:-default} references
 // are removed first, so "Bearer ${TOKEN}" is fine.
 // ponytail: heuristic (prefixes + >=32-char high-entropy token); a real
 // scanner (gitleaks rules) is the upgrade if false negatives matter.
 func looksSecret(v string) bool {
+	if HasTokenShape(v) {
+		return true
+	}
 	s := varRef.ReplaceAllString(v, "")
 	low := strings.ToLower(strings.TrimSpace(s))
 	for _, p := range []string{"bearer ", "basic ", "token "} {
@@ -508,15 +541,7 @@ func looksSecret(v string) bool {
 			return true
 		}
 	}
-	if awsKeyRe.MatchString(s) {
-		return true
-	}
 	for _, t := range tokenSplit.Split(s, -1) {
-		for _, p := range tokPrefix {
-			if strings.HasPrefix(t, p) && len(t) >= len(p)+10 {
-				return true
-			}
-		}
 		if len(t) < 32 {
 			continue
 		}

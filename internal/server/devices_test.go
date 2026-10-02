@@ -16,7 +16,7 @@ import (
 var devTokRe = regexp.MustCompile(`deviceToken: ["']?([A-Za-z0-9_-]+)`)
 
 // enrollDevice runs the portal flow and returns the minted device token.
-func enrollDevice(t *testing.T, e *env, p Principal) string {
+func enrollDevice(t testing.TB, e *env, p Principal) string {
 	t.Helper()
 	lt := decode[Launch](t, e.as(p, "POST", "/api/v1/launch/laptop", "")).Token
 	w := do(e.h, "POST", "/api/v1/enroll", "", `{"token":"`+lt+`"}`)
@@ -111,6 +111,7 @@ func TestDeviceTokenSurvivesRestart(t *testing.T) {
 
 func TestFailedAuthRateLimit(t *testing.T) {
 	e := newEnv(t, nil)
+	dt := enrollDevice(t, e, dev) // before the burst: enrollment shares the per-IP failure budget
 	for i := 0; i < authFailBurst; i++ {
 		if c := do(e.h, "GET", "/api/v1/fleet/ring", "Bearer "+"bad", "").Code; c != 401 {
 			t.Fatalf("attempt %d: %d", i, c)
@@ -120,7 +121,6 @@ func TestFailedAuthRateLimit(t *testing.T) {
 		t.Errorf("want 429 after burst, got %d", c)
 	}
 	// even a valid token from the blocked IP is throttled; other IPs are unaffected
-	dt := enrollDevice(t, e, dev)
 	if c := do(e.h, "GET", "/api/v1/fleet/ring", "Bearer "+dt, "").Code; c != 429 {
 		t.Errorf("blocked IP got %d", c)
 	}

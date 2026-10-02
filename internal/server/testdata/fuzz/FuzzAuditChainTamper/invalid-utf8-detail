@@ -1,0 +1,7 @@
+go test fuzz v1
+string("a")
+string("\xff\xfe")
+uint8(1)
+uint32(77)
+byte('A')
+int64(999999999)

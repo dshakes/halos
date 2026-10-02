@@ -89,8 +89,10 @@ func allowedWindows(h, p string) error {
 	}
 	for _, c := range strings.Split(rest, `\`) {
 		// Win32 strips trailing dots and spaces (".. " becomes "..") and maps
-		// DOS device names (NUL, CON.json) to devices: refuse both.
-		if c == "" || c == "." || c == ".." || strings.ContainsAny(c, ":*?\"<>|\x00") ||
+		// DOS device names (NUL, CON.json) to devices: refuse both. '~' is
+		// refused so no component can be an 8.3 short name (MANAGE~1.JSO)
+		// aliasing another entry, which would defeat stale-file tracking.
+		if c == "" || c == "." || c == ".." || strings.ContainsAny(c, ":*?\"<>|~\x00") ||
 			strings.TrimRight(c, ". ") != c || windowsDevice(c) {
 			return fmt.Errorf("path %q has an invalid component %q", p, c)
 		}
