@@ -108,7 +108,19 @@ func drive(ctx context.Context, url, tok, body string, n int, d time.Duration) r
 			var lat []time.Duration
 			var errSamples []string
 			errs := 0
+			next := time.Now()
+			var gap time.Duration
+			if driveRPS > 0 {
+				gap = time.Duration(n) * time.Second / time.Duration(driveRPS)
+			}
 			for ctx.Err() == nil {
+				if gap > 0 {
+					select {
+					case <-time.After(time.Until(next)):
+					case <-ctx.Done():
+					}
+					next = next.Add(gap)
+				}
 				t0 := time.Now()
 				req, _ := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(body))
 				req.Header.Set("Content-Type", "application/json")
