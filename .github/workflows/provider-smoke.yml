@@ -1,0 +1,82 @@
+# Nightly live smoke: halo-proxy against REAL model providers (tiny prompt,
+# max 16 tokens, one JSON call + one SSE stream, response shape + gateway
+# metrics). Each provider is a matrix entry that SKIPS (green) when its secrets
+# are absent. See docs/src/content/docs/guides/provider-smoke.md.
+name: provider-smoke
+
+on:
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: provider-smoke
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    name: smoke (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {name: anthropic, need: "ANTHROPIC_API_KEY"}
+          - {name: openai, need: "OPENAI_API_KEY"}
+          - {name: gemini, need: "GEMINI_API_KEY"}
+          - {name: azure-openai, need: "AZURE_OPENAI_KEY AZURE_OPENAI_ENDPOINT AZURE_OPENAI_DEPLOYMENT"}
+          - {name: bedrock, need: "AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_REGION"}
+          - {name: vertex, need: "GOOGLE_APPLICATION_CREDENTIALS_JSON"}
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      AZURE_OPENAI_KEY: ${{ secrets.AZURE_OPENAI_KEY }}
+      AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+      AZURE_OPENAI_DEPLOYMENT: ${{ secrets.AZURE_OPENAI_DEPLOYMENT }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      GOOGLE_APPLICATION_CREDENTIALS_JSON: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS_JSON }}
+      # Cheapest-model overrides (repository variables); empty = the test's default.
+      HALO_SMOKE_ANTHROPIC_MODEL: ${{ vars.HALO_SMOKE_ANTHROPIC_MODEL }}
+      HALO_SMOKE_OPENAI_MODEL: ${{ vars.HALO_SMOKE_OPENAI_MODEL }}
+      HALO_SMOKE_GEMINI_MODEL: ${{ vars.HALO_SMOKE_GEMINI_MODEL }}
+      HALO_SMOKE_BEDROCK_MODEL: ${{ vars.HALO_SMOKE_BEDROCK_MODEL }}
+      HALO_SMOKE_VERTEX_MODEL: ${{ vars.HALO_SMOKE_VERTEX_MODEL }}
+      HALO_SMOKE_VERTEX_REGION: ${{ vars.HALO_SMOKE_VERTEX_REGION }}
+      HALO_SMOKE_VERTEX_PROJECT: ${{ vars.HALO_SMOKE_VERTEX_PROJECT }}
+    steps:
+      - name: Gate on secrets
+        id: gate
+        env:
+          NEED: ${{ matrix.need }}
+        run: |
+          for v in $NEED; do
+            if [ -z "${!v}" ]; then
+              echo "::notice::skipping ${{ matrix.name }}: secret $v is not set"
+              echo "enabled=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+      - if: steps.gate.outputs.enabled == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - if: steps.gate.outputs.enabled == 'true'
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with: {go-version-file: go.mod}
+      - name: Write Google credentials file
+        if: steps.gate.outputs.enabled == 'true' && matrix.name == 'vertex'
+        run: |
+          umask 077
+          printf '%s' "$GOOGLE_APPLICATION_CREDENTIALS_JSON" > "$RUNNER_TEMP/gcp-sa.json"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/gcp-sa.json" >> "$GITHUB_ENV"
+      - name: Smoke ${{ matrix.name }}
+        if: steps.gate.outputs.enabled == 'true'
+        run: go test -tags providers -count=1 -v -run 'TestProviderSmoke/${{ matrix.name }}$' ./test/providers/...
