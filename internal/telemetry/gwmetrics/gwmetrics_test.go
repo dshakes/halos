@@ -398,19 +398,26 @@ func TestSeriesCap(t *testing.T) {
 
 func TestRunExportsAndStops(t *testing.T) {
 	var posts atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { posts.Add(1) }))
+	ctx, cancel := context.WithCancel(context.Background())
+	// Cancel while the first export is still in flight: shutdown must not be reported as an export error.
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		if posts.Add(1) == 1 {
+			cancel()
+			time.Sleep(20 * time.Millisecond)
+		}
+	}))
 	defer srv.Close()
 	e, _ := New(Config{OTLPEndpoint: srv.URL, Interval: time.Second})
 	e.interval = 10 * time.Millisecond
-	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { e.Run(ctx, func(err error) { t.Error(err) }); close(done) }()
 	e.Record(Request{Status: 200})
-	for deadline := time.Now().Add(5 * time.Second); posts.Load() == 0 && time.Now().Before(deadline); {
-		time.Sleep(5 * time.Millisecond)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		cancel()
+		t.Fatal("Run did not stop")
 	}
-	cancel()
-	<-done
 	if posts.Load() == 0 {
 		t.Fatal("Run never exported")
 	}

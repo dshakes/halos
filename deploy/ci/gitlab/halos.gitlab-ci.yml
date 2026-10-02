@@ -6,9 +6,8 @@
 #     extends: .halos
 #     script: [halo version, claude -p "..."]
 # Set HALOS_VERSION to a release tag; install.sh verifies sha256 (and cosign when present).
+# No `variables:` default here: a job-level HALOS_VERSION would shadow the pipeline-level one above.
 .halos:
-  variables:
-    HALOS_VERSION: ""
   before_script:
     - test -n "$HALOS_VERSION" || { echo "set HALOS_VERSION to a pinned release tag"; exit 1; }
     - curl -fsSL --proto '=https' --tlsv1.2 "https://raw.githubusercontent.com/dshakes/halos/${HALOS_VERSION}/install/install.sh" -o /tmp/halos-install.sh

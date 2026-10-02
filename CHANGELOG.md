@@ -4,6 +4,13 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Fixed
+- `halod` on Windows: `state.json` is written with the managed `var` directory's DACL instead of an owner-only one, so the SYSTEM scheduled task no longer rejects a state file first written by an admin during enrollment.
+- GitLab template: `.halos` no longer sets a job-level `HALOS_VERSION` default that shadowed the pipeline-level pin.
+
+### Added
+- CI verifies the delivery paths on every PR: `install.ps1`, `enroll.ps1` and `halod service install` on Windows, `install.sh`, `enroll.sh` and launchd on macOS, the composite Action, the GitLab template (`gitlab-ci-local`), and the dev container and Feature (devcontainer CLI).
+
 ## [0.1.0-rc.1] - 2026-10-02
 
 ### Added

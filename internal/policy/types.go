@@ -309,6 +309,28 @@ type Ring struct {
 	// Release pins the ring to an immutable published release digest; empty = build from Profile.
 	Release    string     `yaml:"release,omitempty" json:"release,omitempty"`
 	Membership Membership `yaml:"membership" json:"membership"`
+	// Posture gates gateway access on the device posture halod reports to
+	// halo-server (fresh, drift-free, on this ring's release): off | warn | enforce.
+	// Empty means warn. Takes effect only on gateways wired to halo-server.
+	Posture string `yaml:"posture,omitempty" json:"posture,omitempty"`
+	// VersionGate checks the CLI version in the User-Agent against the ring's
+	// pinned harness version: off | warn | enforce. Empty means warn.
+	VersionGate string `yaml:"versionGate,omitempty" json:"versionGate,omitempty"`
+}
+
+// Gate modes for Ring.Posture and Ring.VersionGate.
+const (
+	GateOff     = "off"
+	GateWarn    = "warn"
+	GateEnforce = "enforce"
+)
+
+// GateMode is m with the default (warn) applied.
+func GateMode(m string) string {
+	if m == "" {
+		return GateWarn
+	}
+	return m
 }
 
 type Membership struct {

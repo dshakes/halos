@@ -1,0 +1,59 @@
+name: soak
+# Nightly 60-minute soak of a real halo-proxy binary (test/load): fails on client-visible errors,
+# cut SSE streams, goroutines that do not return to baseline, steady-state heap / goroutine growth
+# (a leak slope, not an end-vs-start diff) and a p99 regression against test/load/baseline.json.
+#
+# Baseline: commit a reviewed `soak-result.json` (artifact of a green run on THIS runner class) as
+# test/load/baseline.json. Without that file the p99 gate records only and says so in the summary.
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      soak:
+        description: "soak duration (Go duration; the nightly default is 60m)"
+        default: "60m"
+permissions:
+  contents: read
+concurrency:
+  group: soak
+  cancel-in-progress: false
+jobs:
+  soak:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with: {persist-credentials: false}
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with: {go-version-file: go.mod}
+      - name: Build halo-proxy and the load tool
+        run: |
+          go build -o bin/halo-proxy ./cmd/halo-proxy
+          go build -o bin/load ./test/load
+      - name: Soak
+        shell: bash
+        env:
+          SOAK: ${{ inputs.soak || '60m' }}
+        run: |
+          baseline=test/load/baseline.json
+          [ -f "$baseline" ] || echo "::notice::no test/load/baseline.json: the p99 gate only records (commit soak-result.json from this run to arm it)"
+          ./bin/load -bin bin/halo-proxy -soak "$SOAK" -phase 30s -c 64 -sse 120s -sse-streams 8 -sample 15s \
+            -json-out soak-result.json -baseline "$baseline" 2>&1 | tee soak.log
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '### Soak'
+            echo '```'
+            grep -E '\[(PASS|FAIL|SKIP)\]|soak load|idle after soak|machine' soak.log || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: soak-${{ github.run_id }}
+          path: |
+            soak-result.json
+            soak.log

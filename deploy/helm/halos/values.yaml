@@ -48,7 +48,13 @@ policy:
 server:
   enabled: true
   image: {repository: dshakes/halo-server, tag: "", digest: ""}
-  replicas: 1                      # file-backed store + RWO PVC: keep at 1
+  # STATE MODEL: halo-server is a SINGLE WRITER. Devices, requests, reports, audit, session revocations, kills and
+  # controller state are append-only JSONL files in --data-dir, replayed into process memory at start (only the kill
+  # store re-reads on external appends); there is no locking, no leader election and no replication, and the
+  # controller loop would run once per replica. Hence replicas is pinned to 1 (values.schema.json) with a Recreate
+  # strategy on the RWO volume: an upgrade or reschedule means a short outage of the console/enrollment/kill-list
+  # endpoints (gateways keep their last-known kill list). Do NOT work around the pin.
+  replicas: 1
   port: 8080
   args: []                         # extra halo-server flags
   extraEnv: []
@@ -226,6 +232,9 @@ proxy:
 shadow:
   enabled: false
   image: {repository: dshakes/halo-shadow, tag: "", digest: ""}
+  # STATE MODEL: NOT stateless. Pairs are appended to one JSONL file and the spend budget is an in-process counter
+  # (resets on restart), so a second replica would split pairs across files and multiply the budget. Pinned to 1
+  # (values.schema.json). Losing halo-shadow only loses mirrored evidence; client traffic is unaffected.
   replicas: 1
   port: 8090
   # Listens on 0.0.0.0 in-cluster (binary default is 127.0.0.1); NetworkPolicy restricts ingress to

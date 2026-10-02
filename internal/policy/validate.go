@@ -40,6 +40,7 @@ var (
 	knownHarnesses   = []string{"claude-code", "codex", "gemini-cli", "copilot-cli"}
 	permissionModes  = []string{"default", "acceptEdits", "plan", "auto"}
 	sandboxModes     = []string{"off", "workspace-write", "read-only"}
+	gateModes        = []string{GateOff, GateWarn, GateEnforce}
 	protocolNames    = []string{"anthropic-messages", "bedrock-invoke", "openai-responses", "gemini"}
 	upstreamKinds    = []string{"orchestrator", "anthropic", "bedrock", "vertex", "openai", "azure-openai", "gemini"}
 	hookEvents       = []string{"PreToolUse", "PostToolUse", "SessionStart", "Stop", "UserPromptSubmit"}
@@ -320,6 +321,12 @@ func (v *validator) rings() {
 			}
 		}
 		total += m.Percent
+		if r.Posture != "" {
+			v.oneOf(path+".posture", "posture", r.Posture, gateModes)
+		}
+		if r.VersionGate != "" {
+			v.oneOf(path+".versionGate", "versionGate", r.VersionGate, gateModes)
+		}
 		p, err := v.org.ResolveProfile(r.Profile)
 		if err != nil {
 			v.errf(path+".profile", "%v", err)

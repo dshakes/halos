@@ -132,19 +132,28 @@ func (s *Server) getGatewayKillswitch(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, http.StatusNotFound, "killswitch not configured")
 		return
 	}
+	if !s.gatewayAuth(w, r) {
+		return
+	}
+	s.writeKillList(w)
+}
+
+// gatewayAuth checks the gateways' bearer token (rate-limited per client IP),
+// writing the 401/429 itself on failure.
+func (s *Server) gatewayAuth(w http.ResponseWriter, r *http.Request) bool {
 	ip := s.clientIP(r)
 	if s.authFails.blocked(ip) {
 		apiErr(w, http.StatusTooManyRequests, "too many failed attempts")
-		return
+		return false
 	}
 	tok, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	sum := sha256.Sum256([]byte(tok)) // hash first: constant-time regardless of length
 	if !ok || subtle.ConstantTimeCompare(sum[:], s.gwSum[:]) != 1 {
 		s.authFails.fail(ip)
 		apiErr(w, http.StatusUnauthorized, "gateway token required")
-		return
+		return false
 	}
-	s.writeKillList(w)
+	return true
 }
 
 // getFleetKillswitch: the same signed kill list for enrolled halod devices
