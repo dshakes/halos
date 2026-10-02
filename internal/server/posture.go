@@ -43,7 +43,7 @@ func (s *Server) posture(ctx context.Context, subject string) gateway.PostureVer
 	now := s.cfg.Now()
 	devs := s.devices.active(subject, now)
 	if len(devs) == 0 {
-		return gateway.PostureVerdict{Reason: "no enrolled device for " + subject + "; enroll this machine with halod"}
+		return gateway.PostureVerdict{Reason: "no enrolled device for this user; enroll this machine with halod"}
 	}
 	maxAge := s.cfg.PostureMaxAge
 	if maxAge <= 0 {

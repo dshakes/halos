@@ -36,8 +36,9 @@ type Proxy struct {
 	rp     *httputil.ReverseProxy
 	mirror *shadow.Mirrorer // nil = mirroring off
 	sigv4  *upstreamauth.Bedrock
-	kill   *gateway.KillSwitch // nil = no kill switch
-	otlp   *gwmetrics.Emitter  // nil = request metrics export off
+	kill   *gateway.KillSwitch    // nil = no kill switch
+	pc     *gateway.PostureClient // nil = posture gate off
+	otlp   *gwmetrics.Emitter     // nil = request metrics export off
 	m      *metrics
 	log    *slog.Logger
 
@@ -90,6 +91,9 @@ func newProxy(cfg Config, log *slog.Logger) (*Proxy, error) {
 		}
 	}
 	if p.kill, err = cfg.KillSwitch.build(log); err != nil {
+		return nil, err
+	}
+	if p.pc, err = cfg.Posture.build(log); err != nil {
 		return nil, err
 	}
 	if p.otlp, err = gwmetrics.New(cfg.Telemetry); err != nil {
@@ -186,6 +190,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	rc := &routeCtx{start: start, ttfb: -1}
 	ring, variant, experiment, upstream, model := "none", "", "", "", ""
 	var rewriteErr error
+	var gates []string        // failed or unknown gate checks, for the request log
 	var gw *gwmetrics.Request // set once the request is a cohort-decided model call
 	defer func() {
 		status := sw.status
@@ -228,6 +233,9 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if rewriteErr != nil {
 			attrs = append(attrs, "rewrite_err", rewriteErr.Error())
+		}
+		if len(gates) > 0 {
+			attrs = append(attrs, "gates", strings.Join(gates, "; "))
 		}
 		p.log.Info("request", attrs...)
 	}()
@@ -284,6 +292,13 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if res.Reject != nil {
 		writeReject(sw, res.Reject)
 		return
+	}
+	if res.Protocol != "" {
+		var rej *gateway.Rejection
+		if gates, rej = p.gate(r, org, d.Ring, sub, res.Protocol); rej != nil {
+			writeReject(sw, rej)
+			return
+		}
 	}
 
 	target := p.next
@@ -344,6 +359,30 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	ctx := context.WithValue(r.Context(), ctxKey{}, rc)
 	p.rp.ServeHTTP(sw, r.WithContext(ctx))
+}
+
+// gate applies the ring's posture and version gates to a model call. It
+// returns the outcomes for the request log and the 403 to answer, if any gate
+// is in enforce mode and failed. Warn mode and unknown posture only count.
+func (p *Proxy) gate(r *http.Request, org *policy.Org, ring string, sub *policy.Subject, proto string) ([]string, *gateway.Rejection) {
+	var out []string
+	var rej *gateway.Rejection
+	pf, unknown := gateway.CheckPosture(r.Context(), p.pc, org, ring, sub)
+	if unknown {
+		p.m.gate(gateway.GatePosture, ring, "unknown")
+		out = append(out, "posture unknown")
+	}
+	for _, f := range []*gateway.Finding{pf, gateway.CheckVersion(org, ring, r.Header.Get("User-Agent"))} {
+		if f == nil {
+			continue
+		}
+		p.m.gate(f.Gate, ring, f.Mode)
+		out = append(out, f.Gate+" "+f.Mode+": "+f.Reason)
+		if rej == nil {
+			rej = f.Reject(proto)
+		}
+	}
+	return out, rej
 }
 
 // authenticate returns the verified subject (nil = anonymous). ok=false means
