@@ -6,10 +6,10 @@ description: Install halo and halod on macOS, Linux and Windows, in CI, in dev c
 <img class="diagram dark:sl-hidden" src="/halos/diagrams/everywhere-light.svg" alt="macOS, Linux, Windows, Dev Containers, Codespaces and Coder workspaces, CI runners and Kubernetes." width="880" />
 <img class="diagram light:sl-hidden" src="/halos/diagrams/everywhere-dark.svg" alt="macOS, Linux, Windows, Dev Containers, Codespaces and Coder workspaces, CI runners and Kubernetes." width="880" />
 
-**`halo`** is the CLI you run in CI and on your workstation. **`halod`** is the fleet agent; it runs as root on each machine and applies the ring's signed release. Every channel below installs the same checksummed archives from a GitHub release. Always pin a version in automation; `v0.1.0-rc.2` below is the current release.
+**`halo`** is the CLI you run in CI and on your workstation. **`halod`** is the fleet agent; it runs as root on each machine and applies the ring's signed release. Every channel below installs the same checksummed archives from a GitHub release. Always pin a version in automation; `v0.1.0` below is the current release.
 
 :::note[Release status]
-The latest release is a prerelease, [`v0.1.0-rc.2`](https://github.com/dshakes/halos/releases/tag/v0.1.0-rc.2): the binaries, deb/rpm/apk packages, `install.sh`/`install.ps1`, signed checksums and signed ghcr.io images are verified from it. Homebrew (`dshakes/homebrew-tap`) and Scoop (`dshakes/scoop-bucket`) publish on final tags only, so they start with the first `vX.Y.Z` release; winget is submitted by hand. Or [build from source](/halos/getting-started/installation/#from-source).
+[`v0.1.0`](https://github.com/dshakes/halos/releases/tag/v0.1.0) is the first general-availability release. Every channel below installs from it: binaries, deb/rpm/apk packages, `install.sh`/`install.ps1`, Homebrew (`dshakes/homebrew-tap`), Scoop (`dshakes/scoop-bucket`), signed checksums and signed ghcr.io images, all verified by the release workflow after publishing; winget is submitted by hand. The [changelog](https://github.com/dshakes/halos/blob/main/CHANGELOG.md#010---2026-10-02) states what is GA and what is supported but not yet field-verified. Or [build from source](/halos/getting-started/installation/#from-source).
 :::
 
 ## macOS
@@ -17,8 +17,8 @@ The latest release is a prerelease, [`v0.1.0-rc.2`](https://github.com/dshakes/h
 Homebrew (`brew install dshakes/tap/halo`) is not available until the tap is published. Use the script, which works on macOS and Linux and needs no sudo:
 
 ```sh
-curl -fsSLO https://raw.githubusercontent.com/dshakes/halos/v0.1.0-rc.2/install/install.sh
-sh install.sh --version v0.1.0-rc.2                # halo into ~/.local/bin
+curl -fsSLO https://raw.githubusercontent.com/dshakes/halos/v0.1.0/install/install.sh
+sh install.sh --version v0.1.0                # halo into ~/.local/bin
 ```
 
 `install.sh` verifies `checksums.txt` against its cosign signature when `cosign` is on `PATH`. Without cosign it warns loudly and trusts only the sha256 checksums. It then verifies each archive. `--prefix DIR` changes the install location; `--with-agent` adds `halod`.
@@ -36,7 +36,7 @@ The `halo` and `halod` packages (deb, rpm, apk) install to `/usr/bin`. `halod` s
 Scoop is not available until the bucket repo exists. Use `install.ps1` from the release, from an **elevated** PowerShell:
 
 ```powershell
-.\install.ps1 -Version v0.1.0-rc.2 -WithAgent         # to $env:ProgramFiles\Halos
+.\install.ps1 -Version v0.1.0 -WithAgent         # to $env:ProgramFiles\Halos
 ```
 
 `install.ps1` restricts the directory to SYSTEM and Administrators (write) and Users (read/execute), matching `halod`'s owner check. The binaries are not Authenticode-signed. A winget manifest (`Halos.Halo`) is built with each release but is not yet submitted to `winget-pkgs`.
@@ -65,9 +65,9 @@ sudo halod service install --start        # print the unit first: halod service 
 GitHub Actions:
 
 ```yaml
-- uses: dshakes/halos@v0.1.0-rc.2
+- uses: dshakes/halos@v0.1.0
   with:
-    version: v0.1.0-rc.2          # required; there is no "latest"
+    version: v0.1.0          # required; there is no "latest"
     # apply: "true"          # run `halod once` for a fixed ring (Linux/macOS, uses sudo)
     # registry: ghcr.io/acme/halos-releases
     # org: acme
@@ -80,8 +80,8 @@ GitLab CI:
 
 ```yaml
 include:
-  - remote: https://raw.githubusercontent.com/dshakes/halos/v0.1.0-rc.2/deploy/ci/gitlab/halos.gitlab-ci.yml
-variables: {HALOS_VERSION: v0.1.0-rc.2}
+  - remote: https://raw.githubusercontent.com/dshakes/halos/v0.1.0/deploy/ci/gitlab/halos.gitlab-ci.yml
+variables: {HALOS_VERSION: v0.1.0}
 policy-check:
   extends: .halos
   script: [halo validate]
