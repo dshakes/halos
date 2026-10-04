@@ -110,7 +110,7 @@ spec:
             {{- if $mPort }}
             - {name: metrics, containerPort: {{ $mPort }}}
             {{- end }}
-          readinessProbe: {httpGet: {path: /healthz, port: http}, periodSeconds: 10}
+          readinessProbe: {httpGet: {path: /readyz, port: http}, periodSeconds: 10}
           livenessProbe: {httpGet: {path: /healthz, port: http}, initialDelaySeconds: 10, periodSeconds: 20}
           securityContext: {{- toYaml .Values.securityContext | nindent 12 }}
           resources: {{- toYaml $d.resources | nindent 12 }}
