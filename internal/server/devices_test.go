@@ -124,7 +124,7 @@ func TestFailedAuthRateLimit(t *testing.T) {
 	if c := do(e.h, "GET", "/api/v1/fleet/ring", "Bearer "+dt, "").Code; c != 429 {
 		t.Errorf("blocked IP got %d", c)
 	}
-	r := httptestReq("GET", "/api/v1/fleet/ring", dt)
+	r := httptestReq(dt)
 	r.RemoteAddr = "203.0.113.9:1234"
 	if w := serve(e, r); w.Code != 200 {
 		t.Errorf("other IP got %d", w.Code)
@@ -138,8 +138,8 @@ func TestDeviceStoreDupOnJSON(t *testing.T) { // Device JSON never carries a has
 	}
 }
 
-func httptestReq(method, url, bearer string) *http.Request {
-	r := httptest.NewRequest(method, url, nil)
+func httptestReq(bearer string) *http.Request {
+	r := httptest.NewRequest("GET", "/api/v1/fleet/ring", nil)
 	r.Header.Set("Authorization", "Bearer "+bearer)
 	return r
 }
@@ -226,18 +226,18 @@ func TestClientIPTrustedProxies(t *testing.T) {
 func TestRateLimitBehindProxy(t *testing.T) {
 	e := newEnv(t, func(c *Config) { c.TrustedProxies = []netip.Prefix{netip.MustParsePrefix("192.0.2.0/24")} })
 	for i := 0; i <= authFailBurst; i++ {
-		r := httptestReq("GET", "/api/v1/fleet/ring", "bad")
+		r := httptestReq("bad")
 		r.RemoteAddr = "192.0.2.1:1"
 		r.Header.Set("X-Forwarded-For", "198.51.100.1")
 		serve(e, r)
 	}
-	blocked := httptestReq("GET", "/api/v1/fleet/ring", "bad")
+	blocked := httptestReq("bad")
 	blocked.RemoteAddr = "192.0.2.1:1"
 	blocked.Header.Set("X-Forwarded-For", "198.51.100.1")
 	if c := serve(e, blocked).Code; c != 429 {
 		t.Fatalf("attacker behind proxy not limited: %d", c)
 	}
-	other := httptestReq("GET", "/api/v1/fleet/ring", "bad")
+	other := httptestReq("bad")
 	other.RemoteAddr = "192.0.2.1:1"
 	other.Header.Set("X-Forwarded-For", "198.51.100.2")
 	if c := serve(e, other).Code; c != 401 {

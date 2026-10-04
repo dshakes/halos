@@ -101,7 +101,10 @@ func TestGenerateEventEffects(t *testing.T) {
 				if !strings.Contains(name, ".") {
 					name = rec["body"].(kv)["stringValue"].(string)
 				}
-				h := name[:strings.Index(name, ".")]
+				h, _, found := strings.Cut(name, ".")
+				if !found {
+					t.Fatalf("event name %q has no dot", name)
+				}
 				if out[h] == nil {
 					out[h] = &stats{}
 				}

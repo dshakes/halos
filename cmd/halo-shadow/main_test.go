@@ -139,7 +139,11 @@ func TestPruneLoop(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { prune(ctx, f, time.Millisecond, slog.New(slog.NewTextHandler(io.Discard, nil))); close(done) }()
+	deadline := time.Now().Add(5 * time.Second)
 	for f.calls.Load() < 3 {
+		if time.Now().After(deadline) {
+			t.Fatal("prune loop did not call Prune 3 times within 5s")
+		}
 		time.Sleep(time.Millisecond)
 	}
 	cancel()

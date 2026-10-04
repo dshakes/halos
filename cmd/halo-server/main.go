@@ -29,8 +29,9 @@ import (
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	if err := run(ctx, os.Args[1:]); err != nil {
+	err := run(ctx, os.Args[1:])
+	stop() // always release signal resources before potentially exiting
+	if err != nil {
 		slog.Error("halo-server", "err", err)
 		os.Exit(1)
 	}

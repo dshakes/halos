@@ -195,11 +195,12 @@ func (a *Agent) runCycle(ctx context.Context, f func(context.Context, *Status, S
 	err := f(ctx, &st, prev)
 	if err != nil {
 		st.LastError = err.Error()
-		if errors.Is(err, errUntrustedOwner) {
+		switch {
+		case errors.Is(err, errUntrustedOwner):
 			st.ErrorCode = "untrusted_owner"
-		} else if errors.Is(err, errSandboxUnavailable) {
+		case errors.Is(err, errSandboxUnavailable):
 			st.ErrorCode = "sandbox_unavailable"
-		} else if errors.Is(err, errNoSubject) {
+		case errors.Is(err, errNoSubject):
 			st.ErrorCode = "no_subject_for_experiment"
 		}
 	}
@@ -559,7 +560,8 @@ func (a *Agent) ensureFile(f release.FileEntry, data []byte, sameRelease bool) (
 		return sameRelease, a.write(p, data, fs.FileMode(f.Mode&0o777))
 	}
 	cur, rerr := os.ReadFile(p)
-	if rerr == nil {
+	switch {
+	case rerr == nil:
 		sum := sha256.Sum256(cur)
 		if hex.EncodeToString(sum[:]) == f.SHA256 {
 			if runtime.GOOS != "windows" {
@@ -574,9 +576,9 @@ func (a *Agent) ensureFile(f release.FileEntry, data []byte, sameRelease bool) (
 			return false, nil
 		}
 		drift = sameRelease
-	} else if errors.Is(rerr, fs.ErrNotExist) {
+	case errors.Is(rerr, fs.ErrNotExist):
 		drift = sameRelease
-	} else {
+	default:
 		return false, rerr
 	}
 	return drift, a.write(p, data, fs.FileMode(f.Mode&0o777))

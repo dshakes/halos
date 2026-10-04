@@ -15,14 +15,14 @@ func normals(rng *rand.Rand, n int, mu, sd float64) []float64 {
 }
 
 // peek runs an mSPRT over growing prefixes; returns whether it ever rejected.
-func peek(c, t []float64, alpha, tau2 float64) (bool, int) {
+func peek(c, t []float64, alpha, tau2 float64) bool {
 	m := NewMSPRT(alpha, tau2)
 	for n := 20; n <= len(c); n += 10 {
 		if m.ObserveMeans(c[:n], t[:n]).Decision == RejectNull {
-			return true, n
+			return true
 		}
 	}
-	return false, 0
+	return false
 }
 
 func TestMSPRTFalsePositiveRateUnderPeeking(t *testing.T) {
@@ -30,7 +30,7 @@ func TestMSPRTFalsePositiveRateUnderPeeking(t *testing.T) {
 	rng := rand.New(rand.NewPCG(1, 2))
 	fp := 0
 	for i := 0; i < sims; i++ {
-		if rej, _ := peek(normals(rng, 1000, 0, 1), normals(rng, 1000, 0, 1), alpha, 0.1); rej {
+		if peek(normals(rng, 1000, 0, 1), normals(rng, 1000, 0, 1), alpha, 0.1) {
 			fp++
 		}
 	}
@@ -42,7 +42,7 @@ func TestMSPRTFalsePositiveRateUnderPeeking(t *testing.T) {
 func TestMSPRTDetectsStrongEffect(t *testing.T) {
 	rng := rand.New(rand.NewPCG(3, 4))
 	for i := 0; i < 50; i++ {
-		if rej, _ := peek(normals(rng, 500, 0, 1), normals(rng, 500, 0.5, 1), 0.05, 0.25); !rej {
+		if !peek(normals(rng, 500, 0, 1), normals(rng, 500, 0.5, 1), 0.05, 0.25) {
 			t.Fatalf("sim %d: effect 0.5sd not detected in 500/arm", i)
 		}
 	}
