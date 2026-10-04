@@ -179,6 +179,20 @@ func TestStaticAndHealth(t *testing.T) {
 	if do(h, "GET", "/healthz", "", "").Code != 200 || do(h, "GET", "/api/nope", "", "").Code != 404 {
 		t.Error("healthz / api 404")
 	}
+	// /readyz: 200 when policy is loaded (newTestServer uses acme-corp example).
+	if w := do(h, "GET", "/readyz", "", ""); w.Code != 200 {
+		t.Errorf("readyz with policy: %d", w.Code)
+	}
+	// /readyz: 503 when the policy dir does not exist.
+	sNoPolicy, _ := New(Config{PolicyDir: "/nonexistent/policy", Token: tok, DevUser: "d",
+		Log: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	if w := do(sNoPolicy.Handler(), "GET", "/readyz", "", ""); w.Code != 503 {
+		t.Errorf("readyz without policy: %d want 503", w.Code)
+	}
+	// /healthz always returns 200, even without a policy.
+	if w := do(sNoPolicy.Handler(), "GET", "/healthz", "", ""); w.Code != 200 {
+		t.Errorf("healthz without policy: %d want 200 (liveness must never fail)", w.Code)
+	}
 	s, _ := New(Config{PolicyDir: "x", Token: tok, DevUser: "d", Web: fstest.MapFS{"index.html": {Data: []byte("SPA")}, "a.js": {Data: []byte("js")}}, Log: slog.New(slog.NewTextHandler(io.Discard, nil))})
 	h = s.Handler()
 	if w := do(h, "GET", "/fleet", "", ""); w.Body.String() != "SPA" {

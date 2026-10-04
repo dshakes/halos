@@ -21,6 +21,8 @@ type rolloutWriteIn struct {
 	Name   string `json:"name" jsonschema:"rollout name"`
 	Reason string `json:"reason" jsonschema:"why; recorded in the commit message"`
 	DryRun *bool  `json:"dry_run,omitempty" jsonschema:"default true: return the diff and change nothing"`
+	OpenPR bool   `json:"open_pr,omitempty" jsonschema:"with dry_run false: push a review branch and open the PR (like halo rollout advance) instead of committing locally"`
+	Base   string `json:"base,omitempty" jsonschema:"PR base branch (default: repo default)"`
 }
 
 func findRollout(org *policy.Org, name string) (*policy.Rollout, error) {
@@ -118,12 +120,12 @@ func (s *srv) proposeRollout(ctx context.Context, in rolloutWriteIn, advance boo
 		return nil, writeOut{}, err
 	}
 	act, next, verdict := rollout.Rollback, -1, ""
+	var d rollout.Decision
 	if advance {
 		if st := r.EffectiveStatus(); st == policy.RolloutAborted || st == policy.RolloutCompleted {
 			return nil, writeOut{}, fmt.Errorf("rollout %s is %s", r.Name, st)
 		}
-		_, d, err := s.evaluate(ctx, org, r)
-		if err != nil {
+		if _, d, err = s.evaluate(ctx, org, r); err != nil {
 			return nil, writeOut{}, err
 		}
 		if d.Action == rollout.Rollback || d.Action == rollout.Pause {
@@ -136,13 +138,24 @@ func (s *srv) proposeRollout(ctx context.Context, in rolloutWriteIn, advance boo
 	if err != nil {
 		return nil, writeOut{}, err
 	}
-	out, err := s.finish(ctx, isDry(in.DryRun), ch.Files, ch.Edit, rollout.Branch(r, act, next), "halo: "+strings.ToLower(rollout.Title(r, act, next)), reason)
+	manual := rollout.ManualSteps(org, r, act)
+	var out writeOut
+	if in.OpenPR && !isDry(in.DryRun) {
+		intro := fmt.Sprintf("Proposed %s of rollout `%s` (step `%s`), opened through the Halos MCP server.", act, r.Name, r.Step)
+		out, err = s.openPR(ctx, rollout.Branch(r, act, next), rollout.Title(r, act, next), rollout.Body(intro, d, manual, ch.Patch), reason, in.Base, ch.Files, ch.Edit)
+	} else {
+		out, err = s.finish(ctx, isDry(in.DryRun), ch.Files, ch.Edit, rollout.Branch(r, act, next), "halo: "+strings.ToLower(rollout.Title(r, act, next)), reason)
+	}
 	if err != nil {
 		return nil, writeOut{}, err
 	}
 	out.Verdict = verdict
-	if m := rollout.ManualSteps(org, r, act); len(m) > 0 {
-		out.Note += "; manual: " + strings.Join(m, "; ")
+	if len(manual) > 0 {
+		out.Note += "; manual: " + strings.Join(manual, "; ")
+		out.NextSteps = append(out.NextSteps, "human steps after the merge: "+strings.Join(manual, "; "))
+	}
+	if !advance && r.Experiment != "" {
+		out.NextSteps = append(out.NextSteps, "for an immediate stop before this merges: kill_switch name="+r.Name+" (dry_run first)")
 	}
 	return nil, out, nil
 }

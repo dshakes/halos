@@ -232,8 +232,8 @@ func TestPrompts(t *testing.T) {
 		t.Fatalf("argument not interpolated: %s", txt)
 	}
 	ps, err := cs.ListPrompts(context.Background(), nil)
-	if err != nil || len(ps.Prompts) != 4 {
-		t.Fatalf("want 4 prompts, got %v %v", ps, err)
+	if err != nil || len(ps.Prompts) != 5 {
+		t.Fatalf("want 5 prompts, got %v %v", ps, err)
 	}
 	// onboard: path is optional (the agent asks); every tool it names must exist.
 	res, err = cs.GetPrompt(context.Background(), &mcp.GetPromptParams{Name: "onboard"})

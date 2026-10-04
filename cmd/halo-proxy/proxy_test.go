@@ -412,6 +412,9 @@ func TestHealthAndMetrics(t *testing.T) {
 	if code, _ := get("/healthz"); code != 200 {
 		t.Fatalf("healthz %d", code)
 	}
+	if code, _ := get("/readyz"); code != 200 {
+		t.Fatalf("readyz with policy loaded: %d", code)
+	}
 	code, m := get("/metrics")
 	if code != 200 {
 		t.Fatalf("metrics %d", code)
@@ -427,7 +430,7 @@ func TestHealthAndMetrics(t *testing.T) {
 			t.Errorf("metrics missing %q\n%s", want, m)
 		}
 	}
-	for _, path := range []string{"/healthz", "/metrics"} {
+	for _, path := range []string{"/healthz", "/readyz", "/metrics"} {
 		if resp, err := http.Get(e.proxy.URL + path); err != nil || resp.StatusCode == http.StatusOK {
 			t.Fatalf("public listener must not serve %s: %v %v", path, resp, err)
 		} else {
@@ -442,10 +445,17 @@ func TestHealthzFailsWithoutPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// /healthz is liveness: always 200 even without a policy snapshot.
 	rec := httptest.NewRecorder()
 	p.AdminHandler().ServeHTTP(rec, httptest.NewRequest("GET", "/healthz", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("healthz (liveness) without policy: %d want 200", rec.Code)
+	}
+	// /readyz is readiness: 503 until the policy snapshot is loaded.
+	rec = httptest.NewRecorder()
+	p.AdminHandler().ServeHTTP(rec, httptest.NewRequest("GET", "/readyz", nil))
 	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("healthz=%d want 503", rec.Code)
+		t.Fatalf("readyz without policy: %d want 503", rec.Code)
 	}
 	rec = httptest.NewRecorder()
 	p.ServeHTTP(rec, httptest.NewRequest("POST", "/v1/messages", strings.NewReader(msgBody)))

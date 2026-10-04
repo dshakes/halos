@@ -9,8 +9,8 @@ Everything here is checked against the code it describes; `file:line` references
 
 | Component | Replicas | Why | Chart |
 |---|---|---|---|
-| `halo-proxy` | 2+ (HPA 2 to 10 on CPU) | Stateless: policy snapshot from a ConfigMap or git-sync, kill list polled from `halo-server` | `RollingUpdate` with `maxUnavailable: 0, maxSurge: 1` (`deploy/helm/halos/templates/proxy.yaml:74`), readiness and liveness on `/healthz` of the admin port (`proxy.yaml:114-115`), `preStop` sleep (`proxy.yaml:118`), HPA (`proxy.yaml:187`), PDB `maxUnavailable: 1` (`proxy.yaml:212`), zone and hostname topology spread (`_helpers.tpl:53`) |
-| `halo-server` | **exactly 1** (`values.schema.json:23`) | Single writer over append-only JSONL files in `--data-dir` that are replayed into memory at start; no locking, no leader election; the controller loop would run once per replica | `Recreate` when persistence is on (`templates/server.yaml:107`), probes on `/healthz` (`internal/server/server.go:163`) |
+| `halo-proxy` | 2+ (HPA 2 to 10 on CPU) | Stateless: policy snapshot from a ConfigMap or git-sync, kill list polled from `halo-server` | `RollingUpdate` with `maxUnavailable: 0, maxSurge: 1` (`deploy/helm/halos/templates/proxy.yaml:74`), readinessProbe `/readyz` and livenessProbe `/healthz` on the admin port (`proxy.yaml:114-115`), `preStop` sleep (`proxy.yaml:118`), HPA (`proxy.yaml:187`), PDB `maxUnavailable: 1` (`proxy.yaml:212`), zone and hostname topology spread (`_helpers.tpl:53`) |
+| `halo-server` | **exactly 1** (`values.schema.json:23`) | Single writer over append-only JSONL files in `--data-dir` that are replayed into memory at start; no locking, no leader election; the controller loop would run once per replica | `Recreate` when persistence is on (`templates/server.yaml:107`), readinessProbe `/readyz` (policy loaded) and livenessProbe `/healthz` (`internal/server/server.go:168,172`) |
 | `halo-shadow` | **exactly 1** (`values.schema.json:47`) | One pair file and an in-process spend counter; a second replica splits pairs and doubles the budget | `Recreate` |
 | OTel collector | 1 by default (`otel.replicas`) | Stateless, can be raised | |
 
@@ -32,7 +32,7 @@ Set these on the gateway: it is the only component in the developer's request pa
 | Pointer freshness | Every ring refreshed in the last 48 h (pointers expire after 7 days) | The refresh CI job; `halod` warns from 24 h before expiry |
 | Controller health | Ticks every `--interval`, no sustained errors | `halo_controller_ticks_total`, `halo_controller_errors_total` (`server.metrics.enabled`) |
 
-`halo-server` itself exposes no request metrics (only the controller counters). Measure its availability from your ingress controller or a blackbox probe of `GET /healthz`.
+`halo-server` itself exposes no request metrics (only the controller counters). Measure its availability from your ingress controller or a blackbox probe of `GET /readyz` (returns 503 until policy is loaded and during drain).
 
 ## Alerts
 
@@ -153,7 +153,7 @@ Take the data backup at least daily and immediately before an upgrade. Keep the 
 1. Scale `halo-server` to 0 (`kubectl -n halos scale deploy/halos-server --replicas 0`). The server reads the files once at start (only the kill store re-reads on external appends, `internal/controller/killstore.go:88`); never write into a running server's directory.
 2. Put the files back in `--data-dir` (restore the PVC snapshot, or `kubectl cp` into a helper pod mounting the claim). Ownership must be uid 65532 (`values.yaml:18`).
 3. Recreate the Secrets if they were lost: `server.killSwitch.existingSecret` with the same private key, `proxy.killSwitch.pubkey.existingSecret` with the matching public key. A different kill key is a rotation; follow [rotate the kill-switch keys](#rotate-the-kill-switch-keys).
-4. Scale back to 1 and check: `GET /healthz`, `GET /api/v1/killswitch` lists the kills you expect, `GET /api/v1/audit?limit=1` returns `verified: true`, and the console shows the device count you had.
+4. Scale back to 1 and check: `GET /readyz` returns 200 (policy loaded), `GET /api/v1/killswitch` lists the kills you expect, `GET /api/v1/audit?limit=1` returns `verified: true`, and the console shows the device count you had.
 5. Gateways need nothing: on their next poll (10 s) they fetch the restored list and compare its `version` (`internal/gateway/killswitch.go:209`).
 
 If `killswitch.jsonl` is gone for good, re-issue the kills you know about (`POST /api/v1/experiments/{name}/kill`, `halo toggle kill`) before gateways poll an empty list; the audit log tells you which ones were active.
