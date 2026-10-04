@@ -4,7 +4,7 @@ description: Route Claude Code through Kong, your auth gateway and orchestrator 
 ---
 
 :::caution[What was and was not run]
-The `deploy/compose` demo runs Kong OSS with `halo-kong` end to end against **mock** upstreams, and `halo gateway deck` output passes `kong config parse`. **UNVERIFIED:** real Kong Enterprise or Konnect, and real Amazon Bedrock. The `halo-kong` plugin does not sign requests (SigV4): in this topology Bedrock sits behind your orchestrator. To sign from Halos instead, use `halo-proxy` ([direct Bedrock](/halos/concepts/stack-agnostic/#direct-bedrock-sigv4-in-halo-proxy)).
+The `deploy/compose` demo and `make uat-kong` (CI job `uat-kong`; `test/uat/KONG-REPORT.md`: 32 PASS on Kong OSS 3.9.3, digest-pinned) run `halo-kong` end to end against **mock** upstreams, loading the `halo gateway deck` output as declarative config. **UNVERIFIED:** real Kong Enterprise or Konnect, and real Amazon Bedrock. The `halo-kong` plugin does not sign requests (SigV4): in this topology Bedrock sits behind your orchestrator. To sign from Halos instead, use `halo-proxy` ([direct Bedrock](/halos/concepts/stack-agnostic/#direct-bedrock-sigv4-in-halo-proxy)).
 :::
 
 This is the topology Halos was designed for: Kong, then your auth gateway, then an orchestrator, then Bedrock.

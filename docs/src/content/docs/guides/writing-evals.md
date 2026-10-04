@@ -50,7 +50,7 @@ A variant can add `settings: <path to a rendered managed-settings.json>` to moun
 | Codex | `codex exec --json` (JSONL events: `turn.completed` usage, `turn.failed`, `item.completed`) |
 | Gemini CLI | `gemini -p --output-format json` (`{response, stats, error?}`) |
 
-Driver details are from vendor documentation (see [`internal/harness/FACTS.md`](https://github.com/dshakes/halos/blob/main/internal/harness/FACTS.md)); they were not run against real CLI releases here. A Codex run on an unmanaged, non-git workdir may need `--skip-git-repo-check`.
+Driver details are from vendor documentation (see [`internal/harness/FACTS.md`](https://github.com/dshakes/halos/blob/main/internal/harness/FACTS.md)); the Claude Code and Codex drivers run the pinned real CLIs in `make uat-clis` (`test/uat/clis_eval_test.go`, against a mock model server, so no real model quality is measured); the Gemini CLI driver is not covered there. A Codex run on an unmanaged, non-git workdir may need `--skip-git-repo-check`.
 
 ## Running
 
@@ -59,7 +59,7 @@ halo eval run evals/suites/cli-upgrade.yaml                       # text scoreca
 halo eval run evals/suites/cli-upgrade.yaml --output json > scorecard.json
 ```
 
-Flags: `--parallel` (default 2 trials at once), `--cpus 2`, `--memory 4g`, `--network none` (default: **no egress**), `--pass-env NAME,...` (host `UPPER_SNAKE` env vars forwarded into the agent step only), `--seed 1` (bootstrap seed, so confidence intervals reproduce), and `--local` to run on the host without isolation (testing only). Trials use images `ghcr.io/dshakes/eval-<harness>:<version>`; those images are not published yet, so build your own and override the image in the runner until then.
+Flags: `--parallel` (default 2 trials at once), `--cpus 2`, `--memory 4g`, `--network none` (default: **no egress**), `--pass-env NAME,...` (host `UPPER_SNAKE` env vars forwarded into the agent step only), `--seed 1` (bootstrap seed, so confidence intervals reproduce), and `--local` to run on the host without isolation (testing only). Trials use images `ghcr.io/dshakes/eval-<harness>:<version>`; those images are not published to ghcr.io; build them from `evals/images` and tag them with those names (as `make uat-clis` does).
 
 **Check:** the scorecard lists, per variant and task, pass rate, cost, latency and turns, with bootstrap confidence intervals against the control. `halo mcp serve` exposes the JSON form as the `eval_scorecard` tool.
 

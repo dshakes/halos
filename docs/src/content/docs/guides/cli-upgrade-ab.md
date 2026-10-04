@@ -10,7 +10,7 @@ The example repo ships the pieces: `examples/acme-corp/experiments/claude-cli-2.
 <img class="diagram dark:sl-hidden" src="/halos/diagrams/cli-upgrade-flow-light.svg" alt="Pin a new CLI version in a profile, validate, run evals, and on pass publish ring1-canary with a ring release and two channels. halod picks the variant and pulls its channel. A promote verdict opens a PR setting the ring profile to treatment and concluding; a breach pauses and republishes or runs halo rollback." width="760" />
 <img class="diagram light:sl-hidden" src="/halos/diagrams/cli-upgrade-flow-dark.svg" alt="Pin a new CLI version in a profile, validate, run evals, and on pass publish ring1-canary with a ring release and two channels. halod picks the variant and pulls its channel. A promote verdict opens a PR setting the ring profile to treatment and concluding; a breach pauses and republishes or runs halo rollback." width="760" />
 
-For a shorter, policy-only walkthrough (plan, rollout simulation, promote patch), see [Roll out a Claude Code upgrade safely](/halos/tutorials/claude-code-upgrade/). The commands below were run against a local registry, `halo`, and a test build of `halod`. They were not run against a live fleet or the telemetry pipeline (**UNVERIFIED** at fleet scale).
+For a shorter, policy-only walkthrough (plan, rollout simulation, promote patch), see [Roll out a Claude Code upgrade safely](/halos/tutorials/claude-code-upgrade/). `make e2e` (every PR, `test/e2e/experiment_test.go`) runs this flow with the real `halo` and `halod` against a local registry: publish, two enrolled devices landing in different variants, a tampered channel refused, pause and republish. It has not been run against a live fleet or the telemetry pipeline (**UNVERIFIED** at fleet scale).
 
 ## 0. Setup for a local try-out
 
@@ -49,7 +49,7 @@ For Claude Code the release sets `requiredMinimumVersion` and `requiredMaximumVe
 halo eval run evals/suites/cli-upgrade.yaml --output json > scorecard.json
 ```
 
-Runs use Docker images `ghcr.io/dshakes/eval-<harness>:<version>` (a placeholder until images are published), no network by default, and `--pass-env` to forward only the credentials the agent step needs. **Check:** no regression beyond your thresholds. See [writing evals](/halos/guides/writing-evals/).
+Runs use Docker images `ghcr.io/dshakes/eval-<harness>:<version>` (built from `evals/images`; not published to ghcr.io), no network by default, and `--pass-env` to forward only the credentials the agent step needs. **Check:** no regression beyond your thresholds. See [writing evals](/halos/guides/writing-evals/).
 
 ## 3. Start the experiment and publish
 

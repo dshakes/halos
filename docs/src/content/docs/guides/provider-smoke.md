@@ -13,7 +13,7 @@ provider it starts a real `halo-proxy` (compiled policy, one upstream) and check
    `halo_proxy_requests_total{...status="200"}` both reach 2.
 
 Each provider is its own matrix entry. When its secrets are absent the gate step writes a notice and the
-rest of the job is skipped: the run stays green. Everything else in CI is unaffected, because the test sits
+rest of the job is skipped: the run stays green. Today only Anthropic and OpenAI have secrets set (scheduled runs on 2026-10-02 and 2026-10-03 passed for both); Gemini, Azure OpenAI, Bedrock and Vertex skip until their secrets are set. Everything else in CI is unaffected, because the test sits
 behind the `providers` build tag and `go test ./...` never compiles it.
 
 ## Secrets

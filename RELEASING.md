@@ -31,7 +31,7 @@ is automated by `.github/workflows/release.yml`; a human only decides *when*.
 | `verify` | From published artifacts only: `cosign verify-blob` on `checksums.txt`, one archive's sha256, `gh attestation verify` on it, `cosign verify` on all four images at `:X.Y.Z`, `install.sh --version` then `halo version`, and (final) `Formula/halo.rb` + `halo.json` are at `X.Y.Z` | read only |
 
 `release-drift.yml` (daily, and on every push to `main`) fails if the tap formula or Scoop manifest
-is not at the latest final release. It passes trivially until the first final release.
+is not at the latest final release (`v0.1.1` is the first final it checks against).
 
 Runs share one `release` concurrency group and are never cancelled mid-publish.
 

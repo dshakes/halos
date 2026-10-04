@@ -6,7 +6,7 @@ description: "Try it: bring up the whole stack on Docker (make demo), open the c
 Try it: bring up the whole stack on Docker (make demo), open the console and print a guided tour
 
 Runs scripts/demo.sh from a Halos checkout: --src, else the current directory if it is one, else a
-shallow clone it makes in ~/.cache/halos/src. DEV ONLY: mock IdP, mock models, throwaway keys.
+shallow clone it makes under your user cache dir (halos/src; the path is printed). DEV ONLY: mock IdP, mock models, throwaway keys.
 `halo quickstart down` stops it and deletes its volumes.
 
 ## Usage

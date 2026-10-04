@@ -5,7 +5,7 @@ description: Build halo, create a policy repo, render a ring's config, sign and 
 
 You will go from a fresh checkout to a signed release in a local registry, and see how the console reports releases. Every command below was run as shown; long output is trimmed with `…`.
 
-**Prerequisites:** Go (see `go.mod`), Docker, `curl`, and a checkout of the repo. Installers and Homebrew arrive with the first tagged release, so this builds from source.
+**Prerequisites:** Go (see `go.mod`), Docker, `curl`, and a checkout of the repo. Homebrew, Scoop and `install.sh` ship v0.1.1; this builds from source so it matches the checkout.
 
 ## 1. Build the CLI
 

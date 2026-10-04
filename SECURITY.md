@@ -4,7 +4,7 @@ Halos sits on trust boundaries: it signs and applies configuration as root on de
 
 ## Reporting a vulnerability
 
-**Do not open a public issue, PR or discussion.** Use GitHub private vulnerability reporting: <https://github.com/dshakes/halos/security/advisories/new>. Fallback: security@halos.dev (placeholder: replace before the first public release).
+**Do not open a public issue, PR or discussion.** Use GitHub private vulnerability reporting: <https://github.com/dshakes/halos/security/advisories/new>.
 
 Include the affected component and version (`halo version`), reproduction steps or a proof of concept, and the impact you see.
 
@@ -20,7 +20,7 @@ There is no bug bounty.
 
 ## Supported versions
 
-Pre-1.0 (`v1alpha1` policy API): security fixes go to `main` and ship in the next release of the latest minor line only.
+Pre-1.0 (policy API `halos.dev/v1`, stable): security fixes go to `main` and ship in the next release of the latest minor line only.
 
 | Version | Supported |
 |---|---|
@@ -52,4 +52,4 @@ From 1.0, the latest two minor lines will receive security fixes.
 
 Trust boundaries and mitigations are documented in the [security model](https://dshakes.github.io/halos/concepts/security-model/), the [threat model](https://dshakes.github.io/halos/reference/threat-model/), [ADR-0005](docs/adr/0005-signed-oci-bundles.md) and [ADR-0008](docs/adr/0008-signed-ring-pointers-and-verified-artifacts.md).
 
-No external security review or penetration test has been performed on this pre-release code.
+No external security review or penetration test has been performed on this code.

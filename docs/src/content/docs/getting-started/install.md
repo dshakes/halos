@@ -9,7 +9,7 @@ description: Install halo and halod on macOS, Linux and Windows, in CI, in dev c
 **`halo`** is the CLI you run in CI and on your workstation. **`halod`** is the fleet agent; it runs as root on each machine and applies the ring's signed release. Every channel below installs the same checksummed archives from a GitHub release. Always pin a version in automation; `v0.1.1` below is the current release.
 
 :::note[Release status]
-[`v0.1.1`](https://github.com/dshakes/halos/releases/tag/v0.1.1) is the general-availability release (`v0.1.0` was published without its Homebrew formula, Scoop manifest and provenance attestation; see the changelog). Every channel below installs from it: binaries, deb/rpm/apk packages, `install.sh`/`install.ps1`, Homebrew (`dshakes/homebrew-tap`), Scoop (`dshakes/scoop-bucket`), signed checksums and signed ghcr.io images, all verified by the release workflow after publishing; winget is submitted by hand. The [changelog](https://github.com/dshakes/halos/blob/main/CHANGELOG.md#011---2026-10-03) states what is GA and what is supported but not yet field-verified. Or [build from source](/halos/getting-started/installation/#from-source).
+[`v0.1.1`](https://github.com/dshakes/halos/releases/tag/v0.1.1) is the general-availability release (`v0.1.0` was published without its Homebrew formula, Scoop manifest and provenance attestation; see the changelog). Every channel below installs from it: binaries, deb/rpm/apk packages, `install.sh`/`install.ps1`, Homebrew (`dshakes/homebrew-tap`), Scoop (`dshakes/scoop-bucket`), signed checksums and signed ghcr.io images, all verified by the release workflow after publishing; winget is built but not submitted. The [changelog](https://github.com/dshakes/halos/blob/main/CHANGELOG.md#011---2026-10-03) states what is GA and what is supported but not yet field-verified. Or [build from source](/halos/getting-started/installation/#from-source).
 :::
 
 ## macOS
@@ -49,7 +49,7 @@ Or `install.ps1` from the release, from an **elevated** PowerShell:
 .\install.ps1 -Version v0.1.1 -WithAgent         # to $env:ProgramFiles\Halos
 ```
 
-`install.ps1` restricts the directory to SYSTEM and Administrators (write) and Users (read/execute), matching `halod`'s owner check. The binaries are not Authenticode-signed. A winget manifest (`Halos.Halo`) is built with each release but is not yet submitted to `winget-pkgs`.
+`install.ps1` restricts the directory to SYSTEM and Administrators (write) and Users (read/execute), matching `halod`'s owner check. The binaries are not Authenticode-signed. A winget manifest (`Halos.Halo`) is built with each release but is not submitted to `winget-pkgs`.
 
 ## Run halod as a service
 
@@ -103,7 +103,7 @@ policy-check:
 helm install halos deploy/helm/halos --namespace halos --create-namespace
 ```
 
-The chart runs `halo-server`, `halo-proxy` and `halo-shadow`, with an optional OTel collector and a Kong plugin resource. Images default to `ghcr.io/dshakes/halo-*:<chart appVersion>` (currently 0.1.0), which will not match a later release; set each component's `image.tag` to the version you install (for example `--set server.image.tag=0.4.0`). See [production deployment](/halos/guides/production-deployment/).
+The chart runs `halo-server`, `halo-proxy` and `halo-shadow`, with an optional OTel collector and a Kong plugin resource. Images default to `ghcr.io/dshakes/halo-*:<chart appVersion>` (currently 0.1.0), which will not match a later release; set each component's `image.tag` to the version you install (for example `--set server.image.tag=0.1.1`). See [production deployment](/halos/guides/production-deployment/).
 
 ## Check
 

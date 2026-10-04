@@ -14,4 +14,4 @@ Each tutorial is a numbered path you can run top to bottom. Every command was ru
 | [Add a feature toggle](/halos/tutorials/add-a-toggle/) | Write a toggle, validate it, see who gets it and why, and inspect what the release records | 10 min |
 | [Gate upgrades on evals](/halos/tutorials/gate-upgrades-on-evals/) | Run an eval suite, get a SHIP or BLOCK verdict, fail a pipeline on it, and watch for upstream upgrades | 15 min |
 
-Prerequisites across the set: Go, Docker and `curl`. Two use the [playground](/halos/getting-started/playground/) (`make demo`). Installers and Homebrew arrive with the first tagged release, so the tutorials build from source with `make build`.
+Prerequisites across the set: Go, Docker and `curl`. Two use the [playground](/halos/getting-started/playground/) (`make demo`). Homebrew, Scoop and `install.sh` ship v0.1.1, but the tutorials build from source with `make build` so they match this checkout.

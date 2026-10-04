@@ -3,7 +3,7 @@ title: Policy schema
 description: Every field of Gateway, Profile, Ring and Experiment, derived from internal/policy/types.go.
 ---
 
-Source of truth: `internal/policy/types.go` (the `yaml` tags). JSON Schemas are published under `schemas/` (`halos`, `gateway`, `profile`, `ring`, `experiment`) for editor autocomplete. All documents use `apiVersion: halos.dev/v1`. Decoding is strict: unknown fields are errors. Identifiers (names, aliases, upstreams, variants, MCP servers) match `^[a-z0-9][a-z0-9._-]{0,62}$`.
+Source of truth: `internal/policy/types.go` (the `yaml` tags). JSON Schemas are published under `schemas/` (`halos`, `gateway`, `profile`, `ring`, `experiment`, `toggle`, `rollout`) for editor autocomplete. All documents use `apiVersion: halos.dev/v1`. Decoding is strict: unknown fields are errors. Identifiers (names, aliases, upstreams, variants, MCP servers) match `^[a-z0-9][a-z0-9._-]{0,62}$`.
 
 ## Root (`halos.yaml`)
 
@@ -26,7 +26,7 @@ Source of truth: `internal/policy/types.go` (the `yaml` tags). JSON Schemas are 
 | Field | Type | Notes |
 |---|---|---|
 | `apiVersion` | string | `halos.dev/v1` (`halos.dev/v1alpha1` is accepted with a deprecation warning; see [Compatibility](/halos/reference/compatibility/)) |
-| `kind` | string | `Profile`, `Ring`, `Experiment`, `Gateway` |
+| `kind` | string | `Profile`, `Ring`, `Experiment`, `Gateway`, `Toggle`, `Rollout` |
 | `name` | string | |
 | `labels` | map | optional |
 
@@ -40,7 +40,7 @@ Source of truth: `internal/policy/types.go` (the `yaml` tags). JSON Schemas are 
 | `auth.ttlSeconds` | int | |
 | `auth.identityHeader` | string | Header the auth gateway sets with the verified user id. Used only by `trusted_header` mode and never an `x-halo-*` name |
 | `models` | map alias to route | `{upstream, model}`; model is provider id or Bedrock inference profile ARN |
-| `upstreams` | map name to `{url, kind}` | kind: `orchestrator`, `anthropic`, `bedrock`, `openai`, `gemini` |
+| `upstreams` | map name to `{url, kind}` | kind: `orchestrator`, `anthropic`, `bedrock`, `vertex`, `openai`, `azure-openai`, `gemini` |
 
 ## Profile
 

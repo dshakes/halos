@@ -5,7 +5,7 @@ description: Run an eval suite on a control and a candidate, see the SHIP or BLO
 
 An upgrade ships only if the candidate is not worse than what you run today. `halo eval run` replays tasks against a control and a candidate and prints a scorecard with a verdict: **SHIP**, **HOLD** or **BLOCK**. You will run it on your machine with a stand-in `claude`, fail on a regression, and run the upgrade watcher in dry-run.
 
-**What was and was not run.** A real suite runs each trial in Docker with a pinned harness image (`evals/images/`) and calls a real model, which needs API credentials and a built image. This tutorial uses `--local`, which runs on the host with no isolation (testing only), and a shell script as `claude`, so the numbers prove the gate logic, not any model's quality. The Docker path was **not run** here; `scripts/package-check.sh` exercises it.
+**What was and was not run.** A real suite runs each trial in Docker with a pinned harness image (`evals/images/`) and calls a real model, which needs API credentials and a built image. This tutorial uses `--local`, which runs on the host with no isolation (testing only), and a shell script as `claude`, so the numbers prove the gate logic, not any model's quality. The Docker path was **not run** here; `make uat-clis` (`test/uat/clis_eval_test.go`) runs it with the pinned real Claude Code and Codex in images built from `evals/images`, against a mock model server.
 
 **Prerequisites:** a built `halo`, Go on `PATH` (the tasks run `go test`), and `REPO=/path/to/halos`.
 

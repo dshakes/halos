@@ -65,7 +65,7 @@ cannot reach them.
 
 controller: ON (interval {{ .Values.server.controller.interval }}). Needs ClickHouse egress (networkPolicy.controllerEgress).
 {{- if .Values.server.controller.policyRepo.enabled }}
-policyRepo: the halo-server image ({{ default "server.image" .Values.server.controller.policyRepo.image.repository }}) MUST contain `git` and `gh`; clone is UNVERIFIED (git-sync worktree).
+policyRepo: the halo-server image ({{ default "server.image" .Values.server.controller.policyRepo.image.repository }}) MUST contain `git` and `gh`; the clone is a real `git clone` init container (opening PRs on real GitHub is UNVERIFIED).
 {{- end }}
 {{- end }}
 {{- if .Values.proxy.enabled }}
