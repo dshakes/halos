@@ -285,7 +285,29 @@ func TestDeviceDetail(t *testing.T) {
 	if d.History[0].Digest != "d"+string(rune('a'+(MaxHistory+4)%26)) { // newest first
 		t.Errorf("order: %s", d.History[0].Digest)
 	}
+	// After a restart the history is gone but the latest report is not: Last must still be there.
+	e.s.cfg.Store = reopened(t, e.s.cfg.Store)
+	d = decode[DeviceDetail](t, e.as(admin, "GET", "/api/v1/devices/"+id, ""))
+	if d.Last == nil || d.Last.Digest != "d"+string(rune('a'+(MaxHistory+4)%26)) || len(d.History) != 0 {
+		t.Fatalf("after restart: last=%v history=%d", d.Last, len(d.History))
+	}
 }
+
+// reopened is a store holding the same latest rows and no history, like a server restart.
+func reopened(t *testing.T, old Store) Store {
+	t.Helper()
+	n := NewMemStore()
+	for _, h := range old.All() {
+		if err := n.Put(h); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return &noHistory{n}
+}
+
+type noHistory struct{ Store }
+
+func (noHistory) History(string) []Host { return nil }
 
 func TestExperimentStatus(t *testing.T) {
 	e := newEnv(t, nil)

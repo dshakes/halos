@@ -34,8 +34,8 @@ export function Audit() {
           </div>
         }
       >
-        {isLoading || !data ? <Empty>Loading…</Empty> : entries.length === 0 ? <Empty>No entries.</Empty> : (
-          <table className="w-full text-left">
+        {isLoading || !data ? <Empty>Loading…</Empty> : entries.length === 0 ? <Empty>{actor || action ? "No entries match these filters." : "No privileged actions recorded yet. Logins, enrollments, approvals and kills land here."}</Empty> : (
+          <div className="overflow-x-auto"><table className="w-full text-left">
             <caption className="sr-only">Privileged actions, newest first</caption>
             <thead className="text-[11px] tracking-wide text-mute uppercase">
               <tr className="border-b border-line">{["#", "When", "Actor", "Action", "Target", "Details", "IP"].map((c) => <th key={c} scope="col" className="px-4 py-2 font-medium">{c}</th>)}</tr>
@@ -57,7 +57,7 @@ export function Audit() {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         )}
       </Card>
     </div>

@@ -44,6 +44,8 @@ type Portal struct {
 	PolicyRepoDir string `json:"policyRepoDir"`
 	PolicySubdir  string `json:"policySubdir"`
 	PolicyBase    string `json:"policyBase"`
+	// SupportURL is where developers go when something breaks (a Slack channel, a ticket queue); shown on the kiosk.
+	SupportURL string `json:"supportURL"`
 	// Secrets are referenced by file path so they never sit in the JSON itself.
 	SessionKeyFile       string `json:"sessionKeyFile"`
 	OIDCClientSecretFile string `json:"oidcClientSecretFile"`
@@ -70,6 +72,11 @@ func (p Portal) Validate(devInsecure bool) error {
 		u, err := url.Parse(p.BaseURL)
 		if err != nil || u.Host == "" || (u.Scheme != "https" && (u.Scheme != "http" || (!devInsecure && !isLoopback(u.Hostname())))) {
 			return fmt.Errorf("portal baseURL must be an https URL (http only for loopback or --dev-insecure-user)")
+		}
+	}
+	if p.SupportURL != "" {
+		if u, err := url.Parse(p.SupportURL); err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
+			return fmt.Errorf("portal supportURL must be an http(s) URL")
 		}
 	}
 	for k, v := range p.HalodSHA256 {
@@ -128,6 +135,7 @@ type Me struct {
 	LauncherSetup []LauncherSetup `json:"launcherSetup,omitempty"`
 	Requestable   []string        `json:"requestable"`
 	OptInRings    []string        `json:"optInRings"` // rings the user may still ask to join
+	SupportURL    string          `json:"supportURL,omitempty"`
 	DevInsecure   bool            `json:"devInsecure,omitempty"`
 }
 
@@ -214,7 +222,7 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request, p Principal) {
 	if p.Groups == nil {
 		p.Groups = []string{}
 	}
-	m := Me{Principal: p, Variants: assignments(org, p.subject(), ring), SelfService: org.SelfService.Enabled, Launchers: []string{}, Requestable: []string{}, OptInRings: []string{}, DevInsecure: s.cfg.DevUser != ""}
+	m := Me{Principal: p, Variants: assignments(org, p.subject(), ring), SelfService: org.SelfService.Enabled, Launchers: []string{}, Requestable: []string{}, OptInRings: []string{}, SupportURL: s.cfg.Portal.SupportURL, DevInsecure: s.cfg.DevUser != ""}
 	if ring != nil {
 		m.Ring, m.Release = ring.Name, ring.Release
 		if prof, err := org.ResolveProfile(ring.Profile); err == nil {

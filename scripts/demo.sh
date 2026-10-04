@@ -3,7 +3,7 @@
 # repo, mock OIDC login and mock model upstreams. DEV ONLY.
 #   scripts/demo.sh        bring it up and print the URLs   (make demo)
 #   scripts/demo.sh down   stop it and delete its volumes   (make demo-down)
-# Ports: HALO_DEMO_{CONSOLE,IDP,DL,PROXY,SHADOW_METRICS}_PORT, HALO_OBS_GRAFANA_PORT.
+# Ports: HALO_DEMO_{CONSOLE,IDP,DL,PROXY,SHADOW_METRICS}_PORT, HALO_OBS_GRAFANA_PORT. HALO_DEMO_WAIT: seconds per service health wait (300).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -38,8 +38,14 @@ dc run --rm --no-deps -T --entrypoint /usr/local/bin/app seed \
   telemetry collector-config --clickhouse tcp://clickhouse:9000 >"$HALO_OTELCOL_CONFIG"
 dc up -d
 
-wait_for() { # name url [status]: default any 2xx; halo-proxy answers 401 without a token
-  for _ in $(seq 120); do
+# wait_for name url [status]: polls every second up to HALO_DEMO_WAIT seconds
+# (default 300: Grafana and ClickHouse on a cold CI runner take well over 120 s;
+# a warm machine returns in a few seconds either way). Default: any 2xx;
+# halo-proxy answers 401 without a token. On timeout the container's last log
+# lines are printed so the cause is visible in CI.
+: "${HALO_DEMO_WAIT:=300}"
+wait_for() {
+  for _ in $(seq "$HALO_DEMO_WAIT"); do
     if [ -n "${3:-}" ]; then
       [ "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$2")" = "$3" ] && return 0
     else
@@ -47,7 +53,9 @@ wait_for() { # name url [status]: default any 2xx; halo-proxy answers 401 withou
     fi
     sleep 1
   done
-  echo "demo: $1 not healthy at $2; see: docker compose -f deploy/compose/docker-compose.demo.yml logs $1" >&2
+  echo "demo: $1 not healthy at $2 after ${HALO_DEMO_WAIT}s; last log lines:" >&2
+  dc logs --no-color --tail 30 "$1" >&2 || true
+  dc ps >&2 || true
   exit 1
 }
 wait_for halo-server "http://localhost:$HALO_DEMO_CONSOLE_PORT/healthz"

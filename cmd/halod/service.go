@@ -88,9 +88,13 @@ const (
 
 // serviceSpec is what `service install` does on one OS: an optional unit
 // file to write plus the commands that register (and, with --start, start) it.
+// Install is idempotent: Stop runs first with errors ignored, so re-installing
+// over a loaded daemon or a running task re-registers it cleanly, and --start
+// always starts a fresh process (an immediate apply), never only the schedule.
 type serviceSpec struct {
 	Exe           string
 	Path, Content string
+	Stop          [][]string // best effort, before Install
 	Install       [][]string
 	Start         [][]string
 	Uninstall     [][]string
@@ -111,8 +115,10 @@ func planService(goos, exe string) (serviceSpec, error) {
 	}
 	if goos == "windows" {
 		tr := fmt.Sprintf(`"%s" run --config "%s" --state "%s"`, exe, lay.Config, lay.State)
+		// /Run on an already-running task is a no-op (IgnoreNew): /End first so --start applies now.
 		return serviceSpec{
 			Exe:       exe,
+			Stop:      [][]string{{"schtasks", "/End", "/TN", winTask}},
 			Install:   [][]string{{"schtasks", "/Create", "/F", "/TN", winTask, "/RU", "SYSTEM", "/SC", "ONSTART", "/TR", tr}},
 			Start:     [][]string{{"schtasks", "/Run", "/TN", winTask}},
 			Uninstall: [][]string{{"schtasks", "/End", "/TN", winTask}, {"schtasks", "/Delete", "/F", "/TN", winTask}},
@@ -123,16 +129,20 @@ func planService(goos, exe string) (serviceSpec, error) {
 		return serviceSpec{}, fmt.Errorf("render %s unit: %w", goos, err)
 	}
 	if goos == "darwin" {
+		// bootstrap fails (exit 5, "Input/output error") when the label is already
+		// loaded: bootout first. RunAtLoad means bootstrap is also the start.
 		return serviceSpec{
 			Exe: exe, Path: launchdPath, Content: b.String(),
+			Stop:      [][]string{{"launchctl", "bootout", "system/dev.halos.halod"}},
 			Install:   [][]string{{"launchctl", "bootstrap", "system", launchdPath}},
 			Uninstall: [][]string{{"launchctl", "bootout", "system/dev.halos.halod"}},
 		}, nil
 	}
+	// restart (not enable --now) so a service that is already running applies the policy now.
 	return serviceSpec{
 		Exe: exe, Path: systemdPath, Content: b.String(),
 		Install:   [][]string{{"systemctl", "daemon-reload"}},
-		Start:     [][]string{{"systemctl", "enable", "--now", "halod"}},
+		Start:     [][]string{{"systemctl", "enable", "halod"}, {"systemctl", "restart", "halod"}},
 		Uninstall: [][]string{{"systemctl", "disable", "--now", "halod"}},
 	}, nil
 }
@@ -175,6 +185,7 @@ func runService(ctx context.Context, goos, root, exe, action string, start bool,
 				return fmt.Errorf("service install: %w", err)
 			}
 		}
+		_ = exec(spec.Stop, true) // not loaded/running yet: nothing to stop
 		if err := exec(spec.Install, false); err != nil {
 			return err
 		}

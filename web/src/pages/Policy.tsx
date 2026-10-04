@@ -38,7 +38,7 @@ export function Policy() {
   return (
     <div className="space-y-5">
       {data.issues.length > 0 && (
-        <Card title={`Validation · ${data.issues.length}`}>
+        <Card title={`Validation · ${data.issues.length}`} right={<span className="text-mute">from halo validate on the served policy</span>}>
           {data.issues.map((i, k) => (
             <div key={k} className="flex items-center gap-3 border-b border-line px-4 py-2 last:border-0">
               <Pill tone={i.severity === "error" ? "bad" : "warn"}>{i.severity}</Pill><Mono>{i.path}</Mono><span className="text-mute">{i.message}</span>
@@ -46,7 +46,7 @@ export function Policy() {
           ))}
         </Card>
       )}
-      <div className="grid grid-cols-[260px_1fr] gap-5">
+      <div className="grid gap-5 lg:grid-cols-[260px_1fr]">
         <Card title={`Rings · ${data.org}`}>
           {data.rings.map((r) => (
             <button key={r.name} onClick={() => setSel(r.name)} className={`block w-full border-b border-line px-4 py-2.5 text-left last:border-0 hover:bg-panel2 ${ring?.name === r.name ? "bg-panel2" : ""}`}>
@@ -58,9 +58,9 @@ export function Policy() {
         {ring ? (
           <Card title={`Resolved profile · ${ring.profile}`} right={ring.release ? <Mono className="text-mute">{ring.release}</Mono> : <Pill>unpinned</Pill>}>
             {ring.membership.groups.length > 0 && <div className="flex flex-wrap items-center gap-1.5 border-b border-line px-4 py-2.5"><span className="text-mute">groups</span>{ring.membership.groups.map((g) => <Pill key={g} tone="info">{g}</Pill>)}</div>}
-            {ring.error ? <div className="p-4"><ErrorBox error={ring.error} /></div> : <pre className="max-h-[60vh] overflow-auto p-4 font-mono text-[12px] leading-relaxed">{JSON.stringify(ring.resolved, null, 2)}</pre>}
+            {ring.error ? <div className="p-4"><ErrorBox error={`This ring's profile does not resolve: ${ring.error}. Fix it in the policy repo and run halo validate.`} /></div> : <pre className="max-h-[60vh] overflow-auto p-4 font-mono text-[12px] leading-relaxed">{JSON.stringify(ring.resolved, null, 2)}</pre>}
           </Card>
-        ) : <Empty>No rings.</Empty>}
+        ) : <Empty>No rings defined in policy.</Empty>}
       </div>
       <Matrix />
     </div>

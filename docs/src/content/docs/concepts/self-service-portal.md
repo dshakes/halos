@@ -34,12 +34,13 @@ selfService:
   "halodSHA256": {"linux-amd64": "<64 hex>", "linux-arm64": "<64 hex>", "darwin-arm64": "<64 hex>"},
   "policyRepoDir": "/policy-writer/current",
   "policyBase": "main",
+  "supportURL": "https://acme.slack.com/archives/C0HELP",
   "sessionKeyFile": "/run/secrets/session-key",
   "oidcClientSecretFile": "/run/secrets/oidc-client-secret"
 }
 ```
 
-Other fields: `devcontainerImage`, `coderURL`, `policySubdir`. Unknown fields are rejected. `baseURL` and `halodURL` must be shell-safe because they are baked into generated scripts. `halodSHA256` keys are `<os>-<arch>` and values 64 lowercase hex digits.
+Other fields: `devcontainerImage`, `coderURL`, `policySubdir`. `supportURL` is the "get help" link the kiosk shows developers next to the troubleshooting steps (`halod status`, what a posture 403 means). Unknown fields are rejected. `baseURL` and `halodURL` must be shell-safe because they are baked into generated scripts. `halodSHA256` keys are `<os>-<arch>` and values 64 lowercase hex digits.
 
 ```bash
 halo-server -policy-dir policy-repo -token-file fleet.token -listen 127.0.0.1:8080 \
@@ -72,12 +73,13 @@ curl -fsSL https://halo.acme.example/enroll.sh | sh -s -- <token>
 & ([scriptblock]::Create((irm https://halo.acme.example/enroll.ps1))) -Token <token>
 ```
 
-`enroll.sh` refuses to run without a pinned checksum for the machine's OS and architecture, downloads `halod`, verifies its sha256 against the value pinned in the server config, installs it into the root-owned per-OS location, fetches the release public key from `/enroll/release.pub`, exchanges the token at `POST /api/v1/enroll`, and writes `halod.yaml` (mode 0600, root-owned; the server builds the file by marshaling a config struct, not by string templating, so values cannot inject YAML). The script is served over your TLS; the binary it installs is hash-pinned. **UNVERIFIED:** the shell and PowerShell scripts have not been run on real machines here (PowerShell not at all).
+`enroll.sh` refuses to run without a pinned checksum for the machine's OS and architecture, downloads `halod`, verifies its sha256 against the value pinned in the server config, installs it into the root-owned per-OS location, fetches the release public key from `/enroll/release.pub`, exchanges the token at `POST /api/v1/enroll`, and writes `halod.yaml` (mode 0600, root-owned; the server builds the file by marshaling a config struct, not by string templating, so values cannot inject YAML). It then runs `halod service install --start` so the first check-in happens immediately and keeps happening; where there is no launchd/systemd (a container) it prints the two commands to run instead (`halod once`, then `halod service install --start`). The script is served over your TLS; the binary it installs is hash-pinned. **UNVERIFIED:** the shell and PowerShell scripts have not been run on real machines here (PowerShell not at all).
 
 ## Device tokens
 
 Enrollment returns a `halod.yaml` containing a per-device bearer token, shown exactly once. The server stores only its SHA-256 (plus user, groups at enrollment, timestamps and a revoked flag) in an append-only `devices.jsonl` under `--data-dir` (mode 0600).
 
+- The developer sees their own devices at `GET /api/v1/me/devices` (the kiosk's "Your devices" card): each device's last report and the same posture verdict the gateway uses, so "enrolled and compliant" is confirmed on the page they enrolled from, without an admin.
 - `halod` uses it to ask `GET /api/v1/fleet/ring` which ring to follow (resolved live from the policy and the user recorded at enrollment, so moving a person between rings needs no re-enrollment) and to `POST /api/v1/fleet/report`.
 - Device tokens expire `--device-ttl` after enrollment (default 90 days). Re-enroll to renew.
 - Failed authentications are rate-limited per client IP (429 with `Retry-After`).
