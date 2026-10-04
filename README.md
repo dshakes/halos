@@ -7,7 +7,8 @@
 
 <p align="center">
   <a href="https://github.com/dshakes/halos/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/dshakes/halos/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://goreportcard.com/report/github.com/dshakes/halos"><img alt="Go Report Card" src="https://goreportcard.com/badge/github.com/dshakes/halos"></a>
+  <a href="https://github.com/dshakes/halos/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/dshakes/halos?display_name=tag&color=c93a12"></a>
+  <a href="https://pkg.go.dev/github.com/dshakes/halos"><img alt="Go Reference" src="https://pkg.go.dev/badge/github.com/dshakes/halos.svg"></a>
   <a href="LICENSE"><img alt="Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue.svg"></a>
   <a href="https://dshakes.github.io/halos/"><img alt="Docs" src="https://img.shields.io/badge/docs-dshakes.github.io%2Fhalos-c93a12.svg"></a>
 </p>

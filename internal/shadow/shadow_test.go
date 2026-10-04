@@ -562,3 +562,32 @@ func TestMetricsHandlerUnauthenticated(t *testing.T) {
 		t.Fatal("metrics listener must not accept jobs")
 	}
 }
+
+func TestHealthAndReadiness(t *testing.T) {
+	// /healthz is always 200 (liveness), /readyz is 503 until policy loads.
+	noPolicy := New(Config{Token: "tok"}, &memStore{})
+	h := noPolicy.Handler()
+
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/healthz", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("/healthz without policy: %d want 200 (liveness must never fail)", w.Code)
+	}
+
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/readyz", nil))
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("/readyz without policy: %d want 503", w.Code)
+	}
+
+	// With a policy loaded, /readyz returns 200.
+	org := testOrg("http://ctl", "http://cand")
+	withPolicy := New(Config{Token: "tok", Policy: orgFn(org)}, &memStore{})
+	h = withPolicy.Handler()
+
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/readyz", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("/readyz with policy: %d want 200", w.Code)
+	}
+}

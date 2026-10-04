@@ -10,12 +10,19 @@ The playground runs every Halos component on Docker with a seeded policy repo: t
 
 ## Start it
 
-**In the browser:** [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/dshakes/halos). The dev container builds `bin/` and puts it on `PATH`; run `make demo` in its terminal and open the forwarded **Halos console** port (**UNVERIFIED**: CI builds the dev container with the devcontainer CLI, but `make demo` has not been run in a real Codespace).
-
-**Locally** (Docker with Compose v2.20+):
+**With `halo` [installed](/halos/getting-started/install/)** (Docker and git on the machine):
 
 ```sh
-make demo
+halo quickstart          # clones a Halos checkout into ~/.cache/halos/src if needed, then runs make demo
+halo quickstart down     # later: stop it and delete its volumes
+```
+
+**In the browser:** [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/dshakes/halos). The dev container builds `bin/` and puts it on `PATH`; run `make demo` in its terminal and open the forwarded **Halos console** port (**UNVERIFIED**: CI builds the dev container with the devcontainer CLI, but `make demo` has not been run in a real Codespace).
+
+**From a checkout** (Docker with Compose v2.20+, Go to build `bin/`):
+
+```sh
+make demo                # make demo-down removes it
 ```
 
 A one-shot `seed` container copies `examples/acme-corp` plus a small overlay (`deploy/compose/demo/policy`: mock IdP issuer, mock upstreams, the shadow experiment running at 100%), generates throwaway keys, publishes a signed release per ring to a local `registry:2` and compiles `policy.json`. When everything is healthy it prints:

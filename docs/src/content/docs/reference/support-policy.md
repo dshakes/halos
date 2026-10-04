@@ -13,7 +13,7 @@ What a version number covers, and what breaking means for each surface:
 |---|---|
 | CLI commands and flags (`halo`, `halod`) | Minor releases add; only a major release removes or changes meaning. Deprecated flags keep working for one minor release and print a warning |
 | HTTP API (`/api/v1/...`) | Path-versioned. Fields are added in minors; a field is never removed or retyped under `/v1` |
-| Policy files (`apiVersion: halos.dev/v1`) | **Stable**: kinds and fields are frozen within v1; additions are optional. `halos.dev/v1alpha1` still loads, with a deprecation warning, until `halos.dev/v2`. See [compatibility](/halos/reference/compatibility/) |
+| Policy files (`apiVersion: halos.dev/v1`) | Stable: every kind and field is frozen; fields are only added. A deprecated field warns for at least one minor and is removed only in `halos.dev/v2`. `halos.dev/v1alpha1` still loads with a warning until v2. Details in [Compatibility](/halos/reference/compatibility/) |
 | Release bundles and ring pointers | `schemaVersion: 1` (`internal/release/release.go:60`). A reader refuses a schema it does not know (`release.go:274`) and keeps last-good; a new schema version is a major release |
 | Kill list, fleet report and mirror payloads | Fields only ever added. `halo-shadow` decodes mirror jobs strictly (`internal/shadow/server.go`), which is why it upgrades before `halo-proxy` (below) |
 | Helm chart | Its own SemVer in `Chart.yaml` (`version`), tracking `appVersion`. A values key is renamed only in a chart major; `values.schema.json` checks types and the replica pins but does not reject unknown keys, so read the chart CHANGELOG entry before a major |
@@ -24,10 +24,20 @@ While the major is 0, a minor release may contain a breaking change; it is calle
 
 ## Supported versions
 
-- The **latest minor** receives features and fixes. The **previous minor** receives security and data-loss fixes for 6 months after the newer minor ships, or until the next minor, whichever is longer.
+This is the commitment from `v0.1.1` on. It is a policy, not something the code enforces; it is listed here so you can hold us to it.
+
+- The **latest minor** receives features and fixes.
+- The **previous minor** receives security and data-loss fixes. While the major is 0, that window is **90 days** after the newer minor ships; from 1.0 it is **6 months**, or until the next minor, whichever is longer. The shorter 0.x window is honest about a young project that ships minors often.
 - Patch releases are cumulative: `1.4.3` supersedes `1.4.2` on the day it ships. We do not backport to a patch you skipped.
 - A security fix is released as a patch on every supported minor at once, with a GitHub Security Advisory.
 - `rc` builds are supported until the final tag ships, then not at all.
+- A release that could not complete publishing (for example `v0.1.0`, which has no Homebrew formula, Scoop manifest or provenance attestation) is not a supported version; the next patch is, and the CHANGELOG names the replacement.
+
+| Version | Status | Supported until |
+|---|---|---|
+| 0.1.x | current | the 0.2 minor ships, then 90 days of security fixes |
+| 0.1.0 | superseded by 0.1.1 (incomplete publish) | — |
+| 0.1.0-rc.1, rc.2 | prerelease | — |
 
 Harness CLIs (Claude Code, Codex, Gemini CLI, Copilot CLI) are not ours to support. The versions a Halos release was exercised against are in the [harness matrix](/halos/reference/harness-matrix/) (`make uat-clis` runs them on every PR). A newer CLI that changes its config format is a Halos **minor**, not a patch, because the adapter's rendered bytes change.
 

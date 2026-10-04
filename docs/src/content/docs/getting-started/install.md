@@ -14,11 +14,15 @@ description: Install halo and halod on macOS, Linux and Windows, in CI, in dev c
 
 ## macOS
 
-Homebrew: `brew install dshakes/tap/halo`. Or use the script, which works on macOS and Linux and needs no sudo:
+```sh
+brew install dshakes/tap/halo                 # formula in github.com/dshakes/homebrew-tap
+```
+
+Or the script, which works on macOS and Linux and needs no sudo:
 
 ```sh
 curl -fsSLO https://raw.githubusercontent.com/dshakes/halos/v0.1.1/install/install.sh
-sh install.sh --version v0.1.1                # halo into ~/.local/bin
+sh install.sh --version v0.1.1                # halo into ~/.local/bin; tells you if that is not on PATH
 ```
 
 `install.sh` verifies `checksums.txt` against its cosign signature when `cosign` is on `PATH`. Without cosign it warns loudly and trusts only the sha256 checksums. It then verifies each archive. `--prefix DIR` changes the install location; `--with-agent` adds `halod`.
@@ -26,14 +30,20 @@ sh install.sh --version v0.1.1                # halo into ~/.local/bin
 ## Linux
 
 ```sh
-sudo apt install ./halo_*.deb      # from the release assets; also .rpm / .apk, and the halod package
+curl -fsSLO https://github.com/dshakes/halos/releases/download/v0.1.1/halo_0.1.1_linux_amd64.deb
+sudo apt install ./halo_0.1.1_linux_amd64.deb      # also .rpm / .apk, arm64, and the halod_* packages
 ```
 
 The `halo` and `halod` packages (deb, rpm, apk) install to `/usr/bin`. `halod` ships a systemd unit and `/etc/halos/`, but is **never enabled or enrolled** by the package. You write `/etc/halos/halod.yaml`, then run `systemctl enable --now halod`. `install.sh` works on Linux too.
 
 ## Windows
 
-Scoop: `scoop bucket add dshakes https://github.com/dshakes/scoop-bucket && scoop install halo`. Or use `install.ps1` from the release, from an **elevated** PowerShell:
+```powershell
+scoop bucket add dshakes https://github.com/dshakes/scoop-bucket
+scoop install halo
+```
+
+Or `install.ps1` from the release, from an **elevated** PowerShell:
 
 ```powershell
 .\install.ps1 -Version v0.1.1 -WithAgent         # to $env:ProgramFiles\Halos
@@ -99,7 +109,8 @@ The chart runs `halo-server`, `halo-proxy` and `halo-shadow`, with an optional O
 
 ```console
 $ halo version
+halo 0.1.1 (commit <sha>, built <date>)
 $ halo --help        # lists validate, release, rollout, toggle, eval, upgrade, gateway, mcp ...
 ```
 
-Then continue with the [quickstart](/halos/getting-started/quickstart/).
+Then go back to [Start here](/halos/getting-started/start-here/) and pick a path: `halo quickstart` to see the whole thing on Docker, or `halo doctor` to put your own machine under policy.

@@ -49,6 +49,8 @@ type writeOut struct {
 	PR      string `json:"pr,omitempty"`
 	Verdict string `json:"verdict,omitempty"`
 	Note    string `json:"note,omitempty"`
+	// NextSteps names the next tool call, or the exact human command at a gate.
+	NextSteps []string `json:"next_steps"`
 }
 
 func isDry(p *bool) bool { return p == nil || *p }
@@ -130,6 +132,11 @@ func (s *srv) finish(ctx context.Context, dry bool, files map[string][]byte, edi
 	out := writeOut{DryRun: dry, Patch: patch}
 	if dry {
 		out.Note = "dry run: nothing written; pass dry_run=false to commit this to a local branch"
+		out.NextSteps = []string{gateApprove}
+		if patch == "" {
+			out.Note = "dry run: nothing would change (already in that state)"
+			out.NextSteps = []string{"nothing to apply; continue with the next step"}
+		}
 		return out, nil
 	}
 	branch, c, err := promote.CommitOnBranch(ctx, nil, s.dir, promote.BranchCommit{
@@ -140,7 +147,23 @@ func (s *srv) finish(ctx context.Context, dry bool, files map[string][]byte, edi
 	}
 	out.Applied, out.Branch, out.Commit = true, branch, c
 	out.Note = "committed locally; push and merge are human steps"
+	out.NextSteps = []string{fmt.Sprintf("human gate: git -C %s push -u origin %s && gh pr create --head %s --fill; then review and merge", s.dir, branch, branch)}
 	return out, nil
+}
+
+// openPR pushes ch as a review branch and opens the PR, the same way
+// `halo rollout advance|rollback` does; a human merges it.
+func (s *srv) openPR(ctx context.Context, branch, title, body, reason, base string, files map[string][]byte, edit func(promote.ReadFunc) (map[string][]byte, error)) (writeOut, error) {
+	patch, err := diffFiles(s.dir, files)
+	if err != nil {
+		return writeOut{}, err
+	}
+	url, err := s.prOpener().OpenPR(ctx, promote.PRRequest{RepoDir: s.dir, Base: base, Branch: branch, Title: title,
+		Body: "**Reason:** " + reason + "\n\n" + body, CommitBody: "Reason: " + reason, Files: files, Edit: edit})
+	if err != nil {
+		return writeOut{}, err
+	}
+	return writeOut{Patch: patch, Applied: true, Branch: branch, PR: url, Note: "PR opened; a human reviews and merges", NextSteps: []string{gateMerge + ": " + url}}, nil
 }
 
 func (s *srv) target(org *policy.Org, exp, ring string, needRing bool) (*policy.Experiment, promote.Target, error) {
@@ -194,16 +217,25 @@ func (s *srv) proposePromotion(ctx context.Context, _ *mcp.CallToolRequest, in p
 	}
 	if out.DryRun {
 		out.Note = "dry run: no PR opened"
+		switch {
+		case s.ClickHouse == nil:
+			out.NextSteps = []string{"a real PR needs a promote verdict: " + gateEvidence}
+		case rep.Verdict != promote.Promote:
+			out.NextSteps = []string{"verdict is " + out.Verdict + ", not promote: wait_for kind=experiment name=" + e.Name + " before proposing"}
+		default:
+			out.NextSteps = []string{gateApprove, "the release digest must already be published (halo release publish is the human's step)"}
+		}
 		return nil, out, nil
 	}
 	if s.ClickHouse == nil {
-		return nil, writeOut{}, errors.New("opening a promotion PR needs evidence: start the server with --clickhouse")
+		return nil, writeOut{}, errors.New("opening a promotion PR needs evidence: " + gateEvidence)
 	}
-	o := reasonOpener{reason: reason, gh: promote.GHOpener{}}
+	o := reasonOpener{reason: reason, gh: s.prOpener()}
 	if out.PR, err = promote.OpenPR(ctx, o, t, ch, e, rep, in.Base); err != nil {
 		return nil, writeOut{}, err
 	}
 	out.Applied, out.Note = true, "PR opened; a human reviews and merges"
+	out.NextSteps = []string{gateMerge + ": " + out.PR, "after the merge: wait_for kind=rollout (if one backs this experiment) or status to confirm the ring points at the release"}
 	return nil, out, nil
 }
 
