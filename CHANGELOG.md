@@ -9,6 +9,7 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 ### Fixed
 - Homebrew and Scoop publishing. GoReleaser accepts a tap or bucket token only as `{{ .Env.NAME }}`; the `index .Env` form passed `goreleaser check` and every prerelease (which skip the tap and bucket) and failed on the first final tag. `v0.1.0`'s release job stopped at that step: its GitHub release assets, signed checksums and `0.1.0` images were published, but it has no Homebrew formula, no Scoop manifest and no provenance attestation. `v0.1.1` is otherwise identical and is the release the installers and docs point at.
 
+## [0.1.0] - 2026-10-02
 
 The first general-availability release. Everything in this section and in the two release candidates ships here. Verified in CI on every change, and run end to end before this tag: Linux, macOS and Windows builds; the installers, `halod` as a launchd daemon and as a Windows SYSTEM scheduled task; the GitHub Action, the GitLab template and the dev container Feature; Helm on a kind cluster with pod-kill, rolling-upgrade and eviction fault injection under load; `halo-kong` in open-source Kong 3.9.3; the real pinned Claude Code, Codex, Gemini CLI and Copilot CLI driven headlessly through `halo-proxy`; `halo-proxy` against the real Anthropic and OpenAI APIs nightly; a headless browser click-through of every console page.
 
