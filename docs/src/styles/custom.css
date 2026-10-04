@@ -72,8 +72,8 @@ site-search mark { background: color-mix(in srgb, var(--h-a0) 35%, transparent);
 
 /* sidebar: quiet group labels, a pill for the current page */
 .sidebar-pane { border-inline-end: 1px solid var(--sl-color-hairline); }
-nav.sidebar .large { font-size: 0.78rem; font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase; color: var(--sl-color-gray-3); }
-nav.sidebar a { border-radius: 8px; font-size: 0.92rem; color: var(--sl-color-gray-2); transition: background 0.15s, color 0.15s; }
+nav.sidebar summary .large { font-size: 0.78rem; font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase; color: var(--sl-color-gray-3); }
+nav.sidebar a { border-radius: 8px; font-size: 0.92rem; font-weight: 500; color: var(--sl-color-gray-2); transition: background 0.15s, color 0.15s; }
 nav.sidebar a:hover { color: var(--sl-color-white); background: var(--sl-color-gray-6); }
 nav.sidebar a[aria-current='page'],
 nav.sidebar a[aria-current='page']:hover { background: var(--sl-color-accent-low); color: var(--sl-color-accent-high); font-weight: 600; }
@@ -89,6 +89,8 @@ nav.sidebar a[aria-current='page']:hover { background: var(--sl-color-accent-low
 .sl-markdown-content table { display: table; width: 100%; border-collapse: separate; border-spacing: 0; border: 1px solid var(--sl-color-hairline-light); border-radius: 12px; overflow: hidden; font-size: 0.92rem; }
 .sl-markdown-content :is(th, td) { border: 0; border-bottom: 1px solid var(--sl-color-hairline); padding: 0.6rem 0.9rem; }
 .sl-markdown-content tr:last-child td { border-bottom: 0; }
+/* phones: a wide table scrolls inside its own frame instead of the page */
+@media (max-width: 50rem) { .sl-markdown-content table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; } }
 .sl-markdown-content th { background: var(--sl-color-gray-6); font-weight: 600; color: var(--sl-color-white); }
 .sl-markdown-content blockquote { border-inline-start: 3px solid var(--sl-color-accent); background: var(--sl-color-gray-6); border-radius: 0 10px 10px 0; padding: 0.6rem 1rem; }
 

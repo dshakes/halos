@@ -11,6 +11,7 @@ import Eclipse from '../components/landing/Eclipse.astro';
 import Story from '../components/landing/Story.astro';
 import Media from '../components/landing/Media.astro';
 import { proof } from '../data/proof';
+import { release, releaseUrl } from '../data/release';
 
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const u = (p: string) => base + p;
@@ -71,7 +72,7 @@ const p = proof();
           Halos
         </a>
         <nav aria-label="Main">
-          <a href={u('/getting-started/introduction/')}>Docs</a>
+          <a href={u('/getting-started/start-here/')}>Docs</a>
           <a href={u('/concepts/how-it-works/')}>How it works</a>
           <a href={u('/architecture/components/')}>Architecture</a>
           <a href={u('/tutorials/')}>Tutorials</a>
@@ -94,21 +95,26 @@ const p = proof();
         <div class="wrap hero-in">
           <Eclipse />
           <div class="hero-copy">
-            <a class="eyebrow" href={gh}><span class="pulse-dot" aria-hidden="true"></span>Open source · Apache-2.0 · pre-release</a>
+            <a class="eyebrow" href={releaseUrl}><span class="pulse-dot" aria-hidden="true"></span>Open source · Apache-2.0 · {release}</a>
             <h1>Ship AI coding tools<br /> <span class="grad">like software.</span></h1>
             <p class="lede">
               One policy repo becomes signed releases, rolled out ring by ring, gated by evals and live telemetry,
               and killed automatically when a guardrail measured at the gateway breaks (with halo-server's kill list on).
             </p>
             <div class="ctas">
-              <a class="btn primary" href={u('/getting-started/playground/')}>Try the playground <span aria-hidden="true">→</span></a>
-              <a class="btn ghost" href={u('/getting-started/introduction/')}>Read the docs</a>
+              <a class="btn primary" href={u('/getting-started/start-here/')}>Start here <span aria-hidden="true">→</span></a>
+              <a class="btn ghost" href={u('/getting-started/playground/')}>Try the playground</a>
             </div>
             <p class="works">Works with Claude Code · Codex · Gemini CLI · Copilot CLI</p>
           </div>
           <div class="hero-term">
             <Terminal />
           </div>
+          <ol class="steps3" aria-label="How it works, in three commands">
+            <li><span class="n">1</span><div><code>halo init --org acme</code><p>Write policy: one git repo of YAML for CLI versions, models, permissions, MCP servers and rings.</p></div></li>
+            <li><span class="n">2</span><div><code>halo release publish</code><p>A human merges; <code>halo</code> signs an immutable release into your OCI registry.</p></div></li>
+            <li><span class="n">3</span><div><code>halo rollout advance</code><p>Rings point at releases; <code>halod</code> applies them on every machine. Each step is gated and reversible.</p></div></li>
+          </ol>
         </div>
       </section>
 
@@ -256,10 +262,10 @@ mkdir acme && cd acme && halo init --org acme && halo validate</code></pre>
       <div class="wrap foot-in">
         <div>
           <p class="brand-f">Halos</p>
-          <p class="muted">The open-source control plane for AI coding CLIs. Pre-release (<code>v1alpha1</code>), Apache-2.0, self-hosted.</p>
+          <p class="muted">The open-source control plane for AI coding CLIs. <a href={releaseUrl}>{release}</a>, Apache-2.0, self-hosted.</p>
         </div>
         <nav aria-label="Footer">
-          <div><p>Docs</p><a href={u('/getting-started/introduction/')}>Introduction</a><a href={u('/getting-started/playground/')}>Playground</a><a href={u('/reference/cli/')}>CLI reference</a></div>
+          <div><p>Docs</p><a href={u('/getting-started/start-here/')}>Start here</a><a href={u('/getting-started/playground/')}>Playground</a><a href={u('/reference/cli/')}>CLI reference</a></div>
           <div><p>Learn</p><a href={u('/tutorials/')}>Tutorials</a><a href={u('/examples/')}>Examples</a><a href={u('/architecture/components/')}>Architecture</a><a href={u('/reference/comparison/')}>Comparison</a></div>
           <div><p>Project</p><a href={gh}>GitHub</a><a href={`${gh}/blob/main/SECURITY.md`}>Security</a><a href={`${gh}/blob/main/LICENSE`}>License</a></div>
         </nav>
