@@ -62,7 +62,17 @@ if grep -q '^killSwitch:' "$TMP/halod.yaml"; then
   curl -fsSL "$SERVER/enroll/killswitch.pub" -o "$TMP/killswitch.pub"
   $SUDO install -m 0644 -o 0 -g 0 "$TMP/killswitch.pub" "$ETC/killswitch.pub"
 fi
-echo "halod installed at $BIN and enrolled. Config: $ETC/halod.yaml"
+echo "halod installed at $BIN and this machine is enrolled. Config: $ETC/halod.yaml"
+# Start halod as a service so the first check-in happens now and keeps happening.
+# Without launchd/systemd (containers, unusual distros) say exactly what to run instead.
+if $SUDO "$BIN" service install --start >/dev/null 2>&1; then
+  echo "halod is running. It installs your pinned CLIs and applies your ring's policy;"
+  echo "this device appears on $SERVER within a minute. Check anytime: sudo $BIN status"
+else
+  echo "halod is not running yet (no launchd/systemd here). Run it yourself:"
+  echo "  sudo $BIN once                    # apply your ring's policy now"
+  echo "  sudo $BIN service install --start   # keep it applied"
+fi
 `, base, cases.String(), dl)
 }
 
@@ -110,7 +120,15 @@ try {
   if (Select-String -Path (Join-Path $Etc 'halod.yaml') -Pattern '^killSwitch:' -Quiet) {
     Invoke-WebRequest -UseBasicParsing "$Server/enroll/killswitch.pub" -OutFile (Join-Path $Etc 'killswitch.pub')
   }
-  Write-Host "halod installed and enrolled. Config: $Etc\halod.yaml"
+  Write-Host "halod installed and this machine is enrolled. Config: $Etc\halod.yaml"
+  # Start halod as a scheduled task so the first check-in happens now and keeps happening.
+  & (Join-Path $Dir 'halod.exe') service install --start | Out-Null
+  if ($LASTEXITCODE -eq 0) {
+    Write-Host "halod is running. It installs your pinned CLIs and applies your ring's policy;"
+    Write-Host "this device appears on $Server within a minute. Check anytime: halod status"
+  } else {
+    Write-Host "halod is not running yet. Run it yourself (elevated): halod once; halod service install --start"
+  }
 } finally { Remove-Item -Recurse -Force $Tmp }
 `, base, tbl.String(), dl)
 }

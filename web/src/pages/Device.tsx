@@ -1,4 +1,4 @@
-import { useDevice, type Host } from "../api";
+import { useDevice, useRevokeDevice, type Host } from "../api";
 import { Card, Empty, ErrorBox, Mono, Pill, ago, shortDigest } from "../ui";
 
 function Harnesses({ h }: { h: Host }) {
@@ -19,6 +19,7 @@ function Harnesses({ h }: { h: Host }) {
 
 export function Device({ id }: { id: string }) {
   const { data, error, isLoading } = useDevice(id);
+  const revoke = useRevokeDevice();
   if (error) return <ErrorBox error={error} />;
   if (isLoading || !data) return <Empty>Loading…</Empty>;
   const { device: d, last, history } = data;
@@ -30,7 +31,18 @@ export function Device({ id }: { id: string }) {
         <Mono className="text-mute">{d.id}</Mono>
         {d.revoked ? <Pill tone="bad" dot>revoked</Pill> : <Pill tone="ok" dot>active</Pill>}
         {last?.errorCode && <Pill tone="bad">error: {last.errorCode}</Pill>}
+        {!d.revoked && (
+          <button
+            className="ml-auto rounded-md border border-line px-3 py-1.5 hover:bg-panel2 disabled:opacity-50"
+            disabled={revoke.isPending}
+            onClick={() => { if (window.confirm(`Revoke ${last?.hostname ?? "this device"}? Its token stops working at once: halod on it can no longer fetch releases or report, and the gateway's posture check fails for ${d.userID} until they re-enroll from the Kiosk. This cannot be undone.`)) revoke.mutate(d.id); }}
+          >
+            {revoke.isPending ? "Revoking…" : "Revoke device"}
+          </button>
+        )}
       </div>
+      {revoke.error && <ErrorBox error={revoke.error} />}
+      {d.revoked && <div className="text-mute">Revoked. The machine must re-enroll from the Kiosk (Set up my laptop) to be managed again.</div>}
 
       <div className="grid gap-5 lg:grid-cols-2">
         <Card title="Binding">
@@ -43,7 +55,7 @@ export function Device({ id }: { id: string }) {
           </dl>
         </Card>
         <Card title="Last report">
-          {!last ? <Empty>No report received yet.</Empty> : (
+          {!last ? <Empty>No report received yet: halod has not run on this machine since enrollment.</Empty> : (
             <dl className="grid grid-cols-[110px_1fr] gap-y-1.5 p-4">
               <dt className="text-mute">Ring</dt><dd><Pill tone="info">{last.ring || "—"}</Pill></dd>
               <dt className="text-mute">Release</dt><dd><Mono>{shortDigest(last.digest)}</Mono></dd>
@@ -56,8 +68,8 @@ export function Device({ id }: { id: string }) {
       </div>
 
       <Card title={`Report history · ${history.length}`} right={<span className="text-mute">newest first, bounded; resets on server restart</span>}>
-        {history.length === 0 ? <Empty>No reports.</Empty> : (
-          <table className="w-full text-left">
+        {history.length === 0 ? <Empty>No report yet. halod reports after each run; on the machine: <Mono>sudo halod once</Mono>.</Empty> : (
+          <div className="overflow-x-auto"><table className="w-full text-left">
             <caption className="sr-only">Recent reports from this device</caption>
             <thead className="text-[11px] tracking-wide text-mute uppercase">
               <tr className="border-b border-line">{["Received", "Release", "Harnesses", "Drift", "Error"].map((c) => <th key={c} scope="col" className="px-4 py-2 font-medium">{c}</th>)}</tr>
@@ -73,7 +85,7 @@ export function Device({ id }: { id: string }) {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         )}
       </Card>
     </div>

@@ -212,6 +212,7 @@ func (s *Server) Handler() http.Handler {
 	m.HandleFunc("GET /api/v1/whoami", s.user(s.whoami)) // developers: self only; admins: any user
 	// developer self-service
 	m.HandleFunc("GET /api/v1/me", s.user(s.me))
+	m.HandleFunc("GET /api/v1/me/devices", s.user(s.myDevices))
 	m.HandleFunc("GET /api/v1/catalog", s.user(s.catalog))
 	m.HandleFunc("POST /api/v1/launch/{launcher}", s.user(s.launch))
 	m.HandleFunc("POST /api/v1/requests", s.user(s.postRequest))

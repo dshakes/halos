@@ -134,6 +134,7 @@ async function call<T extends z.ZodType>(method: string, path: string, schema: T
     const msg = z.object({ error: z.string() }).safeParse(j);
     throw new ApiError(res.status, msg.success ? msg.data.error : `${res.status} ${res.statusText}`);
   }
+  if (res.status === 204) return schema.parse(undefined); // e.g. revoke: no body
   return schema.parse(await res.json());
 }
 const get = <T extends z.ZodType>(path: string, schema: T) => call("GET", path, schema);
@@ -162,6 +163,7 @@ const Me = z.object({
   launcherSetup: arr(z.object({ launcher: z.string(), missing: z.string() })),
   requestable: arr(z.string()),
   optInRings: arr(z.string()),
+  supportURL: z.string().optional(),
   devInsecure: z.boolean().optional(),
 });
 export type Me = z.infer<typeof Me>;
@@ -201,6 +203,25 @@ const AccessRequest = z.object({
 export type AccessRequest = z.infer<typeof AccessRequest>;
 
 export const useMe = () => useQuery({ queryKey: ["me"], queryFn: () => get("/api/v1/me", Me), retry: false });
+
+const DeviceBinding = z.object({
+  id: z.string(),
+  userID: z.string(),
+  groups: arr(z.string()),
+  createdAt: z.string(),
+  lastSeen: z.string(),
+  lastAuth: z.string().optional(),
+  expiresAt: z.string().optional(),
+  revoked: z.boolean(),
+});
+const MyDevices = z.object({
+  devices: arr(z.object({ device: DeviceBinding, last: Host.optional(), expired: z.boolean() })),
+  posture: z.object({ compliant: z.boolean(), reason: z.string().optional() }),
+});
+export type MyDevices = z.infer<typeof MyDevices>;
+/** The caller's own devices and the gateway's posture verdict for them; polls fast while a device is expected. */
+export const useMyDevices = (fast: boolean) =>
+  useQuery({ queryKey: ["me", "devices"], queryFn: () => get("/api/v1/me/devices", MyDevices), refetchInterval: fast ? 3_000 : 15_000 });
 export const useCatalog = (enabled: boolean) => useQuery({ queryKey: ["catalog"], queryFn: () => get("/api/v1/catalog", Catalog), enabled });
 export const useRequests = (enabled = true) => useQuery({ queryKey: ["requests"], queryFn: () => get("/api/v1/requests", z.array(AccessRequest)), enabled, refetchInterval: 20_000 });
 export const useLaunch = () => useMutation({ mutationFn: (launcher: string) => call("POST", `/api/v1/launch/${encodeURIComponent(launcher)}`, Launch) });
@@ -266,20 +287,19 @@ const Releases = z.object({ rings: arr(RingRelease), stale: z.boolean(), registr
 export const useReleases = () => useQuery({ queryKey: ["releases"], queryFn: () => get("/api/v1/releases", Releases), refetchInterval: 30_000 });
 
 const DeviceDetail = z.object({
-  device: z.object({
-    id: z.string(),
-    userID: z.string(),
-    groups: arr(z.string()),
-    createdAt: z.string(),
-    lastSeen: z.string(),
-    lastAuth: z.string().optional(),
-    expiresAt: z.string().optional(),
-    revoked: z.boolean(),
-  }),
+  device: DeviceBinding,
   last: Host.optional(),
   history: arr(Host),
 });
 export const useDevice = (id: string) => useQuery({ queryKey: ["device", id], queryFn: () => get(`/api/v1/devices/${encodeURIComponent(id)}`, DeviceDetail), refetchInterval: 15_000 });
+/** Revokes the device token: its next call gets 401 and the machine must re-enroll from the kiosk. */
+export function useRevokeDevice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => call("POST", `/api/v1/devices/${encodeURIComponent(id)}/revoke`, z.unknown()),
+    onSettled: (_d, _e, id) => Promise.all([qc.invalidateQueries({ queryKey: ["device", id] }), qc.invalidateQueries({ queryKey: ["fleet"] })]),
+  });
+}
 
 const AuditEntry = z.object({
   seq: z.number(),

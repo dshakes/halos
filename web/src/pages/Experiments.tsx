@@ -127,7 +127,7 @@ function Detail({ e }: { e: Experiment }) {
           const r = v?.guardrails.find((x) => x.metric === g.metric)?.result;
           const tone: Tone = r ? statusTone(r.status) : "mute";
           return (
-            <div key={g.metric} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_90px] items-center gap-4 border-b border-line px-4 py-2.5 last:border-0">
+            <div key={g.metric} className="grid items-center gap-2 border-b border-line px-4 py-2.5 last:border-0 md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_90px] md:gap-4">
               <div><Mono>{g.metric}</Mono><div className="text-mute">{g.direction}{g.maxRegression !== undefined && <> · max {pct(g.maxRegression)}</>}</div></div>
               {r ? <div><Forest row={{ label: g.metric, est: r.regression, lo: r.lower, hi: r.upper, ref: r.maxRegression, tone }} /><div className="text-right text-mute tabular-nums">{pct(r.regression)} [{pct(r.lower)}, {pct(r.upper)}]</div></div> : <span className="text-mute">no data</span>}
               <div className="text-right"><Pill tone={tone} dot>{r?.status ?? "pending"}</Pill></div>
@@ -147,9 +147,9 @@ export function Experiments({ name }: { name?: string }) {
   return (
     <div className="space-y-5">
     <KillSwitchPanel />
-    <div className="grid grid-cols-[260px_1fr] gap-5">
+    <div className="grid gap-5 lg:grid-cols-[260px_1fr]">
       <Card>
-        {data.length === 0 && <Empty>No experiments.</Empty>}
+        {data.length === 0 && <Empty>No experiments defined. Add one under <Mono>experiments:</Mono> in the policy repo.</Empty>}
         {data.map((e) => (
           <a key={e.name} href={`#/experiments/${encodeURIComponent(e.name)}`} className={`block border-b border-line px-4 py-2.5 last:border-0 hover:bg-panel2 ${sel?.name === e.name ? "bg-panel2" : ""}`}>
             <div className="truncate font-medium">{e.name}</div>
@@ -157,7 +157,7 @@ export function Experiments({ name }: { name?: string }) {
           </a>
         ))}
       </Card>
-      {sel ? <Detail key={sel.name} e={sel} /> : <Empty>Experiment not found.</Empty>}
+      {sel ? <Detail key={sel.name} e={sel} /> : data.length > 0 && <Empty>No experiment named <Mono>{name}</Mono>. Pick one on the left.</Empty>}
     </div>
     </div>
   );

@@ -63,15 +63,15 @@ export function Fleet() {
               </div>
             );
           })}
-          {harnessNames.length === 0 && <Empty>No hosts have reported yet.</Empty>}
+          {harnessNames.length === 0 && <Empty>No device has reported yet. Developers enroll from the <a className="text-accent hover:underline" href="#/kiosk">Kiosk</a>; by hand on a machine: <Mono>sudo halod once</Mono>.</Empty>}
         </div>
       </Card>
 
       <Card
-        title={`Hosts · ${rows.length}/${data.total}`}
+        title={`Devices · ${rows.length}/${data.total}`}
         right={
-          <div className="flex items-center gap-2">
-            <input className={`${inputCls} w-44`} placeholder="Search host or user" value={q} onChange={(e) => setQ(e.target.value)} />
+          <div className="flex flex-wrap items-center gap-2">
+            <input className={`${inputCls} w-44`} placeholder="Search host or user" aria-label="Search host or user" value={q} onChange={(e) => setQ(e.target.value)} />
             <select className={inputCls} value={ring} onChange={(e) => setRing(e.target.value)} aria-label="Ring">
               <option value="">All rings</option>
               {data.rings.map((r) => <option key={r.ring}>{r.ring}</option>)}
@@ -80,15 +80,17 @@ export function Fleet() {
               <option value="">All harnesses</option>
               {harnessNames.map((h) => <option key={h}>{h}</option>)}
             </select>
-            <input className={`${inputCls} w-28`} placeholder="Version" value={version} onChange={(e) => setVersion(e.target.value)} />
+            <input className={`${inputCls} w-28`} placeholder="Version" aria-label="Installed version contains" value={version} onChange={(e) => setVersion(e.target.value)} />
             <label className="flex items-center gap-1.5 text-mute"><input type="checkbox" checked={driftOnly} onChange={(e) => setDriftOnly(e.target.checked)} />Drift</label>
           </div>
         }
       >
+        <div className="overflow-x-auto">
         <table className="w-full text-left">
+          <caption className="sr-only">Enrolled devices and their last report</caption>
           <thead className="text-[11px] tracking-wide text-mute uppercase">
             <tr className="border-b border-line">
-              {["Host", "Ring", "Release", "Harnesses", "Drift", "Last seen"].map((c) => <th key={c} className="px-4 py-2 font-medium">{c}</th>)}
+              {["Host", "Ring", "Release", "Harnesses", "Drift", "Last seen"].map((c) => <th key={c} scope="col" className="px-4 py-2 font-medium">{c}</th>)}
             </tr>
           </thead>
           <tbody>
@@ -118,13 +120,14 @@ export function Fleet() {
                     )}
                     {h.lastError && <div className="mt-1 max-w-64 truncate text-rose-500" title={h.lastError}>{h.lastError}</div>}
                   </td>
-                  <td className={`px-4 py-2 whitespace-nowrap ${stale ? "text-amber-500" : "text-mute"}`}>{ago(h.lastSeen, now)}</td>
+                  <td className={`px-4 py-2 whitespace-nowrap ${stale ? "text-amber-600 dark:text-amber-300" : "text-mute"}`} title={stale ? "No report for over a day: is halod running?" : h.lastSeen}>{ago(h.lastSeen, now)}{stale && " · stale"}</td>
                 </tr>
               );
             })}
           </tbody>
         </table>
-        {rows.length === 0 && <Empty>No hosts match.</Empty>}
+        </div>
+        {rows.length === 0 && <Empty>{data.total === 0 ? "No device has reported yet." : "No device matches these filters."}</Empty>}
       </Card>
     </div>
   );

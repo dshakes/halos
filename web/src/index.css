@@ -3,7 +3,7 @@
 
 :root {
   --bg: #fafafa; --panel: #ffffff; --panel2: #f4f4f5; --line: #e4e4e7;
-  --fg: #18181b; --mute: #71717a; --accent: #4f46e5;
+  --fg: #18181b; --mute: #67676f; /* 5.2:1 on white, 4.7:1 on panel2: AA for the small text that uses it */ --accent: #4f46e5;
   color-scheme: light;
 }
 .dark {

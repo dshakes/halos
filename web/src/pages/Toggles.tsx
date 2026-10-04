@@ -316,6 +316,7 @@ export function Toggles({ name }: { name?: string }) {
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-lg font-semibold">Feature toggles</h1>
         <span className="text-mute">{data.toggles.length} total · {data.toggles.filter((t) => t.kill).length} killed · {data.toggles.filter((t) => t.stale).length} stale</span>
+        <span className="basis-full text-mute">Open a toggle to see who gets it, kill it fleet-wide (signed, no release), or propose a change as a policy PR.</span>
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <input className={`${input} w-64`} placeholder="Search name, owner, description" aria-label="Search toggles" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -331,10 +332,10 @@ export function Toggles({ name }: { name?: string }) {
         </div>
       </div>
       <Card>
-        {rows.length === 0 ? <Empty>{data.toggles.length === 0 ? "No toggles in the policy repo." : "No toggles match."}</Empty> : rows.map((t) => {
+        {rows.length === 0 ? <Empty>{data.toggles.length === 0 ? <>No feature toggles yet. Add a YAML file under <Mono>toggles/</Mono> in the policy repo (see <Mono>examples/acme-corp/toggles</Mono>), then <Mono>halo validate</Mono>.</> : "No toggles match these filters."}</Empty> : rows.map((t) => {
           const s = stateOf(t);
           return (
-            <a key={t.name} href={`#/toggles/${encodeURIComponent(t.name)}`} className="grid grid-cols-[minmax(0,1.2fr)_minmax(0,2fr)_auto] items-center gap-4 border-b border-line px-4 py-3 last:border-0 hover:bg-panel2">
+            <a key={t.name} href={`#/toggles/${encodeURIComponent(t.name)}`} className="grid items-center gap-2 border-b border-line px-4 py-3 last:border-0 hover:bg-panel2 md:grid-cols-[minmax(0,1.2fr)_minmax(0,2fr)_auto] md:gap-4">
               <div className="min-w-0">
                 <div className="truncate font-medium">{t.name}</div>
                 <div className="truncate text-mute">{t.owner}{t.expires && <> · {t.stale ? "expired" : "expires"} {t.expires}</>}</div>
