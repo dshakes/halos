@@ -9,7 +9,7 @@ description: Install halo and halod on macOS, Linux and Windows, in CI, in dev c
 **`halo`** is the CLI you run in CI and on your workstation. **`halod`** is the fleet agent; it runs as root on each machine and applies the ring's signed release. Every channel below installs the same checksummed archives from a GitHub release. Always pin a version in automation; `v0.1.0` below is the current release.
 
 :::note[Release status]
-[`v0.1.0`](https://github.com/dshakes/halos/releases/tag/v0.1.0) is the first general-availability release. Every channel below installs from it: binaries, deb/rpm/apk packages, `install.sh`/`install.ps1`, Homebrew (`dshakes/homebrew-tap`), Scoop (`dshakes/scoop-bucket`), signed checksums and signed ghcr.io images, all verified by the release workflow after publishing; winget is submitted by hand. The [changelog](https://github.com/dshakes/halos/blob/main/CHANGELOG.md#010---2026-10-02) states what is GA and what is supported but not yet field-verified. Or [build from source](/halos/getting-started/installation/#from-source).
+[`v0.1.0`](https://github.com/dshakes/halos/releases/tag/v0.1.1) is the first general-availability release. Every channel below installs from it: binaries, deb/rpm/apk packages, `install.sh`/`install.ps1`, Homebrew (`dshakes/homebrew-tap`), Scoop (`dshakes/scoop-bucket`), signed checksums and signed ghcr.io images, all verified by the release workflow after publishing; winget is submitted by hand. The [changelog](https://github.com/dshakes/halos/blob/main/CHANGELOG.md#011---2026-10-03) states what is GA and what is supported but not yet field-verified. Or [build from source](/halos/getting-started/installation/#from-source).
 :::
 
 ## macOS
