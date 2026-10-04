@@ -173,7 +173,20 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /mirror", s.handleMirror)
 	mux.HandleFunc("GET /metrics", s.handleMetrics)
+	// /healthz: liveness — process is alive. Always 200.
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "ok\n") })
+	// /readyz: readiness — policy snapshot loaded. 503 until the snapshot is readable.
+	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) {
+		if org, err := s.cfg.Policy(); org == nil {
+			msg := "policy not loaded"
+			if err != nil {
+				msg += ": " + err.Error()
+			}
+			http.Error(w, msg, http.StatusServiceUnavailable)
+			return
+		}
+		_, _ = io.WriteString(w, "ok\n")
+	})
 	return mux
 }
 
