@@ -482,13 +482,13 @@ func (s *srv) serverJSON(ctx context.Context, method, path string, body any) (ma
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.AddCookie(&http.Cookie{Name: "halo_session", Value: s.session()})
+	req.AddCookie(&http.Cookie{Name: "halo_session", Value: s.session()}) //nolint:gosec // a client-side request cookie: Secure/HttpOnly are response attributes; https (or loopback) is enforced above
 	cl := &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	resp, err := cl.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("halo-server %s %s: %w", method, path, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	b, err := io.ReadAll(io.LimitReader(resp.Body, serverLimit))
 	if err != nil {
 		return nil, fmt.Errorf("halo-server %s %s: read: %w", method, path, err)
