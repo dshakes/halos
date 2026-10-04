@@ -311,7 +311,10 @@ func run() error {
 	isrv := iss.Serve()
 	defer isrv.Close()
 	const aud = "halo-gateway"
-	tok, err := iss.Mint(map[string]any{"aud": aud, "email": "load@acme.com", "groups": []string{"ai-platform"}})
+	// The token must outlive the whole run: Mint's default exp is one hour, and the nightly 60 m
+	// soak starts minutes after minting, so the last ~2 m were 401s (run 37112462775).
+	exp := time.Now().Add(*soak + *duration + 4**phase + 2*time.Hour).Unix()
+	tok, err := iss.Mint(map[string]any{"aud": aud, "email": "load@acme.com", "groups": []string{"ai-platform"}, "exp": exp})
 	if err != nil {
 		return err
 	}
