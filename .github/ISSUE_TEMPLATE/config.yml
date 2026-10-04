@@ -2,7 +2,7 @@ blank_issues_enabled: false
 contact_links:
   - name: Security vulnerability
     url: https://github.com/dshakes/halos/security/advisories/new
-    about: Report privately. Do not open a public issue.
+    about: Report privately. Do not open a public issue. Scope, response times and the disclosure process are in SECURITY.md (https://github.com/dshakes/halos/blob/main/SECURITY.md).
   - name: Documentation
     url: https://dshakes.github.io/halos/
     about: Read the docs first.
