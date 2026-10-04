@@ -158,7 +158,14 @@ func TestOIDCJWTRefetchesJWKSOnUnknownKid(t *testing.T) {
 		t.Fatal("kid k2 not yet published: want rejection")
 	}
 	rotatedIn.Store(true)
-	if _, err := v.Verify(reqWith(mint(rotated))); err != nil {
-		t.Fatalf("rotated key after refetch: %v", err)
+	// go-oidc releases a waiter before it clears its in-flight marker, so a verify
+	// that lands in that gap joins the just-finished (stale) fetch; allow one retry.
+	var verr error
+	for attempt := 0; attempt < 2; attempt++ {
+		if _, verr = v.Verify(reqWith(mint(rotated))); verr == nil {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
+	t.Fatalf("rotated key after refetch: %v", verr)
 }
