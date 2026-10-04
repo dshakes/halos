@@ -162,6 +162,7 @@ const Me = z.object({
   launcherSetup: arr(z.object({ launcher: z.string(), missing: z.string() })),
   requestable: arr(z.string()),
   optInRings: arr(z.string()),
+  supportURL: z.string().optional(),
   devInsecure: z.boolean().optional(),
 });
 export type Me = z.infer<typeof Me>;
@@ -201,6 +202,25 @@ const AccessRequest = z.object({
 export type AccessRequest = z.infer<typeof AccessRequest>;
 
 export const useMe = () => useQuery({ queryKey: ["me"], queryFn: () => get("/api/v1/me", Me), retry: false });
+
+const DeviceBinding = z.object({
+  id: z.string(),
+  userID: z.string(),
+  groups: arr(z.string()),
+  createdAt: z.string(),
+  lastSeen: z.string(),
+  lastAuth: z.string().optional(),
+  expiresAt: z.string().optional(),
+  revoked: z.boolean(),
+});
+const MyDevices = z.object({
+  devices: arr(z.object({ device: DeviceBinding, last: Host.optional(), expired: z.boolean() })),
+  posture: z.object({ compliant: z.boolean(), reason: z.string().optional() }),
+});
+export type MyDevices = z.infer<typeof MyDevices>;
+/** The caller's own devices and the gateway's posture verdict for them; polls fast while a device is expected. */
+export const useMyDevices = (fast: boolean) =>
+  useQuery({ queryKey: ["me", "devices"], queryFn: () => get("/api/v1/me/devices", MyDevices), refetchInterval: fast ? 3_000 : 15_000 });
 export const useCatalog = (enabled: boolean) => useQuery({ queryKey: ["catalog"], queryFn: () => get("/api/v1/catalog", Catalog), enabled });
 export const useRequests = (enabled = true) => useQuery({ queryKey: ["requests"], queryFn: () => get("/api/v1/requests", z.array(AccessRequest)), enabled, refetchInterval: 20_000 });
 export const useLaunch = () => useMutation({ mutationFn: (launcher: string) => call("POST", `/api/v1/launch/${encodeURIComponent(launcher)}`, Launch) });
@@ -266,16 +286,7 @@ const Releases = z.object({ rings: arr(RingRelease), stale: z.boolean(), registr
 export const useReleases = () => useQuery({ queryKey: ["releases"], queryFn: () => get("/api/v1/releases", Releases), refetchInterval: 30_000 });
 
 const DeviceDetail = z.object({
-  device: z.object({
-    id: z.string(),
-    userID: z.string(),
-    groups: arr(z.string()),
-    createdAt: z.string(),
-    lastSeen: z.string(),
-    lastAuth: z.string().optional(),
-    expiresAt: z.string().optional(),
-    revoked: z.boolean(),
-  }),
+  device: DeviceBinding,
   last: Host.optional(),
   history: arr(Host),
 });

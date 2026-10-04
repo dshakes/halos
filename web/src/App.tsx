@@ -52,9 +52,10 @@ export function App() {
   if (!me.data) return null;
 
   const pending = (reqs.data ?? []).filter((r) => r.status === "pending").length;
+  const signOut = () => { void fetch("/auth/logout", { method: "POST" }).then(() => window.location.reload()); };
   const nav: [string, string][] = admin
     ? [["", "Overview"], ["kiosk", "Kiosk"], ["fleet", "Fleet"], ["releases", "Releases"], ["experiments", "Experiments"], ["toggles", "Toggles"], ["policy", "Policy"], ["debug", "Assignment"], ["approvals", "Approvals"], ["audit", "Audit log"]]
-    : [["", "Home"], ["debug", "Assignment"]];
+    : [["", "Home"], ["debug", "Why this setup?"]];
 
   let view: ReactNode;
   switch (page) {
@@ -71,27 +72,32 @@ export function App() {
     default: view = admin ? <Overview /> : <Kiosk />;
   }
   return (
-    <div className="grid h-full grid-cols-[200px_1fr]">
-      <aside className="flex flex-col border-r border-line bg-panel px-3 py-4">
-        <div className="mb-6 flex items-center gap-2 px-2 font-semibold tracking-tight">
-          <svg viewBox="0 0 16 16" className="size-4 text-accent"><path d="M2 3h6l6 5-6 5H2l6-5z" fill="currentColor" /></svg>Halos
+    // Phone widths stack the shell: a top bar with a scrollable nav, the page beneath. From md up the nav is a sidebar.
+    <div className="grid h-full grid-rows-[auto_1fr] md:grid-cols-[200px_1fr] md:grid-rows-1">
+      <aside className="flex flex-col gap-2 border-b border-line bg-panel px-3 py-2 md:gap-0 md:border-r md:border-b-0 md:py-4">
+        <div className="flex items-center gap-2 px-2 font-semibold tracking-tight md:mb-6">
+          <svg viewBox="0 0 16 16" className="size-4 text-accent" aria-hidden="true"><path d="M2 3h6l6 5-6 5H2l6-5z" fill="currentColor" /></svg>Halos
+          <span className="ml-auto flex items-center gap-1 md:hidden">
+            <button onClick={toggle} aria-label={`Switch to ${dark ? "light" : "dark"} theme`} className="rounded-md border border-line px-2 py-1 text-[12px] text-mute">{dark ? "Light" : "Dark"}</button>
+            {!me.data.devInsecure && <button onClick={signOut} className="rounded-md border border-line px-2 py-1 text-[12px] text-mute">Sign out</button>}
+          </span>
         </div>
-        <nav className="space-y-0.5">
+        <nav aria-label="Main" className="-mx-3 flex gap-1 overflow-x-auto px-3 pb-1 md:mx-0 md:block md:space-y-0.5 md:overflow-visible md:px-0 md:pb-0">
           {nav.map(([p, label]) => (
-            <a key={p} href={`#/${p}`} aria-current={page === p ? "page" : undefined} className={`flex items-center justify-between rounded-md px-2.5 py-1.5 ${page === p || (p === "fleet" && page === "devices") ? "bg-panel2 font-medium text-fg" : "text-mute hover:bg-panel2 hover:text-fg"}`}>
+            <a key={p} href={`#/${p}`} aria-current={page === p ? "page" : undefined} className={`flex shrink-0 items-center justify-between gap-2 rounded-md px-2.5 py-1.5 whitespace-nowrap ${page === p || (p === "fleet" && page === "devices") ? "bg-panel2 font-medium text-fg" : "text-mute hover:bg-panel2 hover:text-fg"}`}>
               {label}
-              {p === "approvals" && pending > 0 && <span className="rounded-full bg-accent px-1.5 text-[10px] font-medium text-white">{pending}</span>}
+              {p === "approvals" && pending > 0 && <span className="rounded-full bg-accent px-1.5 text-[10px] font-medium text-white" aria-label={`${pending} pending`}>{pending}</span>}
             </a>
           ))}
         </nav>
-        <div className="mt-auto space-y-2">
+        <div className="mt-auto hidden space-y-2 md:block">
           {me.data.devInsecure && <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-600 dark:text-amber-300">Insecure demo mode: login disabled</div>}
           <div className="truncate px-1 text-mute" title={me.data.id}>{me.data.id}{admin && " · admin"}</div>
           <button onClick={toggle} className="w-full rounded-md border border-line px-2.5 py-1.5 text-left text-mute hover:text-fg">{dark ? "Light" : "Dark"} theme</button>
-          {!me.data.devInsecure && <button onClick={() => { void fetch("/auth/logout", { method: "POST" }).then(() => window.location.reload()); }} className="w-full rounded-md border border-line px-2.5 py-1.5 text-left text-mute hover:text-fg">Sign out</button>}
+          {!me.data.devInsecure && <button onClick={signOut} className="w-full rounded-md border border-line px-2.5 py-1.5 text-left text-mute hover:text-fg">Sign out</button>}
         </div>
       </aside>
-      <main className="overflow-y-auto p-6"><div className="mx-auto max-w-6xl">{view}</div></main>
+      <main className="min-w-0 overflow-y-auto p-4 md:p-6"><div className="mx-auto max-w-6xl">{view}</div></main>
     </div>
   );
 }

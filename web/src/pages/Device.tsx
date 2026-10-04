@@ -43,7 +43,7 @@ export function Device({ id }: { id: string }) {
           </dl>
         </Card>
         <Card title="Last report">
-          {!last ? <Empty>No report received yet.</Empty> : (
+          {!last ? <Empty>No report received yet: halod has not run on this machine since enrollment.</Empty> : (
             <dl className="grid grid-cols-[110px_1fr] gap-y-1.5 p-4">
               <dt className="text-mute">Ring</dt><dd><Pill tone="info">{last.ring || "—"}</Pill></dd>
               <dt className="text-mute">Release</dt><dd><Mono>{shortDigest(last.digest)}</Mono></dd>
@@ -56,8 +56,8 @@ export function Device({ id }: { id: string }) {
       </div>
 
       <Card title={`Report history · ${history.length}`} right={<span className="text-mute">newest first, bounded; resets on server restart</span>}>
-        {history.length === 0 ? <Empty>No reports.</Empty> : (
-          <table className="w-full text-left">
+        {history.length === 0 ? <Empty>No report yet. halod reports after each run; on the machine: <Mono>sudo halod once</Mono>.</Empty> : (
+          <div className="overflow-x-auto"><table className="w-full text-left">
             <caption className="sr-only">Recent reports from this device</caption>
             <thead className="text-[11px] tracking-wide text-mute uppercase">
               <tr className="border-b border-line">{["Received", "Release", "Harnesses", "Drift", "Error"].map((c) => <th key={c} scope="col" className="px-4 py-2 font-medium">{c}</th>)}</tr>
@@ -73,7 +73,7 @@ export function Device({ id }: { id: string }) {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         )}
       </Card>
     </div>

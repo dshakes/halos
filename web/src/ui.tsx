@@ -50,8 +50,16 @@ export function ago(iso: string, now = Date.now()): string {
 
 export const Empty = ({ children }: { children: ReactNode }) => <div className="px-4 py-10 text-center text-mute">{children}</div>;
 
+/** Turns transport failures into a sentence with a fix; server messages are already sentences and pass through. */
+export function humanError(error: unknown): string {
+  const msg = error instanceof Error ? error.message : String(error);
+  if (/failed to fetch|networkerror|load failed/i.test(msg)) return "Could not reach the server. Check your connection, then reload the page.";
+  if (/^5\d\d /.test(msg)) return `The server hit an error (${msg}). Try again in a moment; if it keeps happening, check the halo-server logs.`;
+  return msg;
+}
+
 export const ErrorBox = ({ error }: { error: unknown }) => (
-  <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-rose-700 dark:text-rose-300">{error instanceof Error ? error.message : String(error)}</div>
+  <div role="alert" className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-rose-700 dark:text-rose-300">{humanError(error)}</div>
 );
 
 const palette = ["#6366f1", "#10b981", "#f59e0b", "#ec4899", "#06b6d4", "#84cc16", "#f97316", "#8b5cf6"];

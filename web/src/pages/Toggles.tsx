@@ -331,10 +331,10 @@ export function Toggles({ name }: { name?: string }) {
         </div>
       </div>
       <Card>
-        {rows.length === 0 ? <Empty>{data.toggles.length === 0 ? "No toggles in the policy repo." : "No toggles match."}</Empty> : rows.map((t) => {
+        {rows.length === 0 ? <Empty>{data.toggles.length === 0 ? <>No feature toggles yet. Add a YAML file under <Mono>toggles/</Mono> in the policy repo (see <Mono>examples/acme-corp/toggles</Mono>), then <Mono>halo validate</Mono>.</> : "No toggles match these filters."}</Empty> : rows.map((t) => {
           const s = stateOf(t);
           return (
-            <a key={t.name} href={`#/toggles/${encodeURIComponent(t.name)}`} className="grid grid-cols-[minmax(0,1.2fr)_minmax(0,2fr)_auto] items-center gap-4 border-b border-line px-4 py-3 last:border-0 hover:bg-panel2">
+            <a key={t.name} href={`#/toggles/${encodeURIComponent(t.name)}`} className="grid items-center gap-2 border-b border-line px-4 py-3 last:border-0 hover:bg-panel2 md:grid-cols-[minmax(0,1.2fr)_minmax(0,2fr)_auto] md:gap-4">
               <div className="min-w-0">
                 <div className="truncate font-medium">{t.name}</div>
                 <div className="truncate text-mute">{t.owner}{t.expires && <> · {t.stale ? "expired" : "expires"} {t.expires}</>}</div>

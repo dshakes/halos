@@ -52,7 +52,8 @@ cat >/demo/portal.json <<EOF
 {"baseURL": "${CONSOLE_URL}", "registry": "$repo", "registryPlainHTTP": true,
  "pubKeyFile": "/demo/keys/halo.pub", "sessionKeyFile": "/demo/session.key",
  "halodURL": "${DL_URL}/halod-{os}-{arch}", "halodSHA256": {$pins},
- "policyRepoDir": "/repo/writer", "policyBase": "main"}
+ "policyRepoDir": "/repo/writer", "policyBase": "main",
+ "supportURL": "https://github.com/dshakes/halos/issues"}
 EOF
 chmod -R a+rX /demo
 touch /demo/.seeded
