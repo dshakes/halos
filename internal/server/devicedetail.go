@@ -30,8 +30,13 @@ func (s *Server) getDevice(w http.ResponseWriter, r *http.Request, _ Principal) 
 		return
 	}
 	out := DeviceDetail{Device: dev, History: s.cfg.Store.History(Host{Report: Report{Device: dev.ID}}.key())}
-	if len(out.History) > 0 {
-		out.Last = &out.History[0]
+	// The latest report survives a restart (reports.jsonl); the history does not,
+	// so Last comes from the store's current row, not from History[0].
+	for _, h := range s.cfg.Store.All() { // ponytail: O(fleet) per page view, same as posture
+		if h.Device == dev.ID {
+			out.Last = &h
+			break
+		}
 	}
 	writeJSON(w, http.StatusOK, out)
 }

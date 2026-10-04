@@ -74,7 +74,7 @@ export function App() {
   return (
     // Phone widths stack the shell: a top bar with a scrollable nav, the page beneath. From md up the nav is a sidebar.
     <div className="grid h-full grid-rows-[auto_1fr] md:grid-cols-[200px_1fr] md:grid-rows-1">
-      <aside className="flex flex-col gap-2 border-b border-line bg-panel px-3 py-2 md:gap-0 md:border-r md:border-b-0 md:py-4">
+      <aside className="flex min-w-0 flex-col gap-2 border-b border-line bg-panel px-3 py-2 md:gap-0 md:border-r md:border-b-0 md:py-4">
         <div className="flex items-center gap-2 px-2 font-semibold tracking-tight md:mb-6">
           <svg viewBox="0 0 16 16" className="size-4 text-accent" aria-hidden="true"><path d="M2 3h6l6 5-6 5H2l6-5z" fill="currentColor" /></svg>Halos
           <span className="ml-auto flex items-center gap-1 md:hidden">

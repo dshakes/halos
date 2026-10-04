@@ -182,7 +182,7 @@ function MyRequests({ me }: { me: Me }) {
             </div>
             <div className="mt-1 text-mute">
               {st.what}
-              {r.prURL && /^https?:\/\//.test(r.prURL) && <> <a className="text-accent hover:underline" href={r.prURL} target="_blank" rel="noopener noreferrer">View the change →</a></>}
+              {r.prURL && (/^https?:\/\//.test(r.prURL) ? <> <a className="text-accent hover:underline" href={r.prURL} target="_blank" rel="noopener noreferrer">View the change →</a></> : <> Change: {r.prURL}.</>)}
               {r.note && <> Note from {r.decidedBy ?? "the admin"}: “{r.note}”</>}
             </div>
           </li>

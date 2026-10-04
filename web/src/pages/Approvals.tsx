@@ -34,7 +34,8 @@ export function Approvals() {
           <div key={r.id} className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-2.5 last:border-0">
             <Pill tone={statusTone(r.status === "approved" ? "pass" : "fail")} dot>{r.status}</Pill>
             <span>{r.user}</span><span className="text-mute">{r.kind}</span><span className="font-mono text-[12px]">{r.item}</span>
-            <span className="ml-auto text-mute">{r.decidedBy}{r.prURL && /^https?:\/\//.test(r.prURL) && <> · <a className="text-accent hover:underline" href={r.prURL} target="_blank" rel="noopener noreferrer">PR</a></>}{r.note && ` · ${r.note}`}</span>
+            {/* prURL is a link on GitHub-backed repos; a plain description (e.g. a local branch) elsewhere. Either way the admin sees where the change went. */}
+            <span className="ml-auto text-mute">{r.decidedBy}{r.prURL && (/^https?:\/\//.test(r.prURL) ? <> · <a className="text-accent hover:underline" href={r.prURL} target="_blank" rel="noopener noreferrer">PR</a></> : <> · change proposed: {r.prURL}</>)}{r.note && ` · ${r.note}`}</span>
           </div>
         ))}
       </Card>
