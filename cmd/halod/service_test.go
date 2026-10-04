@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"flag"
 	"io"
 	"os"
@@ -90,7 +91,8 @@ func TestRunService(t *testing.T) {
 	if err := runService(context.Background(), "linux", root, exe, "install", true, &out, run); err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Join(calls, "|"); got != "systemctl daemon-reload|systemctl enable --now halod" {
+	// restart, not enable --now: a service already running from a previous install applies now.
+	if got := strings.Join(calls, "|"); got != "systemctl daemon-reload|systemctl enable halod|systemctl restart halod" {
 		t.Errorf("install --start ran %q", got)
 	}
 	if err := runService(context.Background(), "linux", root, "", "uninstall", false, &out, run); err != nil {
@@ -201,6 +203,38 @@ func TestRunRefusesUntrustedSelf(t *testing.T) {
 		err := run([]string{cmd, "-config", filepath.Join(t.TempDir(), "halod.yaml")}, io.Discard, io.Discard)
 		if err == nil || !strings.Contains(err.Error(), "insecure halod binary") {
 			t.Errorf("%s: untrusted halod binary accepted: %v", cmd, err)
+		}
+	}
+}
+
+// Re-installing over a loaded daemon or running task must not fail: the stop
+// step is best effort (its error is ignored) and runs before registration.
+func TestServiceInstallIsIdempotent(t *testing.T) {
+	for _, c := range []struct{ goos, stop, install, start string }{
+		{"darwin", "launchctl bootout system/dev.halos.halod", "launchctl bootstrap system " + launchdPath, ""},
+		{"windows", "schtasks /End /TN Halos", "schtasks /Create", "schtasks /Run /TN Halos"},
+	} {
+		var calls []string
+		run := func(_ context.Context, name string, a ...string) ([]byte, error) {
+			cmd := name + " " + strings.Join(a, " ")
+			calls = append(calls, cmd)
+			if strings.HasPrefix(cmd, c.stop) {
+				return []byte("Boot-out failed: 3: No such process"), errors.New("exit status 3")
+			}
+			return nil, nil
+		}
+		exe := "/x/halod" // only checked when goos is the running OS
+		if c.goos == runtime.GOOS {
+			exe = trustedExe(t)
+		}
+		if err := runService(context.Background(), c.goos, t.TempDir(), exe, "install", true, io.Discard, run); err != nil {
+			t.Fatalf("%s: %v", c.goos, err)
+		}
+		if len(calls) < 2 || !strings.HasPrefix(calls[0], c.stop) || !strings.HasPrefix(calls[1], c.install) {
+			t.Errorf("%s: stop must precede install, got %q", c.goos, calls)
+		}
+		if c.start != "" && calls[len(calls)-1] != c.start {
+			t.Errorf("%s: --start must end with %q, got %q", c.goos, c.start, calls)
 		}
 	}
 }
