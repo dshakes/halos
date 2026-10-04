@@ -154,7 +154,7 @@ func (f *fakeServer) handler() http.Handler {
 	})
 	m.HandleFunc("/api/v1/devices", func(w http.ResponseWriter, r *http.Request) {
 		f.record(r)
-		_ = json.NewEncoder(w).Encode(map[string]any{"devices": []map[string]any{{"id": "d1"}}})
+		_ = json.NewEncoder(w).Encode([]map[string]any{{"id": "d1"}}) // halo-server answers a bare array
 	})
 	m.HandleFunc("/api/v1/audit", func(w http.ResponseWriter, r *http.Request) {
 		f.record(r)

@@ -496,14 +496,21 @@ func (s *srv) serverJSON(ctx context.Context, method, path string, body any) (ma
 	if resp.StatusCode/100 != 2 {
 		return nil, fmt.Errorf("halo-server %s %s: %d: %s", method, path, resp.StatusCode, strings.TrimSpace(string(b)))
 	}
-	var m map[string]any
+	// Objects come back as-is; a bare array (e.g. /api/v1/devices) is wrapped as {"items": [...]}.
+	var v any
 	if len(bytes.TrimSpace(b)) == 0 {
 		return map[string]any{}, nil
 	}
-	if err := json.Unmarshal(b, &m); err != nil {
+	if err := json.Unmarshal(b, &v); err != nil {
 		return nil, fmt.Errorf("halo-server %s %s: decode: %w", method, path, err)
 	}
-	return m, nil
+	switch m := v.(type) {
+	case map[string]any:
+		return m, nil
+	case []any:
+		return map[string]any{"items": m}, nil
+	}
+	return nil, fmt.Errorf("halo-server %s %s: unexpected reply %.100s", method, path, b)
 }
 
 func isLoopback(host string) bool {
@@ -554,7 +561,10 @@ func (s *srv) fleetStatus(ctx context.Context, _ *mcp.CallToolRequest, _ empty) 
 	if err != nil {
 		return nil, nil, err
 	}
-	f["devices"] = d["devices"]
+	f["devices"] = d["items"]
+	if f["devices"] == nil {
+		f["devices"] = d["devices"]
+	}
 	f["next_steps"] = []string{"drift > 0 means a device's managed config differs from its ring's release: fleet_status lists which; a device off its release fails posture on enforce rings"}
 	return nil, f, nil
 }

@@ -15,3 +15,7 @@ Say "onboard me onto Halos" (or "try halos", "set up my machine", "set up my com
 - Never emit `bypassPermissions` or `danger-full-access`.
 
 For rollouts (CLI or model upgrades) follow `plugins/claude-code/skills/halos-rollout/SKILL.md`.
+
+## Autopilot
+
+To run the whole lifecycle hands-off, use the server's `autopilot` prompt (or read `halos://guide/autopilot`): `status` first, then validate -> `release_build`/`plan` -> `eval_run` -> **GATE 1** -> `start_experiment` -> `wait_for` -> **GATE 2** -> `propose_promotion` (PR) -> `propose_rollout_advance` per ring, or `kill_switch` + `propose_rollback` on a bad verdict. Follow every tool's `next_steps`; stop at each GATE. The fleet tools need the server started with `--server <halo-server URL>` and `HALO_SESSION` exported.
