@@ -130,7 +130,7 @@ Default guardrails are Go code ([ADR-0007](/halos/adr/0007-guardrails-in-go-not-
 ## What Halos will not do
 
 - Emit `bypassPermissions` or `danger-full-access`, including via `overrides` (overrides are an allowlist).
-- Auto-promote a release, auto-merge a PR, or push to your main branch. The MCP server has no publish, retag, merge or push tool.
+- Auto-promote a release, auto-merge a PR, or push to your main branch. The MCP server has no publish, retag or merge tool, and the only push it makes is a `halos/*` review branch behind a PR.
 - Execute a shadow candidate's tool calls.
 - Merge or auto-promote from the controller: it only opens PRs. Its one automatic action that changes live traffic is the kill switch, which only ever reverts to control.
 

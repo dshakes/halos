@@ -4,7 +4,7 @@ description: Use the Halos Coder module in templates, including Coder Tasks.
 ---
 
 :::caution[UNVERIFIED]
-The Terraform module in `features/coder/` has not been executed (`terraform validate` or `apply`), and no Coder deployment was used. Variable names below are read from `main.tf`.
+The Terraform module in `features/coder/` passes `tofu init && tofu validate` (OpenTofu 1.12.0, run by hand on 2026-10-04; not part of CI) but has never been applied, and no Coder deployment was used. Variable names below are read from `main.tf`.
 :::
 
 Coder templates define the workspace, so applying policy there gives environment-as-policy for cloud workspaces and unattended Coder Tasks.

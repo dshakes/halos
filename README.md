@@ -221,7 +221,7 @@ Archives are checksummed and carry SBOMs; `checksums.txt` is cosign-signed and e
 
 `halo mcp serve` exposes these to any MCP client: validate, plan, rollout status, experiment analysis, toggle evaluation and eval scorecards.
 
-The write tools (propose a rollout step, a rollback or a toggle change) are opt-in and dry-run by default. They commit to a new local branch. Only `propose_promotion` opens a PR, which pushes its own review branch; none pushes to the base branch, merges or publishes. The [Claude Code plugin](plugins/claude-code), the [Codex config](.codex), the [Gemini CLI extension](extensions/gemini/halos) and the [Copilot CLI config](.github/mcp.json) drive the same flows: onboarding (`doctor` → dry run → approve → write → verify) and rollout (edit → validate → eval → experiment → propose).
+The write tools (propose a rollout step, a rollback or a toggle change, kill a change, run an eval) are opt-in and dry-run by default. Proposals commit to a new local branch; `propose_promotion` and, on request, the rollout proposals push a review branch and open a PR. None pushes to the base branch, merges or publishes a release. The [Claude Code plugin](plugins/claude-code), the [Codex config](.codex), the [Gemini CLI extension](extensions/gemini/halos) and the [Copilot CLI config](.github/mcp.json) drive the same flows: onboarding (`doctor` → dry run → approve → write → verify) and rollout (edit → validate → eval → experiment → propose).
 
 ## Architecture
 

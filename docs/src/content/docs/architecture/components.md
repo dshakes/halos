@@ -270,8 +270,8 @@ This is the same loop as `halo controller run`. Every `--interval` it evaluates 
 [`plugins/claude-code`](https://github.com/dshakes/halos/tree/main/plugins/claude-code) contains:
 
 - `.mcp.json`, which runs `halo mcp serve --policy-dir ${HALOS_POLICY_DIR:-.}` without `--allow-writes`.
-- Skills: `halos-author-policy`, `halos-onboard`, `halos-rollout`, `halos-triage`.
-- Commands: `/halo-onboard`, `/halo-rollout`, `/halo-status`.
+- Skills: `halos-author-policy`, `halos-autopilot`, `halos-onboard`, `halos-rollout`, `halos-triage`.
+- Commands: `/halos:halo-onboard`, `/halos:halo-autopilot`, `/halos:halo-rollout`, `/halos:halo-status`.
 - Agent: `halos-release-manager`, which proposes but never publishes, retags, merges or pushes.
 - No hooks.
 
