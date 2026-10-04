@@ -165,11 +165,15 @@ func writeErr(w http.ResponseWriter, status int, code, msg string) {
 	fmt.Fprintf(w, `{"error":{"type":%q,"message":%q}}`+"\n", code, msg)
 }
 
-// AdminHandler serves /healthz and /metrics. It is mounted only on the admin
-// listener: the public listener serves proxied model traffic and nothing else.
+// AdminHandler serves /healthz (liveness), /readyz (readiness) and /metrics.
+// It is mounted only on the admin listener: the public listener serves proxied
+// model traffic and nothing else.
 func (p *Proxy) AdminHandler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { p.health(w) })
+	// /healthz: liveness — process is alive. Always 200; never fails due to policy.
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { fmt.Fprintln(w, "ok") })
+	// /readyz: readiness — policy snapshot loaded. 503 until the snapshot is readable.
+	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) { p.ready(w) })
 	mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
 		var d, f int64
@@ -440,7 +444,7 @@ func (p *Proxy) mirrorJob(res gateway.Result, h http.Header, path string, body [
 	}
 }
 
-func (p *Proxy) health(w http.ResponseWriter) {
+func (p *Proxy) ready(w http.ResponseWriter) {
 	org, err := p.snap.Get()
 	if org == nil {
 		msg := "policy snapshot not loaded"

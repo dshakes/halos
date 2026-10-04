@@ -165,7 +165,21 @@ func (s *Server) ReloadPolicy() { s.pol.Invalidate() }
 // Handler returns the full mux with security headers and request logging.
 func (s *Server) Handler() http.Handler {
 	m := http.NewServeMux()
+	// /healthz: liveness — process is alive. Always 200.
 	m.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "ok\n") })
+	// /readyz: readiness — policy loaded. 503 until the first successful policy load.
+	m.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
+		org, _, err := s.pol.Get()
+		if org == nil {
+			msg := "policy not loaded"
+			if err != nil {
+				msg += ": " + err.Error()
+			}
+			apiErr(w, http.StatusServiceUnavailable, msg)
+			return
+		}
+		_, _ = io.WriteString(w, "ok\n")
+	})
 	m.HandleFunc("POST /api/v1/fleet/report", s.postReport)
 	m.HandleFunc("GET /api/v1/fleet/ring", s.getFleetRing)
 	m.HandleFunc("GET /api/v1/fleet/killswitch", s.getFleetKillswitch)

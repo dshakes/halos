@@ -111,7 +111,7 @@ spec:
           ports:
             - {name: http, containerPort: {{ $p.port }}}
             - {name: admin, containerPort: {{ $p.adminPort }}}
-          readinessProbe: {httpGet: {path: /healthz, port: admin}, periodSeconds: 5, failureThreshold: 2}
+          readinessProbe: {httpGet: {path: /readyz, port: admin}, periodSeconds: 5, failureThreshold: 2}
           livenessProbe: {httpGet: {path: /healthz, port: admin}, initialDelaySeconds: 10, periodSeconds: 20}
           {{- if semverCompare ">=1.30.0-0" .Capabilities.KubeVersion.Version }}
           lifecycle:
