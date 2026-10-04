@@ -3,7 +3,7 @@
 include:
   - local: deploy/ci/gitlab/halos.gitlab-ci.yml
 variables:
-  HALOS_VERSION: v0.1.0
+  HALOS_VERSION: v0.1.1
 halo-validate:
   extends: .halos
   image: buildpack-deps:bookworm-curl
