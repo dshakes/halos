@@ -57,17 +57,17 @@ func (e *env) publishRing(t *testing.T, ver, status string) {
 	}
 }
 
-// userIn finds a subject the gateway assigns to variant.
-func userIn(t *testing.T, variant string) string {
+// userIn finds a subject the gateway assigns to the "treatment" variant.
+func userIn(t *testing.T) string {
 	t.Helper()
 	org := expOrg("running")
 	for i := 0; i < 1000; i++ {
 		u := fmt.Sprintf("dev%d@acme.com", i)
-		if gateway.Decide(org, gateway.RequestInfo{UserID: u}).Variant == variant {
+		if gateway.Decide(org, gateway.RequestInfo{UserID: u}).Variant == "treatment" {
 			return u
 		}
 	}
-	t.Fatalf("no user hashes to %s", variant)
+	t.Fatalf("no user hashes to treatment")
 	return ""
 }
 
@@ -131,7 +131,7 @@ func TestExperimentApplyLifecycle(t *testing.T) {
 		}
 	})
 
-	e.a.Cfg.Subject = userIn(t, "treatment")
+	e.a.Cfg.Subject = userIn(t)
 	st, err := e.a.Once(ctx)
 	if err != nil || st.Experiment != "cli-upgrade" || st.Variant != "treatment" || pinOf(e) != pinTreatment {
 		t.Fatalf("treatment not applied: %v %+v %s", err, st, e.read(settings))
@@ -186,7 +186,7 @@ func TestExperimentApplyLifecycle(t *testing.T) {
 
 	t.Run("paused experiment converges to the ring release", func(t *testing.T) {
 		e2 := newEnv(t)
-		e2.a.Install, e2.a.Cfg.Subject = false, userIn(t, "treatment")
+		e2.a.Install, e2.a.Cfg.Subject = false, userIn(t)
 		e2.publishRing(t, "1", "running")
 		if _, err := e2.a.Once(ctx); err != nil || pinOf(e2) != pinTreatment {
 			t.Fatalf("setup: %v", err)

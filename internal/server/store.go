@@ -146,11 +146,11 @@ func (s *logStore) Put(h Host) error {
 		}
 	}
 	s.hosts[h.key()] = h
-	hh := append(s.hist[h.key()], h)
-	if len(hh) > MaxHistory {
-		hh = append([]Host(nil), hh[len(hh)-MaxHistory:]...) // copy so the dropped head can be collected
+	key := h.key()
+	s.hist[key] = append(s.hist[key], h)
+	if len(s.hist[key]) > MaxHistory {
+		s.hist[key] = append([]Host(nil), s.hist[key][len(s.hist[key])-MaxHistory:]...) // copy so the dropped head can be collected
 	}
-	s.hist[h.key()] = hh
 	return nil
 }
 

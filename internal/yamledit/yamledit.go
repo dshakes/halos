@@ -312,12 +312,12 @@ func (d *Doc) AppendSeq(path []string, item any) ([]byte, error) {
 		return nil, errors.New("yamledit: empty path")
 	}
 	lines := strings.Split(string(d.Data), "\n")
-	fail := func(format string, a ...any) ([]byte, error) {
-		return nil, fmt.Errorf("%s: append to %s: %s", d.Path, strings.Join(path, "."), fmt.Sprintf(format, a...))
+	fail := func(format string, a ...any) error {
+		return fmt.Errorf("%s: append to %s: %s", d.Path, strings.Join(path, "."), fmt.Sprintf(format, a...))
 	}
 	insert := func(at int, ins []string, err error) ([]byte, error) {
 		if err != nil {
-			return fail("render: %v", err)
+			return nil, fail("render: %v", err)
 		}
 		return []byte(strings.Join(slices.Insert(lines, at, ins...), "\n")), nil
 	}
@@ -326,7 +326,7 @@ func (d *Doc) AppendSeq(path []string, item any) ([]byte, error) {
 		kn, v := Scalar(m, k)
 		if kn == nil { // add the rest of the path after the mapping's last entry
 			if m.Style&yaml.FlowStyle != 0 || len(m.Content) == 0 {
-				return fail("cannot add %q to a flow or empty mapping", k)
+				return nil, fail("cannot add %q to a flow or empty mapping", k)
 			}
 			kc := m.Content[0].Column - 1
 			end := extent(lines, m.Content[len(m.Content)-2].Line-1, kc, true)
@@ -335,33 +335,33 @@ func (d *Doc) AppendSeq(path []string, item any) ([]byte, error) {
 		}
 		if v.Kind == yaml.ScalarNode && v.Tag == "!!null" { // "key:" with no value
 			if !clearNull(lines, kn) {
-				return fail("cannot edit empty value of %q", k)
+				return nil, fail("cannot edit empty value of %q", k)
 			}
 			ins, err := nested(path[i+1:], kn.Column-1+2, item)
 			return insert(kn.Line, ins, err)
 		}
 		if i < len(path)-1 {
 			if v.Kind != yaml.MappingNode {
-				return fail("%q is not a mapping", k)
+				return nil, fail("%q is not a mapping", k)
 			}
 			m = v
 			continue
 		}
 		if v.Kind != yaml.SequenceNode {
-			return fail("%q is not a list", k)
+			return nil, fail("%q is not a list", k)
 		}
 		if v.Style&yaml.FlowStyle != 0 {
 			return d.flowToBlock(kn, v, item)
 		}
 		dash := v.Column - 1
 		if l := lines[v.Line-1]; dash >= len(l) || l[dash] != '-' {
-			return fail("cannot locate list")
+			return nil, fail("cannot locate list")
 		}
 		end := extent(lines, v.Content[len(v.Content)-1].Line-1, dash, false)
 		ins, err := itemLines(dash, item)
 		return insert(end+1, ins, err)
 	}
-	return fail("unreachable")
+	return nil, fail("unreachable")
 }
 
 // flowToBlock replaces the flow sequence v (value of key kn) with a block

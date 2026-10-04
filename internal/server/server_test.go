@@ -16,7 +16,7 @@ import (
 
 const tok = "s3cret"
 
-func newTestServer(t *testing.T, verdicts string) (*Server, http.Handler) {
+func newTestServer(t *testing.T, verdicts string) http.Handler {
 	t.Helper()
 	s, err := New(Config{
 		PolicyDir: "../../examples/acme-corp", Token: tok, VerdictsPath: verdicts,
@@ -27,7 +27,7 @@ func newTestServer(t *testing.T, verdicts string) (*Server, http.Handler) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return s, s.Handler()
+	return s.Handler()
 }
 
 func do(h http.Handler, method, url, auth, body string) *httptest.ResponseRecorder {
@@ -49,7 +49,7 @@ func report(host, ring, claude string, drift bool) string {
 }
 
 func TestReportAuthAndLimits(t *testing.T) {
-	_, h := newTestServer(t, "")
+	h := newTestServer(t, "")
 	ok := report("h1", "ring1-canary", "2.1.0", false)
 	for _, c := range []struct {
 		name, auth, body string
@@ -70,7 +70,7 @@ func TestReportAuthAndLimits(t *testing.T) {
 }
 
 func TestFleetAggregation(t *testing.T) {
-	_, h := newTestServer(t, "")
+	h := newTestServer(t, "")
 	for _, b := range []string{
 		report("a", "ring3-ga", "2.1.0", false),
 		report("b", "ring3-ga", "2.0.9", true),
@@ -130,7 +130,7 @@ func TestPolicyExperimentsWhoAmI(t *testing.T) {
 	dir := t.TempDir()
 	vf := filepath.Join(dir, "v.json")
 	_ = os.WriteFile(vf, []byte(`[{"experiment":"opus-5-5-canary","verdict":"continue","Reason":"x","guardrails":[{"metric":"m","result":{"status":"pass"}}]}]`), 0o600)
-	_, h := newTestServer(t, vf)
+	h := newTestServer(t, vf)
 
 	var pv PolicyView
 	w := do(h, "GET", "/api/v1/policy", "", "")
@@ -172,7 +172,7 @@ func TestPolicyMissingDir(t *testing.T) {
 }
 
 func TestStaticAndHealth(t *testing.T) {
-	_, h := newTestServer(t, "")
+	h := newTestServer(t, "")
 	if w := do(h, "GET", "/", "", ""); w.Code != 200 || !strings.Contains(w.Body.String(), "Halos") {
 		t.Errorf("placeholder: %d", w.Code)
 	}
@@ -204,7 +204,7 @@ func TestStaticAndHealth(t *testing.T) {
 }
 
 func TestReportErrorCodePassthrough(t *testing.T) {
-	_, h := newTestServer(t, "")
+	h := newTestServer(t, "")
 	body := strings.Replace(report("h1", "ring1-canary", "2.1.0", false), `"drift":[]`, `"drift":[],"lastError":"x","errorCode":"sandbox_unavailable"`, 1)
 	if c := do(h, "POST", "/api/v1/fleet/report", "Bearer "+tok, body).Code; c != 204 {
 		t.Fatalf("report: %d", c)

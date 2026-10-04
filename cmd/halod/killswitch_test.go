@@ -95,7 +95,7 @@ func noRegistry(t *testing.T) func(context.Context) (oras.ReadOnlyTarget, error)
 func TestKillSwitchRevertsClientExperiment(t *testing.T) {
 	ctx := context.Background()
 	e := newEnv(t)
-	e.a.Install, e.a.Log, e.a.Cfg.Subject = false, quietLog(), userIn(t, "treatment")
+	e.a.Install, e.a.Log, e.a.Cfg.Subject = false, quietLog(), userIn(t)
 	e.publishRing(t, "1", "running")
 	ks := newKillServer(t)
 	e.a.Kill = ks.switchFor(t)
@@ -209,7 +209,7 @@ func TestKillSwitchRevertsClientExperiment(t *testing.T) {
 func TestKillSwitchUnrelatedOrUnreachable(t *testing.T) {
 	ctx := context.Background()
 	e := newEnv(t)
-	e.a.Install, e.a.Log, e.a.Cfg.Subject = false, quietLog(), userIn(t, "treatment")
+	e.a.Install, e.a.Log, e.a.Cfg.Subject = false, quietLog(), userIn(t)
 	e.publishRing(t, "1", "running")
 	ks := newKillServer(t)
 	ks.set(func(k *killServer) { k.fail = true })

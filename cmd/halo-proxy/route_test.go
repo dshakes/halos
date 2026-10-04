@@ -451,7 +451,7 @@ func TestClientCredentialHeadersStrippedOnEveryKind(t *testing.T) {
 		wantOnly         string // the one credential header the gateway itself may send
 		wantValue        string
 	}{
-		{"anthropic", "/v1/messages", opusBody, func(u string) policy.Upstream { return anthropic(u) }, "", ""},
+		{"anthropic", "/v1/messages", opusBody, anthropic, "", ""},
 		{"vertex", "/v1/messages", opusBody, func(u string) policy.Upstream {
 			return policy.Upstream{URL: u, Kind: "vertex", Project: "p", Region: "global"}
 		}, "Authorization", "Bearer gw-token"},
