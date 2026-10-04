@@ -12,7 +12,8 @@
 
 ## Checklist
 
-- [ ] `go build ./... && go test ./... -race` pass (or N/A)
+- [ ] `gofmt -l .` empty; `go build ./... && go vet ./... && go test -race ./...` pass (or N/A)
+- [ ] `cd docs && npm run build` passes and new pages are in the sidebar (docs changes)
 - [ ] Golden / e2e tests added or updated (adapters, traffic plane)
 - [ ] Docs and `CHANGELOG.md` updated
 - [ ] Any claim about a harness's behavior cites a source or is marked unverified
@@ -21,4 +22,4 @@
 
 ## How I verified
 
-<!-- Paste command output. Say what you could not run. -->
+<!-- Paste the commands you ran and their output. Label anything you could not run UNVERIFIED and say why. -->

@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://dshakes.github.io/halos/sitemap-index.xml
