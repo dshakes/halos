@@ -43,6 +43,8 @@ Decoding is strict, as everywhere: a misspelled key (`saftey:`) is an error with
 $ halo init --org acme --tools claude-code@2.1.280,codex@0.99.0
 note: codex: added model alias codex = openai/gpt-5-codex (the default model's provider cannot serve codex; change it with --model codex=<id>)
 create halos.yaml
+next: halo explain --policy-dir .   (the full policy this expands to)
+next: halo validate --policy-dir .
 ```
 
 `--model codex=<id>` picks the model yourself (an id without a `<provider>/` prefix runs on the tool's vendor), and `halo init -i` asks. Provider `vertex` needs `--project`.

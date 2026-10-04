@@ -1,7 +1,7 @@
 # GitLab CI include: pinned, checksum-verified halo on any Linux job image with curl.
 #   include:
 #     - remote: https://raw.githubusercontent.com/dshakes/halos/<TAG>/deploy/ci/gitlab/halos.gitlab-ci.yml
-#   variables: {HALOS_VERSION: v0.4.0}
+#   variables: {HALOS_VERSION: v0.1.1}
 #   my-job:
 #     extends: .halos
 #     script: [halo version, claude -p "..."]

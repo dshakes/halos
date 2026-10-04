@@ -25,7 +25,7 @@ All four read the same procedure, [`halos-onboard`](https://github.com/dshakes/h
 ## Try it
 
 ```sh
-halo quickstart          # make demo from a Halos checkout (clones one into ~/.cache/halos/src if needed)
+halo quickstart          # make demo from a Halos checkout (clones one into your user cache dir if needed: ~/.cache/halos/src on Linux, ~/Library/Caches/halos/src on macOS; it prints the path)
 halo quickstart down     # stop it and delete its volumes
 ```
 

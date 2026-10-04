@@ -460,7 +460,7 @@ func (a *app) cmdQuickstart() *cobra.Command {
 		Use:   "quickstart [down]",
 		Short: "Try it: bring up the whole stack on Docker (make demo), open the console and print a guided tour",
 		Long: "Runs scripts/demo.sh from a Halos checkout: --src, else the current directory if it is one, else a\n" +
-			"shallow clone it makes in ~/.cache/halos/src. DEV ONLY: mock IdP, mock models, throwaway keys.\n" +
+			"shallow clone it makes under your user cache dir (halos/src; the path is printed). DEV ONLY: mock IdP, mock models, throwaway keys.\n" +
 			"`halo quickstart down` stops it and deletes its volumes.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -501,6 +501,9 @@ func (a *app) cmdQuickstart() *cobra.Command {
 				}
 			}
 			for _, s := range steps {
+				if s[0] == "git" {
+					fmt.Fprintf(a.out, "cloning halos into %s\n", src)
+				}
 				x := exec.CommandContext(cmd.Context(), s[0], s[1:]...) //nolint:gosec // fixed commands
 				if s[0] != "git" {
 					x.Dir = src
