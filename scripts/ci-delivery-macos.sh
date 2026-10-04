@@ -15,7 +15,7 @@ REG=127.0.0.1:15055 BASE=http://127.0.0.1:18199 FILES=http://127.0.0.1:18200
 SETTINGS="/Library/Application Support/ClaudeCode/managed-settings.json"
 HALOD=/Library/Halos/bin/halod
 PIDS=()
-cleanup() { sudo "$HALOD" service uninstall >/dev/null 2>&1 || true; for p in "${PIDS[@]}"; do kill "$p" 2>/dev/null || true; done; }
+cleanup() { sudo "$HALOD" service uninstall >/dev/null 2>&1 || true; for p in ${PIDS[@]+"${PIDS[@]}"}; do kill "$p" 2>/dev/null || true; done; }
 trap cleanup EXIT
 fail() { echo "FAIL: $*" >&2; exit 1; }
 owner() { stat -f '%Su:%Sg %Lp' "$1"; }

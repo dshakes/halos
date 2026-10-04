@@ -48,7 +48,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 30
     env:
-      HALOS_INSTALL_VERSION: v0.1.0-rc.2
+      HALOS_INSTALL_VERSION: v0.1.1
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
@@ -61,7 +61,7 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 30
     env:
-      HALOS_INSTALL_VERSION: v0.1.0-rc.2
+      HALOS_INSTALL_VERSION: v0.1.1
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
@@ -69,8 +69,6 @@ jobs:
       - run: scripts/ci-delivery-macos.sh
   action:
     # The composite Action itself (`uses: ./`) pinned to a real release, then halo validate.
-    # The pinned release predates halos.dev/v1, so it validates the v1alpha1 copy of the example
-    # (test/ci/policy-v1alpha1/README.md); switch back to examples/acme-corp with the next release.
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -79,15 +77,15 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./
-        with: {version: v0.1.0-rc.2}
+        with: {version: v0.1.1}
       - run: |
           halo version
-          halo validate test/ci/policy-v1alpha1
+          halo validate examples/acme-corp
         shell: bash
       - name: with-agent installs halod too
         if: runner.os != 'Windows'
         uses: ./
-        with: {version: v0.1.0-rc.2, with-agent: "true"}
+        with: {version: v0.1.1, with-agent: "true"}
       - name: halod is root-owned on PATH
         if: runner.os != 'Windows'
         run: |

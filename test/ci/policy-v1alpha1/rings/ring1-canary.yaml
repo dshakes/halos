@@ -1,9 +1,0 @@
-# yaml-language-server: $schema=../../../schemas/ring.schema.json
-apiVersion: halos.dev/v1alpha1
-kind: Ring
-name: ring1-canary
-order: 1
-profile: engineering
-membership:
-  percent: 5
-  optIn: true

@@ -90,11 +90,11 @@ func TestFailoverBeforeFirstByte(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			pSrv, pSeen := upstream(t, mode.handler)
 			sSrv, sSeen := upstream(t, respond(200, `{"from":"secondary"}`))
-			if mode.closed {
-				pSrv.Close()
-			}
 			ups, targets := primarySecondary(pSrv, sSrv)
 			e := routeEnv(t, ups, targets, func(c *Config) { c.UpstreamHeaderTimeout = 150 * time.Millisecond })
+			if mode.closed {
+				pSrv.Close() // after routeEnv: a server it starts could otherwise reuse the freed port
+			}
 			resp := e.post(t, "/v1/messages", e.token(t, "alice@acme.com"), opusBody, nil)
 			b, _ := io.ReadAll(resp.Body)
 			if resp.StatusCode != 200 || !strings.Contains(string(b), "secondary") {

@@ -3,13 +3,13 @@
 include:
   - local: deploy/ci/gitlab/halos.gitlab-ci.yml
 variables:
-  HALOS_VERSION: v0.1.0-rc.2
+  HALOS_VERSION: v0.1.1
 halo-validate:
   extends: .halos
   image: buildpack-deps:bookworm-curl
   script:
     - halo version
-    - halo validate test/ci/policy-v1alpha1 # the pinned release predates halos.dev/v1; see its README
+    - halo validate examples/acme-corp
 unpinned-is-refused:
   extends: .halos
   image: buildpack-deps:bookworm-curl
