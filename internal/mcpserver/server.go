@@ -41,6 +41,20 @@ type Options struct {
 	// Onboard, when set, is the machine the onboarding tools probe (tests);
 	// nil = the real one.
 	Onboard *onboard.Env
+	// Server is halo-server's base URL for the fleet tools (kill switch,
+	// audit, devices); empty = HALO_SERVER. The admin session is always
+	// read from HALO_SESSION, never a flag or a tool argument.
+	Server string
+	// PROpener opens review PRs (propose_promotion, open_pr on the rollout
+	// tools); nil = gh via promote.GHOpener. Tests inject a fake.
+	PROpener promote.PROpener
+}
+
+func (s *srv) prOpener() promote.PROpener {
+	if s.PROpener != nil {
+		return s.PROpener
+	}
+	return promote.GHOpener{}
 }
 
 type srv struct {
@@ -62,13 +76,16 @@ func New(o Options) (*mcp.Server, error) {
 	}
 	s := &srv{Options: o, dir: abs}
 	m := mcp.NewServer(&mcp.Implementation{Name: "halos", Version: o.Version}, &mcp.ServerOptions{
-		Instructions: "Halos policy control plane. Read tools are always safe. Write tools (if present) default to dry_run " +
+		Instructions: "Halos policy control plane. Start with the status tool (or the autopilot prompt / " + guideURI + " resource) " +
+			"to learn the state and what this server can do. Read tools are always safe. Write tools (if present) default to dry_run " +
 			"and only edit a local branch or open a PR; a human publishes releases, retags rings and merges. " +
 			"Onboarding: doctor, detect_harnesses, init_policy, local_install, local_proxy, verify_harness, onboard_company " +
-			"preview by default; they write files only with dry_run false on a server started with --allow-writes.",
+			"preview by default; they write files only with dry_run false on a server started with --allow-writes. " +
+			"Every tool answers with next_steps: the next call, or the exact human command at a gate.",
 	})
 	s.addReadTools(m)
 	s.addOnboardTools(m)
+	s.addAutopilotTools(m)
 	if o.AllowWrites {
 		s.addWriteTools(m)
 	}

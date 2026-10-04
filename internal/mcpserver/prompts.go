@@ -51,6 +51,9 @@ func addPrompts(m *mcp.Server) {
 			"channels, registry, policy repo URL, console URL, safety, rollout), onboard_company dry run then write, validate, plan, "+
 			"harness_matrix, eval_scorecard, commit on a branch and open a PR after I approve the push, then list the remaining human "+
 			"steps from the generated README and stop.", "path")
+	add("autopilot", "Drive the whole Halos lifecycle hands-off (onboard, draft, validate, plan, eval, start, wait, promote or roll back), stopping only at the human gates.",
+		[]*mcp.PromptArgument{{Name: "goal", Description: "what to roll out, e.g. 'claude-code 2.1.300 to ring1' or 'opus-5-5 as the default model' (ask when empty)"}},
+		"Goal: %[1]s (ask what to roll out if empty). Follow this guide exactly; it is also the resource "+guideURI+".\n\n"+autopilotGuide, "goal")
 	add("triage-experiment", "Diagnose an experiment whose guardrail is failing.",
 		[]*mcp.PromptArgument{arg("experiment", "experiment name")},
 		"Experiment %[1]s has a failing guardrail. Call show_experiment and analyze_experiment, identify which metric regressed "+
