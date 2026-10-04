@@ -22,5 +22,7 @@ Tools come from the `halos` MCP server (`halo mcp serve`). Read tools are always
 5. **Eval.** Run the eval suite with `halo eval run <suite.yaml> --output json > scorecard.json` (Docker; needs the human's credentials, so ask before running), then `eval_scorecard`. Report pass rate vs baseline.
 6. **STOP 1: human approval to start.** Present diff, plan, scorecard. Wait for explicit approval.
 7. **Start.** `start_experiment` (dry run, show diff, then real). The human publishes/merges the policy change and the release; you do not.
-8. **Monitor.** Call `analyze_experiment` (needs ClickHouse). Verdicts: `continue` (keep waiting), `rollback` (switch to the `halos-triage` skill), `promote`, `expired`.
+8. **Monitor.** Call `wait_for` (`kind: experiment`, bounded; call again while `satisfied` is false) or `analyze_experiment` directly (both need ClickHouse). Verdicts: `continue` (keep waiting), `rollback` (switch to the `halos-triage` skill), `promote`, `expired`.
 9. **STOP 2: human approval to promote.** On `promote`, show the evidence and call `propose_promotion` (dry run first). It opens a PR; tell the human to review and merge. Stop there.
+
+For the hands-off version of this loop (plus onboarding, release build, eval run, rollout advance and the kill/rollback path) use the `halos-autopilot` skill.

@@ -12,17 +12,18 @@ import (
 
 func (a *app) cmdMCP() *cobra.Command {
 	c := &cobra.Command{Use: "mcp", Short: "Model Context Protocol server for agents"}
-	var dir, schemaDir string
+	var dir, schemaDir, server string
 	var writes bool
 	var ch clickhouseFlags
 	serve := &cobra.Command{
 		Use:   "serve",
 		Short: "Serve Halos tools, resources and prompts over stdio MCP",
 		Long: "Serve Halos over stdio MCP. Read-only tools are always on. --allow-writes adds experiment " +
-			"and proposal tools (dry_run by default, reason required). No tool publishes releases, retags rings, merges or pushes.",
+			"and proposal tools (dry_run by default, reason required). --server (or HALO_SERVER) plus an admin HALO_SESSION " +
+			"enables the fleet tools (kill switch, audit, devices). No tool publishes releases, retags rings, merges or pushes.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			o := mcpserver.Options{PolicyDir: dir, AllowWrites: writes, SchemaDir: schemaDir, Version: version}
+			o := mcpserver.Options{PolicyDir: dir, AllowWrites: writes, SchemaDir: schemaDir, Version: version, Server: server}
 			if ch.url != "" {
 				o.ClickHouse = ch.client()
 			}
@@ -38,6 +39,7 @@ func (a *app) cmdMCP() *cobra.Command {
 	serve.Flags().StringVar(&dir, "policy-dir", ".", "policy repo directory")
 	serve.Flags().BoolVar(&writes, "allow-writes", false, "expose write tools (experiment status, promotion/rollback proposals)")
 	serve.Flags().StringVar(&schemaDir, "schema-dir", "", "JSON Schema directory (default: auto-detect)")
+	serve.Flags().StringVar(&server, "server", "", "halo-server base URL for the fleet tools (or HALO_SERVER); admin session from HALO_SESSION")
 	serve.Flags().StringVar(&ch.url, "clickhouse", "", "ClickHouse HTTP URL; enables analyze_experiment")
 	serve.Flags().StringVar(&ch.db, "database", "", "ClickHouse database")
 	serve.Flags().StringVar(&ch.user, "user", "", "ClickHouse user (password from HALO_CLICKHOUSE_PASSWORD)")
