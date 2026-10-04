@@ -45,21 +45,21 @@ func testExp(name string) *policy.Experiment {
 // source builds evidence yielding the wanted verdict (see promote's TestEvaluate).
 func source(v promote.Verdict) *promote.MemorySource {
 	rng := rand.New(rand.NewPCG(1, 1))
-	mk := func(succC, succT, costC, costT float64, n int) map[string]map[string][]float64 {
+	mk := func(succT, costT float64, n int) map[string]map[string][]float64 {
 		return map[string]map[string][]float64{
-			"halo.task.success":         {"control": normals(rng, n, succC, 0.3), "candidate": normals(rng, n, succT, 0.3)},
-			"halo.cost.usd_per_session": {"control": normals(rng, n, costC, 1), "candidate": normals(rng, n, costT, 1)},
+			"halo.task.success":         {"control": normals(rng, n, 0.6, 0.3), "candidate": normals(rng, n, succT, 0.3)},
+			"halo.cost.usd_per_session": {"control": normals(rng, n, 5, 1), "candidate": normals(rng, n, costT, 1)},
 		}
 	}
 	switch v {
 	case promote.Promote:
-		return &promote.MemorySource{Source: promote.SourceGateway, Start: start, Data: mk(0.6, 0.7, 5, 5, 1000)}
+		return &promote.MemorySource{Source: promote.SourceGateway, Start: start, Data: mk(0.7, 5, 1000)}
 	case promote.Rollback:
-		return &promote.MemorySource{Source: promote.SourceGateway, Start: start, Data: mk(0.6, 0.7, 5, 6, 1000)}
+		return &promote.MemorySource{Source: promote.SourceGateway, Start: start, Data: mk(0.7, 6, 1000)}
 	case promote.Expired:
-		return &promote.MemorySource{Source: promote.SourceGateway, Start: start.Add(-30 * 24 * time.Hour), Data: mk(0.6, 0.6, 5, 5, 300)}
+		return &promote.MemorySource{Source: promote.SourceGateway, Start: start.Add(-30 * 24 * time.Hour), Data: mk(0.6, 5, 300)}
 	}
-	return &promote.MemorySource{Source: promote.SourceGateway, Start: start, Data: mk(0.6, 0.6, 5, 5, 20)}
+	return &promote.MemorySource{Source: promote.SourceGateway, Start: start, Data: mk(0.6, 5, 20)}
 }
 
 type call struct{ exp, status, title, body string }

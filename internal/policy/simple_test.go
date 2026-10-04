@@ -144,10 +144,10 @@ func TestSimpleLoadErrors(t *testing.T) {
 		{"multi needs prefix", "provider: multi\nmodels: {default: m}\n", "names no provider"},
 		{"no provider", "models: {default: m}\n", "names no provider"},
 		{"strict provider keys", "provider: {name: anthropic, regoin: x}\nmodels: {default: m}\n", "regoin"},
-		{"strict root keys", "provider: anthropic\nmodels: {default: m}\nsaftey: strict\n", "saftey"},
+		{"strict root keys", "provider: anthropic\nmodels: {default: m}\nsaftey: strict\n", "saftey"}, //nolint:misspell // intentional typo: testing schema rejects it
 		{"bad model shape", "provider: anthropic\nmodels: {default: {id: m}}\n", "list of ids"},
 		{"tool model not an alias", "provider: anthropic\nmodels: {default: m}\ntools: {codex: {version: 0.99.0, model: gpt}}\n", `tools.codex.model: "gpt"`},
-		{"strict tool keys", "provider: anthropic\nmodels: {default: m}\ntools: {codex: {version: 0.99.0, modle: m}}\n", "modle"},
+		{"strict tool keys", "provider: anthropic\nmodels: {default: m}\ntools: {codex: {version: 0.99.0, modle: m}}\n", "modle"}, //nolint:misspell // intentional typo: testing schema rejects it
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -251,7 +251,7 @@ func TestSimpleSchema(t *testing.T) {
 		"no default":    "kind: Halos\norg: x\nmodels: {strong: m}\n",
 		"range pin":     "kind: Halos\norg: x\ntools: {claude-code: ^2.1.0}\n",
 		"provider keys": "kind: Halos\norg: x\nprovider: {name: bedrock, regoin: x}\n",
-		"tool keys":     "kind: Halos\norg: x\ntools: {codex: {version: 0.99.0, modle: m}}\n",
+		"tool keys":     "kind: Halos\norg: x\ntools: {codex: {version: 0.99.0, modle: m}}\n", //nolint:misspell // intentional typo: testing schema rejects it
 		"tool no pin":   "kind: Halos\norg: x\ntools: {codex: {model: m}}\n",
 	} {
 		if err := s.Validate(yamlDocs(t, []byte(doc))[0]); err == nil {

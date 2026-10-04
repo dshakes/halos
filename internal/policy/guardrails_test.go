@@ -348,3 +348,92 @@ func TestSandboxRequiredNeedsEgress(t *testing.T) {
 		t.Fatal("optional sandbox with open egress flagged")
 	}
 }
+
+func TestHasTokenShape(t *testing.T) {
+	for _, tc := range []struct {
+		s    string
+		want bool
+	}{
+		{"sk-ant-api03-" + strings.Repeat("a", 20), true},
+		{"ghp_" + strings.Repeat("x", 20), true},                                   // allowlist secret (fake test value)
+		{"AKIAIOSFODNN7EXAMPLE", true},                                             // allowlist secret (AWS documented example key)
+		{"-----BEGIN PRIVATE KEY-----\nMIIBVQ==\n-----END PRIVATE KEY-----", true}, // allowlist secret (fake test value, short PEM body: no entropy hit)
+		{"${ANTHROPIC_API_KEY}", false},
+		{"Bearer ${TOKEN}", false},
+		{"https://api.anthropic.com/v1/messages", false},
+		{"", false},
+	} {
+		if got := HasTokenShape(tc.s); got != tc.want {
+			t.Errorf("HasTokenShape(%q) = %v, want %v", tc.s, got, tc.want)
+		}
+	}
+}
+
+func TestLooksSecretPublic(t *testing.T) {
+	if !LooksSecret("Bearer sk-ant-api03-" + strings.Repeat("a", 20)) { // allowlist secret (fake test value)
+		t.Error("LooksSecret should flag a bearer token with vendor prefix")
+	}
+	if LooksSecret("${SOME_ENV_VAR}") {
+		t.Error("LooksSecret should not flag a var reference")
+	}
+}
+
+func TestPermissivenessRanking(t *testing.T) {
+	for _, tc := range []struct {
+		a, b      string
+		wantALess bool
+	}{
+		{"plan", "default", true},
+		{"plan", "", true},
+		{"", "acceptEdits", true},
+		{"default", "auto", true},
+		{"acceptEdits", "auto", true},
+		{"unknown-mode", "auto", false}, // unknown modes rank highest (never accepted)
+	} {
+		if got := permissiveness(tc.a) < permissiveness(tc.b); got != tc.wantALess {
+			t.Errorf("permissiveness(%q) < permissiveness(%q) = %v, want %v", tc.a, tc.b, got, tc.wantALess)
+		}
+	}
+}
+
+func TestTrafficOverlaps(t *testing.T) {
+	base := mustLoad(t)
+	// A single running traffic experiment on a ring → no overlap.
+	if issues := TrafficOverlaps(base); len(issues) != 0 {
+		t.Fatalf("unexpected overlap issues: %v", issues)
+	}
+	// A second running traffic-axis experiment routing the same alias on the same ring → overlap.
+	var traffic *Experiment
+	for _, e := range base.Experiments {
+		if e.Axis == AxisTraffic && e.Status == "running" {
+			traffic = e
+			break
+		}
+	}
+	if traffic == nil {
+		t.Fatal("example policy has no running traffic experiment")
+	}
+	exp2 := *traffic
+	exp2.Name = "exp2"
+	o := &Org{}
+	*o = *base
+	o.Experiments = append(slices.Clone(base.Experiments), &exp2)
+	issues := TrafficOverlaps(o)
+	if len(issues) == 0 {
+		t.Fatal("expected overlap error for two experiments routing same alias")
+	}
+	for _, is := range issues {
+		if is.Severity != SeverityError {
+			t.Errorf("overlap issue should be error, got %s", is.Severity)
+		}
+	}
+}
+
+func mustLoad(t *testing.T) *Org {
+	t.Helper()
+	o, err := Load("../../examples/acme-corp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return o
+}
