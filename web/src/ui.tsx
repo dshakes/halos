@@ -35,7 +35,7 @@ export function Card({ title, right, children, className = "" }: { title?: React
   );
 }
 
-export const Mono = ({ children, className = "" }: { children: ReactNode; className?: string }) => <span className={`font-mono text-[12px] ${className}`}>{children}</span>;
+export const Mono = ({ children, className = "", title }: { children: ReactNode; className?: string; title?: string }) => <span className={`font-mono text-[12px] ${className}`} title={title}>{children}</span>;
 
 export const shortDigest = (d: string) => (d ? d.replace(/^sha256:/, "").slice(0, 8) : "—");
 

@@ -316,6 +316,7 @@ export function Toggles({ name }: { name?: string }) {
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-lg font-semibold">Feature toggles</h1>
         <span className="text-mute">{data.toggles.length} total · {data.toggles.filter((t) => t.kill).length} killed · {data.toggles.filter((t) => t.stale).length} stale</span>
+        <span className="basis-full text-mute">Open a toggle to see who gets it, kill it fleet-wide (signed, no release), or propose a change as a policy PR.</span>
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <input className={`${input} w-64`} placeholder="Search name, owner, description" aria-label="Search toggles" value={q} onChange={(e) => setQ(e.target.value)} />

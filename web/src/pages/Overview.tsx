@@ -8,7 +8,9 @@ function top(m: Record<string, number>): [string, number][] {
 function Track({ name, order, stats, target, release, profile }: { name: string; order: number; stats?: RingStats; target?: number; release?: RingRelease; profile: string }) {
   const pct = stats?.percent ?? 0;
   const current = release?.published ? release.digest : undefined;
-  const digestDrift = stats && current && Object.keys(stats.digests).some((d) => d !== current);
+  // A device on one of the ring's experiment channels is on policy; only an unknown digest is worth amber.
+  const known = new Set([current, ...(release?.channels ?? []).filter((c) => c.published).map((c) => c.digest)]);
+  const digestDrift = stats && current && Object.keys(stats.digests).some((d) => !known.has(d));
   return (
     <div className="grid items-center gap-3 border-b border-line px-4 py-3.5 last:border-0 md:grid-cols-[180px_1fr_auto] md:gap-5">
       <div>
@@ -33,7 +35,7 @@ function Track({ name, order, stats, target, release, profile }: { name: string;
               {h}{" "}
               {top(vs).map(([v, n], i) => (
                 <Mono key={v} className="text-fg">
-                  {i > 0 && ", "}{v || "?"}<span className="text-mute">×{n}</span>
+                  {i > 0 && ", "}{v || "not installed"}<span className="text-mute">×{n}</span>
                 </Mono>
               ))}
             </span>
@@ -46,7 +48,7 @@ function Track({ name, order, stats, target, release, profile }: { name: string;
           <span className="text-lg font-semibold tabular-nums">{pct.toFixed(0)}%</span> <span className="text-mute">{stats?.hosts ?? 0} device{stats?.hosts === 1 ? "" : "s"}</span>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
-          {current ? <Mono className={digestDrift ? "text-amber-600 dark:text-amber-300" : "text-mute"}>{shortDigest(current)}</Mono> : release?.error ? <Pill tone="warn">pointer not readable</Pill> : <Pill>no release published</Pill>}
+          {current ? <Mono className={digestDrift ? "text-amber-600 dark:text-amber-300" : "text-mute"} title={digestDrift ? "some devices run a release that is neither this one nor one of its experiment channels" : "current signed release"}>{shortDigest(current)}</Mono> : release?.error ? <Pill tone="warn">pointer not readable</Pill> : <Pill>no release published</Pill>}
           {release?.expired ? <Pill tone="bad">release expired</Pill> : release?.expiringSoon ? <Pill tone="warn">expiring soon</Pill> : null}
           {stats && stats.driftHosts > 0 ? <Pill tone="warn" dot>{stats.driftHosts} drift</Pill> : stats ? <Pill tone="ok" dot>in sync</Pill> : null}
         </div>
@@ -60,7 +62,7 @@ function Tile({ label, value, tone, href, hint }: { label: string; value: string
     <>
       <div className="text-mute">{label}</div>
       <div className={`mt-1 text-2xl font-semibold tabular-nums ${tone === "bad" ? "text-rose-600 dark:text-rose-300" : tone === "warn" ? "text-amber-600 dark:text-amber-300" : ""}`}>{value}</div>
-      {hint && <div className="mt-0.5 truncate text-[11px] text-mute">{hint}</div>}
+      {hint && <div className="mt-0.5 truncate text-[11px] text-mute" title={hint}>{hint}</div>}
     </>
   );
   return href ? <a href={href} className="block rounded-lg border border-line bg-panel px-4 py-3 hover:bg-panel2">{body}</a> : <Card className="px-4 py-3">{body}</Card>;
