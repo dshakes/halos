@@ -72,7 +72,7 @@ curl -fsSL https://halo.acme.example/enroll.sh | sh -s -- <token>
 & ([scriptblock]::Create((irm https://halo.acme.example/enroll.ps1))) -Token <token>
 ```
 
-`enroll.sh` refuses to run without a pinned checksum for the machine's OS and architecture, downloads `halod`, verifies its sha256 against the value pinned in the server config, installs it into the root-owned per-OS location, fetches the release public key from `/enroll/release.pub`, exchanges the token at `POST /api/v1/enroll`, and writes `halod.yaml` (mode 0600, root-owned; the server builds the file by marshaling a config struct, not by string templating, so values cannot inject YAML). The script is served over your TLS; the binary it installs is hash-pinned. **UNVERIFIED:** the shell and PowerShell scripts have not been run on real machines here (PowerShell not at all).
+`enroll.sh` refuses to run without a pinned checksum for the machine's OS and architecture, downloads `halod`, verifies its sha256 against the value pinned in the server config, installs it into the root-owned per-OS location, fetches the release public key from `/enroll/release.pub`, exchanges the token at `POST /api/v1/enroll`, and writes `halod.yaml` (mode 0600, root-owned; the server builds the file by marshaling a config struct, not by string templating, so values cannot inject YAML). The script is served over your TLS; the binary it installs is hash-pinned. CI runs `enroll.sh` on a hosted macOS runner (`delivery-macos`) and `enroll.ps1` on a hosted Windows runner (`delivery-windows`); neither has been run on a real developer laptop (**UNVERIFIED**).
 
 ## Device tokens
 

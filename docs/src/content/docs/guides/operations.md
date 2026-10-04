@@ -10,13 +10,13 @@ Everything here is checked against the code it describes; `file:line` references
 | Component | Replicas | Why | Chart |
 |---|---|---|---|
 | `halo-proxy` | 2+ (HPA 2 to 10 on CPU) | Stateless: policy snapshot from a ConfigMap or git-sync, kill list polled from `halo-server` | `RollingUpdate` with `maxUnavailable: 0, maxSurge: 1` (`deploy/helm/halos/templates/proxy.yaml:74`), readiness and liveness on `/healthz` of the admin port (`proxy.yaml:114-115`), `preStop` sleep (`proxy.yaml:118`), HPA (`proxy.yaml:187`), PDB `maxUnavailable: 1` (`proxy.yaml:212`), zone and hostname topology spread (`_helpers.tpl:53`) |
-| `halo-server` | **exactly 1** (`values.schema.json:23`) | Single writer over append-only JSONL files in `--data-dir` that are replayed into memory at start; no locking, no leader election; the controller loop would run once per replica | `Recreate` when persistence is on (`templates/server.yaml:107`), probes on `/healthz` (`internal/server/server.go:163`) |
+| `halo-server` | **exactly 1** (`values.schema.json:23`) | Single writer over append-only JSONL files in `--data-dir` that are replayed into memory at start; no locking, no leader election; the controller loop would run once per replica | `Recreate` when persistence is on (`templates/server.yaml:107`), probes on `/healthz` (`internal/server/server.go:168`) |
 | `halo-shadow` | **exactly 1** (`values.schema.json:47`) | One pair file and an in-process spend counter; a second replica splits pairs and doubles the budget | `Recreate` |
 | OTel collector | 1 by default (`otel.replicas`) | Stateless, can be raised | |
 
-The honest consequence: a `halo-server` upgrade or reschedule is a short outage of the console, enrollment, fleet reports and the kill-list endpoint. That outage does not reach developers' CLIs: gateways keep serving with their last accepted kill list (`internal/gateway/killswitch.go:85`), `halod` keeps its last-good release and logs failed reports at WARN (`cmd/halod/agent.go:175`, `:622`). We chose a pinned single replica over leader election because the state is a handful of local files and the blast radius of a 30-second restart is nil for end users; a second replica would need shared storage and locking the code does not have.
+The honest consequence: a `halo-server` upgrade or reschedule is a short outage of the console, enrollment, fleet reports and the kill-list endpoint. That outage does not reach developers' CLIs: gateways keep serving with their last accepted kill list (`internal/gateway/killswitch.go:86`), `halod` keeps its last-good release and logs failed reports at WARN (`cmd/halod/agent.go:239`, `:685`). We chose a pinned single replica over leader election because the state is a handful of local files and the blast radius of a 30-second restart is nil for end users; a second replica would need shared storage and locking the code does not have.
 
-`make uat-k8s` proves the proxy side on a kind cluster with `test/load` at 200 rps through the ingress (`scripts/uat-k8s.sh:141-215`): delete a proxy pod mid-traffic, roll the Deployment with `helm upgrade`, and evict both pods at once. Each must finish with zero client-visible errors and the second concurrent eviction must be refused by the PDB. A SIGKILLed proxy pod still drops its in-flight requests; only the graceful path (SIGTERM, drain) is covered.
+`make uat-k8s` proves the proxy side on a kind cluster with `test/load` at 200 rps through the ingress (`scripts/uat-k8s.sh:141-215`): delete a proxy pod mid-traffic, roll the Deployment with `helm upgrade`, and evict both pods back to back. Each must finish with zero client-visible errors and the second eviction must be refused by the PDB. Last measured on main (CI job 111349967655, 2026-10-04): pod kill, 0 of 2880 requests failed (p50 2.14 ms, p95 4.2 ms, p99 31.15 ms through the kind ingress); rolling upgrade, 0 of 4973 failed with both pods replaced; PDB, 1st eviction ok, 2nd refused (429), later eviction ok, no client errors. The HA scenarios print to the job log, not to `test/uat/REPORT.md`. A SIGKILLed proxy pod still drops its in-flight requests; only the graceful path (SIGTERM, drain) is covered.
 
 Every container runs as 65532, read-only root filesystem, no capabilities, `RuntimeDefault` seccomp (`values.yaml:16-26`), with default-deny NetworkPolicy (`networkPolicy.enabled`, see [production deployment](/halos/guides/production-deployment/)).
 
@@ -26,7 +26,7 @@ Set these on the gateway: it is the only component in the developer's request pa
 
 | SLI | Target | Source |
 |---|---|---|
-| Gateway availability: share of requests that are not 5xx | 99.9% over 30 days | `halo_proxy_requests_total{status}` (`cmd/halo-proxy/metrics.go:86`) |
+| Gateway availability: share of requests that are not 5xx | 99.9% over 30 days | `halo_proxy_requests_total{status}` (`cmd/halo-proxy/metrics.go:95`) |
 | Gateway added latency: time to upstream response headers | p99 under 250 ms excluding upstream time is not measurable from the proxy alone; alert on `halo_proxy_upstream_ttfb_seconds` p99 against your own baseline | `halo_proxy_upstream_ttfb_seconds` (histogram, buckets 50 ms to 600 s, `metrics.go:15`) |
 | Kill-switch propagation | 100% of gateways on the current list within 2 poll intervals (default 10 s) | No metric; `halo-proxy` logs each list change. `GET /api/v1/killswitch` on the server shows the list `version` |
 | Pointer freshness | Every ring refreshed in the last 48 h (pointers expire after 7 days) | The refresh CI job; `halod` warns from 24 h before expiry |
@@ -112,7 +112,7 @@ groups:
           summary: "halo-shadow has spent 90% of its budget; mirroring stops at 100% (evidence gap, not an outage)"
 ```
 
-Two things no exporter covers, so wire them from CI: the daily `halo release refresh` job failing twice in a row (page: pointers expire after 7 days), and the nightly [soak workflow](https://github.com/dshakes/halos/blob/main/.github/workflows/soak.yml) failing (ticket: a leak or p99 regression in `halo-proxy` reached `main`).
+Two things no exporter covers, so wire them from CI: the daily `halo release refresh` job failing twice in a row (page: pointers expire after 7 days), and the nightly [soak workflow](https://github.com/dshakes/halos/blob/main/.github/workflows/soak.yml) failing (ticket: client-visible errors, a cut SSE stream or a goroutine or heap leak in `halo-proxy` reached `main`; the p99 gate only records until a `baseline.json` is committed).
 
 ## Backup and restore
 
@@ -122,7 +122,7 @@ Two things no exporter covers, so wire them from CI: the daily `halo release ref
 |---|---|---|---|
 | Device store | `<data-dir>/devices.jsonl` | `internal/server/devices.go:77` | Every enrolled machine must re-enroll (holds token SHA-256s, not tokens) |
 | Access requests | `<data-dir>/requests.jsonl` | `internal/server/requests.go:75` | Pending requests and the decision trail |
-| Audit log | `<data-dir>/audit.jsonl` | `internal/server/audit.go:81` | Hash-chained; a gap is detectable (`GET /api/v1/audit` reports `verified`) but not recoverable |
+| Audit log | `<data-dir>/audit.jsonl` | `internal/server/audit.go:82` | Hash-chained; a gap is detectable (`GET /api/v1/audit` reports `verified`) but not recoverable |
 | Session revocations | `<data-dir>/session-revocations.jsonl` | `internal/server/sessions.go:40` | Revoked user sessions become valid again until they expire |
 | Kill list | `<data-dir>/killswitch.jsonl` | `internal/controller/killstore.go:65` | Active kills are forgotten: gateways and `halod` get an **empty** list at the next poll and the killed change comes back. Treat this file as the one you cannot lose |
 | Controller action log | `<data-dir>/controller-state.jsonl` | `internal/controller/state.go:68` | The controller may open duplicate PRs for verdicts it already acted on |
@@ -135,7 +135,7 @@ Two things no exporter covers, so wire them from CI: the daily `halo release ref
 | Signer state file | `~/.local/state/halos/pointers.json` on the signer | | Replay check has nothing to compare against; see [lost signer state](#lost-signer-state-file) |
 | Policy repo | git | | Source of truth for everything above except device identity |
 
-All `--data-dir` files are append-only JSONL, last line per id wins, never compacted. Files are opened with `O_APPEND` and written one line at a time, so a snapshot taken while the server runs is consistent at line granularity: at worst the last line is torn, and replay skips it (`internal/fsutil/jsonl.go:28-32`). The chart keeps the PVC on `helm uninstall` (`helm.sh/resource-policy: keep`).
+All `--data-dir` files are append-only JSONL, last line per id wins, never compacted. Files are opened with `O_APPEND` and written one line at a time, so a snapshot taken while the server runs is consistent at line granularity: at worst the last line is torn, and replay skips it (`internal/fsutil/jsonl.go:26-47`). The chart keeps the PVC on `helm uninstall` (`helm.sh/resource-policy: keep`).
 
 ### Backup
 
@@ -154,7 +154,7 @@ Take the data backup at least daily and immediately before an upgrade. Keep the 
 2. Put the files back in `--data-dir` (restore the PVC snapshot, or `kubectl cp` into a helper pod mounting the claim). Ownership must be uid 65532 (`values.yaml:18`).
 3. Recreate the Secrets if they were lost: `server.killSwitch.existingSecret` with the same private key, `proxy.killSwitch.pubkey.existingSecret` with the matching public key. A different kill key is a rotation; follow [rotate the kill-switch keys](#rotate-the-kill-switch-keys).
 4. Scale back to 1 and check: `GET /healthz`, `GET /api/v1/killswitch` lists the kills you expect, `GET /api/v1/audit?limit=1` returns `verified: true`, and the console shows the device count you had.
-5. Gateways need nothing: on their next poll (10 s) they fetch the restored list and compare its `version` (`internal/gateway/killswitch.go:209`).
+5. Gateways need nothing: on their next poll (10 s) they fetch the restored list and compare its `version` (`internal/gateway/killswitch.go:210`).
 
 If `killswitch.jsonl` is gone for good, re-issue the kills you know about (`POST /api/v1/experiments/{name}/kill`, `halo toggle kill`) before gateways poll an empty list; the audit log tells you which ones were active.
 
@@ -179,7 +179,7 @@ Rings point at immutable releases; rollback re-points (invariant 6).
 halo rollback --ring ring3-ga --to 1.4.2 --registry ghcr.io/acme/halos --key "$KEY"
 ```
 
-`--to <version>` refuses a tag whose signed manifest does not carry that version; `--to sha256:<manifest digest>` is content-addressed. `halod` picks the new pointer at its next poll and applies only after signature verification, so a bad rollback target cannot brick the fleet: verification failure keeps last-good (`cmd/halod/agent.go:175`). For a traffic-axis rollout use `halo rollout rollback` ([reference](/halos/reference/cli/rollout-rollback/)) and let the controller's auto-rollback stay the only automatic direction. Confirm with `halo rollout status` and the fleet view: every host should report the rolled-back digest within one poll interval.
+`--to <version>` refuses a tag whose signed manifest does not carry that version; `--to sha256:<manifest digest>` is content-addressed. `halod` picks the new pointer at its next poll and applies only after signature verification, so a bad rollback target cannot brick the fleet: verification failure keeps last-good (`cmd/halod/agent.go:239-246`). For a traffic-axis rollout use `halo rollout rollback` ([reference](/halos/reference/cli/rollout-rollback/)) and let the controller's auto-rollback stay the only automatic direction. Confirm with `halo rollout status` and the fleet view: every host should report the rolled-back digest within one poll interval.
 
 ### Rotate the release signing key
 
@@ -187,10 +187,10 @@ Not a flag day: `halod` trusts every key in `pubkey` plus `pubkeys`. Follow [rot
 
 ### Rotate the kill-switch keys
 
-Both halves are read once at startup: `halo-server` from `--killswitch-key-file`, `halo-proxy` from `killSwitch.pubkeyFile` (`cmd/halo-proxy/killswitch.go:36-46`). There is one key on each side, no overlap list, so order the restarts so the window where signatures do not verify is short and safe:
+Both halves are read once at startup: `halo-server` from `--killswitch-key-file`, `halo-proxy` from `killSwitch.pubkeyFile` (`cmd/halo-proxy/killswitch.go:26-46`). There is one key on each side, no overlap list, so order the restarts so the window where signatures do not verify is short and safe:
 
 1. `halo keys generate --name killswitch-2026 --out ./keys`.
-2. Update the **proxy** Secret (`proxy.killSwitch.pubkey.existingSecret`, key `killswitch.pub`) with the new public key and roll the proxies (`kubectl -n halos rollout restart deploy/halos-proxy`). From now until step 3 they reject lists signed by the old key and **keep the last accepted list** (`internal/gateway/killswitch.go:85`): existing kills stay in force, new kills do not propagate yet. A fresh proxy pod that has never fetched a list kills nothing, so do this when no kill is pending.
+2. Update the **proxy** Secret (`proxy.killSwitch.pubkey.existingSecret`, key `killswitch.pub`) with the new public key and roll the proxies (`kubectl -n halos rollout restart deploy/halos-proxy`). From now until step 3 they reject lists signed by the old key and **keep the last accepted list** (`internal/gateway/killswitch.go:86`): existing kills stay in force, new kills do not propagate yet. A fresh proxy pod that has never fetched a list kills nothing, so do this when no kill is pending.
 3. Update the **server** Secret (`server.killSwitch.existingSecret`, key `signing-key`) with the new private key and restart `halo-server`. The kill list itself is in `killswitch.jsonl`, not in the key, so nothing is lost.
 4. Check: `GET /api/v1/killswitch` on the server and a proxy log line showing a list fetched and verified. If `halod` is also on the kill switch, update its `killswitch` public key the same way you distribute `pubkeys`.
 5. Rotate the gateway bearer token (`gateway-token` in the same Secret, `proxy.killSwitch.token`) in the same change if it was exposed; server and proxies must agree on it or polls return 401 and proxies keep the last list.

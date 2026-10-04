@@ -1,15 +1,15 @@
 ---
 title: Start here
-description: Three ways in, driven from whichever AI coding CLI you already use. Try it in two minutes, manage your own machine, or set up your company. Every write is a dry run first; nothing is published, enrolled or pushed without you.
+description: Three ways in, driven from whichever AI coding CLI you already use. Try it on Docker, manage your own machine, or set up your company. Every write is a dry run first; nothing is published, enrolled or pushed without you.
 ---
 
 Pick a path. Each one can be driven by an agent (Claude Code, Codex, Gemini CLI, Copilot CLI) through the same `halo` commands and MCP tools, or typed by hand. The agent runs an ask, act, verify loop: it shows what a step would write, waits for your yes, then checks the result. It never prints a credential value and never publishes, enrolls, pushes, merges or deploys; those commands are handed to you.
 
-| Path | For | Time | First command |
+| Path | For | Effort | First command |
 |---|---|---|---|
-| **Try it** | A look at the whole thing on Docker | ~2 min | `halo quickstart` |
-| **My machine** | Your laptop: pin your CLIs, manage their config, route through a local proxy | ~5 min | `halo doctor` |
-| **My company** | A platform team: policy repo, gateway, IdP, fleet delivery, first PR | ~20 min | `halo onboard company` |
+| **Try it** | A look at the whole thing on Docker | Smallest | `halo quickstart` |
+| **My machine** | Your laptop: pin your CLIs, manage their config, route through a local proxy | Small | `halo doctor` |
+| **My company** | A platform team: policy repo, gateway, IdP, fleet delivery, first PR | Largest | `halo onboard company` |
 
 [Install `halo`](/halos/getting-started/install/) first. Then either type the commands below or hand the whole path to your CLI:
 

@@ -10,7 +10,7 @@ The playground runs every Halos component on Docker with a seeded policy repo: t
 
 ## Start it
 
-**In the browser:** [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/dshakes/halos). The dev container builds `bin/` and puts it on `PATH`; run `make demo` in its terminal and open the forwarded **Halos console** port (**UNVERIFIED**: not yet run in a real Codespace).
+**In the browser:** [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/dshakes/halos). The dev container builds `bin/` and puts it on `PATH`; run `make demo` in its terminal and open the forwarded **Halos console** port (**UNVERIFIED**: CI builds the dev container with the devcontainer CLI, but `make demo` has not been run in a real Codespace).
 
 **Locally** (Docker with Compose v2.20+):
 

@@ -34,9 +34,10 @@ OIDC issuer/audience live in the policy repo (halo-server) and `proxy.config.ide
 ## Design notes
 
 - Policy: git-sync (`registry.k8s.io/git-sync/git-sync:v4.x`) runs as a one-time init container plus a sidecar into an
-  `emptyDir`; the link is `/policy/current`. halo-server reloads by mtime, no SIGHUP. `server.proposals.enabled` adds a second
-  one-time clone at `/policy-writer/current` (`portal.policyRepoDir`, must differ from `--policy-dir`). UNVERIFIED: git-sync
-  worktrees may not behave as a full clone for the branch-writing PolicyWriter.
+  `emptyDir`; the link is `/policy/current`. halo-server reloads by mtime, no SIGHUP. `server.proposals.enabled` (and/or
+  `server.controller.policyRepo.enabled`) adds ONE writable clone at `/policy-writer/repo` (`portal.policyRepoDir`, separate from
+  `--policy-dir`), made by an init container running a real `git clone` (git-sync worktrees are detached and cannot push);
+  `make uat-k8s` pushes controller PR branches from it to an in-cluster remote on every PR (`test/uat/REPORT.md`, scenario e).
 - halo-proxy policy snapshot: `proxy.policy.source=configMap` (inline `snapshot` or `existingConfigMap`) or `gitSync`
   (`gitSyncPath` inside the repo). ConfigMap volumes update via symlink swap; verify halo-proxy's reload picks that up (UNVERIFIED).
 - halo-proxy timeouts default to long-stream values (`upstreamHeaderTimeout` 10m, responses never time-limited);
@@ -50,7 +51,8 @@ OIDC issuer/audience live in the policy repo (halo-server) and `proxy.config.ide
 - Security: non-root (65532), read-only rootfs, drop ALL, RuntimeDefault seccomp, no SA token. The otel-collector image
   must tolerate uid 65532 (override `podSecurityContext` if not).
 - Images: `image.registry` + `<component>.image.repository`; `tag` defaults to appVersion; `digest` (sha256) overrides tag.
-  The default repositories (`ghcr.io/dshakes/...`) are placeholders until images are published.
+  The default repositories (`ghcr.io/dshakes/{halo-server,halo-proxy,halo-shadow}`) are published and cosign-signed by the release
+  workflow; set `tag` to the release you install (appVersion lags a patch release).
 - halo-shadow: requires `--policy` = the same compiled snapshot as halo-proxy, produced by `halo gateway compile` in CI (inherits
   `proxy.policy.*`: the proxy ConfigMap or git-sync; override with `halo-shadow.policy.*`). Upstreams are resolved from it.
   Listens on `0.0.0.0:8090` (binary default is loopback; NetworkPolicy limits ingress to halo-proxy and
@@ -72,9 +74,10 @@ OIDC issuer/audience live in the policy repo (halo-server) and `proxy.config.ide
   (halo.* normalisation, needs `otel.clickhouse.existingSecret`). Preferred: generate for your ClickHouse in CI and set
   `otel.existingConfigMap` (key `config.yaml`); `otel.config` is an inline override.
 - Controller (`server.controller.enabled` -> `--controller`): needs `clickhouse.url` and `server.persistence` (chart fails otherwise;
-  the action log in `--data-dir` prevents duplicate PRs). `policyRepo.enabled` adds a one-time git-sync clone at `/policy-repo/current`
-  (`--policy-repo-dir`, separate from the served policy; UNVERIFIED for the same worktree reason as `proposals`). The controller shells
-  out to `git` and `gh`, so the halo-server image must contain both: set `server.controller.policyRepo.image` to an image that does.
+  the action log in `--data-dir` prevents duplicate PRs). `policyRepo.enabled` shares the `/policy-writer/repo` clone above
+  (`--policy-repo-dir`, separate from the served policy). The controller shells out to `git` and `gh`, so the halo-server image must
+  contain both: set `server.controller.policyRepo.image` to an image that does. `gh pr create` against real GitHub is UNVERIFIED
+  (the UAT uses a recording `gh` stub).
   Without `policyRepo`, the controller only evaluates, kills and notifies (no PRs).
 - Kill switch: `server.killSwitch.existingSecret` passes `--killswitch-key-file`/`--gateway-token-file`. `proxy.killSwitch.enabled` writes
   `killSwitch{url,tokenFile,pubkeyFile,interval}` into the proxy config; `url` defaults to the in-cluster halo-server Service (plain HTTP,

@@ -13,8 +13,8 @@ What a version number covers, and what breaking means for each surface:
 |---|---|
 | CLI commands and flags (`halo`, `halod`) | Minor releases add; only a major release removes or changes meaning. Deprecated flags keep working for one minor release and print a warning |
 | HTTP API (`/api/v1/...`) | Path-versioned. Fields are added in minors; a field is never removed or retyped under `/v1` |
-| Policy files (`apiVersion: halos.dev/v1alpha1`) | **Alpha until Halos 1.0**: the schema may change between minors. `halo validate` is the gate; a release that changes the schema ships a migration note in the CHANGELOG and keeps reading the previous shape for one minor |
-| Release bundles and ring pointers | `schemaVersion: 1` (`internal/release/release.go:60`). A reader refuses a schema it does not know (`release.go:266`) and keeps last-good; a new schema version is a major release |
+| Policy files (`apiVersion: halos.dev/v1`) | **Stable**: kinds and fields are frozen within v1; additions are optional. `halos.dev/v1alpha1` still loads, with a deprecation warning, until `halos.dev/v2`. See [compatibility](/halos/reference/compatibility/) |
+| Release bundles and ring pointers | `schemaVersion: 1` (`internal/release/release.go:60`). A reader refuses a schema it does not know (`release.go:274`) and keeps last-good; a new schema version is a major release |
 | Kill list, fleet report and mirror payloads | Fields only ever added. `halo-shadow` decodes mirror jobs strictly (`internal/shadow/server.go`), which is why it upgrades before `halo-proxy` (below) |
 | Helm chart | Its own SemVer in `Chart.yaml` (`version`), tracking `appVersion`. A values key is renamed only in a chart major; `values.schema.json` checks types and the replica pins but does not reject unknown keys, so read the chart CHANGELOG entry before a major |
 | Prometheus metric names and labels | Treated as API: renamed only in a major |

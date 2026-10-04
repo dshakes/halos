@@ -48,7 +48,7 @@ Three ways in, each driven by hand or by the AI CLI you already use ([Start here
 
 | | First command | From your CLI |
 |---|---|---|
-| **Try it** (~2 min, Docker) | `halo quickstart` | Claude Code `/halos:halo-onboard try` |
+| **Try it** (about a minute, Docker) | `halo quickstart` | Claude Code `/halos:halo-onboard try` |
 | **My machine** (pin your CLIs, manage their config, local proxy, verified round trip) | `halo doctor`, then `halo onboard local` | Codex `$halos-onboard` |
 | **My company** (policy repo, gateway, IdP, fleet delivery, first PR) | `halo onboard company` | Gemini CLI / Copilot CLI: "onboard me onto Halos" |
 
@@ -94,7 +94,7 @@ A change is a pull request:
   <img src="assets/how-it-works-light.svg" alt="Platform team: policy repo, pull request, CI checks, human merge, signed release. Fleet: rings point at releases; halod applies them on every machine and the gateway routes models; developers keep running their CLI as usual." width="880">
 </picture>
 
-[`examples/simple`](examples/simple) is the one-file version and [`examples/acme-corp`](examples/acme-corp) the full one; `make demo` runs it locally, or open the repo in Codespaces (UNVERIFIED: not yet run in a real Codespace). More: [how Halos works](https://dshakes.github.io/halos/concepts/how-it-works/).
+[`examples/simple`](examples/simple) is the one-file version and [`examples/acme-corp`](examples/acme-corp) the full one; `make demo` runs it locally; `halo quickstart` is the same stack (55 s warm, 86 s with a cold build cache, on an arm64 laptop with Docker Desktop 28). Codespaces is UNVERIFIED: CI builds the dev container, but the demo has not been run in a real Codespace. More: [how Halos works](https://dshakes.github.io/halos/concepts/how-it-works/).
 
 ## Every rollout technique, as code
 
@@ -195,29 +195,26 @@ Traffic goes through `halo-proxy` to Anthropic, Bedrock (SigV4), Vertex, OpenAI,
   <img src="assets/everywhere-light.svg" alt="macOS, Linux, Windows, Dev Containers, Codespaces and Coder workspaces, CI runners, Kubernetes via Helm" width="880">
 </picture>
 
-> **Pre-release.** No version is tagged yet, so build from source:
-> `git clone https://github.com/dshakes/halos && cd halos && make build && bin/halo validate --policy-dir examples/acme-corp`
-> The binaries, deb/rpm/apk packages and `install.sh`/`install.ps1` come from the GitHub release once a version is tagged. Homebrew and Scoop publish only after the `HOMEBREW_TAP_TOKEN` secret and the tap and bucket repos are set up; the winget manifest is submitted by hand (see [RELEASING.md](RELEASING.md)).
+The current release is [v0.1.1](https://github.com/dshakes/halos/releases/tag/v0.1.1) ([CHANGELOG](CHANGELOG.md)). Or build from source: `git clone https://github.com/dshakes/halos && cd halos && make build`.
 
 ```sh
-# macOS / Linux: the CLI
-curl -fsSL https://raw.githubusercontent.com/dshakes/halos/main/install/install.sh | sh -s -- --version vX.Y.Z
+brew install dshakes/tap/halo                                                            # macOS / Linux
+scoop bucket add dshakes https://github.com/dshakes/scoop-bucket && scoop install halo   # Windows
 
-# The halod agent runs as root from a root-owned prefix
-curl -fsSL https://raw.githubusercontent.com/dshakes/halos/main/install/install.sh | sudo sh -s -- --version vX.Y.Z --prefix /usr/local --with-agent
-
-# Windows (elevated)
-irm https://raw.githubusercontent.com/dshakes/halos/main/install/install.ps1 | iex
+# The script works everywhere; halod runs as root from a root-owned prefix
+curl -fsSLO https://raw.githubusercontent.com/dshakes/halos/v0.1.1/install/install.sh
+sh install.sh --version v0.1.1                                        # halo into ~/.local/bin
+sudo sh install.sh --version v0.1.1 --prefix /usr/local --with-agent  # plus halod
 ```
 
 Also available:
-- deb, rpm and apk packages (Homebrew and Scoop once their repos are set up)
+- deb, rpm and apk packages and `install.ps1` from the [release assets](https://github.com/dshakes/halos/releases/tag/v0.1.1); a winget manifest is built but not yet submitted
 - a [Dev Container Feature](features/halos) and a Coder module
 - Jamf, Kandji and Intune exports
 - a [GitHub Action](action.yml) and a GitLab template for CI runners
-- a [Helm chart](deploy/helm/halos)
+- a [Helm chart](deploy/helm/halos) with signed images on `ghcr.io/dshakes`
 
-The installers verify sha256 checksums, and verify the cosign signature on `checksums.txt` when `cosign` is installed (otherwise they warn). See the [install guide](https://dshakes.github.io/halos/getting-started/install/).
+Archives are checksummed and carry SBOMs; `checksums.txt` is cosign-signed and every archive has a GitHub build-provenance attestation. `install.sh` verifies the checksums, and the cosign signature when `cosign` is installed (otherwise it warns). The release workflow re-verifies all of it from the published artifacts before a release counts as done ([RELEASING.md](RELEASING.md), [install guide](https://dshakes.github.io/halos/getting-started/install/)).
 
 ## Agent-native
 

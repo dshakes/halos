@@ -119,8 +119,10 @@ $ halo rollout advance claude-code-2.1.300 --dry-run --reason "canary-1 healthy"
 -    weight: 50
 +    weight: 1
 …
-+step: canary-1
+-axis: client
 -status: draft
++step: canary-1
++axis: client
 +status: active
 ```
 

@@ -16,6 +16,7 @@ The collector (generate its config with `halo telemetry collector-config`) maps 
 | `halo.latency.p95_ms` | ms | gateway, else CLI | 95th percentile, same basis |
 | `halo.session.duration_s` | s | none yet | Not derived |
 | `halo.tool.error_rate` | ratio | CLI | Failed / total tool calls |
+| `halo.eval.judge.score` | ratio | eval (`halo eval online` on `halo-shadow` pairs) | Mean judge score of one shadow pair's response for that arm (unit = pair) |
 
 "Gateway" is `halo-proxy`'s per-request OTLP export (`halo.gateway.requests`, `halo.gateway.latency_ms`). It assigns ring and variant itself, so it is the only online source for `traffic`-axis experiments; when an experiment has gateway data it is preferred over CLI events, and the two are never mixed in one analysis. The gateway is also the only **trusted** source: the collector stamps `halo.source=gateway` only on its authenticated receiver (`:4319`) and `halo.source=cli` on everything from developer machines, which also cannot carry `halo.gateway.*` at all. The controller auto-kills only on `gateway` evidence. The unit for gateway data is `halo.unit`, `HMAC-SHA256(salt, verified subject)` truncated; anonymous requests are counted but are not units. `halo.gateway.*` metrics are not exposed to Prometheus through the collector (per-unit labels would explode cardinality); scrape `halo-proxy`'s own `/metrics` instead. How each is computed: [evidence plane](/halos/concepts/evidence-plane/#derived-per-unit-metrics).
 
@@ -73,4 +74,4 @@ These processes expose Prometheus text on a **separate, unauthenticated** addres
 
 ## Verification status
 
-Claude Code metric names follow the vendor's documented set. The CLI log-event mappings (`api_request`, `tool_result` and their Codex and Gemini equivalents) and the Codex and Gemini metric names are checked against synthetic telemetry shaped like the vendors' documentation (`make obs-e2e`), and are **UNVERIFIED** against current CLI releases.
+Claude Code metric names follow the vendor's documented set. The CLI log-event mappings (`api_request`, `tool_result` and their Codex and Gemini equivalents) and the Codex and Gemini metric names are checked against synthetic telemetry shaped like the vendors' documentation (`make obs-e2e`), and are **UNVERIFIED** against real CLI telemetry in a real collector. `make uat-clis` does confirm that the real CLIs export the `halo.ring`, `halo.release` and `halo.harness` resource attributes.

@@ -139,7 +139,7 @@ Shared flags: `--registry` (required), `--pubkey` (required; verifies the releas
 | Subcommand | Output | Notes |
 |---|---|---|
 | `jamf` | `.mobileconfig` plus a `halod` postinstall | Needs `--ring`, `--download-url` and `--halod-sha256` for `darwin/amd64` and `darwin/arm64`. Kandji takes the same file |
-| `intune` | PowerShell script writing `HKLM\SOFTWARE\Policies\ClaudeCode` and a SYSTEM startup task | Needs `--ring`, `--download-url` and `--halod-sha256` for `windows/amd64` and `windows/arm64`. **UNVERIFIED:** PowerShell not executed |
+| `intune` | PowerShell script writing `HKLM\SOFTWARE\Policies\ClaudeCode` and a SYSTEM startup task | Needs `--ring`, `--download-url` and `--halod-sha256` for `windows/amd64` and `windows/arm64`. **UNVERIFIED:** CI runs `install.ps1`, `enroll.ps1` and `halod` as a SYSTEM task on a Windows runner, but not this exported script, and no real Intune tenant |
 | `devcontainer` | Dev Container Feature source with org defaults baked in | Needs Linux amd64 and arm64 sha256s. `--org` when no release is pulled; with `--ring` it is required as above |
 
 Only the Claude Code harness has an MDM channel.

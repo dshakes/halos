@@ -5,8 +5,8 @@ sidebar:
   label: Components and source
 ---
 
-:::note[No tagged release yet]
-Build from source. `.goreleaser.yaml` is configured for checksummed, SBOM-carrying, cosign-signed archives, but it has not been run for a tag, so treat that pipeline as **UNVERIFIED**. The Helm chart's images default to the chart `appVersion` (currently 0.1.0); set each component's `image.tag` to the release you install.
+:::note[Latest release: v0.1.1]
+Release archives are checksummed, carry an SBOM, and `checksums.txt` is cosign-signed; the release workflow's `verify` job checks the signature, the archive checksum and build provenance after publishing. See [install](/halos/getting-started/install/) for Homebrew, Scoop and `install.sh`. The Helm chart's images default to the chart `appVersion` (currently 0.1.0); set each component's `image.tag` to the release you install.
 :::
 
 ## Components
@@ -31,7 +31,7 @@ export PATH="$PWD/bin:$PATH"
 halo --help
 ```
 
-**Check:** `halo version` prints `halo dev (commit ..., built ...)` and `halo --help` lists `validate`, `release`, `exp`, `eval`, `export`, `gateway`, `mcp` and more. Other checks the repo runs: `make test` (`go test -race ./...`), `make lint`, `make vuln`.
+**Check:** `halo version` prints `halo <version> (commit ..., built ...)` and `halo --help` lists `validate`, `release`, `exp`, `eval`, `export`, `gateway`, `mcp` and more. Other checks the repo runs: `make test` (`go test -race ./...`), `make lint`, `make vuln`.
 
 ## What you need around them
 

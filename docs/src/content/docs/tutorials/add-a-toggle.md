@@ -82,6 +82,7 @@ The bucket comes from `internal/assign` with a per-toggle salt, so it is indepen
 
 ```console
 $ halo release build --ring ring1-canary --release-version 0.1.0 --no-artifacts -o rel.tar
+warning: --no-artifacts: halod will not install CLIs from this release unless allowShellInstall is set
 built rel.tar (sha256:1067b5d5…)
 $ tar -xOf rel.tar manifest.json | python3 -c 'import sys,json
 m=json.load(sys.stdin); t=[t for t in m["toggles"] if t["name"]=="linear-mcp"][0]

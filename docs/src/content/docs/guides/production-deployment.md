@@ -3,8 +3,8 @@ title: Production deployment
 description: Helm chart, secrets, the pointer refresh schedule, signing key management and rotation, and what to back up.
 ---
 
-:::caution[Not yet run in a cluster]
-The Helm chart passes `helm lint` and `helm template` in CI values, but has **not** been installed in a real cluster, and container images are not published (`image.registry` and the default repositories are placeholders). Kong integration in the chart is **UNVERIFIED**. Build and push your own images until releases exist.
+:::caution[Verified on kind, not on a managed cloud cluster]
+The `uat-k8s` CI job installs the chart on kind on every PR (`test/uat/REPORT.md`: 79 PASS, 0 FAIL), and the images are published on ghcr.io (`halo-server`, `halo-proxy`, `halo-shadow`, `kong-halo`, tags `0.1.1` and `latest`; the chart's `appVersion` is still `0.1.0`, whose images also exist). The chart on a managed cloud cluster (EKS, GKE, AKS) is **UNVERIFIED**, as is the chart's Kong (`KongPlugin` CR) mode.
 :::
 
 ## What runs where
@@ -73,7 +73,7 @@ Prefer External Secrets or your secret manager over shell history for real value
 - **Evidence must be gateway-sourced.** The controller auto-kills only on evidence that arrived through the collector's authenticated gateway receiver (`:4319`). Set `proxy.telemetry.enabled: true` (and `otel.enabled` with `otel.gatewayToken`), or a rollback verdict opens the pause PR and notifies but never trips the kill switch; `NOTES.txt` warns when telemetry is off. See [evidence plane](/halos/concepts/evidence-plane/#evidence-trust).
 - **Kill only with a kill key.** The in-process controller trips the kill switch only when `server.killSwitch.existingSecret` is set (`--killswitch-key-file`). Without it, rollback notifications say the kill was not enforced and tell humans to **merge the pause PR urgently**. A running experiment that is already killed is held, not evaluated, until someone unkills it.
 - **Required:** `server.controller.clickhouse.url` (HTTP interface, e.g. `http://clickhouse.data.svc:8123`) and `server.persistence.enabled`. The chart fails to render without them; the action log in `--data-dir` is what prevents duplicate PRs across restarts. Credentials come from `server.controller.clickhouse.existingSecret` (`username`, `password`).
-- **PRs (optional):** `server.controller.policyRepo.enabled` (and/or `server.proposals.enabled`) adds ONE writable clone at `/policy-writer/repo`, shared by console proposals and controller PRs (never the served policy directory). An init container runs a real `git clone` of `policy.gitSync.repo` (origin remote, base branch checked out; git-sync worktrees are detached with no origin and cannot be used); halo-server then fetches and hard-resets it before each PR. Credentials come from `policy.gitSync.auth.existingSecret`, never the URL: `token` via a `GIT_ASKPASS` helper reading the mounted `password`, `ssh` via `GIT_SSH_COMMAND` with the mounted `ssh`/`known_hosts`. The clone and PRs shell out to `git`, `sh` and `gh` (and `ssh` for ssh auth), so the image must contain them: point `server.controller.policyRepo.image` at one that does, and supply `server.controller.policyRepo.ghToken.existingSecret`. Without `policyRepo` the controller evaluates, kills and notifies only. **UNVERIFIED** against a real cluster and GitHub.
+- **PRs (optional):** `server.controller.policyRepo.enabled` (and/or `server.proposals.enabled`) adds ONE writable clone at `/policy-writer/repo`, shared by console proposals and controller PRs (never the served policy directory). An init container runs a real `git clone` of `policy.gitSync.repo` (origin remote, base branch checked out; git-sync worktrees are detached with no origin and cannot be used); halo-server then fetches and hard-resets it before each PR. Credentials come from `policy.gitSync.auth.existingSecret`, never the URL: `token` via a `GIT_ASKPASS` helper reading the mounted `password`, `ssh` via `GIT_SSH_COMMAND` with the mounted `ssh`/`known_hosts`. The clone and PRs shell out to `git`, `sh` and `gh` (and `ssh` for ssh auth), so the image must contain them: point `server.controller.policyRepo.image` at one that does, and supply `server.controller.policyRepo.ghToken.existingSecret`. Without `policyRepo` the controller evaluates, kills and notifies only. The PR flow is tested with a recording `gh` stub (`test/uat/k8s/gh`), not against real GitHub (**UNVERIFIED**).
 - **Notifications (optional):** `server.controller.notify.slack.existingSecret` (`url`) and `server.controller.notify.webhook.existingSecret` (`url`, `secret`). The webhook carries `X-Halo-Timestamp` and a timestamped `X-Halo-Signature`; receivers must verify both ([snippets](/halos/reference/binaries/#verifying-the-webhook-signature)). Each channel retries on later ticks until it succeeds, without re-posting to channels that already did.
 - **Network:** grant egress with `networkPolicy.controllerEgress.clickhouse` (8123), `.git` (443, 22; the git host and `api.github.com` for `gh`) and `.webhook` (443). Each takes a raw NetworkPolicy peer list in `to`; an empty `to` renders no rule, so the controller cannot reach that destination.
 - `server.metrics.enabled` exposes controller metrics on an unauthenticated port (9092 by default); keep it internal and scrape it from `networkPolicy.metricsFrom` only.
@@ -109,7 +109,7 @@ proxy:
 - The role needs `bedrock:InvokeModel` and `bedrock:InvokeModelWithResponseStream`. `automountServiceAccountToken` stays false; the EKS webhook injects its own projected token.
 - **Network:** plain NetworkPolicy cannot match FQDNs. Set `networkPolicy.aws.to` to the CIDR of a `bedrock-runtime` VPC interface endpoint (ports default to 443), or use a CNI FQDN policy through `networkPolicy.egress.proxy`. IRSA also calls `sts.<region>.amazonaws.com:443`, so include the STS endpoint. For Pod Identity set `networkPolicy.aws.podIdentityAgent: true` to allow the node-local agent at `169.254.170.23:80`.
 
-Direct Bedrock has not been exercised against a real AWS account (**UNVERIFIED**).
+Direct Bedrock is fixture-tested and has not been exercised against a real AWS account (**UNVERIFIED**).
 
 ## Pointer refresh
 
@@ -192,4 +192,4 @@ Every file `halo-server` writes, what losing each one costs, and the restore pro
 - [ ] `allowShellInstall` is not set on any `halod`
 - [ ] `halo-proxy` is unreachable except through your ingress or gateway; if you use `trusted_header`, the CIDR pin is set
 - [ ] `--dev-insecure-*` flags are not present anywhere
-- [ ] Read the [threat model](/halos/reference/threat-model/) and the **UNVERIFIED** items in the [README](https://github.com/dshakes/halos#what-is-not-verified)
+- [ ] Read the [threat model](/halos/reference/threat-model/) and the **UNVERIFIED** items in the [README](https://github.com/dshakes/halos#status)

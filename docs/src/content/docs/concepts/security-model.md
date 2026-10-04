@@ -143,7 +143,7 @@ Default guardrails are Go code ([ADR-0007](/halos/adr/0007-guardrails-in-go-not-
 - The enrollment bootstrap (`curl -fsSL <server>/enroll.sh | sh -s -- <token>`) is itself a piped script whose integrity rests on TLS to your server. It pins the `halod` binary by sha256 and refuses to install without a pinned checksum.
 - Shadow is single-turn only ([ADR-0004](/halos/adr/0004-shadow-single-turn-only/)).
 - The `halo-kong` Go plugin runs as a separate process; treat its socket as part of the trust boundary.
-- **UNVERIFIED:** the above was tested with unit tests and the compose demo, not against a real fleet, a real Kong Enterprise, real AWS Bedrock, or a third-party penetration test.
+- **UNVERIFIED:** the above was tested with unit tests, the compose demo, and the kind, real-CLI and Kong OSS UAT suites in CI, not against a real fleet, Kong Enterprise or Konnect, real AWS Bedrock, or a third-party penetration test.
 
 ## Tests binding each claim
 

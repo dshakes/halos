@@ -100,4 +100,4 @@ The stack in `deploy/observability/` (otel-collector-contrib, ClickHouse, Grafan
 - evidence trust: `halo.gateway.*` metrics forged on the CLI receiver never land, the gateway receiver rejects a missing or wrong token with 401, CLI-decided rollbacks report `source: cli` (so the controller won't auto-kill on them) and the gateway-decided one reports `source: gateway`;
 - the verdicts file records them, and every panel query of the provisioned Grafana dashboard runs and returns data.
 
-**UNVERIFIED:** real harness telemetry from real CLIs, real `halo-proxy` traffic into a real collector, scale, and the controller acting on ClickHouse in the same stack (the controller and its kill switch are unit-tested; `make obs-e2e` stops at verdicts).
+**UNVERIFIED:** real harness telemetry from real CLIs into a real collector at scale, and the controller acting on ClickHouse in the same stack (the controller and its kill switch are unit-tested; `make obs-e2e` stops at verdicts).

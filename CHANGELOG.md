@@ -4,6 +4,10 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Fixed
+- The nightly soak's load tool minted a one-hour JWT for a 60-minute soak, so the first scheduled run (3 Oct) ended in 401s at t+58 m with every other gate green; the token now outlives the run.
+- CI's released-`halo` jobs validate `examples/acme-corp` again; the `test/ci/policy-v1alpha1` fixture is gone.
+
 ## [0.1.1] - 2026-10-03
 
 ### Fixed
@@ -60,7 +64,7 @@ Each finding below has a regression test; none changed an invariant.
 
 ### Known gaps
 - Not field-verified (built and tested, never run against the real thing): Jamf, Kandji and Intune tenants; real Codespaces and Coder; Codex and Copilot CLI onboarding entry points (their formats follow the vendors' docs); Bedrock, Vertex, Azure OpenAI and Kong Enterprise/Konnect; the Helm chart on a managed cloud cluster (it runs on kind); kill-switch key rotation on a live cluster (the runbook is derived from code).
-- The nightly fuzz, Scorecard and soak workflows ship here and have not yet had a scheduled run. The soak's p99 gate arms once a reviewed `test/load/baseline.json` is committed.
+- The nightly fuzz, Scorecard and soak workflows ship here; at tag time none had had a scheduled run (the fuzz and soak workflows first ran on 3 Oct, see Unreleased). The soak's p99 gate arms once a reviewed `test/load/baseline.json` is committed.
 - `halod` on Windows is a SYSTEM scheduled task, not an SCM service (ADR-0006 addendum). The immutable-file flag has no Windows equivalent.
 - The posture gate has no hardware attestation and the version gate trusts a client-controlled `User-Agent`; both are honest-client controls, documented in ADR-0011.
 - The support window in the support policy is a stated commitment, not something the code enforces.

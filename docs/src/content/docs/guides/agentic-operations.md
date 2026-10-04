@@ -104,7 +104,7 @@ args = ["mcp", "serve", "--policy-dir", "/path/to/policy-repo"]
 # append "--clickhouse", "http://localhost:8123" for analyze_experiment
 ```
 
-Or `codex mcp add halos -- halo mcp serve --policy-dir /path/to/policy-repo`. Inside a Halos checkout, `$halos-onboard` runs the onboarding skill (`.agents/skills/halos-onboard`, a pointer at the agent-neutral `plugins/claude-code/skills/halos-onboard/SKILL.md`). For rollouts, follow the flow in the plugin's `halos-rollout` skill (it is agent-neutral apart from tool prefixes): edit YAML, `validate`, `plan`, eval, start an experiment in ring1, `analyze_experiment`, `propose_promotion`, stopping for human approval before starting and before promoting. **UNVERIFIED:** the Codex snippet follows Codex's documented `mcp_servers` schema but was not run against a Codex install.
+Or `codex mcp add halos -- halo mcp serve --policy-dir /path/to/policy-repo`. Inside a Halos checkout, `$halos-onboard` runs the onboarding skill (`.agents/skills/halos-onboard`, a pointer at the agent-neutral `plugins/claude-code/skills/halos-onboard/SKILL.md`). For rollouts, follow the flow in the plugin's `halos-rollout` skill (it is agent-neutral apart from tool prefixes): edit YAML, `validate`, `plan`, eval, start an experiment in ring1, `analyze_experiment`, `propose_promotion`, stopping for human approval before starting and before promoting. **UNVERIFIED:** the Codex snippet follows Codex's documented `mcp_servers` schema but was not run against a Codex install (the MCP server itself is covered by the `internal/mcpserver` tests).
 
 ## Gemini CLI
 
@@ -124,4 +124,4 @@ Inside a Halos checkout, Copilot CLI loads `.github/mcp.json` (the `halos` serve
 copilot mcp add halos -- halo mcp serve --policy-dir /path/to/policy-repo --allow-writes   # ~/.copilot/mcp-config.json
 ```
 
-The Gemini extension was installed and enabled by `gemini extensions install` with Gemini CLI 0.26.0 (it lists the `halos` server and the `GEMINI.md` context); an onboarding session in Gemini was not run. **UNVERIFIED:** the Copilot files follow the documented format (`.github/mcp.json` with `mcpServers.<name>.type: local`, `.github/copilot-instructions.md`) but were not run against a Copilot install.
+The Gemini extension was installed and enabled by `gemini extensions install` with Gemini CLI 0.26.0 (it lists the `halos` server and the `GEMINI.md` context); an onboarding session in Gemini was not run. **UNVERIFIED:** the Copilot files follow the documented format (`.github/mcp.json` with `mcpServers.<name>.type: local`, `.github/copilot-instructions.md`) but were not run against a Copilot install (the MCP server itself is covered by the `internal/mcpserver` tests).

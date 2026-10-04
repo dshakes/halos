@@ -93,7 +93,7 @@ Step:       3/6 canary-5: 5% of ring1-canary on treatment
 $ halo exp pause opus-5-5-canary
 ok opus-5-5-canary: "running" -> "paused" (experiments/opus-5-5-canary.yaml)
 $ halo gateway compile -o policy.json
-wrote policy.json (12753 bytes)
+wrote policy.json (12799 bytes)
 $ halo gateway routes --user dev59@acme.com --session s1 | grep -E '^opus'
 opus   1   bedrock-use1      bedrock    arn:…/p7q2opus41bb        …
 opus   2   anthropic-direct  anthropic  claude-opus-4-1-20250805  …

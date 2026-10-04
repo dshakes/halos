@@ -82,7 +82,7 @@ Starting points in `deploy/integrations/`, not turnkey deployments. Files marked
 
 | Stack | What is provided | Checked | UNVERIFIED |
 |---|---|---|---|
-| **Kong** (OSS, Enterprise, Konnect) | Route to `halo-proxy` (`kong.yml`, no plugin server), or the `halo-kong` plugin (`halo gateway deck`) | `kong config parse` (3.8, db-less) OK, run by hand when the template was written and not part of CI; the `deploy/compose` demo runs Kong OSS + `halo-kong` end to end; `make uat-kong` runs Kong OSS 3.9.3 + `halo-kong` in CI (31 checks, `test/uat/KONG-REPORT.md`) | Live traffic through the route-to-`halo-proxy` template; **Kong Enterprise and Konnect** |
+| **Kong** (OSS, Enterprise, Konnect) | Route to `halo-proxy` (`kong.yml`, no plugin server), or the `halo-kong` plugin (`halo gateway deck`) | `kong config parse` (3.8, db-less) OK, run by hand when the template was written and not part of CI; the `deploy/compose` demo runs Kong OSS + `halo-kong` end to end; `make uat-kong` runs Kong OSS 3.9.3 + `halo-kong` in CI (32 checks, `test/uat/KONG-REPORT.md`) | Live traffic through the route-to-`halo-proxy` template; **Kong Enterprise and Konnect** |
 | **Envoy / Istio** | Static bootstrap with route `timeout: 0s` and `stream_idle_timeout` | `envoy --mode validate` (v1.32) OK, run by hand, not part of CI | Live traffic |
 | **nginx** | `location` with `proxy_buffering off`, HTTP/1.1, long timeouts; `proxy_pass` without a URI so encoded Bedrock paths survive | `nginx -t` OK, run by hand, not part of CI | Live traffic |
 | **AWS API Gateway** | HTTP API to VPC link to internal ALB to `halo-proxy` (`openapi.yaml`) | nothing | Everything: not imported into AWS. HTTP APIs cap integration time and do not stream; verify quotas before routing agent traffic through it |
@@ -148,7 +148,7 @@ Credentials never come from policy values or the client: client `Authorization`,
 
 **Gemini CLI.** gemini-cli cannot send `Authorization` to a custom base URL; it sends `GEMINI_API_KEY` as `x-goog-api-key`. On the `gemini` wire only, `halo-proxy` takes the Halos credential (the developer's OIDC JWT) from `x-goog-api-key`, verifies it exactly like a bearer token, and strips it (and any `?key=`) before forwarding. On every other wire that header is not a credential. The `gemini` adapter renders `GEMINI_API_KEY="$(sh -c '<gateway.auth.helperCommand>')"` into the login-shell profile, so the token is minted at shell start and never written to disk; it is short-lived, so open a new shell when it expires. `vertex` does not serve Gemini models yet (`halo validate` warns when no harness can use a target). `halo-kong` does not accept `x-goog-api-key` as identity.
 
-Translations are covered by fixture tests; all real providers are **UNVERIFIED** (no provider accounts were available).
+Translations are covered by fixture tests. The `provider-smoke` workflow calls Anthropic and OpenAI nightly (scheduled runs on 2026-10-02 and 2026-10-03 passed); Bedrock, Vertex, Azure OpenAI and the Gemini API are **UNVERIFIED** against real accounts (their smoke jobs run once secrets are set).
 
 ### Direct Bedrock (SigV4 in halo-proxy)
 

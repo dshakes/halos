@@ -5,7 +5,7 @@ description: >-
 branding: {icon: shield, color: blue}
 inputs:
   version:
-    description: Release tag to install, e.g. v0.4.0. Pin it; there is no "latest".
+    description: Release tag to install, e.g. v0.1.1. Pin it; there is no "latest".
     required: true
   with-agent:
     description: Also install halod.

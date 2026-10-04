@@ -9,7 +9,7 @@ A git repo of YAML documents (`Gateway`, `Profile`, `Ring`, plus optional `Exper
 
 ## Do developers need to install anything?
 
-Not by hand, in the usual setups. They keep using the vendor CLI. Config reaches the machine through a dev container Feature, a Coder or Codespaces prebuild (Coder and Codespaces: **UNVERIFIED**), an MDM profile, or the `halod` agent that the [portal](/halos/concepts/self-service-portal/) enrolls. Developers do need a way to get a token for the gateway (an `apiKeyHelper` or equivalent that your IdP backs). See [delivery](/halos/concepts/delivery/).
+Not by hand, in the usual setups. They keep using the vendor CLI. Config reaches the machine through a dev container Feature, a Coder or Codespaces prebuild (Coder and Codespaces: **UNVERIFIED**; CI builds the dev container and the Feature, not a real workspace), an MDM profile, or the `halod` agent that the [portal](/halos/concepts/self-service-portal/) enrolls. Developers do need a way to get a token for the gateway (an `apiKeyHelper` or equivalent that your IdP backs). See [delivery](/halos/concepts/delivery/).
 
 ## Which CLIs are supported?
 
@@ -53,7 +53,7 @@ They are not fetched with Bedrock or a custom `ANTHROPIC_BASE_URL`. If you use e
 
 ## Do I need Kong Enterprise?
 
-No. Kong OSS has no request-mirroring plugin and `ai-proxy-advanced` is Enterprise-only; `halo-shadow` and `halo-kong` cover that. Kong Enterprise and Konnect have not been tested (**UNVERIFIED**).
+No. Kong OSS has no request-mirroring plugin and `ai-proxy-advanced` is Enterprise-only; `halo-shadow` and `halo-kong` cover that. Kong Enterprise and Konnect have not been tested (**UNVERIFIED**); `halo-kong` runs in CI against Kong OSS 3.9 (`make uat-kong`).
 
 ## Can I shadow a whole agent session?
 
@@ -105,4 +105,4 @@ Two common reasons, both visible in the notification and the webhook event's `ki
 
 ## Is it production ready?
 
-It is `v1alpha1`: the components are built and unit-tested, but several integrations have never run against the real system (Kong Enterprise, Bedrock, MDM on real devices, Terraform, Codespaces). Pages label those **UNVERIFIED**; believe those labels.
+The latest release is v0.1.1, signed, with a stable `halos.dev/v1` policy API. The components are unit-tested, and the e2e, kind (Helm) and real-CLI UAT suites run on every PR. Several integrations have not run against the real system: Jamf, Kandji and Intune on real tenants, real Codespaces and Coder, Kong Enterprise and Konnect, Bedrock, Vertex, Azure OpenAI and Gemini API accounts (fixture-tested), a managed cloud Kubernetes cluster, the GitHub PR flow against real GitHub, and a third-party penetration test. Pages label those **UNVERIFIED**; believe those labels.
