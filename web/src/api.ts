@@ -134,6 +134,7 @@ async function call<T extends z.ZodType>(method: string, path: string, schema: T
     const msg = z.object({ error: z.string() }).safeParse(j);
     throw new ApiError(res.status, msg.success ? msg.data.error : `${res.status} ${res.statusText}`);
   }
+  if (res.status === 204) return schema.parse(undefined); // e.g. revoke: no body
   return schema.parse(await res.json());
 }
 const get = <T extends z.ZodType>(path: string, schema: T) => call("GET", path, schema);
@@ -291,6 +292,14 @@ const DeviceDetail = z.object({
   history: arr(Host),
 });
 export const useDevice = (id: string) => useQuery({ queryKey: ["device", id], queryFn: () => get(`/api/v1/devices/${encodeURIComponent(id)}`, DeviceDetail), refetchInterval: 15_000 });
+/** Revokes the device token: its next call gets 401 and the machine must re-enroll from the kiosk. */
+export function useRevokeDevice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => call("POST", `/api/v1/devices/${encodeURIComponent(id)}/revoke`, z.unknown()),
+    onSettled: (_d, _e, id) => Promise.all([qc.invalidateQueries({ queryKey: ["device", id] }), qc.invalidateQueries({ queryKey: ["fleet"] })]),
+  });
+}
 
 const AuditEntry = z.object({
   seq: z.number(),

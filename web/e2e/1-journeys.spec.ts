@@ -185,7 +185,7 @@ test("admin: the populated console, and every safe action is one click or a PR",
   await row.getByRole("link", { name: /Device details/ }).click();
   await settle(page);
   await expect(page.getByRole("heading", { name: HOSTNAME })).toBeVisible();
-  await expect(page.getByText("active")).toBeVisible();
+  await expect(page.getByText("active", { exact: true })).toBeVisible();
   await expect(page.getByText("bob@acme.com").first()).toBeVisible();
   await expect(page.locator("section", { hasText: /^Last report/ })).toContainText("ring2-early"); // survives a server restart; the history does not
   await expect(page.getByText(/Report history · \d+/)).toBeVisible();
@@ -273,4 +273,29 @@ test("screenshots: every page, desktop and phone", async ({ browser }) => {
       await ctx.close();
     }
   }
+});
+
+test("admin: revoking a device asks first; the developer's kiosk then says to re-enroll", async ({ page }) => {
+  const errs = watch(page);
+  await login(page, "alice@acme.com");
+  await page.goto("/#/fleet");
+  await settle(page);
+  await page.getByRole("row", { name: new RegExp(HOSTNAME) }).first().getByRole("link", { name: /Device details/ }).click();
+  await settle(page);
+  // Dismissing the confirmation changes nothing.
+  page.once("dialog", (d) => { expect(d.message()).toContain("cannot be undone"); void d.dismiss(); });
+  await page.getByRole("button", { name: "Revoke device" }).click();
+  await settle(page);
+  await expect(page.getByText("active", { exact: true })).toBeVisible();
+  page.once("dialog", (d) => void d.accept());
+  await page.getByRole("button", { name: "Revoke device" }).click();
+  await expect(page.getByText("revoked", { exact: true })).toBeVisible();
+  await expect(page.getByText(/must re-enroll from the Kiosk/)).toBeVisible();
+  await expectHealthy(page, errs, "device revoked");
+
+  await login(page, "bob@acme.com");
+  await kiosk(page);
+  const dev = page.locator("li", { hasText: HOSTNAME }).filter({ hasText: "revoked" }).first();
+  await expect(dev).toContainText("An admin revoked this device");
+  await expectHealthy(page, errs, "kiosk after revocation");
 });
