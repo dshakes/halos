@@ -47,7 +47,7 @@ const (
 const (
 	gateApprove  = "human gate: show the patch and wait for a yes; then call again with dry_run false"
 	gateMerge    = "human gate: review and merge the PR; nothing merges itself"
-	gatePublish  = "human gate (publishes to the registry): halo release publish <policy-dir> --ring %s --release-version %s --key <release.key> --registry <registry>"
+	gatePublish  = "human gate (publishes to the registry): halo release publish %s --ring %s --release-version %s --key <release.key> --registry <registry>"
 	gateAllowW   = "write tools are off: ask the human to restart with `halo mcp serve --allow-writes` (dry runs still work)"
 	gateEvidence = "no evidence source: ask the human to restart with `halo mcp serve --clickhouse <url>`; without it analyze_experiment and wait_for cannot decide"
 	gateServer   = "halo-server is not configured: start the MCP server with --server <url> (or HALO_SERVER) and export HALO_SESSION (an admin halo_session cookie value)"
@@ -319,7 +319,7 @@ func (s *srv) releaseBuild(_ context.Context, _ *mcp.CallToolRequest, in release
 	sort.Strings(out.Files)
 	out.NextSteps = []string{
 		"the digest above is this local build's; the published digest is what `halo release publish` prints, and rings pin that one",
-		fmt.Sprintf(gatePublish, m.Ring, m.Version),
+		fmt.Sprintf(gatePublish, s.dir, m.Ring, m.Version),
 		"after publishing: `plan` against the published release.tar before the next change, and `render_preview` to review what lands",
 	}
 	if len(out.Warnings) > 0 {
@@ -692,12 +692,12 @@ func resolveKill(org *policy.Org, name, kind string) (string, string, string, er
 
 func (s *srv) evalRun(ctx context.Context, _ *mcp.CallToolRequest, in evalRunIn) (*mcp.CallToolResult, evalRunOut, error) {
 	out := evalRunOut{DryRun: isDry(in.DryRun), NextSteps: []string{}}
+	if in.Suite == "" {
+		return nil, out, errors.New("suite is required")
+	}
 	p, err := s.policyFile(in.Suite, "")
 	if err != nil {
 		return nil, out, err
-	}
-	if in.Suite == "" {
-		return nil, out, errors.New("suite is required")
 	}
 	su, err := eval.LoadSuite(p)
 	if err != nil {
