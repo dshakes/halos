@@ -8,6 +8,7 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 - The nightly soak's p99 gate is armed: `test/load/baseline.json` is the result of a green 60-minute run on `ubuntu-latest` (run 37253557695: 0 errors at ~1245 rps, p99 53.4 ms, all SSE streams intact, no heap or goroutine growth).
 
 ### Fixed
+- `halo onboard install --apply` replaced a managed config file it had not written (for example a Claude Code `managed-settings.json` an MDM had pushed), keeping only a `.halos-backup` and previewing it as a plain `update`. Such a file is now planned as `foreign` and `--apply` refuses and writes nothing unless `--replace-existing` is set; the MCP `local_install` tool never replaces one. Halos records the hash of each file it writes at `<file>.halos-sha256` to tell its own files from rewritten ones.
 - The nightly soak's load tool minted a one-hour JWT for a 60-minute soak, so the first scheduled run (3 Oct) ended in 401s at t+58 m with every other gate green; the token now outlives the run.
 - CI's released-`halo` jobs validate `examples/acme-corp` again; the `test/ci/policy-v1alpha1` fixture is gone.
 

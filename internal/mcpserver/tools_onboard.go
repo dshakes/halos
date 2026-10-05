@@ -178,7 +178,7 @@ func (s *srv) localInstall(_ context.Context, _ *mcp.CallToolRequest, in install
 	if err != nil {
 		return nil, installOut{}, err
 	}
-	p, written, err := onboard.Install(s.dir, in.Ring, or(s.env().GOOS, runtime.GOOS), in.Root, w)
+	p, written, err := onboard.Install(s.dir, in.Ring, or(s.env().GOOS, runtime.GOOS), in.Root, w, false) // ponytail: replacing a foreign file is a human CLI decision (--replace-existing)
 	if err != nil {
 		return nil, installOut{}, err
 	}

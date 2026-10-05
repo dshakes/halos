@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/dshakes/halos/internal/intent"
 	"github.com/dshakes/halos/internal/policy"
@@ -123,8 +124,9 @@ func loadChange(ch *intent.Change) (*policy.Org, []policy.Issue, error) {
 }
 
 // Install plans the managed-config install for the policy in dir and, when
-// apply, writes it. Idempotent: a second apply writes nothing.
-func Install(dir, ring, goos, root string, apply bool) (*InstallPlan, []string, error) {
+// apply, writes it. A file Halos did not write (ActionForeign) blocks the
+// whole apply unless replace is set. Idempotent: a second apply writes nothing.
+func Install(dir, ring, goos, root string, apply, replace bool) (*InstallPlan, []string, error) {
 	if _, err := os.Stat(filepath.Join(dir, policy.RootFile)); err != nil {
 		return nil, nil, fmt.Errorf("%w in %s: run halo onboard local --policy-dir %s --apply first", ErrNotFound, dir, dir)
 	}
@@ -140,6 +142,17 @@ func Install(dir, ring, goos, root string, apply bool) (*InstallPlan, []string, 
 		return nil, nil, err
 	}
 	written := []string{}
+	if apply && !replace {
+		var foreign []string
+		for _, f := range p.Files {
+			if f.Action == ActionForeign {
+				foreign = append(foreign, f.Dest)
+			}
+		}
+		if len(foreign) > 0 {
+			return p, written, fmt.Errorf("%w: %s (another tool, e.g. your MDM, manages them; nothing was written. Re-run with --replace-existing only if you own them: the originals are kept at <file>%s)", ErrForeign, strings.Join(foreign, ", "), backupSuffix)
+		}
+	}
 	if apply {
 		if written, err = p.Apply(); err != nil {
 			return p, written, err

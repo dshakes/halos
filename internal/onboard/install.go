@@ -3,6 +3,8 @@ package onboard
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -24,7 +26,14 @@ const (
 	ActionCreate    = "create"
 	ActionUpdate    = "update"
 	ActionUnchanged = "unchanged"
+	// ActionForeign is a differing file Halos did not write (e.g. one an MDM
+	// pushed). Apply refuses to replace it unless asked to.
+	ActionForeign = "foreign"
 )
+
+// ErrForeign is returned (wrapped) by Install when apply would replace files
+// Halos did not write and replace was not set.
+var ErrForeign = errors.New("refusing to replace files Halos did not write")
 
 // FilePlan is one managed config file: where it lands and what happens to it.
 type FilePlan struct {
@@ -114,6 +123,9 @@ func PlanInstall(org *policy.Org, ring, goos, root string) (*InstallPlan, error)
 				fp.Action = ActionUpdate
 				if _, err := os.Stat(fp.Dest + backupSuffix); err != nil {
 					fp.Backup = fp.Dest + backupSuffix
+					if !ownedByHalos(fp.Dest, cur) {
+						fp.Action = ActionForeign
+					}
 				}
 			}
 			p.Files = append(p.Files, fp)
@@ -122,7 +134,22 @@ func PlanInstall(org *policy.Org, ring, goos, root string) (*InstallPlan, error)
 	return p, nil
 }
 
-const backupSuffix = ".halos-backup"
+const (
+	backupSuffix = ".halos-backup"
+	// ownerSuffix holds the sha256 of the content Halos last wrote, so a later
+	// install can tell its own file from one someone else (re)wrote.
+	ownerSuffix = ".halos-sha256"
+)
+
+func ownedByHalos(dest string, cur []byte) bool {
+	want, err := os.ReadFile(dest + ownerSuffix)
+	return err == nil && strings.TrimSpace(string(want)) == sha256Hex(cur)
+}
+
+func sha256Hex(b []byte) string {
+	h := sha256.Sum256(b)
+	return hex.EncodeToString(h[:])
+}
 
 // under joins an absolute (possibly Windows) path under root, neutralising
 // drive letters and "..". root "" returns p unchanged.
@@ -140,9 +167,10 @@ func under(root, p string) string {
 // ErrPermission is returned (wrapped) when a managed path is not writable.
 var ErrPermission = errors.New("permission denied")
 
-// Apply writes every create/update file. The first time a differing file is
-// replaced its original is kept at <dest>.halos-backup. Idempotent: a second
-// Apply finds every file unchanged and writes nothing.
+// Apply writes every create/update/foreign file (callers gate foreign ones).
+// The first time a differing file is replaced its original is kept at
+// <dest>.halos-backup, and each write records its hash at <dest>.halos-sha256.
+// Idempotent: a second Apply finds every file unchanged and writes nothing.
 func (p *InstallPlan) Apply() ([]string, error) {
 	written := []string{}
 	for _, f := range p.Files {
@@ -167,6 +195,9 @@ func (p *InstallPlan) Apply() ([]string, error) {
 		}
 		if err := fsutil.WriteAtomic(f.Dest, f.data, mode); err != nil {
 			return written, permErr(f.Dest, err)
+		}
+		if err := fsutil.WriteAtomic(f.Dest+ownerSuffix, []byte(sha256Hex(f.data)+"\n"), 0o644); err != nil {
+			return written, permErr(f.Dest+ownerSuffix, err)
 		}
 		written = append(written, f.Dest)
 	}

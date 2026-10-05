@@ -107,7 +107,7 @@ func TestLocalIdempotentAndInstall(t *testing.T) {
 	}
 
 	root := t.TempDir()
-	p, _, err := Install(dir, "", "linux", root, false)
+	p, _, err := Install(dir, "", "linux", root, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,8 @@ func TestLocalIdempotentAndInstall(t *testing.T) {
 			t.Fatalf("%s renders a forbidden mode", f.Path)
 		}
 	}
-	// A pre-existing differing file is backed up once.
+	// A pre-existing file Halos did not write (an MDM-pushed one, say) is
+	// foreign: apply refuses and writes nothing until replace is set.
 	first := p.Files[0]
 	if err := os.MkdirAll(filepath.Dir(first.Dest), 0o755); err != nil {
 		t.Fatal(err)
@@ -130,14 +131,27 @@ func TestLocalIdempotentAndInstall(t *testing.T) {
 	if err := os.WriteFile(first.Dest, []byte("mine\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, written, err := Install(dir, "", "linux", root, true)
+	pf, written, err := Install(dir, "", "linux", root, true, false)
+	if !errors.Is(err, ErrForeign) || len(written) != 0 || pf.Files[0].Action != ActionForeign {
+		t.Fatalf("foreign file: %v %v %+v", err, written, pf.Files[0])
+	}
+	if b, _ := os.ReadFile(first.Dest); string(b) != "mine\n" {
+		t.Fatalf("refused apply touched the file: %q", b)
+	}
+	for _, f := range p.Files[1:] {
+		if _, err := os.Stat(f.Dest); err == nil {
+			t.Fatal("refused apply wrote", f.Dest)
+		}
+	}
+	// With replace it is backed up once.
+	_, written, err = Install(dir, "", "linux", root, true, true)
 	if err != nil || len(written) != len(p.Files) {
 		t.Fatalf("apply: %v %v", err, written)
 	}
 	if b, _ := os.ReadFile(first.Dest + backupSuffix); string(b) != "mine\n" {
 		t.Fatalf("backup = %q", b)
 	}
-	p2, written, err := Install(dir, "", "linux", root, true)
+	p2, written, err := Install(dir, "", "linux", root, true, false)
 	if err != nil || len(written) != 0 {
 		t.Fatalf("second apply wrote %v (%v)", written, err)
 	}
@@ -146,7 +160,27 @@ func TestLocalIdempotentAndInstall(t *testing.T) {
 			t.Fatalf("not idempotent: %+v", f)
 		}
 	}
-	if _, _, err := Install(t.TempDir(), "", "linux", root, false); !errors.Is(err, ErrNotFound) {
+	// A file Halos wrote is its own: a policy change updates it without replace.
+	if err := os.WriteFile(first.Dest+ownerSuffix, []byte(sha256Hex([]byte("old\n"))+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(first.Dest, []byte("old\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(first.Dest + backupSuffix); err != nil {
+		t.Fatal(err)
+	}
+	if p3, _, err := Install(dir, "", "linux", root, false, false); err != nil || p3.Files[0].Action != ActionUpdate {
+		t.Fatalf("own file must plan as update: %v %+v", err, p3.Files[0])
+	}
+	// Someone else rewrote it since: foreign again.
+	if err := os.WriteFile(first.Dest, []byte("mdm\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if p4, _, err := Install(dir, "", "linux", root, false, false); err != nil || p4.Files[0].Action != ActionForeign {
+		t.Fatalf("rewritten file must plan as foreign: %v %+v", err, p4.Files[0])
+	}
+	if _, _, err := Install(t.TempDir(), "", "linux", root, false, false); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("missing policy: %v", err)
 	}
 }
