@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "machine": "linux/amd64 4 CPUs go1.26.6",
+  "workers": 64,
+  "upstream_latency_ms": 50,
+  "soak": "1h0m0s",
+  "proxy_p50_ms": 51.325,
+  "proxy_p99_ms": 53.383,
+  "added_p99_ms": 1.236,
+  "soak_p50_ms": 51.294,
+  "soak_p99_ms": 53.283,
+  "soak_rps": 1245.187433298397,
+  "soak_errors": 0,
+  "heap_slope_mb_per_hour": -0.4873289595573055,
+  "goroutine_slope_per_hour": -9.781566680186604,
+  "steady_samples": 160,
+  "heap_base_mb": 9.412608,
+  "heap_end_mb": 8.88832,
+  "goroutines_base": 158,
+  "goroutines_end": 11,
+  "sse_ok": 232,
+  "sse_total": 232
+}
