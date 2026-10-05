@@ -4,6 +4,9 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Changed
+- The nightly soak's p99 gate is armed: `test/load/baseline.json` is the result of a green 60-minute run on `ubuntu-latest` (run 37253557695: 0 errors at ~1245 rps, p99 53.4 ms, all SSE streams intact, no heap or goroutine growth).
+
 ### Fixed
 - The nightly soak's load tool minted a one-hour JWT for a 60-minute soak, so the first scheduled run (3 Oct) ended in 401s at t+58 m with every other gate green; the token now outlives the run.
 - CI's released-`halo` jobs validate `examples/acme-corp` again; the `test/ci/policy-v1alpha1` fixture is gone.

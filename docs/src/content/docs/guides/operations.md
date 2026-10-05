@@ -112,7 +112,7 @@ groups:
           summary: "halo-shadow has spent 90% of its budget; mirroring stops at 100% (evidence gap, not an outage)"
 ```
 
-Two things no exporter covers, so wire them from CI: the daily `halo release refresh` job failing twice in a row (page: pointers expire after 7 days), and the nightly [soak workflow](https://github.com/dshakes/halos/blob/main/.github/workflows/soak.yml) failing (ticket: client-visible errors, a cut SSE stream or a goroutine or heap leak in `halo-proxy` reached `main`; the p99 gate only records until a `baseline.json` is committed).
+Two things no exporter covers, so wire them from CI: the daily `halo release refresh` job failing twice in a row (page: pointers expire after 7 days), and the nightly [soak workflow](https://github.com/dshakes/halos/blob/main/.github/workflows/soak.yml) failing (ticket: client-visible errors, a cut SSE stream or a goroutine or heap leak in `halo-proxy` reached `main`, or a p99 regression against `test/load/baseline.json`).
 
 ## Backup and restore
 
