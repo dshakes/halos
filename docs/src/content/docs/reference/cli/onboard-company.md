@@ -25,7 +25,7 @@ halo onboard company [flags]
 | `--client-id` |  | string | halos | OIDC client id |
 | `--delivery` |  | stringSlice | [halod] | devcontainer \| mdm \| halod, comma-separated |
 | `--gateway` |  | string |  | https URL the CLIs call (required) |
-| `--gateway-kind` |  | string | halo-proxy | halo-proxy \| kong |
+| `--gateway-kind` |  | string | halo-proxy | halo-proxy \| kong \| external |
 | `--halo-version` |  | string | dev | halo version CI installs |
 | `--issuer` |  | string |  | OIDC issuer URL of your IdP (required) |
 | `--model` |  | stringArray | [] | model alias=provider model id, repeatable |

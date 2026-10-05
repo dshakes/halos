@@ -83,6 +83,20 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 		headers = append(headers, "x-halo-release: "+c.Release)
 	}
 	if len(headers) > 0 {
+		// Keep a profile's own headers (a company gateway's routing or tenant
+		// header, say); Halos's go last.
+		if own, _ := env["ANTHROPIC_CUSTOM_HEADERS"].(string); strings.TrimSpace(own) != "" {
+			own = strings.TrimRight(own, "\n")
+			for _, l := range strings.Split(own, "\n") {
+				if strings.Contains(l, "\r") {
+					return nil, nil, fmt.Errorf("claudecode: env ANTHROPIC_CUSTOM_HEADERS: a header line contains CR")
+				}
+				if strings.HasPrefix(strings.ToLower(strings.TrimSpace(l)), "x-halo-") {
+					return nil, nil, fmt.Errorf("claudecode: env ANTHROPIC_CUSTOM_HEADERS: %q is set by Halos only", strings.SplitN(l, ":", 2)[0])
+				}
+			}
+			headers = append([]string{own}, headers...)
+		}
 		env["ANTHROPIC_CUSTOM_HEADERS"] = strings.Join(headers, "\n")
 	}
 
@@ -109,8 +123,8 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 		overrides := map[string]any{}
 		for _, a := range []string{"opus", "sonnet", "haiku"} {
 			if _, ok := g.Models[a]; ok {
-				env["ANTHROPIC_DEFAULT_"+strings.ToUpper(a)+"_MODEL"] = a
-				overrides[builtinIDs[a]] = a
+				env["ANTHROPIC_DEFAULT_"+strings.ToUpper(a)+"_MODEL"] = hutil.ClientModel(c, a)
+				overrides[builtinIDs[a]] = hutil.ClientModel(c, a)
 			}
 		}
 		if len(overrides) > 0 {
@@ -143,11 +157,15 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 		env["OTEL_RESOURCE_ATTRIBUTES"] = hutil.OTELResourceAttributes(name, t, c)
 	}
 
-	if m := hutil.Model(p, name); m != "" {
+	if m := hutil.ClientModel(c, hutil.Model(p, name)); m != "" {
 		s["model"] = m
 	}
 	if len(p.Models.Allowed) > 0 {
-		s["availableModels"] = p.Models.Allowed
+		allowed := make([]string, len(p.Models.Allowed))
+		for i, a := range p.Models.Allowed {
+			allowed[i] = hutil.ClientModel(c, a)
+		}
+		s["availableModels"] = allowed
 		if p.Models.Enforce {
 			s["enforceAvailableModels"] = true
 		}

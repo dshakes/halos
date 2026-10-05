@@ -111,6 +111,11 @@ func PlanInstall(org *policy.Org, ring, goos, root string) (*InstallPlan, error)
 				return nil, fmt.Errorf("release is missing blob for %s", f.Path)
 			}
 			fp := FilePlan{Harness: h, Path: f.Path, Dest: under(root, f.Path), Mode: f.Mode, Content: string(data), data: data}
+			// Halos never manages a symlink: refusing one keeps a root apply from
+			// following it (backup reads, ownership checks) somewhere else.
+			if st, err := os.Lstat(fp.Dest); err == nil && st.Mode()&fs.ModeSymlink != 0 {
+				return nil, fmt.Errorf("%s is a symlink; refusing to manage it (replace it with a regular file or remove it)", fp.Dest)
+			}
 			cur, err := os.ReadFile(fp.Dest)
 			switch {
 			case errors.Is(err, fs.ErrNotExist):
@@ -138,6 +143,10 @@ const (
 	backupSuffix = ".halos-backup"
 	// ownerSuffix holds the sha256 of the content Halos last wrote, so a later
 	// install can tell its own file from one someone else (re)wrote.
+	// ponytail: a plain sidecar, so the check is only as strong as the managed
+	// directory's permissions (root-owned, not group/world-writable, as every
+	// CLI's managed dir is). Anyone who can write there can forge it, and could
+	// overwrite the config directly anyway; sign it if that ever changes.
 	ownerSuffix = ".halos-sha256"
 )
 
@@ -185,7 +194,7 @@ func (p *InstallPlan) Apply() ([]string, error) {
 			if err != nil {
 				return written, fmt.Errorf("back up %s: %w", f.Dest, err)
 			}
-			if err := fsutil.WriteAtomic(f.Backup, cur, 0o600); err != nil {
+			if err := fsutil.WriteAtomic(f.Backup, cur, fsutil.ExistingPerm(f.Dest, 0o600)); err != nil {
 				return written, permErr(f.Backup, err)
 			}
 		}

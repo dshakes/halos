@@ -94,9 +94,22 @@ func Local(o LocalOptions) (*LocalResult, error) {
 	if !o.Apply && pr.Action == PolicyCreate {
 		res.Next = append(res.Next, "write the policy: halo onboard local --policy-dir "+d+" --apply (same flags)")
 	}
-	res.Next = append(res.Next,
-		"preview the managed config: halo onboard install --policy-dir "+d,
-		"write it (admin-owned paths need sudo; --root DIR stages it): halo onboard install --policy-dir "+d+" --apply")
+	var foreign []string
+	for _, f := range res.Install.Files {
+		if f.Action == ActionForeign {
+			foreign = append(foreign, f.Dest)
+		}
+	}
+	if len(foreign) > 0 {
+		res.Next = append(res.Next,
+			"STOP: "+strings.Join(foreign, ", ")+" already exists and was not written by Halos (likely your IT/MDM): do not install over it on this machine",
+			"compare instead: halo onboard install --policy-dir "+d+" --root ~/halo-eval --apply, then diff with the existing file; deliver the result through your MDM",
+			"if your company has its own API gateway: halo onboard local --policy-dir "+d+" --gateway <its URL> --gateway-engine external")
+	} else {
+		res.Next = append(res.Next,
+			"preview the managed config: halo onboard install --policy-dir "+d,
+			"write it (admin-owned paths need sudo; --root DIR stages it): halo onboard install --policy-dir "+d+" --apply")
+	}
 	if IsLoopback(o.Init.Gateway) || (pr.Action != PolicyCreate && res.Install.Gateway != "" && IsLoopback(res.Install.Gateway)) {
 		res.Next = append(res.Next, "run the local gateway the CLIs will call: halo onboard proxy --policy-dir "+d+" --apply")
 	}

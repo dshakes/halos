@@ -40,6 +40,10 @@ func TestSimpleExpandGolden(t *testing.T) {
 			"gateway: https://ai.startup.example\nsafety: relaxed\nrollout: fast\n",
 		"vertex": hdr + "kind: Halos\norg: gco\ntools: {claude-code: 2.1.280}\n" +
 			"provider: {name: vertex, project: gco-ai, region: us-east5}\nmodels: {default: claude-sonnet-4-5@20250929}\ngateway: https://ai.gco.example\n",
+		// A company's own API gateway (Kong -> auth -> orchestrator -> Bedrock) that Halos does not run.
+		"external-bedrock": hdr + "kind: Halos\norg: corp\ntools: {claude-code: 2.1.280}\n" +
+			"provider: {name: bedrock, region: us-east-1}\nmodels: {default: us.anthropic.claude-sonnet-4-5-20250929-v1:0}\n" +
+			"gateway: https://ai-gw.corp.example\ngatewayEngine: external\n",
 	}
 	for name, src := range cases {
 		t.Run(name, func(t *testing.T) {

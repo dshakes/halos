@@ -240,11 +240,13 @@ type InitOptions struct {
 	// ToolModels maps a tool to the alias it starts on instead of default (set by Complete).
 	ToolModels map[string]string
 	Gateway    string
-	Issuer     string
-	ClientID   string   // OIDC client id (portal login); optional
-	Admins     []string // identity.adminGroups (ring0 team and portal admins); optional
-	Safety     string
-	Rollout    string
+	// GatewayEngine: "" (halo-proxy), kong, or external (your own API gateway).
+	GatewayEngine string
+	Issuer        string
+	ClientID      string   // OIDC client id (portal login); optional
+	Admins        []string // identity.adminGroups (ring0 team and portal admins); optional
+	Safety        string
+	Rollout       string
 }
 
 // Complete fills what init must not leave to the user: the default alias's
@@ -320,6 +322,9 @@ func InitFile(o InitOptions) []byte {
 		fmt.Fprintf(&b, "  %s: %s\n", k, yamledit.Quote(o.Models[k], 0))
 	}
 	fmt.Fprintf(&b, "gateway: %s\n", o.Gateway)
+	if o.GatewayEngine != "" {
+		fmt.Fprintf(&b, "gatewayEngine: %s   # halo-proxy | kong | external (your own API gateway)\n", o.GatewayEngine)
+	}
 	if o.Issuer != "" {
 		fmt.Fprintf(&b, "identity: {issuer: %s", o.Issuer)
 		if o.ClientID != "" {

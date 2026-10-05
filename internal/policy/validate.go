@@ -112,8 +112,12 @@ func (v *validator) gateway() {
 		v.errf("gateway", "no Gateway document defined")
 		return
 	}
-	if g.Engine != "" && g.Engine != "halo-proxy" && g.Engine != "kong" {
-		v.errf("gateway.engine", "%q must be halo-proxy or kong", g.Engine)
+	switch g.Engine {
+	case "", "halo-proxy", "kong":
+	case EngineExternal:
+		v.warnf("gateway.engine", "external: Halos does not see this traffic, so clients get each alias's provider model id, and the gateway-side posture and version gates, kill switch and model-axis experiment metrics do not apply")
+	default:
+		v.errf("gateway.engine", "%q must be halo-proxy, kong or external", g.Engine)
 	}
 	if u, err := url.Parse(g.BaseURL); err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
 		v.errf("gateway.baseURL", "%q must be an absolute http(s) URL", g.BaseURL)
@@ -203,6 +207,9 @@ func (v *validator) route(path string, r ModelRoute) {
 	if len(targets) > 1 && g.Engine == "kong" {
 		v.warnf(path, "multi-target routes (weights, failover) run only in halo-proxy; halo-kong routes to the first target")
 	}
+	if len(targets) > 1 && g.Engine == EngineExternal {
+		v.warnf(path, "multi-target routes run only in halo-proxy; with engine external clients are sent the first target's model")
+	}
 	for i, t := range targets {
 		tp := path
 		if len(r.Targets) > 0 {
@@ -210,6 +217,9 @@ func (v *validator) route(path string, r ModelRoute) {
 		}
 		if t.Model == "" && len(r.Targets) > 0 {
 			v.errf(tp+".model", "model is required")
+		}
+		if t.Upstream == "" && g.Engine == EngineExternal {
+			continue // the external gateway picks the backend; only the model id is rendered
 		}
 		up, ok := g.Upstreams[t.Upstream]
 		if !ok {

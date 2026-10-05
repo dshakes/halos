@@ -15,7 +15,7 @@ Generated from `schemas/gateway.schema.json`; do not edit. Nested fields use dot
 | `auth.identityHeader` | string |  |  |  |  | Header the auth gateway sets with the verified user id. |
 | `auth.ttlSeconds` | integer |  |  |  | minimum 0 | Token lifetime in seconds. |
 | `baseURL` | string | yes |  |  | format uri | What clients are pointed at (Kong's public listener). |
-| `engine` | string |  |  | halo-proxy, kong |  | Data plane enforcing this policy (default halo-proxy). Multi-target routes (weights, failover) run only in halo-proxy; halo-kong uses each route's first target. |
+| `engine` | string |  |  | halo-proxy, kong, external |  | Data plane enforcing this policy (default halo-proxy). external is a gateway Halos does not run (your own API gateway): clients are rendered with each alias's provider model id. Multi-target routes (weights, failover) run only in halo-proxy; halo-kong and external use each route's first target. |
 | `kind` | string | yes |  | const Gateway |  | Document kind. |
 | `labels` | object |  |  |  |  | Free-form labels. |
 | `labels.*` | string |  |  |  |  |  |

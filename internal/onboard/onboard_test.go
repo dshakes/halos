@@ -180,6 +180,16 @@ func TestLocalIdempotentAndInstall(t *testing.T) {
 	if p4, _, err := Install(dir, "", "linux", root, false, false); err != nil || p4.Files[0].Action != ActionForeign {
 		t.Fatalf("rewritten file must plan as foreign: %v %+v", err, p4.Files[0])
 	}
+	// A symlinked managed path is refused, not followed.
+	if err := os.Remove(first.Dest); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(root, "elsewhere"), first.Dest); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := Install(dir, "", "linux", root, false, false); err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("symlinked dest: %v", err)
+	}
 	if _, _, err := Install(t.TempDir(), "", "linux", root, false, false); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("missing policy: %v", err)
 	}

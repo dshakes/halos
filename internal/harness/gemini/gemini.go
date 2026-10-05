@@ -54,7 +54,7 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 	}
 
 	s := map[string]any{}
-	if m := hutil.Model(p, name); m != "" {
+	if m := hutil.ClientModel(c, hutil.Model(p, name)); m != "" {
 		s["model"] = map[string]any{"name": m}
 	}
 	if p.Permissions.DisableBypass {

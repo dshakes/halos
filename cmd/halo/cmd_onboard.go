@@ -160,6 +160,7 @@ func (a *app) cmdOnboardLocal() *cobra.Command {
 	f.StringArrayVar(&models, "model", nil, "model alias=provider model id, repeatable")
 	f.StringVar(&o.Init.Project, "project", "", "Google Cloud project (provider vertex)")
 	f.StringVar(&o.Init.Gateway, "gateway", "", "gateway base URL the CLIs call (default: local halo-proxy http://"+onboard.DefaultLocalProxy+")")
+	f.StringVar(&o.Init.GatewayEngine, "gateway-engine", "", "what serves --gateway: halo-proxy (default) | kong | external (your company's own API gateway: CLIs get provider model ids)")
 	f.StringVar(&o.Init.Safety, "safety", "standard", "strict | standard | relaxed")
 	f.StringVar(&o.Init.Rollout, "rollout", "standard", "fast | standard | careful")
 	f.StringVar(&o.Ring, "ring", "", "ring this machine follows (default: the GA ring)")
