@@ -120,11 +120,22 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 		// availableModels is dropped silently and the tier default goes out as
 		// its built-in ID (claude-opus-5-5[1m] on 2.1.280), ignoring the env.
 		// modelOverrides does apply there, so map each built-in ID to its alias.
+		// Behind an external gateway nothing rejects an unlisted model, so with
+		// models enforced every tier Claude can fall back to is pinned to the
+		// default model instead.
+		lock := ""
+		if g.Engine == policy.EngineExternal && p.Models.Enforce {
+			lock = hutil.ClientModel(c, hutil.Model(p, name))
+		}
 		overrides := map[string]any{}
 		for _, a := range []string{"opus", "sonnet", "haiku"} {
+			m := lock
 			if _, ok := g.Models[a]; ok {
-				env["ANTHROPIC_DEFAULT_"+strings.ToUpper(a)+"_MODEL"] = hutil.ClientModel(c, a)
-				overrides[builtinIDs[a]] = hutil.ClientModel(c, a)
+				m = hutil.ClientModel(c, a)
+			}
+			if m != "" {
+				env["ANTHROPIC_DEFAULT_"+strings.ToUpper(a)+"_MODEL"] = m
+				overrides[builtinIDs[a]] = m
 			}
 		}
 		if len(overrides) > 0 {

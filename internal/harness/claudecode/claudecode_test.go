@@ -326,3 +326,22 @@ func TestOwnCustomHeadersChecked(t *testing.T) {
 		}
 	}
 }
+
+// Behind an external gateway with models enforced, Claude's built-in fallback
+// IDs must land on the locked default model, not go out as-is.
+func TestExternalFallbackLocked(t *testing.T) {
+	files, _, err := render(func(_ *policy.Profile, g *policy.Gateway) {
+		g.Engine = policy.EngineExternal
+		g.Models = map[string]policy.ModelRoute{"halo-sonnet": {Model: "locked-id"}, "halo-haiku": {Model: "h"}}
+	}, harness.Linux)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := settings(t, files)
+	env, ov := m["env"].(map[string]any), m["modelOverrides"].(map[string]any)
+	for a, id := range builtinIDs {
+		if ov[id] != "locked-id" || env["ANTHROPIC_DEFAULT_"+strings.ToUpper(a)+"_MODEL"] != "locked-id" {
+			t.Errorf("%s fallback = %v / %v", a, ov[id], env["ANTHROPIC_DEFAULT_"+strings.ToUpper(a)+"_MODEL"])
+		}
+	}
+}
