@@ -640,10 +640,19 @@ func guardSecrets(o *Org) []Issue {
 // telemetry, updater); a profile env var could otherwise silently undo them.
 var reservedEnvPrefixes = []string{"OTEL_", "ANTHROPIC_", "CLAUDE_CODE_", "DISABLE_", "CODEX_", "GEMINI_", "GOOGLE_GEMINI_"}
 
+// envMergedByRenderer are reserved names a profile may still set: the renderer
+// merges them with its own value instead of replacing it (Claude Code keeps a
+// company gateway's headers and appends x-halo-ring/x-halo-release, rejecting
+// CR and x-halo-* lines in the profile's part).
+var envMergedByRenderer = []string{"ANTHROPIC_CUSTOM_HEADERS"}
+
 func guardEnvKeys(o *Org) []Issue {
 	var out []Issue
 	for _, name := range sortedKeys(o.Profiles) {
 		for _, k := range sortedKeys(o.Profiles[name].Env) {
+			if slices.Contains(envMergedByRenderer, strings.ToUpper(k)) {
+				continue
+			}
 			for _, pre := range reservedEnvPrefixes {
 				if strings.HasPrefix(strings.ToUpper(k), pre) {
 					out = append(out, gi(SeverityError, "profiles["+name+"].env."+k, "env prefix %s is reserved for the renderer", pre))

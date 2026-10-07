@@ -263,3 +263,26 @@ func TestSimpleSchema(t *testing.T) {
 		}
 	}
 }
+
+// A full policy behind an external gateway validates end to end (not just the
+// gateway section): routes with no Halos upstream pass the harness-wire guard,
+// and a profile may set ANTHROPIC_CUSTOM_HEADERS, which the renderer merges.
+func TestExternalGatewayFullValidate(t *testing.T) {
+	dir := writeRepo(t, map[string]string{
+		RootFile: hdr + "kind: Halos\norg: corp\ntools: {claude-code: 2.1.280}\nprovider: anthropic\nmodels: {default: claude-sonnet-4-5}\n" +
+			"gateway: https://ai-gw.corp.example\ngatewayEngine: external\n",
+		"gateway.yaml": hdr + "kind: Gateway\nname: corp-gateway\nbaseURL: https://ai-gw.corp.example\nengine: external\n" +
+			"models: {default: {model: corp-sonnet}}\n",
+		"profiles/default.yaml": hdr + "kind: Profile\nname: default\nenv: {ANTHROPIC_CUSTOM_HEADERS: \"x-tenant: corp\"}\n",
+	})
+	org, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if errs := errorsOf(org.Validate()); len(errs) > 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	if m := org.Gateway.Models["default"]; m.Upstream != "" || m.Model != "corp-sonnet" {
+		t.Fatalf("route = %+v", m)
+	}
+}

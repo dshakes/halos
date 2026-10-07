@@ -84,6 +84,12 @@ func (g *Gateway) WireFit(alias, wire string) (WireFitness, []string) {
 	var kinds []string
 	fit := WireNo
 	for _, t := range g.Models[alias].Candidates() {
+		if t.Upstream == "" && g.Engine == EngineExternal {
+			// The external gateway picks the backend and speaks the wire; Halos only renders the model id.
+			kinds = append(kinds, "external gateway")
+			fit = WireYes
+			continue
+		}
 		up := g.Upstreams[t.Upstream]
 		kinds = append(kinds, t.Upstream+" ("+up.Kind+")")
 		switch {
