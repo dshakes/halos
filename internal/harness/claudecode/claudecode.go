@@ -82,21 +82,15 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 	if c.Release != "" {
 		headers = append(headers, "x-halo-release: "+c.Release)
 	}
-	if len(headers) > 0 {
-		// Keep a profile's own headers (a company gateway's routing or tenant
-		// header, say); Halos's go last.
-		if own, _ := env["ANTHROPIC_CUSTOM_HEADERS"].(string); strings.TrimSpace(own) != "" {
-			own = strings.TrimRight(own, "\n")
-			for _, l := range strings.Split(own, "\n") {
-				if strings.Contains(l, "\r") {
-					return nil, nil, fmt.Errorf("claudecode: env ANTHROPIC_CUSTOM_HEADERS: a header line contains CR")
-				}
-				if strings.HasPrefix(strings.ToLower(strings.TrimSpace(l)), "x-halo-") {
-					return nil, nil, fmt.Errorf("claudecode: env ANTHROPIC_CUSTOM_HEADERS: %q is set by Halos only", strings.SplitN(l, ":", 2)[0])
-				}
-			}
-			headers = append([]string{own}, headers...)
+	// Keep a profile's own headers (a company gateway's routing or tenant
+	// header, say); Halos's go last. Validated here too, as a backstop.
+	if own, _ := env["ANTHROPIC_CUSTOM_HEADERS"].(string); strings.TrimSpace(own) != "" {
+		if err := policy.CheckCustomHeaders(own); err != nil {
+			return nil, nil, fmt.Errorf("claudecode: env ANTHROPIC_CUSTOM_HEADERS: %w", err)
 		}
+		headers = append([]string{strings.TrimRight(own, "\n")}, headers...)
+	}
+	if len(headers) > 0 {
 		env["ANTHROPIC_CUSTOM_HEADERS"] = strings.Join(headers, "\n")
 	}
 

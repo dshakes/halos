@@ -345,3 +345,12 @@ func TestExternalFallbackLocked(t *testing.T) {
 		}
 	}
 }
+
+// The profile's headers are checked even when Halos adds none (no ring/release).
+func TestOwnCustomHeadersCheckedWithoutHaloHeaders(t *testing.T) {
+	p, g := hutiltest.Fixture()
+	p.Env["ANTHROPIC_CUSTOM_HEADERS"] = "x-halo-ring: ga"
+	if _, _, err := (Adapter{}).Render(p, harness.Context{Gateway: g, OS: harness.Linux}); err == nil {
+		t.Error("want error")
+	}
+}

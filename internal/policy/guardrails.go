@@ -646,11 +646,29 @@ var reservedEnvPrefixes = []string{"OTEL_", "ANTHROPIC_", "CLAUDE_CODE_", "DISAB
 // CR and x-halo-* lines in the profile's part).
 var envMergedByRenderer = []string{"ANTHROPIC_CUSTOM_HEADERS"}
 
+// CheckCustomHeaders validates a profile's newline-separated
+// ANTHROPIC_CUSTOM_HEADERS: no CR (header injection) and no x-halo-* header,
+// which only Halos sets.
+func CheckCustomHeaders(v string) error {
+	for _, l := range strings.Split(strings.TrimRight(v, "\n"), "\n") {
+		if strings.Contains(l, "\r") {
+			return fmt.Errorf("a header line contains CR")
+		}
+		if strings.HasPrefix(strings.ToLower(strings.TrimSpace(l)), "x-halo-") {
+			return fmt.Errorf("%q is set by Halos only", strings.TrimSpace(strings.SplitN(l, ":", 2)[0]))
+		}
+	}
+	return nil
+}
+
 func guardEnvKeys(o *Org) []Issue {
 	var out []Issue
 	for _, name := range sortedKeys(o.Profiles) {
 		for _, k := range sortedKeys(o.Profiles[name].Env) {
 			if slices.Contains(envMergedByRenderer, strings.ToUpper(k)) {
+				if err := CheckCustomHeaders(o.Profiles[name].Env[k]); err != nil {
+					out = append(out, gi(SeverityError, "profiles["+name+"].env."+k, "%v", err))
+				}
 				continue
 			}
 			for _, pre := range reservedEnvPrefixes {

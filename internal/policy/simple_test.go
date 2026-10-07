@@ -5,6 +5,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -284,5 +285,31 @@ func TestExternalGatewayFullValidate(t *testing.T) {
 	}
 	if m := org.Gateway.Models["default"]; m.Upstream != "" || m.Model != "corp-sonnet" {
 		t.Fatalf("route = %+v", m)
+	}
+}
+
+// Simple mode behind an external gateway: the company gateway translates, so a
+// tool whose wire the provider does not speak still validates; and bad
+// ANTHROPIC_CUSTOM_HEADERS are caught by validate, not only at render.
+func TestExternalSimpleWireAndHeaders(t *testing.T) {
+	root := hdr + "kind: Halos\norg: corp\ntools: {claude-code: 2.1.280, codex: 0.58.0}\nprovider: bedrock\n" +
+		"models: {default: us.anthropic.claude-sonnet-4-5-20250929-v1:0, codex: corp-gpt}\n" +
+		"gateway: https://ai-gw.corp.example\ngatewayEngine: external\n"
+	org, err := Load(writeRepo(t, map[string]string{RootFile: root}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if errs := errorsOf(org.Validate()); len(errs) > 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	for _, h := range []string{"X-Halo-Ring: ga", "x-ok: 1\rx-evil: 2"} {
+		org, err := Load(writeRepo(t, map[string]string{RootFile: root,
+			"profiles/default.yaml": hdr + "kind: Profile\nname: default\nenv: {ANTHROPIC_CUSTOM_HEADERS: " + strconv.Quote(h) + "}\n"}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(errorsOf(org.Validate())) == 0 {
+			t.Errorf("header %q validated", h)
+		}
 	}
 }
