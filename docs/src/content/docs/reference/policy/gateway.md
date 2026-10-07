@@ -27,9 +27,9 @@ Generated from `schemas/gateway.schema.json`; do not edit. Nested fields use dot
 | `models.*.targets[].model` | string | yes |  |  |  | Provider model id, Bedrock inference profile ARN, or Azure deployment name. |
 | `models.*.targets[].priority` | integer |  |  |  | minimum 0 | Failover tier, lowest first (default 0). |
 | `models.*.targets[].timeoutSeconds` | integer |  |  |  | minimum 0 | Connect plus response-header timeout for this target; streams are not time-limited afterwards. |
-| `models.*.targets[].upstream` | string | yes |  |  |  | Name of an entry in gateway.upstreams. |
+| `models.*.targets[].upstream` | string |  |  |  |  | Name of an entry in gateway.upstreams. Required unless engine is external. |
 | `models.*.targets[].weight` | number |  |  |  | minimum 0 | Relative share of traffic within the priority tier. |
-| `models.*.upstream` | string |  |  |  |  | Name of an entry in gateway.upstreams. |
+| `models.*.upstream` | string |  |  |  |  | Name of an entry in gateway.upstreams. Required unless engine is external. |
 | `name` | string | yes |  |  | pattern ^[a-z0-9][a-zA-Z0-9._-]*$ | Unique name within its kind. |
 | `protocols` | object |  |  |  |  | Wire protocol per harness name. |
 | `protocols.*` | string |  |  | anthropic-messages, bedrock-invoke, openai-responses, gemini |  |  |
@@ -49,5 +49,5 @@ Generated from `schemas/gateway.schema.json`; do not edit. Nested fields use dot
 
 ## Constraints
 
-- `models.*`: exactly one of `upstream + model` or `targets`
+- `models.*`: exactly one of `model` or `targets`
 - `upstreams.*.credential`: exactly one of `env` or `file`

@@ -218,6 +218,9 @@ func (v *validator) route(path string, r ModelRoute) {
 		if t.Model == "" && len(r.Targets) > 0 {
 			v.errf(tp+".model", "model is required")
 		}
+		if t.Weight < 0 || t.Priority < 0 || t.TimeoutSeconds < 0 {
+			v.errf(tp, "weight, priority and timeoutSeconds must be >= 0")
+		}
 		if t.Upstream == "" && g.Engine == EngineExternal {
 			continue // the external gateway picks the backend; only the model id is rendered
 		}
@@ -225,9 +228,6 @@ func (v *validator) route(path string, r ModelRoute) {
 		if !ok {
 			v.errf(tp+".upstream", "upstream %q not defined in gateway.upstreams", t.Upstream)
 			continue
-		}
-		if t.Weight < 0 || t.Priority < 0 || t.TimeoutSeconds < 0 {
-			v.errf(tp, "weight, priority and timeoutSeconds must be >= 0")
 		}
 		if len(g.Protocols) > 0 && !slices.ContainsFunc(sortedKeys(g.Protocols), func(h string) bool { return KindServes(up.Kind, g.Protocols[h]) }) {
 			v.warnf(tp, "upstream %q (kind %s) cannot serve any configured harness protocol; this target would never be used", t.Upstream, up.Kind)

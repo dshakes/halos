@@ -180,6 +180,26 @@ func TestLocalIdempotentAndInstall(t *testing.T) {
 	if p4, _, err := Install(dir, "", "linux", root, false, false); err != nil || p4.Files[0].Action != ActionForeign {
 		t.Fatalf("rewritten file must plan as foreign: %v %+v", err, p4.Files[0])
 	}
+	// An earlier backup does not make a rewritten file Halos's: it is foreign
+	// again, and replacing it keeps both the old backup and the new original.
+	if err := os.WriteFile(first.Dest+backupSuffix, []byte("first\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := Install(dir, "", "linux", root, true, false); !errors.Is(err, ErrForeign) {
+		t.Fatalf("foreign with an old backup must refuse: %v", err)
+	}
+	p5, _, err := Install(dir, "", "linux", root, true, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(first.Dest + backupSuffix); string(b) != "first\n" {
+		t.Fatalf("old backup clobbered: %q", b)
+	}
+	if bk := p5.Files[0].Backup; !strings.HasPrefix(bk, first.Dest+backupSuffix+".") {
+		t.Fatalf("second backup at %q", bk)
+	} else if b, _ := os.ReadFile(bk); string(b) != "mdm\n" {
+		t.Fatalf("second backup = %q", b)
+	}
 	// A symlinked managed path is refused, not followed.
 	if err := os.Remove(first.Dest); err != nil {
 		t.Fatal(err)

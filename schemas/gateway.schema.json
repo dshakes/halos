@@ -75,7 +75,7 @@
         "properties": {
           "upstream": {
             "type": "string",
-            "description": "Name of an entry in gateway.upstreams."
+            "description": "Name of an entry in gateway.upstreams. Required unless engine is external."
           },
           "model": {
             "type": "string",
@@ -91,7 +91,7 @@
               "properties": {
                 "upstream": {
                   "type": "string",
-                  "description": "Name of an entry in gateway.upstreams."
+                  "description": "Name of an entry in gateway.upstreams. Required unless engine is external."
                 },
                 "model": {
                   "type": "string",
@@ -114,7 +114,6 @@
                 }
               },
               "required": [
-                "upstream",
                 "model"
               ],
               "additionalProperties": false
@@ -125,7 +124,6 @@
         "oneOf": [
           {
             "required": [
-              "upstream",
               "model"
             ]
           },

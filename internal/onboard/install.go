@@ -124,13 +124,16 @@ func PlanInstall(org *policy.Org, ring, goos, root string) (*InstallPlan, error)
 				return nil, fmt.Errorf("read %s: %w", fp.Dest, err)
 			case bytes.Equal(cur, data):
 				fp.Action = ActionUnchanged
+			case ownedByHalos(fp.Dest, cur):
+				fp.Action = ActionUpdate // Halos's own content: nothing to keep
 			default:
-				fp.Action = ActionUpdate
-				if _, err := os.Stat(fp.Dest + backupSuffix); err != nil {
-					fp.Backup = fp.Dest + backupSuffix
-					if !ownedByHalos(fp.Dest, cur) {
-						fp.Action = ActionForeign
-					}
+				// Anyone else's content (an MDM push, a hand edit, a file from
+				// before Halos recorded hashes) is foreign every time, and is
+				// backed up when replaced without clobbering an earlier backup.
+				fp.Action = ActionForeign
+				fp.Backup = fp.Dest + backupSuffix
+				if _, err := os.Lstat(fp.Backup); err == nil {
+					fp.Backup += "." + time.Now().UTC().Format("20060102T150405Z")
 				}
 			}
 			p.Files = append(p.Files, fp)
@@ -177,8 +180,8 @@ func under(root, p string) string {
 var ErrPermission = errors.New("permission denied")
 
 // Apply writes every create/update/foreign file (callers gate foreign ones).
-// The first time a differing file is replaced its original is kept at
-// <dest>.halos-backup, and each write records its hash at <dest>.halos-sha256.
+// A replaced foreign file is kept at <dest>.halos-backup (timestamped if that
+// exists), and each write records its hash at <dest>.halos-sha256.
 // Idempotent: a second Apply finds every file unchanged and writes nothing.
 func (p *InstallPlan) Apply() ([]string, error) {
 	written := []string{}

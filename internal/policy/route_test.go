@@ -57,6 +57,10 @@ func TestGatewayRouteValidation(t *testing.T) {
 			g.Engine = EngineExternal
 			g.Models["opus"] = ModelRoute{Upstream: "nope", Model: "m"}
 		}, `upstream "nope" not defined`, SeverityError, true},
+		{"external checks numbers without an upstream", func(g *Gateway) {
+			g.Engine = EngineExternal
+			g.Models["opus"] = ModelRoute{Targets: []RouteTarget{{Model: "m", Priority: -1}}}
+		}, "must be >= 0", SeverityError, true},
 		{"external warns on multi-target", func(g *Gateway) { g.Engine = EngineExternal; g.Models["opus"] = ModelRoute{Targets: two} }, "first target's model", SeverityWarning, false},
 		{"unreachable kind warns", func(g *Gateway) {
 			g.Protocols = map[string]string{"codex": "openai-responses"}
