@@ -168,6 +168,17 @@ func TestLocalIdempotentAndInstall(t *testing.T) {
 			t.Fatalf("not idempotent: %+v", f)
 		}
 	}
+	// A file with Halos's content but no hash (installed by halo <=0.1.1) gets
+	// its hash on the next apply, so a later policy change is not foreign.
+	if err := os.Remove(first.Dest + ownerSuffix); err != nil {
+		t.Fatal(err)
+	}
+	if _, w, err := Install(dir, "", "linux", root, true, false); err != nil || len(w) != 0 {
+		t.Fatalf("heal apply: %v %v", err, w)
+	}
+	if cur, _ := os.ReadFile(first.Dest); !ownedByHalos(first.Dest, cur) {
+		t.Fatal("unchanged file's hash not recorded")
+	}
 	// A file Halos wrote is its own: a policy change updates it without replace.
 	if err := os.WriteFile(first.Dest+ownerSuffix, []byte(sha256Hex([]byte("old\n"))+"\n"), 0o644); err != nil {
 		t.Fatal(err)

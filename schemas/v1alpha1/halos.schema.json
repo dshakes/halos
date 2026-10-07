@@ -240,6 +240,15 @@
       "format": "uri",
       "description": "Simple mode: the gateway base URL clients are pointed at."
     },
+    "gatewayEngine": {
+      "type": "string",
+      "description": "Simple mode: what serves gateway: halo-proxy (default), kong, or external (your own API gateway; clients are sent provider model ids).",
+      "enum": [
+        "halo-proxy",
+        "kong",
+        "external"
+      ]
+    },
     "telemetry": {
       "type": "string",
       "format": "uri",

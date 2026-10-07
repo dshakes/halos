@@ -187,6 +187,13 @@ func (p *InstallPlan) Apply() ([]string, error) {
 	written := []string{}
 	for _, f := range p.Files {
 		if f.Action == ActionUnchanged {
+			// Already Halos's content (e.g. installed before hashes were
+			// recorded): record the hash so a later update is not foreign.
+			if !ownedByHalos(f.Dest, f.data) {
+				if err := fsutil.WriteAtomic(f.Dest+ownerSuffix, []byte(sha256Hex(f.data)+"\n"), 0o644); err != nil {
+					return written, permErr(f.Dest+ownerSuffix, err)
+				}
+			}
 			continue
 		}
 		if err := os.MkdirAll(filepath.Dir(f.Dest), 0o755); err != nil {
