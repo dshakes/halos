@@ -33,7 +33,7 @@ Generated from `schemas/gateway.schema.json`; do not edit. Nested fields use dot
 | `name` | string | yes |  |  | pattern ^[a-z0-9][a-zA-Z0-9._-]*$ | Unique name within its kind. |
 | `protocols` | object |  |  |  |  | Wire protocol per harness name. |
 | `protocols.*` | string |  |  | anthropic-messages, bedrock-invoke, openai-responses, gemini |  |  |
-| `upstreams` | object | yes |  |  |  | Named backends. |
+| `upstreams` | object |  |  |  |  | Named backends. |
 | `upstreams.*` | object |  |  |  |  | A backend. |
 | `upstreams.*.apiVersion` | string |  |  |  |  | api-version query for kind azure-openai; empty uses the versionless /openai/v1 surface. |
 | `upstreams.*.credential` | object |  |  |  |  | Where halo-proxy reads the provider key (kinds openai, azure-openai): an environment variable name or a file path, never the secret itself. |

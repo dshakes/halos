@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime"
 	"strings"
@@ -181,7 +182,11 @@ func (s *srv) localInstall(_ context.Context, _ *mcp.CallToolRequest, in install
 		return nil, installOut{}, err
 	}
 	p, written, err := onboard.Install(s.dir, in.Ring, or(s.env().GOOS, runtime.GOOS), in.Root, w, false) // ponytail: replacing a foreign file is a human CLI decision (--replace-existing)
-	if err != nil {
+	var refused string
+	switch {
+	case errors.Is(err, onboard.ErrForeign) && p != nil:
+		refused = err.Error() // keep the plan: it shows which files are foreign
+	case err != nil:
 		return nil, installOut{}, err
 	}
 	if !in.Show {
@@ -190,6 +195,10 @@ func (s *srv) localInstall(_ context.Context, _ *mcp.CallToolRequest, in install
 		}
 	}
 	out := installOut{DryRun: !w, Plan: p, Written: written}
+	if refused != "" {
+		out.Note = "refused, nothing written: " + refused + ". Stop and ask the human; only they may run the CLI with --replace-existing."
+		return nil, out, nil
+	}
 	if !w && in.Root == "" {
 		out.Note = "to write: the human runs `sudo " + cli + "` (admin-owned paths), or stage with root"
 	}

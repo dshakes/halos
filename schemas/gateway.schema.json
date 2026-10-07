@@ -244,8 +244,50 @@
     "name",
     "baseURL",
     "auth",
-    "models",
-    "upstreams"
+    "models"
   ],
+  "if": {
+    "required": [
+      "engine"
+    ],
+    "properties": {
+      "engine": {
+        "const": "external"
+      }
+    }
+  },
+  "else": {
+    "description": "Unless engine is external, routes name an upstream and upstreams are required.",
+    "required": [
+      "upstreams"
+    ],
+    "properties": {
+      "models": {
+        "additionalProperties": {
+          "anyOf": [
+            {
+              "required": [
+                "upstream"
+              ]
+            },
+            {
+              "required": [
+                "targets"
+              ]
+            }
+          ],
+          "properties": {
+            "targets": {
+              "items": {
+                "required": [
+                  "upstream"
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  },
   "additionalProperties": false
 }
