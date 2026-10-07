@@ -76,6 +76,14 @@ func initOpts() intent.InitOptions {
 	return intent.InitOptions{Org: "me", Tools: map[string]string{"claude-code": "2.1.280"}, Provider: "anthropic", Safety: "standard", Rollout: "standard"}
 }
 
+func TestLocalExternalNeedsGateway(t *testing.T) {
+	o := LocalOptions{Dir: t.TempDir(), GOOS: "linux", Init: intent.InitOptions{Org: "x", Tools: map[string]string{"claude-code": "2.1.280"},
+		Provider: "anthropic", GatewayEngine: policy.EngineExternal, Safety: "standard", Rollout: "standard"}}
+	if _, err := Local(o); err == nil || !strings.Contains(err.Error(), "needs --gateway") {
+		t.Fatalf("external without a gateway: %v", err)
+	}
+}
+
 func TestLocalIdempotentAndInstall(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "pol")
 	o := LocalOptions{Dir: dir, Init: initOpts(), GOOS: "linux"}

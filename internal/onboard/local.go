@@ -63,6 +63,9 @@ type LocalResult struct {
 // Idempotent: a second run reports the policy unchanged.
 func Local(o LocalOptions) (*LocalResult, error) {
 	if o.Init.Gateway == "" {
+		if o.Init.GatewayEngine == policy.EngineExternal {
+			return nil, fmt.Errorf("--gateway-engine external needs --gateway: the URL of your own API gateway (the local halo-proxy is not external)")
+		}
 		o.Init.Gateway = "http://" + DefaultLocalProxy
 	}
 	ch, pr, err := InitPolicy(o.Dir, o.Init)

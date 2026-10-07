@@ -126,7 +126,7 @@ func (r *Repo) Explain(kind string) ([]Explained, error) {
 }
 
 // simpleKeys are the halos.yaml keys eject removes.
-var simpleKeys = []string{"tools", "provider", "models", "gateway", "telemetry", "team", "safety", "rollout"}
+var simpleKeys = []string{"tools", "provider", "models", "gateway", "gatewayEngine", "telemetry", "team", "safety", "rollout"}
 
 // Eject writes the documents simple mode generates, merged with any explicit
 // overlay, as ordinary files, and strips the simple keys from halos.yaml.
