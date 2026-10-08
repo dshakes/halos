@@ -62,7 +62,7 @@ type verifyIn struct {
 
 type companyIn struct {
 	initPolicyIn
-	GatewayKind string   `json:"gateway_kind" jsonschema:"halo-proxy | kong"`
+	GatewayKind string   `json:"gateway_kind" jsonschema:"halo-proxy | kong | external (the company's own API gateway)"`
 	Issuer      string   `json:"issuer" jsonschema:"OIDC issuer URL of the IdP"`
 	ClientID    string   `json:"client_id,omitempty" jsonschema:"OIDC client id (default halos)"`
 	AdminGroups []string `json:"admin_groups,omitempty" jsonschema:"IdP groups of platform admins"`

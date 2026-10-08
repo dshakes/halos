@@ -302,6 +302,13 @@ func TestExternalSimpleWireAndHeaders(t *testing.T) {
 	if errs := errorsOf(org.Validate()); len(errs) > 0 {
 		t.Fatalf("unexpected errors: %v", errs)
 	}
+	// Only the exact name is merged by the renderer, so another case is reserved.
+	if org, err := Load(writeRepo(t, map[string]string{RootFile: root,
+		"profiles/default.yaml": hdr + "kind: Profile\nname: default\nenv: {Anthropic_Custom_Headers: \"x-tenant: a\"}\n"})); err != nil {
+		t.Fatal(err)
+	} else if len(errorsOf(org.Validate())) == 0 {
+		t.Error("mixed-case ANTHROPIC_CUSTOM_HEADERS validated")
+	}
 	for _, h := range []string{"X-Halo-Ring: ga", "x-ok: 1\rx-evil: 2"} {
 		org, err := Load(writeRepo(t, map[string]string{RootFile: root,
 			"profiles/default.yaml": hdr + "kind: Profile\nname: default\nenv: {ANTHROPIC_CUSTOM_HEADERS: " + strconv.Quote(h) + "}\n"}))

@@ -665,7 +665,7 @@ func guardEnvKeys(o *Org) []Issue {
 	var out []Issue
 	for _, name := range sortedKeys(o.Profiles) {
 		for _, k := range sortedKeys(o.Profiles[name].Env) {
-			if slices.Contains(envMergedByRenderer, strings.ToUpper(k)) {
+			if slices.Contains(envMergedByRenderer, k) { // exact name: a different case would not be merged
 				if err := CheckCustomHeaders(o.Profiles[name].Env[k]); err != nil {
 					out = append(out, gi(SeverityError, "profiles["+name+"].env."+k, "%v", err))
 				}
