@@ -392,6 +392,12 @@ func (r *Root) expandGateway() (*Gateway, error) {
 		var ts []RouteTarget
 		for i, id := range ids {
 			up, model := SplitModel(id, def)
+			if s.GatewayEngine == EngineExternal {
+				// The company gateway owns the backends: route by model id only,
+				// with no Halos upstream (so no provider credentials or project).
+				ts = append(ts, RouteTarget{Model: model, Priority: i})
+				continue
+			}
 			if up == "" || up == ProviderMulti {
 				return nil, fmt.Errorf("models.%s: %q names no provider: set provider, or prefix the id as <provider>/<model>", alias, id)
 			}

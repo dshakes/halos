@@ -257,7 +257,7 @@ type InitOptions struct {
 // vendor); ask, if set, is offered the default and may change it. It returns
 // one note per alias it added.
 func (o *InitOptions) Complete(ask func(question, def string) (string, error)) ([]string, error) {
-	if o.Provider == "vertex" && o.Project == "" {
+	if o.Provider == "vertex" && o.Project == "" && o.GatewayEngine != policy.EngineExternal {
 		return nil, fmt.Errorf("intent: provider vertex needs a Google Cloud project (--project)")
 	}
 	if o.Models == nil {

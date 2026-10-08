@@ -559,4 +559,8 @@ func TestInitToolModelOverrides(t *testing.T) {
 	if _, err := o.Complete(nil); err == nil || !strings.Contains(err.Error(), "--project") {
 		t.Errorf("vertex without project: %v", err)
 	}
+	o = InitOptions{Provider: "vertex", GatewayEngine: policy.EngineExternal, Tools: map[string]string{"claude-code": "2.1.280"}}
+	if _, err := o.Complete(nil); err != nil {
+		t.Errorf("vertex behind an external gateway needs no project: %v", err)
+	}
 }

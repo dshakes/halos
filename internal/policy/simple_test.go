@@ -320,3 +320,19 @@ func TestExternalSimpleWireAndHeaders(t *testing.T) {
 		}
 	}
 }
+
+// Behind an external gateway Halos runs no upstream, so a provider's Halos-side
+// requirements (a Vertex project) do not apply.
+func TestExternalSimpleVertexNeedsNoProject(t *testing.T) {
+	org, err := Load(writeRepo(t, map[string]string{RootFile: hdr + "kind: Halos\norg: corp\ntools: {claude-code: 2.1.280}\nprovider: vertex\n" +
+		"models: {default: claude-sonnet-4-5@20250929}\ngateway: https://ai-gw.corp.example\ngatewayEngine: external\n"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if errs := errorsOf(org.Validate()); len(errs) > 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	if len(org.Gateway.Upstreams) != 0 || org.Gateway.Models["default"].Model != "claude-sonnet-4-5@20250929" {
+		t.Fatalf("gateway = %+v", org.Gateway)
+	}
+}
