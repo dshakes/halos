@@ -173,6 +173,15 @@ func Install(dir, ring, goos, root string, apply, replace bool) (*InstallPlan, [
 		if written, err = p.Apply(); err != nil {
 			return p, written, err
 		}
+		if replace {
+			// Explicit adoption: a file that already matches the render (one
+			// installed before hashes were recorded, say) is claimed only on
+			// --replace-existing, never silently: an MDM file that happens to
+			// match must stay foreign.
+			if err := p.adoptUnchanged(); err != nil {
+				return p, written, err
+			}
+		}
 		for i := range p.Files {
 			if p.Files[i].Action != ActionUnchanged {
 				p.Files[i].Action = ActionUnchanged // now on disk

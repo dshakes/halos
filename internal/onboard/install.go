@@ -179,6 +179,18 @@ func under(root, p string) string {
 // ErrPermission is returned (wrapped) when a managed path is not writable.
 var ErrPermission = errors.New("permission denied")
 
+// adoptUnchanged records Halos's hash for unchanged files that lack one.
+func (p *InstallPlan) adoptUnchanged() error {
+	for _, f := range p.Files {
+		if f.Action == ActionUnchanged && !ownedByHalos(f.Dest, f.data) {
+			if err := fsutil.WriteAtomic(f.Dest+ownerSuffix, []byte(sha256Hex(f.data)+"\n"), 0o644); err != nil {
+				return permErr(f.Dest+ownerSuffix, err)
+			}
+		}
+	}
+	return nil
+}
+
 // Apply writes every create/update/foreign file (callers gate foreign ones).
 // A replaced foreign file is kept at <dest>.halos-backup (timestamped if that
 // exists), and each write records its hash at <dest>.halos-sha256.
@@ -187,13 +199,6 @@ func (p *InstallPlan) Apply() ([]string, error) {
 	written := []string{}
 	for _, f := range p.Files {
 		if f.Action == ActionUnchanged {
-			// Already Halos's content (e.g. installed before hashes were
-			// recorded): record the hash so a later update is not foreign.
-			if !ownedByHalos(f.Dest, f.data) {
-				if err := fsutil.WriteAtomic(f.Dest+ownerSuffix, []byte(sha256Hex(f.data)+"\n"), 0o644); err != nil {
-					return written, permErr(f.Dest+ownerSuffix, err)
-				}
-			}
 			continue
 		}
 		if err := os.MkdirAll(filepath.Dir(f.Dest), 0o755); err != nil {
