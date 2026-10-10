@@ -408,6 +408,33 @@ func TestExplainAndEjectRoundTrip(t *testing.T) {
 	}
 }
 
+// gatewayEngine is a simple key too: ejecting a repo that sets it leaves no
+// simple mode behind and keeps the engine on the generated Gateway.
+func TestEjectGatewayEngine(t *testing.T) {
+	for _, engine := range []string{"kong", policy.EngineExternal} {
+		dir := simpleRepo(t)
+		f := filepath.Join(dir, policy.RootFile)
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(f, append(b, []byte("gatewayEngine: "+engine+"\n")...), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		before := orgJSON(t, dir)
+		c, err := open(t, dir).Eject()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if after := applyValid(t, c); after.Simple() {
+			t.Fatalf("%s: halos.yaml still has simple keys", engine)
+		}
+		if got := orgJSON(t, dir); got != before || !strings.Contains(got, `"engine":"`+engine+`"`) {
+			t.Errorf("%s: eject changed the policy or lost the engine:\nbefore %s\nafter  %s", engine, before, got)
+		}
+	}
+}
+
 func TestEjectRefusesToClobber(t *testing.T) {
 	dir := simpleRepo(t)
 	if err := os.WriteFile(filepath.Join(dir, "gateway.yaml"), []byte("# notes\n"), 0o644); err != nil {
@@ -531,5 +558,9 @@ func TestInitToolModelOverrides(t *testing.T) {
 	o = InitOptions{Provider: "vertex", Tools: map[string]string{"claude-code": "2.1.280"}}
 	if _, err := o.Complete(nil); err == nil || !strings.Contains(err.Error(), "--project") {
 		t.Errorf("vertex without project: %v", err)
+	}
+	o = InitOptions{Provider: "vertex", GatewayEngine: policy.EngineExternal, Tools: map[string]string{"claude-code": "2.1.280"}}
+	if _, err := o.Complete(nil); err != nil {
+		t.Errorf("vertex behind an external gateway needs no project: %v", err)
 	}
 }

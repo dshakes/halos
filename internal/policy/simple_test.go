@@ -5,6 +5,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -40,6 +41,10 @@ func TestSimpleExpandGolden(t *testing.T) {
 			"gateway: https://ai.startup.example\nsafety: relaxed\nrollout: fast\n",
 		"vertex": hdr + "kind: Halos\norg: gco\ntools: {claude-code: 2.1.280}\n" +
 			"provider: {name: vertex, project: gco-ai, region: us-east5}\nmodels: {default: claude-sonnet-4-5@20250929}\ngateway: https://ai.gco.example\n",
+		// A company's own API gateway (Kong -> auth -> orchestrator -> Bedrock) that Halos does not run.
+		"external-bedrock": hdr + "kind: Halos\norg: corp\ntools: {claude-code: 2.1.280}\n" +
+			"provider: {name: bedrock, region: us-east-1}\nmodels: {default: us.anthropic.claude-sonnet-4-5-20250929-v1:0}\n" +
+			"gateway: https://ai-gw.corp.example\ngatewayEngine: external\n",
 	}
 	for name, src := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -257,5 +262,77 @@ func TestSimpleSchema(t *testing.T) {
 		if err := s.Validate(yamlDocs(t, []byte(doc))[0]); err == nil {
 			t.Errorf("%s: schema accepted it", name)
 		}
+	}
+}
+
+// A full policy behind an external gateway validates end to end (not just the
+// gateway section): routes with no Halos upstream pass the harness-wire guard,
+// and a profile may set ANTHROPIC_CUSTOM_HEADERS, which the renderer merges.
+func TestExternalGatewayFullValidate(t *testing.T) {
+	dir := writeRepo(t, map[string]string{
+		RootFile: hdr + "kind: Halos\norg: corp\ntools: {claude-code: 2.1.280}\nprovider: anthropic\nmodels: {default: claude-sonnet-4-5}\n" +
+			"gateway: https://ai-gw.corp.example\ngatewayEngine: external\n",
+		"gateway.yaml": hdr + "kind: Gateway\nname: corp-gateway\nbaseURL: https://ai-gw.corp.example\nengine: external\n" +
+			"models: {default: {model: corp-sonnet}}\n",
+		"profiles/default.yaml": hdr + "kind: Profile\nname: default\nenv: {ANTHROPIC_CUSTOM_HEADERS: \"x-tenant: corp\"}\n",
+	})
+	org, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if errs := errorsOf(org.Validate()); len(errs) > 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	if m := org.Gateway.Models["default"]; m.Upstream != "" || m.Model != "corp-sonnet" {
+		t.Fatalf("route = %+v", m)
+	}
+}
+
+// Simple mode behind an external gateway: the company gateway translates, so a
+// tool whose wire the provider does not speak still validates; and bad
+// ANTHROPIC_CUSTOM_HEADERS are caught by validate, not only at render.
+func TestExternalSimpleWireAndHeaders(t *testing.T) {
+	root := hdr + "kind: Halos\norg: corp\ntools: {claude-code: 2.1.280, codex: 0.58.0}\nprovider: bedrock\n" +
+		"models: {default: us.anthropic.claude-sonnet-4-5-20250929-v1:0, codex: corp-gpt}\n" +
+		"gateway: https://ai-gw.corp.example\ngatewayEngine: external\n"
+	org, err := Load(writeRepo(t, map[string]string{RootFile: root}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if errs := errorsOf(org.Validate()); len(errs) > 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	// Only the exact name is merged by the renderer, so another case is reserved.
+	if org, err := Load(writeRepo(t, map[string]string{RootFile: root,
+		"profiles/default.yaml": hdr + "kind: Profile\nname: default\nenv: {Anthropic_Custom_Headers: \"x-tenant: a\"}\n"})); err != nil {
+		t.Fatal(err)
+	} else if len(errorsOf(org.Validate())) == 0 {
+		t.Error("mixed-case ANTHROPIC_CUSTOM_HEADERS validated")
+	}
+	for _, h := range []string{"X-Halo-Ring: ga", "x-ok: 1\rx-evil: 2"} {
+		org, err := Load(writeRepo(t, map[string]string{RootFile: root,
+			"profiles/default.yaml": hdr + "kind: Profile\nname: default\nenv: {ANTHROPIC_CUSTOM_HEADERS: " + strconv.Quote(h) + "}\n"}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(errorsOf(org.Validate())) == 0 {
+			t.Errorf("header %q validated", h)
+		}
+	}
+}
+
+// Behind an external gateway Halos runs no upstream, so a provider's Halos-side
+// requirements (a Vertex project) do not apply.
+func TestExternalSimpleVertexNeedsNoProject(t *testing.T) {
+	org, err := Load(writeRepo(t, map[string]string{RootFile: hdr + "kind: Halos\norg: corp\ntools: {claude-code: 2.1.280}\nprovider: vertex\n" +
+		"models: {default: claude-sonnet-4-5@20250929}\ngateway: https://ai-gw.corp.example\ngatewayEngine: external\n"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if errs := errorsOf(org.Validate()); len(errs) > 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	if len(org.Gateway.Upstreams) != 0 || org.Gateway.Models["default"].Model != "claude-sonnet-4-5@20250929" {
+		t.Fatalf("gateway = %+v", org.Gateway)
 	}
 }

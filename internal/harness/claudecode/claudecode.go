@@ -82,6 +82,14 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 	if c.Release != "" {
 		headers = append(headers, "x-halo-release: "+c.Release)
 	}
+	// Keep a profile's own headers (a company gateway's routing or tenant
+	// header, say); Halos's go last. Validated here too, as a backstop.
+	if own, _ := env["ANTHROPIC_CUSTOM_HEADERS"].(string); strings.TrimSpace(own) != "" {
+		if err := policy.CheckCustomHeaders(own); err != nil {
+			return nil, nil, fmt.Errorf("claudecode: env ANTHROPIC_CUSTOM_HEADERS: %w", err)
+		}
+		headers = append([]string{strings.TrimRight(own, "\n")}, headers...)
+	}
 	if len(headers) > 0 {
 		env["ANTHROPIC_CUSTOM_HEADERS"] = strings.Join(headers, "\n")
 	}
@@ -106,11 +114,22 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 		// availableModels is dropped silently and the tier default goes out as
 		// its built-in ID (claude-opus-5-5[1m] on 2.1.280), ignoring the env.
 		// modelOverrides does apply there, so map each built-in ID to its alias.
+		// Behind an external gateway nothing rejects an unlisted model, so with
+		// models enforced every tier Claude can fall back to is pinned to the
+		// default model instead.
+		lock := ""
+		if g.Engine == policy.EngineExternal && p.Models.Enforce {
+			lock = hutil.ClientModel(c, hutil.Model(p, name))
+		}
 		overrides := map[string]any{}
 		for _, a := range []string{"opus", "sonnet", "haiku"} {
+			m := lock
 			if _, ok := g.Models[a]; ok {
-				env["ANTHROPIC_DEFAULT_"+strings.ToUpper(a)+"_MODEL"] = a
-				overrides[builtinIDs[a]] = a
+				m = hutil.ClientModel(c, a)
+			}
+			if m != "" {
+				env["ANTHROPIC_DEFAULT_"+strings.ToUpper(a)+"_MODEL"] = m
+				overrides[builtinIDs[a]] = m
 			}
 		}
 		if len(overrides) > 0 {
@@ -143,11 +162,15 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 		env["OTEL_RESOURCE_ATTRIBUTES"] = hutil.OTELResourceAttributes(name, t, c)
 	}
 
-	if m := hutil.Model(p, name); m != "" {
+	if m := hutil.ClientModel(c, hutil.Model(p, name)); m != "" {
 		s["model"] = m
 	}
 	if len(p.Models.Allowed) > 0 {
-		s["availableModels"] = p.Models.Allowed
+		allowed := make([]string, len(p.Models.Allowed))
+		for i, a := range p.Models.Allowed {
+			allowed[i] = hutil.ClientModel(c, a)
+		}
+		s["availableModels"] = allowed
 		if p.Models.Enforce {
 			s["enforceAvailableModels"] = true
 		}

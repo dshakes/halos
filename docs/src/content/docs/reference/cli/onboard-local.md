@@ -22,6 +22,7 @@ halo onboard local [flags]
 |---|---|---|---|---|
 | `--apply` |  | bool | false | write halos.yaml (default: dry run) |
 | `--gateway` |  | string |  | gateway base URL the CLIs call (default: local halo-proxy http://127.0.0.1:8088) |
+| `--gateway-engine` |  | string |  | what serves --gateway: halo-proxy (default) \| kong \| external (your company's own API gateway: CLIs get provider model ids) |
 | `--model` |  | stringArray | [] | model alias=provider model id, repeatable |
 | `--org` |  | string | local | organization name |
 | `--policy-dir` |  | string |  | policy repo directory (default ".") |

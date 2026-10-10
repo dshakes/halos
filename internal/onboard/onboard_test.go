@@ -76,6 +76,14 @@ func initOpts() intent.InitOptions {
 	return intent.InitOptions{Org: "me", Tools: map[string]string{"claude-code": "2.1.280"}, Provider: "anthropic", Safety: "standard", Rollout: "standard"}
 }
 
+func TestLocalExternalNeedsGateway(t *testing.T) {
+	o := LocalOptions{Dir: t.TempDir(), GOOS: "linux", Init: intent.InitOptions{Org: "x", Tools: map[string]string{"claude-code": "2.1.280"},
+		Provider: "anthropic", GatewayEngine: policy.EngineExternal, Safety: "standard", Rollout: "standard"}}
+	if _, err := Local(o); err == nil || !strings.Contains(err.Error(), "needs --gateway") {
+		t.Fatalf("external without a gateway: %v", err)
+	}
+}
+
 func TestLocalIdempotentAndInstall(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "pol")
 	o := LocalOptions{Dir: dir, Init: initOpts(), GOOS: "linux"}
@@ -107,7 +115,7 @@ func TestLocalIdempotentAndInstall(t *testing.T) {
 	}
 
 	root := t.TempDir()
-	p, _, err := Install(dir, "", "linux", root, false)
+	p, _, err := Install(dir, "", "linux", root, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +130,8 @@ func TestLocalIdempotentAndInstall(t *testing.T) {
 			t.Fatalf("%s renders a forbidden mode", f.Path)
 		}
 	}
-	// A pre-existing differing file is backed up once.
+	// A pre-existing file Halos did not write (an MDM-pushed one, say) is
+	// foreign: apply refuses and writes nothing until replace is set.
 	first := p.Files[0]
 	if err := os.MkdirAll(filepath.Dir(first.Dest), 0o755); err != nil {
 		t.Fatal(err)
@@ -130,14 +139,27 @@ func TestLocalIdempotentAndInstall(t *testing.T) {
 	if err := os.WriteFile(first.Dest, []byte("mine\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, written, err := Install(dir, "", "linux", root, true)
+	pf, written, err := Install(dir, "", "linux", root, true, false)
+	if !errors.Is(err, ErrForeign) || len(written) != 0 || pf.Files[0].Action != ActionForeign {
+		t.Fatalf("foreign file: %v %v %+v", err, written, pf.Files[0])
+	}
+	if b, _ := os.ReadFile(first.Dest); string(b) != "mine\n" {
+		t.Fatalf("refused apply touched the file: %q", b)
+	}
+	for _, f := range p.Files[1:] {
+		if _, err := os.Stat(f.Dest); err == nil {
+			t.Fatal("refused apply wrote", f.Dest)
+		}
+	}
+	// With replace it is backed up once.
+	_, written, err = Install(dir, "", "linux", root, true, true)
 	if err != nil || len(written) != len(p.Files) {
 		t.Fatalf("apply: %v %v", err, written)
 	}
 	if b, _ := os.ReadFile(first.Dest + backupSuffix); string(b) != "mine\n" {
 		t.Fatalf("backup = %q", b)
 	}
-	p2, written, err := Install(dir, "", "linux", root, true)
+	p2, written, err := Install(dir, "", "linux", root, true, false)
 	if err != nil || len(written) != 0 {
 		t.Fatalf("second apply wrote %v (%v)", written, err)
 	}
@@ -146,7 +168,75 @@ func TestLocalIdempotentAndInstall(t *testing.T) {
 			t.Fatalf("not idempotent: %+v", f)
 		}
 	}
-	if _, _, err := Install(t.TempDir(), "", "linux", root, false); !errors.Is(err, ErrNotFound) {
+	// A file that matches the render but has no hash (an MDM push that happens
+	// to match, or a halo <=0.1.1 install) is never adopted silently; only
+	// --replace-existing claims it.
+	if err := os.Remove(first.Dest + ownerSuffix); err != nil {
+		t.Fatal(err)
+	}
+	if _, w, err := Install(dir, "", "linux", root, true, false); err != nil || len(w) != 0 {
+		t.Fatalf("plain apply: %v %v", err, w)
+	}
+	if _, err := os.Stat(first.Dest + ownerSuffix); err == nil {
+		t.Fatal("plain apply adopted a matching file")
+	}
+	if _, w, err := Install(dir, "", "linux", root, true, true); err != nil || len(w) != 0 {
+		t.Fatalf("adopting apply: %v %v", err, w)
+	}
+	if cur, _ := os.ReadFile(first.Dest); !ownedByHalos(first.Dest, cur) {
+		t.Fatal("--replace-existing did not adopt the matching file")
+	}
+	// A file Halos wrote is its own: a policy change updates it without replace.
+	if err := os.WriteFile(first.Dest+ownerSuffix, []byte(sha256Hex([]byte("old\n"))+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(first.Dest, []byte("old\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(first.Dest + backupSuffix); err != nil {
+		t.Fatal(err)
+	}
+	if p3, _, err := Install(dir, "", "linux", root, false, false); err != nil || p3.Files[0].Action != ActionUpdate {
+		t.Fatalf("own file must plan as update: %v %+v", err, p3.Files[0])
+	}
+	// Someone else rewrote it since: foreign again.
+	if err := os.WriteFile(first.Dest, []byte("mdm\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if p4, _, err := Install(dir, "", "linux", root, false, false); err != nil || p4.Files[0].Action != ActionForeign {
+		t.Fatalf("rewritten file must plan as foreign: %v %+v", err, p4.Files[0])
+	}
+	// An earlier backup does not make a rewritten file Halos's: it is foreign
+	// again, and replacing it keeps both the old backup and the new original.
+	if err := os.WriteFile(first.Dest+backupSuffix, []byte("first\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := Install(dir, "", "linux", root, true, false); !errors.Is(err, ErrForeign) {
+		t.Fatalf("foreign with an old backup must refuse: %v", err)
+	}
+	p5, _, err := Install(dir, "", "linux", root, true, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(first.Dest + backupSuffix); string(b) != "first\n" {
+		t.Fatalf("old backup clobbered: %q", b)
+	}
+	if bk := p5.Files[0].Backup; !strings.HasPrefix(bk, first.Dest+backupSuffix+".") {
+		t.Fatalf("second backup at %q", bk)
+	} else if b, _ := os.ReadFile(bk); string(b) != "mdm\n" {
+		t.Fatalf("second backup = %q", b)
+	}
+	// A symlinked managed path is refused, not followed.
+	if err := os.Remove(first.Dest); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(root, "elsewhere"), first.Dest); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := Install(dir, "", "linux", root, false, false); err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("symlinked dest: %v", err)
+	}
+	if _, _, err := Install(t.TempDir(), "", "linux", root, false, false); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("missing policy: %v", err)
 	}
 }

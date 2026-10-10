@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime"
 	"strings"
@@ -26,10 +27,12 @@ type initPolicyIn struct {
 	Models   map[string]string `json:"models,omitempty" jsonschema:"alias -> provider model id (default: the provider's current model)"`
 	Project  string            `json:"project,omitempty" jsonschema:"Google Cloud project (provider vertex)"`
 	Gateway  string            `json:"gateway,omitempty" jsonschema:"gateway base URL the CLIs call (default: a local halo-proxy on http://127.0.0.1:8088)"`
-	Safety   string            `json:"safety,omitempty" jsonschema:"strict | standard | relaxed (default standard)"`
-	Rollout  string            `json:"rollout,omitempty" jsonschema:"fast | standard | careful (default standard)"`
-	Ring     string            `json:"ring,omitempty" jsonschema:"ring this machine follows (default: the GA ring)"`
-	DryRun   *bool             `json:"dry_run,omitempty" jsonschema:"default true: return halos.yaml, validation and the install plan; write nothing"`
+	// GatewayEngine marks a company's own API gateway (external).
+	GatewayEngine string `json:"gateway_engine,omitempty" jsonschema:"what serves gateway: halo-proxy (default), kong, or external (the company's own API gateway; CLIs get provider model ids)"`
+	Safety        string `json:"safety,omitempty" jsonschema:"strict | standard | relaxed (default standard)"`
+	Rollout       string `json:"rollout,omitempty" jsonschema:"fast | standard | careful (default standard)"`
+	Ring          string `json:"ring,omitempty" jsonschema:"ring this machine follows (default: the GA ring)"`
+	DryRun        *bool  `json:"dry_run,omitempty" jsonschema:"default true: return halos.yaml, validation and the install plan; write nothing"`
 }
 
 type installIn struct {
@@ -59,7 +62,7 @@ type verifyIn struct {
 
 type companyIn struct {
 	initPolicyIn
-	GatewayKind string   `json:"gateway_kind" jsonschema:"halo-proxy | kong"`
+	GatewayKind string   `json:"gateway_kind" jsonschema:"halo-proxy | kong | external (the company's own API gateway)"`
 	Issuer      string   `json:"issuer" jsonschema:"OIDC issuer URL of the IdP"`
 	ClientID    string   `json:"client_id,omitempty" jsonschema:"OIDC client id (default halos)"`
 	AdminGroups []string `json:"admin_groups,omitempty" jsonschema:"IdP groups of platform admins"`
@@ -135,7 +138,7 @@ func (s *srv) addOnboardTools(m *mcp.Server) {
 
 func (in initPolicyIn) options() intent.InitOptions {
 	return intent.InitOptions{Org: or(in.Org, "local"), Tools: in.Tools, Provider: in.Provider, Models: in.Models, Project: in.Project,
-		Gateway: in.Gateway, Safety: or(in.Safety, "standard"), Rollout: or(in.Rollout, "standard")}
+		Gateway: in.Gateway, GatewayEngine: in.GatewayEngine, Safety: or(in.Safety, "standard"), Rollout: or(in.Rollout, "standard")}
 }
 
 func or(s, d string) string {
@@ -178,8 +181,12 @@ func (s *srv) localInstall(_ context.Context, _ *mcp.CallToolRequest, in install
 	if err != nil {
 		return nil, installOut{}, err
 	}
-	p, written, err := onboard.Install(s.dir, in.Ring, or(s.env().GOOS, runtime.GOOS), in.Root, w)
-	if err != nil {
+	p, written, err := onboard.Install(s.dir, in.Ring, or(s.env().GOOS, runtime.GOOS), in.Root, w, false) // ponytail: replacing a foreign file is a human CLI decision (--replace-existing)
+	var refused string
+	switch {
+	case errors.Is(err, onboard.ErrForeign) && p != nil:
+		refused = err.Error() // keep the plan: it shows which files are foreign
+	case err != nil:
 		return nil, installOut{}, err
 	}
 	if !in.Show {
@@ -188,6 +195,10 @@ func (s *srv) localInstall(_ context.Context, _ *mcp.CallToolRequest, in install
 		}
 	}
 	out := installOut{DryRun: !w, Plan: p, Written: written}
+	if refused != "" {
+		out.Note = "refused, nothing written: " + refused + ". Stop and ask the human; only they may run the CLI with --replace-existing."
+		return nil, out, nil
+	}
 	if !w && in.Root == "" {
 		out.Note = "to write: the human runs `sudo " + cli + "` (admin-owned paths), or stage with root"
 	}

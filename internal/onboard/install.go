@@ -3,6 +3,8 @@ package onboard
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -24,7 +26,14 @@ const (
 	ActionCreate    = "create"
 	ActionUpdate    = "update"
 	ActionUnchanged = "unchanged"
+	// ActionForeign is a differing file Halos did not write (e.g. one an MDM
+	// pushed). Apply refuses to replace it unless asked to.
+	ActionForeign = "foreign"
 )
+
+// ErrForeign is returned (wrapped) by Install when apply would replace files
+// Halos did not write and replace was not set.
+var ErrForeign = errors.New("refusing to replace files Halos did not write")
 
 // FilePlan is one managed config file: where it lands and what happens to it.
 type FilePlan struct {
@@ -102,6 +111,11 @@ func PlanInstall(org *policy.Org, ring, goos, root string) (*InstallPlan, error)
 				return nil, fmt.Errorf("release is missing blob for %s", f.Path)
 			}
 			fp := FilePlan{Harness: h, Path: f.Path, Dest: under(root, f.Path), Mode: f.Mode, Content: string(data), data: data}
+			// Halos never manages a symlink: refusing one keeps a root apply from
+			// following it (backup reads, ownership checks) somewhere else.
+			if st, err := os.Lstat(fp.Dest); err == nil && st.Mode()&fs.ModeSymlink != 0 {
+				return nil, fmt.Errorf("%s is a symlink; refusing to manage it (replace it with a regular file or remove it)", fp.Dest)
+			}
 			cur, err := os.ReadFile(fp.Dest)
 			switch {
 			case errors.Is(err, fs.ErrNotExist):
@@ -110,10 +124,16 @@ func PlanInstall(org *policy.Org, ring, goos, root string) (*InstallPlan, error)
 				return nil, fmt.Errorf("read %s: %w", fp.Dest, err)
 			case bytes.Equal(cur, data):
 				fp.Action = ActionUnchanged
+			case ownedByHalos(fp.Dest, cur):
+				fp.Action = ActionUpdate // Halos's own content: nothing to keep
 			default:
-				fp.Action = ActionUpdate
-				if _, err := os.Stat(fp.Dest + backupSuffix); err != nil {
-					fp.Backup = fp.Dest + backupSuffix
+				// Anyone else's content (an MDM push, a hand edit, a file from
+				// before Halos recorded hashes) is foreign every time, and is
+				// backed up when replaced without clobbering an earlier backup.
+				fp.Action = ActionForeign
+				fp.Backup = fp.Dest + backupSuffix
+				if _, err := os.Lstat(fp.Backup); err == nil {
+					fp.Backup += "." + time.Now().UTC().Format("20060102T150405Z")
 				}
 			}
 			p.Files = append(p.Files, fp)
@@ -122,7 +142,26 @@ func PlanInstall(org *policy.Org, ring, goos, root string) (*InstallPlan, error)
 	return p, nil
 }
 
-const backupSuffix = ".halos-backup"
+const (
+	backupSuffix = ".halos-backup"
+	// ownerSuffix holds the sha256 of the content Halos last wrote, so a later
+	// install can tell its own file from one someone else (re)wrote.
+	// ponytail: a plain sidecar, so the check is only as strong as the managed
+	// directory's permissions (root-owned, not group/world-writable, as every
+	// CLI's managed dir is). Anyone who can write there can forge it, and could
+	// overwrite the config directly anyway; sign it if that ever changes.
+	ownerSuffix = ".halos-sha256"
+)
+
+func ownedByHalos(dest string, cur []byte) bool {
+	want, err := os.ReadFile(dest + ownerSuffix)
+	return err == nil && strings.TrimSpace(string(want)) == sha256Hex(cur)
+}
+
+func sha256Hex(b []byte) string {
+	h := sha256.Sum256(b)
+	return hex.EncodeToString(h[:])
+}
 
 // under joins an absolute (possibly Windows) path under root, neutralising
 // drive letters and "..". root "" returns p unchanged.
@@ -140,9 +179,22 @@ func under(root, p string) string {
 // ErrPermission is returned (wrapped) when a managed path is not writable.
 var ErrPermission = errors.New("permission denied")
 
-// Apply writes every create/update file. The first time a differing file is
-// replaced its original is kept at <dest>.halos-backup. Idempotent: a second
-// Apply finds every file unchanged and writes nothing.
+// adoptUnchanged records Halos's hash for unchanged files that lack one.
+func (p *InstallPlan) adoptUnchanged() error {
+	for _, f := range p.Files {
+		if f.Action == ActionUnchanged && !ownedByHalos(f.Dest, f.data) {
+			if err := fsutil.WriteAtomic(f.Dest+ownerSuffix, []byte(sha256Hex(f.data)+"\n"), 0o644); err != nil {
+				return permErr(f.Dest+ownerSuffix, err)
+			}
+		}
+	}
+	return nil
+}
+
+// Apply writes every create/update/foreign file (callers gate foreign ones).
+// A replaced foreign file is kept at <dest>.halos-backup (timestamped if that
+// exists), and each write records its hash at <dest>.halos-sha256.
+// Idempotent: a second Apply finds every file unchanged and writes nothing.
 func (p *InstallPlan) Apply() ([]string, error) {
 	written := []string{}
 	for _, f := range p.Files {
@@ -157,7 +209,7 @@ func (p *InstallPlan) Apply() ([]string, error) {
 			if err != nil {
 				return written, fmt.Errorf("back up %s: %w", f.Dest, err)
 			}
-			if err := fsutil.WriteAtomic(f.Backup, cur, 0o600); err != nil {
+			if err := fsutil.WriteAtomic(f.Backup, cur, fsutil.ExistingPerm(f.Dest, 0o600)); err != nil {
 				return written, permErr(f.Backup, err)
 			}
 		}
@@ -167,6 +219,9 @@ func (p *InstallPlan) Apply() ([]string, error) {
 		}
 		if err := fsutil.WriteAtomic(f.Dest, f.data, mode); err != nil {
 			return written, permErr(f.Dest, err)
+		}
+		if err := fsutil.WriteAtomic(f.Dest+ownerSuffix, []byte(sha256Hex(f.data)+"\n"), 0o644); err != nil {
+			return written, permErr(f.Dest+ownerSuffix, err)
 		}
 		written = append(written, f.Dest)
 	}

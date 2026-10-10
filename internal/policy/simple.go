@@ -30,6 +30,9 @@ type Simple struct {
 	Models map[string]ModelChoice `yaml:"models,omitempty" json:"models,omitempty"`
 	// Gateway is the base URL clients are pointed at (halo-proxy).
 	Gateway string `yaml:"gateway,omitempty" json:"gateway,omitempty"`
+	// GatewayEngine is what serves Gateway: halo-proxy (default), kong, or
+	// external (your own API gateway; clients are sent provider model ids).
+	GatewayEngine string `yaml:"gatewayEngine,omitempty" json:"gatewayEngine,omitempty"`
 	// Telemetry is the OTLP/HTTP endpoint (telemetry is always on).
 	Telemetry string `yaml:"telemetry,omitempty" json:"telemetry,omitempty"`
 	// Team is ring0: IdP groups, or user ids containing "@". Default:
@@ -343,7 +346,7 @@ func host(u string) string {
 func (r *Root) expandGateway() (*Gateway, error) {
 	s := r.Simple
 	g := &Gateway{Meta: Meta{APIVersion: APIVersion, Kind: KindGateway, Name: SimpleGatewayName(r.Org)},
-		BaseURL: s.Gateway, Protocols: map[string]string{}, Models: map[string]ModelRoute{}, Upstreams: map[string]Upstream{}}
+		BaseURL: s.Gateway, Engine: s.GatewayEngine, Protocols: map[string]string{}, Models: map[string]ModelRoute{}, Upstreams: map[string]Upstream{}}
 	for t := range s.Tools {
 		if pr, ok := toolProtocols[t]; ok {
 			g.Protocols[t] = pr
@@ -389,6 +392,12 @@ func (r *Root) expandGateway() (*Gateway, error) {
 		var ts []RouteTarget
 		for i, id := range ids {
 			up, model := SplitModel(id, def)
+			if s.GatewayEngine == EngineExternal {
+				// The company gateway owns the backends: route by model id only,
+				// with no Halos upstream (so no provider credentials or project).
+				ts = append(ts, RouteTarget{Model: model, Priority: i})
+				continue
+			}
 			if up == "" || up == ProviderMulti {
 				return nil, fmt.Errorf("models.%s: %q names no provider: set provider, or prefix the id as <provider>/<model>", alias, id)
 			}

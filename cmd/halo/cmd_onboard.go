@@ -160,6 +160,7 @@ func (a *app) cmdOnboardLocal() *cobra.Command {
 	f.StringArrayVar(&models, "model", nil, "model alias=provider model id, repeatable")
 	f.StringVar(&o.Init.Project, "project", "", "Google Cloud project (provider vertex)")
 	f.StringVar(&o.Init.Gateway, "gateway", "", "gateway base URL the CLIs call (default: local halo-proxy http://"+onboard.DefaultLocalProxy+")")
+	f.StringVar(&o.Init.GatewayEngine, "gateway-engine", "", "what serves --gateway: halo-proxy (default) | kong | external (your company's own API gateway: CLIs get provider model ids)")
 	f.StringVar(&o.Init.Safety, "safety", "standard", "strict | standard | relaxed")
 	f.StringVar(&o.Init.Rollout, "rollout", "standard", "fast | standard | careful")
 	f.StringVar(&o.Ring, "ring", "", "ring this machine follows (default: the GA ring)")
@@ -201,7 +202,10 @@ func (a *app) printInstall(p *onboard.InstallPlan, dry bool) {
 			act = "would " + act
 		}
 		line := fmt.Sprintf("  %s\t%s\t%s", act, f.Harness, f.Dest)
-		if f.Backup != "" {
+		switch {
+		case f.Action == onboard.ActionForeign:
+			line += "\t(not written by Halos, e.g. MDM-managed: --apply refuses; --replace-existing keeps the original at " + f.Backup + ")"
+		case f.Backup != "":
 			line += "\t(original kept at " + f.Backup + ")"
 		}
 		fmt.Fprintln(tw, line)
@@ -222,20 +226,22 @@ func (a *app) printInstall(p *onboard.InstallPlan, dry bool) {
 
 func (a *app) cmdOnboardInstall() *cobra.Command {
 	var ring, root string
-	var apply, show bool
+	var apply, show, replace bool
 	c := &cobra.Command{
 		Use:   "install",
 		Short: "Render a ring's managed config for this OS and show exactly what lands where; --apply writes it",
 		Long: "Managed config lives in admin-owned paths (e.g. /Library/Application Support/ClaudeCode on macOS,\n" +
 			"/etc on Linux), so --apply usually needs sudo; --root DIR stages the same tree under DIR. A file that\n" +
-			"differs is backed up once to <file>.halos-backup. Idempotent: a second --apply writes nothing.",
+			"differs is backed up once to <file>.halos-backup. A file Halos did not write (one your MDM pushed, say)\n" +
+			"is reported as foreign and --apply refuses to touch anything unless --replace-existing is set.\n" +
+			"Idempotent: a second --apply writes nothing.",
 		Args: cobra.NoArgs, Annotations: policyDirAnno,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			dir, err := policyDir(cmd, nil)
 			if err != nil {
 				return err
 			}
-			p, written, err := onboard.Install(dir, ring, runtime.GOOS, root, apply)
+			p, written, err := onboard.Install(dir, ring, runtime.GOOS, root, apply, replace)
 			if err != nil {
 				return err
 			}
@@ -264,6 +270,7 @@ func (a *app) cmdOnboardInstall() *cobra.Command {
 	c.Flags().StringVar(&root, "root", "", "write under this directory instead of the real paths")
 	c.Flags().BoolVar(&apply, "apply", false, "write the files (default: dry run)")
 	c.Flags().BoolVar(&show, "show", false, "include each file's contents")
+	c.Flags().BoolVar(&replace, "replace-existing", false, "also replace files Halos did not write (originals kept at <file>.halos-backup)")
 	return c
 }
 

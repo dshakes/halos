@@ -21,5 +21,6 @@ Decisions that shape Halos. New ADRs use [MADR](https://adr.github.io/madr/): co
 | [0010](/halos/adr/0010-release-channels-for-client-experiments/) | Release channels for client-axis experiments (extends 0008) |
 | [0011](/halos/adr/0011-gateway-enforced-posture-and-version/) | Gateway-enforced device posture and CLI version |
 | [0012](/halos/adr/0012-policy-api-v1/) | halos.dev/v1 is the stable policy API |
+| [0013](/halos/adr/0013-external-gateway-engine/) | Halos manages clients behind a gateway it does not run |
 
 The canonical files live in `docs/adr/` in the repository; the docs build copies them into the site.

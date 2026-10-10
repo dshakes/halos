@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/dshakes/halos/internal/intent"
 	"github.com/dshakes/halos/internal/policy"
@@ -62,6 +63,9 @@ type LocalResult struct {
 // Idempotent: a second run reports the policy unchanged.
 func Local(o LocalOptions) (*LocalResult, error) {
 	if o.Init.Gateway == "" {
+		if o.Init.GatewayEngine == policy.EngineExternal {
+			return nil, fmt.Errorf("--gateway-engine external needs --gateway: the URL of your own API gateway (the local halo-proxy is not external)")
+		}
 		o.Init.Gateway = "http://" + DefaultLocalProxy
 	}
 	ch, pr, err := InitPolicy(o.Dir, o.Init)
@@ -93,9 +97,22 @@ func Local(o LocalOptions) (*LocalResult, error) {
 	if !o.Apply && pr.Action == PolicyCreate {
 		res.Next = append(res.Next, "write the policy: halo onboard local --policy-dir "+d+" --apply (same flags)")
 	}
-	res.Next = append(res.Next,
-		"preview the managed config: halo onboard install --policy-dir "+d,
-		"write it (admin-owned paths need sudo; --root DIR stages it): halo onboard install --policy-dir "+d+" --apply")
+	var foreign []string
+	for _, f := range res.Install.Files {
+		if f.Action == ActionForeign {
+			foreign = append(foreign, f.Dest)
+		}
+	}
+	if len(foreign) > 0 {
+		res.Next = append(res.Next,
+			"STOP: "+strings.Join(foreign, ", ")+" already exists and was not written by Halos (likely your IT/MDM): do not install over it on this machine",
+			"compare instead: halo onboard install --policy-dir "+d+" --root ~/halo-eval --apply, then diff with the existing file; deliver the result through your MDM",
+			"if your company has its own API gateway: halo onboard local --policy-dir "+d+" --gateway <its URL> --gateway-engine external")
+	} else {
+		res.Next = append(res.Next,
+			"preview the managed config: halo onboard install --policy-dir "+d,
+			"write it (admin-owned paths need sudo; --root DIR stages it): halo onboard install --policy-dir "+d+" --apply")
+	}
 	if IsLoopback(o.Init.Gateway) || (pr.Action != PolicyCreate && res.Install.Gateway != "" && IsLoopback(res.Install.Gateway)) {
 		res.Next = append(res.Next, "run the local gateway the CLIs will call: halo onboard proxy --policy-dir "+d+" --apply")
 	}
@@ -123,8 +140,9 @@ func loadChange(ch *intent.Change) (*policy.Org, []policy.Issue, error) {
 }
 
 // Install plans the managed-config install for the policy in dir and, when
-// apply, writes it. Idempotent: a second apply writes nothing.
-func Install(dir, ring, goos, root string, apply bool) (*InstallPlan, []string, error) {
+// apply, writes it. A file Halos did not write (ActionForeign) blocks the
+// whole apply unless replace is set. Idempotent: a second apply writes nothing.
+func Install(dir, ring, goos, root string, apply, replace bool) (*InstallPlan, []string, error) {
 	if _, err := os.Stat(filepath.Join(dir, policy.RootFile)); err != nil {
 		return nil, nil, fmt.Errorf("%w in %s: run halo onboard local --policy-dir %s --apply first", ErrNotFound, dir, dir)
 	}
@@ -140,9 +158,29 @@ func Install(dir, ring, goos, root string, apply bool) (*InstallPlan, []string, 
 		return nil, nil, err
 	}
 	written := []string{}
+	if apply && !replace {
+		var foreign []string
+		for _, f := range p.Files {
+			if f.Action == ActionForeign {
+				foreign = append(foreign, f.Dest)
+			}
+		}
+		if len(foreign) > 0 {
+			return p, written, fmt.Errorf("%w: %s (another tool, e.g. your MDM, manages them; nothing was written. Re-run with --replace-existing only if you own them: the originals are kept at <file>%s)", ErrForeign, strings.Join(foreign, ", "), backupSuffix)
+		}
+	}
 	if apply {
 		if written, err = p.Apply(); err != nil {
 			return p, written, err
+		}
+		if replace {
+			// Explicit adoption: a file that already matches the render (one
+			// installed before hashes were recorded, say) is claimed only on
+			// --replace-existing, never silently: an MDM file that happens to
+			// match must stay foreign.
+			if err := p.adoptUnchanged(); err != nil {
+				return p, written, err
+			}
 		}
 		for i := range p.Files {
 			if p.Files[i].Action != ActionUnchanged {

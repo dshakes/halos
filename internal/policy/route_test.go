@@ -48,7 +48,20 @@ func TestGatewayRouteValidation(t *testing.T) {
 			g.Engine = "kong"
 			g.Models["opus"] = ModelRoute{Targets: two[:1]}
 		}, "", "", false},
-		{"bad engine", func(g *Gateway) { g.Engine = "envoy" }, "halo-proxy or kong", SeverityError, true},
+		{"bad engine", func(g *Gateway) { g.Engine = "envoy" }, "halo-proxy, kong or external", SeverityError, true},
+		{"external needs no upstream", func(g *Gateway) {
+			g.Engine = EngineExternal
+			g.Models["opus"] = ModelRoute{Model: "us.anthropic.claude-opus-4-1-20250805-v1:0"}
+		}, "Halos does not see this traffic", SeverityWarning, false},
+		{"external still checks a named upstream", func(g *Gateway) {
+			g.Engine = EngineExternal
+			g.Models["opus"] = ModelRoute{Upstream: "nope", Model: "m"}
+		}, `upstream "nope" not defined`, SeverityError, true},
+		{"external checks numbers without an upstream", func(g *Gateway) {
+			g.Engine = EngineExternal
+			g.Models["opus"] = ModelRoute{Targets: []RouteTarget{{Model: "m", Priority: -1}}}
+		}, "must be >= 0", SeverityError, true},
+		{"external warns on multi-target", func(g *Gateway) { g.Engine = EngineExternal; g.Models["opus"] = ModelRoute{Targets: two} }, "first target's model", SeverityWarning, false},
 		{"unreachable kind warns", func(g *Gateway) {
 			g.Protocols = map[string]string{"codex": "openai-responses"}
 			g.Models["opus"] = ModelRoute{Targets: two[:1]} // bedrock cannot serve a Responses client
