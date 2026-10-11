@@ -276,3 +276,81 @@ func TestGatewayAliasesPinned(t *testing.T) {
 		t.Errorf("modelOverrides = %v", mo)
 	}
 }
+
+// A company's own API gateway (engine external) gets provider model ids, since
+// nothing behind it translates Halos aliases, and keeps its own request headers.
+func TestExternalGatewayModelsAndHeaders(t *testing.T) {
+	files, _, err := render(func(p *policy.Profile, g *policy.Gateway) {
+		g.Engine = policy.EngineExternal
+		g.Models = map[string]policy.ModelRoute{
+			"halo-sonnet": {Model: "us.anthropic.claude-sonnet-4-5-20250929-v1:0"},
+			"halo-haiku":  {Targets: []policy.RouteTarget{{Model: "haiku-id"}, {Model: "unused", Priority: 1}}},
+			"sonnet":      {Model: "sonnet-id"},
+		}
+		p.Env["ANTHROPIC_CUSTOM_HEADERS"] = "x-tenant: acme\n"
+	}, harness.Linux)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := settings(t, files)
+	if m["model"] != "us.anthropic.claude-sonnet-4-5-20250929-v1:0" {
+		t.Errorf("model = %v", m["model"])
+	}
+	if got, _ := json.Marshal(m["availableModels"]); string(got) != `["us.anthropic.claude-sonnet-4-5-20250929-v1:0","haiku-id"]` {
+		t.Errorf("availableModels = %s", got)
+	}
+	env := m["env"].(map[string]any)
+	if env["ANTHROPIC_DEFAULT_SONNET_MODEL"] != "sonnet-id" || m["modelOverrides"].(map[string]any)[builtinIDs["sonnet"]] != "sonnet-id" {
+		t.Errorf("sonnet pin = %v %v", env["ANTHROPIC_DEFAULT_SONNET_MODEL"], m["modelOverrides"])
+	}
+	if want := "x-tenant: acme\nx-halo-ring: canary\nx-halo-release: sha256:abc"; env["ANTHROPIC_CUSTOM_HEADERS"] != want {
+		t.Errorf("headers = %q", env["ANTHROPIC_CUSTOM_HEADERS"])
+	}
+
+	// Behind halo-proxy the alias goes out unchanged.
+	files, _, err = render(func(_ *policy.Profile, g *policy.Gateway) {
+		g.Models = map[string]policy.ModelRoute{"halo-sonnet": {Model: "x"}}
+	}, harness.Linux)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m := settings(t, files); m["model"] != "halo-sonnet" {
+		t.Errorf("halo-proxy model = %v", m["model"])
+	}
+}
+
+func TestOwnCustomHeadersChecked(t *testing.T) {
+	for name, h := range map[string]string{"cr": "x-tenant: a\rx-evil: b", "spoof": "X-Halo-Ring: ga"} {
+		if _, _, err := render(func(p *policy.Profile, _ *policy.Gateway) { p.Env["ANTHROPIC_CUSTOM_HEADERS"] = h }, harness.Linux); err == nil {
+			t.Errorf("%s: want error", name)
+		}
+	}
+}
+
+// Behind an external gateway with models enforced, Claude's built-in fallback
+// IDs must land on the locked default model, not go out as-is.
+func TestExternalFallbackLocked(t *testing.T) {
+	files, _, err := render(func(_ *policy.Profile, g *policy.Gateway) {
+		g.Engine = policy.EngineExternal
+		g.Models = map[string]policy.ModelRoute{"halo-sonnet": {Model: "locked-id"}, "halo-haiku": {Model: "h"}}
+	}, harness.Linux)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := settings(t, files)
+	env, ov := m["env"].(map[string]any), m["modelOverrides"].(map[string]any)
+	for a, id := range builtinIDs {
+		if ov[id] != "locked-id" || env["ANTHROPIC_DEFAULT_"+strings.ToUpper(a)+"_MODEL"] != "locked-id" {
+			t.Errorf("%s fallback = %v / %v", a, ov[id], env["ANTHROPIC_DEFAULT_"+strings.ToUpper(a)+"_MODEL"])
+		}
+	}
+}
+
+// The profile's headers are checked even when Halos adds none (no ring/release).
+func TestOwnCustomHeadersCheckedWithoutHaloHeaders(t *testing.T) {
+	p, g := hutiltest.Fixture()
+	p.Env["ANTHROPIC_CUSTOM_HEADERS"] = "x-halo-ring: ga"
+	if _, _, err := (Adapter{}).Render(p, harness.Context{Gateway: g, OS: harness.Linux}); err == nil {
+		t.Error("want error")
+	}
+}

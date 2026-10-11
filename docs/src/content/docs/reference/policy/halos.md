@@ -11,6 +11,7 @@ Generated from `schemas/halos.schema.json`; do not edit. Nested fields use dotte
 |---|---|---|---|---|---|---|
 | `apiVersion` | string |  |  | const halos.dev/v1 |  | Document version. |
 | `gateway` | string |  |  |  | format uri | Simple mode: the gateway base URL clients are pointed at. |
+| `gatewayEngine` | string |  |  | halo-proxy, kong, external |  | Simple mode: what serves gateway: halo-proxy (default), kong, or external (your own API gateway; clients are sent provider model ids). |
 | `identity` | object |  |  |  |  | The org's OIDC provider (any compliant IdP: Okta, Entra ID, Google, Keycloak, Ping, Auth0...). Used by the portal, halo-proxy / halo-kong and enrollment. |
 | `identity.adminGroups` | array of string |  |  |  |  | Groups that may approve requests and manage experiments in the portal. |
 | `identity.adminGroups[]` | string |  |  |  |  |  |

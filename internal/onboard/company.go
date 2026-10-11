@@ -13,14 +13,14 @@ import (
 
 // Company gateways and delivery channels.
 var (
-	Gateways   = []string{"halo-proxy", "kong"}
+	Gateways   = []string{"halo-proxy", "kong", policy.EngineExternal}
 	Deliveries = []string{"devcontainer", "mdm", "halod"}
 )
 
 // CompanyOptions are an admin's interview answers.
 type CompanyOptions struct {
 	Init        intent.InitOptions // org, tools, provider, models, gateway, issuer, client id, admins, presets
-	GatewayKind string             // halo-proxy | kong
+	GatewayKind string             // halo-proxy | kong | external (the company's own API gateway; Halos runs no data plane)
 	AuthHelper  string             // command printing a short-lived gateway token on each laptop (optional)
 	Delivery    []string           // devcontainer | mdm | halod
 	Registry    string             // OCI repository releases are published to
@@ -67,6 +67,9 @@ func Company(o CompanyOptions) (map[string][]byte, error) {
 		return nil, err
 	}
 	in := o.Init
+	if o.GatewayKind != "halo-proxy" {
+		in.GatewayEngine = o.GatewayKind
+	}
 	if in.ClientID == "" {
 		in.ClientID = "halos"
 	}
@@ -160,10 +163,14 @@ func helmValues(o CompanyOptions, in intent.InitOptions, portal string) []byte {
 		"# Secrets are references to Secrets a human creates; this file holds none.\n"+
 		"policy:\n  gitSync:\n    repo: %s\n    ref: main\n"+
 		"server:\n  portal:\n    baseURL: %s\n  oidcClientSecret: {existingSecret: halos-oidc, key: client-secret}\n", o.PolicyRepo, portal)
-	if o.GatewayKind == "kong" {
+	switch o.GatewayKind {
+	case policy.EngineExternal:
+		b.WriteString("# gateway kind external: your own API gateway serves model traffic, so no Halos data plane runs.\n" +
+			"proxy:\n  enabled: false\n")
+	case "kong":
 		fmt.Fprintf(&b, "proxy:\n  enabled: false\nkong:\n  enabled: true\n  config:\n    policy_path: /policy/gateway.compiled.json\n"+
 			"    identity_mode: jwt\n    issuer: %s\n    audience: halos\n", in.Issuer)
-	} else {
+	default:
 		fmt.Fprintf(&b, "proxy:\n  enabled: true\n  config:\n    identity:\n      mode: jwt\n      issuer: %s\n      audience: halos\n", in.Issuer)
 		if in.Provider == "bedrock" {
 			b.WriteString("  # Bedrock is SigV4-signed with the AWS credential chain: bind an IAM role to the proxy (IRSA shown).\n" +

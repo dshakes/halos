@@ -115,6 +115,8 @@ func TestSchemasRejectBadDocs(t *testing.T) {
 		{"zero weight", "Experiment", hdr + "kind: Experiment\nname: e\ntype: ab\naxis: client\nrings: [a]\nvariants: [{name: a, weight: 0}]\nmetrics: {primary: {metric: halo.task.success, direction: increase}}\nstopping: {method: msprt}\n"},
 		{"root missing org", "Halos", "kind: Halos\n"},
 		{"gateway missing upstreams", "Gateway", hdr + "kind: Gateway\nname: g\nbaseURL: https://x.example\nauth: {}\nmodels: {}\n"},
+		{"route without upstream unless external", "Gateway", hdr + "kind: Gateway\nname: g\nbaseURL: https://x.example\nauth: {}\nupstreams: {}\nmodels: {d: {model: m}}\n"},
+		{"target without upstream unless external", "Gateway", hdr + "kind: Gateway\nname: g\nbaseURL: https://x.example\nauth: {}\nupstreams: {}\nmodels: {d: {targets: [{model: m}]}}\n"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -128,5 +130,15 @@ func TestSchemasRejectBadDocs(t *testing.T) {
 				t.Fatalf("unexpected error type: %v", err)
 			}
 		})
+	}
+}
+
+// An external gateway needs no upstreams, and its routes may omit upstream.
+func TestSchemaExternalGateway(t *testing.T) {
+	schemas := compileSchemas(t)
+	doc := yamlDocs(t, []byte(hdr+"kind: Gateway\nname: g\nbaseURL: https://x.example\nengine: external\nauth: {}\n"+
+		"models: {d: {model: m}, t: {targets: [{model: a}, {model: b, priority: 1}]}}\n"))[0]
+	if err := schemas[kindSchema["Gateway"]].Validate(doc); err != nil {
+		t.Fatal(err)
 	}
 }

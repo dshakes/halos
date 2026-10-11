@@ -151,6 +151,19 @@ func Model(p *policy.Profile, name string) string {
 	return p.Models.Default
 }
 
+// ClientModel is the model name a client should send for alias. Behind a
+// gateway Halos runs (halo-proxy, kong) that is the alias itself; behind an
+// external gateway nothing translates aliases, so it is the route's primary
+// provider model id. An alias with no route is returned unchanged.
+func ClientModel(c harness.Context, alias string) string {
+	if g := c.Gateway; g != nil && g.Engine == policy.EngineExternal {
+		if m := g.Models[alias].Primary().Model; m != "" {
+			return m
+		}
+	}
+	return alias
+}
+
 // OTELResourceAttributes is the OTEL_RESOURCE_ATTRIBUTES value for harness
 // name: the profile's telemetry.attributes plus halo.harness, halo.ring,
 // halo.release and, for a variant release, halo.experiment/halo.variant.

@@ -71,7 +71,7 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 	}
 
 	cfg := map[string]any{}
-	if m := hutil.Model(p, name); m != "" {
+	if m := hutil.ClientModel(c, hutil.Model(p, name)); m != "" {
 		cfg["model"] = m
 	}
 	if g := c.Gateway; g != nil {

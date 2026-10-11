@@ -92,6 +92,20 @@ func TestOnboardToolsFromEmptyDir(t *testing.T) {
 	if in, err = call(t, rw, "local_install", map[string]any{"root": root, "dry_run": false}); err != nil || len(in["written"].([]any)) != 0 {
 		t.Fatalf("install not idempotent: %v %v", err, in)
 	}
+	// A file someone else rewrote is refused, nothing is written, and the plan
+	// still comes back so the agent can show which file is foreign.
+	dest := files[0].(map[string]any)["dest"].(string)
+	if err := os.WriteFile(dest, []byte("mdm\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	in, err = call(t, rw, "local_install", map[string]any{"root": root, "dry_run": false})
+	if err != nil || len(in["written"].([]any)) != 0 || !strings.Contains(in["note"].(string), "refused") ||
+		in["plan"].(map[string]any)["files"].([]any)[0].(map[string]any)["action"] != "foreign" {
+		t.Fatalf("foreign refusal: %v %v", err, in)
+	}
+	if b, _ := os.ReadFile(dest); string(b) != "mdm\n" {
+		t.Fatalf("refused install touched the file: %q", b)
+	}
 
 	px, err := call(t, rw, "local_proxy", nil)
 	if err != nil || px["dryRun"] != true || !strings.HasPrefix(px["command"].(string), "halo-proxy --config ") {

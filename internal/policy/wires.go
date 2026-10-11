@@ -83,6 +83,14 @@ func (g *Gateway) HarnessWire(h string) string {
 func (g *Gateway) WireFit(alias, wire string) (WireFitness, []string) {
 	var kinds []string
 	fit := WireNo
+	if g.Engine == EngineExternal {
+		// The external gateway picks the backend and translates; Halos only
+		// renders the model id, so any routed alias fits.
+		if len(g.Models[alias].Candidates()) == 0 {
+			return WireNo, nil
+		}
+		return WireYes, []string{"external gateway"}
+	}
 	for _, t := range g.Models[alias].Candidates() {
 		up := g.Upstreams[t.Upstream]
 		kinds = append(kinds, t.Upstream+" ("+up.Kind+")")

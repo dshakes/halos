@@ -4,10 +4,17 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added
+- **Your own API gateway** (`Gateway.engine: external`, simple mode `gatewayEngine: external`, `halo onboard local --gateway-engine external`, `halo onboard company --gateway-kind external`): for a company whose model traffic already goes through its own gateway (Kong, an auth gateway, an orchestrator, Bedrock). Halos runs no data plane there, so Claude Code, Codex and Gemini CLI are rendered with each alias's provider model id instead of the alias, routes need no Halos upstream (simple mode generates none, so a provider's Halos-side requirements such as a Vertex project do not apply), Claude Code's built-in fallback tiers are pinned to the default model when `models.enforce` is set (nothing behind an external gateway rejects an unlisted model), and validation warns that the gateway-side posture and version gates, kill switch and model-axis experiment metrics do not apply. `halo onboard company` now also records `kong` in the generated policy.
+
 ### Changed
 - The nightly soak's p99 gate is armed: `test/load/baseline.json` is the result of a green 60-minute run on `ubuntu-latest` (run 37253557695: 0 errors at ~1245 rps, p99 53.4 ms, all SSE streams intact, no heap or goroutine growth).
 
 ### Fixed
+- Claude Code: a profile may set `ANTHROPIC_CUSTOM_HEADERS` (the one `ANTHROPIC_*` variable the reserved-env guardrail now allows), and those headers (e.g. a tenant or routing header a company gateway requires) are no longer overwritten by Halos's `x-halo-ring` / `x-halo-release` headers: they are kept, with Halos's appended, and CR or `x-halo-*` lines in them are rejected.
+- The `.halos-backup` of a replaced managed file keeps the original's permissions; it was root-only, so a manual restore left Claude Code unable to read the file.
+- `halo onboard local` stops with explicit next steps (compare in a scratch root, deliver through MDM, or point at your own gateway) when a managed file on the machine was not written by Halos.
+- `halo onboard install --apply` replaced a managed config file it had not written (for example a Claude Code `managed-settings.json` an MDM had pushed), keeping only a `.halos-backup` and previewing it as a plain `update`. Such a file is now planned as `foreign` and `--apply` refuses and writes nothing unless `--replace-existing` is set; the MCP `local_install` tool never replaces one. Halos records the hash of each file it writes at `<file>.halos-sha256` to tell its own files from rewritten ones, on every install (an earlier `.halos-backup` does not count as ownership), and a second replacement keeps the earlier backup and writes a timestamped one. A file with no hash is never adopted silently, even one that matches the render (an MDM push can match): files installed by `halo` 0.1.1 or earlier report as foreign on the next change; confirm they are yours and re-run with `--replace-existing`, which also records the hash of matching files.
 - The nightly soak's load tool minted a one-hour JWT for a 60-minute soak, so the first scheduled run (3 Oct) ended in 401s at t+58 m with every other gate green; the token now outlives the run.
 - CI's released-`halo` jobs validate `examples/acme-corp` again; the `test/ci/policy-v1alpha1` fixture is gone.
 

@@ -15,7 +15,7 @@ Generated from `schemas/gateway.schema.json`; do not edit. Nested fields use dot
 | `auth.identityHeader` | string |  |  |  |  | Header the auth gateway sets with the verified user id. |
 | `auth.ttlSeconds` | integer |  |  |  | minimum 0 | Token lifetime in seconds. |
 | `baseURL` | string | yes |  |  | format uri | What clients are pointed at (Kong's public listener). |
-| `engine` | string |  |  | halo-proxy, kong |  | Data plane enforcing this policy (default halo-proxy). Multi-target routes (weights, failover) run only in halo-proxy; halo-kong uses each route's first target. |
+| `engine` | string |  |  | halo-proxy, kong, external |  | Data plane enforcing this policy (default halo-proxy). external is a gateway Halos does not run (your own API gateway): clients are rendered with each alias's provider model id. Multi-target routes (weights, failover) run only in halo-proxy; halo-kong and external use each route's first target. |
 | `kind` | string | yes |  | const Gateway |  | Document kind. |
 | `labels` | object |  |  |  |  | Free-form labels. |
 | `labels.*` | string |  |  |  |  |  |
@@ -27,13 +27,13 @@ Generated from `schemas/gateway.schema.json`; do not edit. Nested fields use dot
 | `models.*.targets[].model` | string | yes |  |  |  | Provider model id, Bedrock inference profile ARN, or Azure deployment name. |
 | `models.*.targets[].priority` | integer |  |  |  | minimum 0 | Failover tier, lowest first (default 0). |
 | `models.*.targets[].timeoutSeconds` | integer |  |  |  | minimum 0 | Connect plus response-header timeout for this target; streams are not time-limited afterwards. |
-| `models.*.targets[].upstream` | string | yes |  |  |  | Name of an entry in gateway.upstreams. |
+| `models.*.targets[].upstream` | string |  |  |  |  | Name of an entry in gateway.upstreams. Required unless engine is external. |
 | `models.*.targets[].weight` | number |  |  |  | minimum 0 | Relative share of traffic within the priority tier. |
-| `models.*.upstream` | string |  |  |  |  | Name of an entry in gateway.upstreams. |
+| `models.*.upstream` | string |  |  |  |  | Name of an entry in gateway.upstreams. Required unless engine is external. |
 | `name` | string | yes |  |  | pattern ^[a-z0-9][a-zA-Z0-9._-]*$ | Unique name within its kind. |
 | `protocols` | object |  |  |  |  | Wire protocol per harness name. |
 | `protocols.*` | string |  |  | anthropic-messages, bedrock-invoke, openai-responses, gemini |  |  |
-| `upstreams` | object | yes |  |  |  | Named backends. |
+| `upstreams` | object |  |  |  |  | Named backends. |
 | `upstreams.*` | object |  |  |  |  | A backend. |
 | `upstreams.*.apiVersion` | string |  |  |  |  | api-version query for kind azure-openai; empty uses the versionless /openai/v1 surface. |
 | `upstreams.*.credential` | object |  |  |  |  | Where halo-proxy reads the provider key (kinds openai, azure-openai): an environment variable name or a file path, never the secret itself. |
@@ -49,5 +49,5 @@ Generated from `schemas/gateway.schema.json`; do not edit. Nested fields use dot
 
 ## Constraints
 
-- `models.*`: exactly one of `upstream + model` or `targets`
+- `models.*`: exactly one of `model` or `targets`
 - `upstreams.*.credential`: exactly one of `env` or `file`

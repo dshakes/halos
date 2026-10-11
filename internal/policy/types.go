@@ -90,11 +90,16 @@ type Gateway struct {
 	Models map[string]ModelRoute `yaml:"models" json:"models"`
 	// Upstreams are named backends (e.g. the orchestrator, direct Anthropic).
 	Upstreams map[string]Upstream `yaml:"upstreams" json:"upstreams"`
-	// Engine is the data plane that enforces this policy: halo-proxy (default)
-	// or kong. Multi-target routes (weights, failover) are halo-proxy-only; Kong
-	// uses each route's first target.
+	// Engine is the data plane that enforces this policy: halo-proxy (default),
+	// kong, or external (a gateway Halos does not run, e.g. a company's own API
+	// gateway: clients are rendered with each alias's provider model id, since
+	// nothing translates aliases). Multi-target routes (weights, failover) are
+	// halo-proxy-only; Kong uses each route's first target.
 	Engine string `yaml:"engine,omitempty" json:"engine,omitempty"`
 }
+
+// EngineExternal is a gateway Halos does not run.
+const EngineExternal = "external"
 
 type GatewayAuth struct {
 	// HelperCommand prints a short-lived token (used as Claude apiKeyHelper, Codex env_key source, ...).

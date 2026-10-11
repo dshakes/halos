@@ -38,13 +38,24 @@ halo doctor                                   # CLIs and versions, tools, which 
 halo onboard local --policy-dir ~/halos       # halos.yaml for this machine, validated, plus the install plan (dry run)
 halo onboard local --policy-dir ~/halos --apply
 halo onboard install --policy-dir ~/halos --show      # exactly what lands where (dry run)
-sudo halo onboard install --policy-dir ~/halos --apply # admin-owned paths; idempotent, originals kept at *.halos-backup
+sudo halo onboard install --policy-dir ~/halos --apply # admin-owned paths; idempotent; refuses files Halos did not write
 halo onboard proxy --policy-dir ~/halos --apply       # loopback halo-proxy config, keys from your env at start
 halo-proxy --config ~/halos/.halos/local/halo-proxy.yaml &
 halo onboard verify                                   # claude -p / codex exec / gemini -p / copilot -p, one short call each
 ```
 
 `halo onboard local` defaults come from the machine: every CLI on `PATH` pinned at its installed version, the provider whose key is exported, a local gateway on `http://127.0.0.1:8088`. Pass `--tools claude-code@2.1.280 --provider bedrock --model default=...` to override. `verify` skips a CLI with no key variable set; if it is logged in instead, pass `--assume-auth`. From here, upgrades are rollouts: [`halos-rollout`](/halos/guides/agentic-operations/).
+
+**A company laptop is different.** If your IT already pushes Claude Code (or Codex, Gemini) managed settings, `halo onboard local` reports the file as `foreign` and stops: `halo onboard install --apply` refuses to replace a file Halos did not write unless you pass `--replace-existing` (the original is kept at `*.halos-backup`). If your company routes models through its own API gateway (for example Kong, an auth gateway and an orchestrator in front of Bedrock), point Halos at it instead of a local proxy and render into a scratch directory to compare with IT's file:
+
+```sh
+halo onboard local --policy-dir ~/halos --tools claude-code@$(claude --version | cut -d' ' -f1) \
+  --provider bedrock --model default=us.anthropic.claude-sonnet-4-5-20250929-v1:0 \
+  --gateway https://ai-gw.example.com --gateway-engine external --apply
+halo onboard install --policy-dir ~/halos --root ~/halo-eval --apply     # writes only under ~/halo-eval
+```
+
+With `--gateway-engine external` the CLIs are sent each alias's provider model id (nothing behind your gateway knows Halos aliases), and a profile's own `ANTHROPIC_CUSTOM_HEADERS` (a tenant or routing header your gateway needs) are kept, with Halos's ring and release headers appended. Halos does not see that traffic, so the gateway-side posture and version gates, kill switch and model-axis experiment metrics do not apply; version pins, permissions, MCP and hook policy do, delivered through your MDM.
 
 ## My company
 
@@ -57,4 +68,4 @@ halo onboard company ... --apply
 halo validate --policy-dir acme-halos && halo plan --policy-dir acme-halos --ring ring3-ga
 ```
 
-An agent asks those questions one at a time (IdP, gateway Kong or halo-proxy, provider Anthropic, Bedrock or Vertex, delivery dev containers, MDM or `halod`). The result is a policy repo: `halos.yaml`, `.halos/helm-values.yaml`, `.halos/oidc-client.yaml`, `.halos/enroll/*`, a validate-and-plan CI workflow, a smoke eval suite and a `README.md` listing the human steps in order (merge, register the OIDC client, generate the signing key, deploy Helm, `halo release publish`, enroll). Nothing in it is secret and nothing is published, enrolled or pushed; the agent opens a PR and stops there. Next: [Production deployment](/halos/guides/production-deployment/), then [Laptops via MDM](/halos/guides/laptops-mdm/) or [Dev containers](/halos/guides/dev-containers/).
+An agent asks those questions one at a time (IdP, gateway halo-proxy, Kong or your own API gateway (`--gateway-kind external`), provider Anthropic, Bedrock or Vertex, delivery dev containers, MDM or `halod`). The result is a policy repo: `halos.yaml`, `.halos/helm-values.yaml`, `.halos/oidc-client.yaml`, `.halos/enroll/*`, a validate-and-plan CI workflow, a smoke eval suite and a `README.md` listing the human steps in order (merge, register the OIDC client, generate the signing key, deploy Helm, `halo release publish`, enroll). Nothing in it is secret and nothing is published, enrolled or pushed; the agent opens a PR and stops there. Next: [Production deployment](/halos/guides/production-deployment/), then [Laptops via MDM](/halos/guides/laptops-mdm/) or [Dev containers](/halos/guides/dev-containers/).
