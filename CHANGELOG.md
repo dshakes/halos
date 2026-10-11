@@ -4,6 +4,8 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-11
+
 ### Added
 - **Your own API gateway** (`Gateway.engine: external`, simple mode `gatewayEngine: external`, `halo onboard local --gateway-engine external`, `halo onboard company --gateway-kind external`): for a company whose model traffic already goes through its own gateway (Kong, an auth gateway, an orchestrator, Bedrock). Halos runs no data plane there, so Claude Code, Codex and Gemini CLI are rendered with each alias's provider model id instead of the alias, routes need no Halos upstream (simple mode generates none, so a provider's Halos-side requirements such as a Vertex project do not apply), Claude Code's built-in fallback tiers are pinned to the default model when `models.enforce` is set (nothing behind an external gateway rejects an unlisted model), and validation warns that the gateway-side posture and version gates, kill switch and model-axis experiment metrics do not apply. `halo onboard company` now also records `kong` in the generated policy.
 
