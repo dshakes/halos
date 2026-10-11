@@ -144,7 +144,7 @@ func (s *Server) postRequest(w http.ResponseWriter, r *http.Request, p Principal
 		return
 	}
 	var in Request
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&in); err != nil {
+	if err := decodeBody(w, r, 8192, &in); err != nil {
 		apiErr(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}

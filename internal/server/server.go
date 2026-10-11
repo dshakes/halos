@@ -279,6 +279,24 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	_ = json.NewEncoder(w).Encode(v) // client gone: nothing useful to do
 }
 
+// decodeBody decodes one JSON value from r.Body capped at limit bytes and
+// rejects anything after it: a decoder stops at the end of the first value, so
+// without the trailing check an oversize body passes when its value ends early.
+// An empty body returns io.EOF, as Decode does.
+func decodeBody(w http.ResponseWriter, r *http.Request, limit int64, v any) error {
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, limit))
+	if err := dec.Decode(v); err != nil {
+		return err
+	}
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+		if err == nil {
+			err = errors.New("trailing data after JSON body")
+		}
+		return err
+	}
+	return nil
+}
+
 func apiErr(w http.ResponseWriter, code int, msg string) {
 	writeJSON(w, code, map[string]string{"error": msg})
 }
