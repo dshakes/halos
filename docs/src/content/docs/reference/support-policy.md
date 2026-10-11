@@ -35,7 +35,8 @@ This is the commitment from `v0.1.1` on. It is a policy, not something the code 
 
 | Version | Status | Supported until |
 |---|---|---|
-| 0.1.x | current | the 0.2 minor ships, then 90 days of security fixes |
+| 0.2.x | current | the 0.3 minor ships, then 90 days of security fixes |
+| 0.1.x | previous minor (security and data-loss fixes only) | 2027-01-09 (90 days after 0.2.0 shipped on 2026-10-11) |
 | 0.1.0 | superseded by 0.1.1 (incomplete publish) | — |
 | 0.1.0-rc.1, rc.2 | prerelease | — |
 
