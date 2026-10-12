@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"slices"
@@ -20,7 +19,7 @@ func (s *Server) postExperimentStatus(w http.ResponseWriter, r *http.Request, p 
 	var in struct {
 		Status string `json:"status"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&in); err != nil || !slices.Contains(settableStatuses, in.Status) {
+	if err := decodeBody(w, r, 1024, &in); err != nil || !slices.Contains(settableStatuses, in.Status) {
 		apiErr(w, http.StatusUnprocessableEntity, "status must be one of running, paused, concluded")
 		return
 	}

@@ -553,7 +553,7 @@ func (s *Server) postEnroll(w http.ResponseWriter, r *http.Request) {
 		Token string `json:"token"`
 		OS    string `json:"os"` // selects the pubkey path halod will read; default unix
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body); err != nil || body.Token == "" {
+	if err := decodeBody(w, r, 4096, &body); err != nil || body.Token == "" {
 		apiErr(w, http.StatusBadRequest, "token required")
 		return
 	}

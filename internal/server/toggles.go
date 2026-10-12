@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -219,7 +218,7 @@ func (s *Server) postToggleProposal(w http.ResponseWriter, r *http.Request, p Pr
 		promote.ToggleChange
 		Reason string `json:"reason"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&in); err != nil && !errors.Is(err, io.EOF) {
+	if err := decodeBody(w, r, 8192, &in); err != nil && !errors.Is(err, io.EOF) {
 		apiErr(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}

@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"crypto/x509"
-	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -57,7 +56,7 @@ func (s *Server) killHandler(kill bool, kind string) authedHandler {
 		var in struct {
 			Reason string `json:"reason"`
 		}
-		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 2048)).Decode(&in); err != nil && !errors.Is(err, io.EOF) {
+		if err := decodeBody(w, r, 2048, &in); err != nil && !errors.Is(err, io.EOF) {
 			apiErr(w, http.StatusBadRequest, "invalid JSON")
 			return
 		}
