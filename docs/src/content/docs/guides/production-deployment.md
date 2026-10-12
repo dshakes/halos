@@ -4,7 +4,7 @@ description: Helm chart, secrets, the pointer refresh schedule, signing key mana
 ---
 
 :::caution[Verified on kind, not on a managed cloud cluster]
-The `uat-k8s` CI job installs the chart on kind on every PR (`test/uat/REPORT.md`: 79 PASS, 0 FAIL), and the images are published on ghcr.io (`halo-server`, `halo-proxy`, `halo-shadow`, `kong-halo`, tags `0.2.0` and `latest`; the chart's `appVersion` is `0.2.0`). The chart on a managed cloud cluster (EKS, GKE, AKS) is **UNVERIFIED**, as is the chart's Kong (`KongPlugin` CR) mode.
+The `uat-k8s` CI job installs the chart on kind on every PR (`test/uat/REPORT.md`: 79 PASS, 0 FAIL), and the images are published on ghcr.io (`halo-server`, `halo-proxy`, `halo-shadow`, `kong-halo`, tags `0.2.1` and `latest`; the chart's `appVersion` is `0.2.1`). The chart on a managed cloud cluster (EKS, GKE, AKS) is **UNVERIFIED**, as is the chart's Kong (`KongPlugin` CR) mode.
 :::
 
 ## What runs where
