@@ -4,6 +4,11 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-11
+
+### Fixed
+- halo-server's JSON request bodies (experiment status, kill switch, portal enrollment, access requests, toggles) now reject any bytes after the JSON value. The decoder stopped at the end of the first value, so a body larger than the size cap was accepted whenever its JSON ended before the cap. Found by the nightly `FuzzAPIJSONDecoders` run; the crasher is kept as a regression seed.
+
 ## [0.2.0] - 2026-10-11
 
 ### Added
