@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -178,6 +179,14 @@ func loadConfig(args []string, getenv func(string) string, usage io.Writer) (Con
 	fs.StringVar(&cfg.Telemetry.OTLPEndpoint, "telemetry-otlp-endpoint", cfg.Telemetry.OTLPEndpoint, "OTLP/HTTP collector base URL for halo.gateway.* request metrics; empty disables")
 	fs.StringVar(&cfg.Telemetry.Protocol, "telemetry-protocol", cfg.Telemetry.Protocol, "OTLP protocol: http/protobuf (default) | http/json")
 	fs.DurationVar(&cfg.Telemetry.Interval, "telemetry-interval", cfg.Telemetry.Interval, "OTLP export interval (default 10s, min 1s)")
+	fs.Func("telemetry-genai-metrics", "export OpenTelemetry GenAI semantic-convention metrics (gen_ai.client.*) with the OTLP export: true (default) | false", func(s string) error {
+		v, err := strconv.ParseBool(s)
+		if err == nil {
+			cfg.Telemetry.GenAI.Metrics = &v
+		}
+		return err
+	})
+	fs.BoolVar(&cfg.Telemetry.GenAI.Traces, "telemetry-genai-traces", cfg.Telemetry.GenAI.Traces, "export one GenAI span per model call to <otlp endpoint>/v1/traces (off by default; never carries prompts or completions)")
 	var saltFile string
 	fs.StringVar(&saltFile, "telemetry-unit-salt-file", "", "file holding the halo.unit hash salt, shared by all replicas (no inline flag: flags leak via ps)")
 	fs.StringVar(&cfg.Telemetry.TokenFile, "telemetry-token-file", cfg.Telemetry.TokenFile, "file holding the bearer token for the collector's gateway receiver (otlp/gateway, :4319)")
