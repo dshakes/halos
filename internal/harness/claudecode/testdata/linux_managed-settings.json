@@ -18,12 +18,22 @@
     "halo-sonnet",
     "halo-haiku"
   ],
+  "blockedMarketplaces": [
+    {
+      "source": "github",
+      "repo": "untrusted/plugins"
+    }
+  ],
   "deniedMcpServers": [
     {
       "serverName": "filesystem"
     }
   ],
   "disableBypassPermissionsMode": "disable",
+  "enabledPlugins": {
+    "audit@acme-plugins": true,
+    "risky@acme-plugins": false
+  },
   "enforceAvailableModels": true,
   "env": {
     "ANTHROPIC_BASE_URL": "https://gw.example.com",
@@ -40,6 +50,7 @@
     "OTEL_METRICS_INCLUDE_VERSION": "true",
     "OTEL_RESOURCE_ATTRIBUTES": "cost-center=a%2Fb,halo.harness=claude-code,halo.release=sha256%3Aabc,halo.ring=canary,team=platform%20eng"
   },
+  "forceLoginMethod": "console",
   "hooks": {
     "PreToolUse": [
       {
@@ -64,6 +75,7 @@
     ]
   },
   "model": "halo-sonnet",
+  "outputStyle": "Explanatory",
   "permissions": {
     "allow": [
       "Bash(go test:*)"
@@ -73,7 +85,9 @@
     ],
     "defaultMode": "acceptEdits",
     "deny": [
-      "Read(./.env)"
+      "Read(./.env)",
+      "Skill(skill:deploy)",
+      "Agent(Explore)"
     ]
   },
   "requiredMaximumVersion": "2.1.280",
@@ -88,5 +102,24 @@
         "github.com"
       ]
     }
-  }
+  },
+  "statusLine": {
+    "command": "/opt/halo/statusline.sh",
+    "padding": 1,
+    "type": "command"
+  },
+  "strictKnownMarketplaces": [
+    {
+      "source": "github",
+      "repo": "acme/plugins",
+      "ref": "v1"
+    },
+    {
+      "source": "hostPattern",
+      "hostPattern": "^git\\.example\\.com$"
+    }
+  ],
+  "strictPluginOnlyCustomization": [
+    "skills"
+  ]
 }

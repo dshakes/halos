@@ -11,10 +11,10 @@ import (
 func TestMatrix(t *testing.T) {
 	m := harness.Matrix()
 	want := map[string][]harness.Capability{
-		"claude-code": {harness.CapVersionPin, harness.CapModelLock, harness.CapMCPAllowlist, harness.CapHooksLock, harness.CapPermissions, harness.CapGateway, harness.CapTelemetry, harness.CapInstructions, harness.CapHeaders},
-		"codex":       {harness.CapModelLock, harness.CapGateway, harness.CapHeaders, harness.CapTelemetry, harness.CapMCPAllowlist, harness.CapPermissions},
-		"gemini-cli":  {harness.CapModelLock, harness.CapMCPAllowlist, harness.CapTelemetry, harness.CapGateway},
-		"copilot-cli": {harness.CapTelemetry, harness.CapMCPAllowlist, harness.CapPermissions},
+		"claude-code": {harness.CapVersionPin, harness.CapModelLock, harness.CapMCPAllowlist, harness.CapHooksLock, harness.CapPermissions, harness.CapGateway, harness.CapTelemetry, harness.CapInstructions, harness.CapHeaders, harness.CapExtensions},
+		"codex":       {harness.CapModelLock, harness.CapGateway, harness.CapHeaders, harness.CapTelemetry, harness.CapMCPAllowlist, harness.CapPermissions, harness.CapExtensions},
+		"gemini-cli":  {harness.CapModelLock, harness.CapMCPAllowlist, harness.CapTelemetry, harness.CapGateway, harness.CapExtensions},
+		"copilot-cli": {harness.CapTelemetry, harness.CapMCPAllowlist, harness.CapPermissions, harness.CapExtensions},
 	}
 	if !reflect.DeepEqual(m, want) {
 		t.Errorf("matrix = %v", m)

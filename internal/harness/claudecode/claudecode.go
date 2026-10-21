@@ -3,6 +3,7 @@ package claudecode
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -35,6 +36,7 @@ func (Adapter) Capabilities() []harness.Capability {
 	return []harness.Capability{
 		harness.CapVersionPin, harness.CapModelLock, harness.CapMCPAllowlist, harness.CapHooksLock,
 		harness.CapPermissions, harness.CapGateway, harness.CapTelemetry, harness.CapInstructions, harness.CapHeaders,
+		harness.CapExtensions,
 	}
 }
 
@@ -62,7 +64,10 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 		"permissions.mode", "permissions.allow", "permissions.deny", "permissions.ask", "permissions.disableBypass", "permissions.sandbox",
 		"mcp.managedOnly", "mcp.servers", "mcp.denied", "hooks.managedOnly", "hooks.items",
 		"telemetry.enabled", "telemetry.logPrompts", "telemetry.attributes",
-		"egress.allowedDomains", "instructions", "env")
+		"egress.allowedDomains", "instructions", "env",
+		"extensions.marketplaces", "extensions.blockedMarketplaces", "extensions.plugins.enabled", "extensions.plugins.blocked",
+		"extensions.skills.deny", "extensions.skills.pluginOnly", "extensions.subagents.deny", "extensions.subagents.pluginOnly",
+		"extensions.outputStyle", "extensions.statusLine", "login")
 
 	env := map[string]any{}
 	for k, v := range p.Env {
@@ -176,8 +181,18 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 		}
 	}
 
+	// Skills and subagents are denied with permission rules: Skill(skill:NAME)
+	// matches the skill under any of its names, Agent(NAME) the subagent.
+	// https://code.claude.com/docs/en/permissions
+	deny := slices.Clone(p.Permissions.Deny)
+	for _, n := range p.Extensions.Skills.Deny {
+		deny = append(deny, "Skill(skill:"+n+")")
+	}
+	for _, n := range p.Extensions.Subagents.Deny {
+		deny = append(deny, "Agent("+n+")")
+	}
 	perms := map[string]any{}
-	for k, v := range map[string][]string{"allow": p.Permissions.Allow, "deny": p.Permissions.Deny, "ask": p.Permissions.Ask} {
+	for k, v := range map[string][]string{"allow": p.Permissions.Allow, "deny": deny, "ask": p.Permissions.Ask} {
 		if len(v) > 0 {
 			perms[k] = v
 		}
@@ -190,6 +205,57 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 	}
 	if p.Permissions.DisableBypass {
 		s["disableBypassPermissionsMode"] = "disable"
+	}
+
+	// Plugin, skill, subagent, output style, status line and login keys. All are
+	// managed-settings keys, verified at https://code.claude.com/docs/en/settings-reference
+	// (strictKnownMarketplaces, blockedMarketplaces, enabledPlugins,
+	// strictPluginOnlyCustomization, outputStyle, statusLine, forceLoginMethod).
+	ext := p.Extensions
+	if len(ext.Marketplaces) > 0 {
+		s["strictKnownMarketplaces"] = ext.Marketplaces
+	}
+	if len(ext.BlockedMarketplaces) > 0 {
+		s["blockedMarketplaces"] = ext.BlockedMarketplaces
+	}
+	if len(ext.Plugins.Enabled)+len(ext.Plugins.Blocked) > 0 {
+		plugins := map[string]any{}
+		for _, k := range ext.Plugins.Enabled {
+			plugins[k] = true
+		}
+		for _, k := range ext.Plugins.Blocked {
+			plugins[k] = false // blocked wins: managed false blocks install at every scope
+		}
+		s["enabledPlugins"] = plugins
+	}
+	var pluginOnly []string
+	if ext.Skills.PluginOnly {
+		pluginOnly = append(pluginOnly, "skills")
+	}
+	if ext.Subagents.PluginOnly {
+		pluginOnly = append(pluginOnly, "agents")
+	}
+	if len(pluginOnly) > 0 {
+		s["strictPluginOnlyCustomization"] = pluginOnly
+		if len(ext.Marketplaces) == 0 {
+			warns = append(warns, name+": skills/subagents pluginOnly without extensions.marketplaces lets users install plugins from any marketplace; set an allowlist")
+		}
+	}
+	if ext.OutputStyle != "" {
+		s["outputStyle"] = ext.OutputStyle
+	}
+	if sl := ext.StatusLine; sl.Command != "" {
+		line := map[string]any{"type": "command", "command": sl.Command}
+		if sl.Padding > 0 {
+			line["padding"] = sl.Padding
+		}
+		s["statusLine"] = line
+	}
+	switch p.Login {
+	case policy.LoginSubscription:
+		s["forceLoginMethod"] = "claudeai"
+	case policy.LoginAPI:
+		s["forceLoginMethod"] = "console"
 	}
 
 	if p.Hooks.ManagedOnly {
