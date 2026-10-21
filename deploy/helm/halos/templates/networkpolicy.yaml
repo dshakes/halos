@@ -125,6 +125,15 @@ spec:
     {{- end }}
     {{- end }}
     {{- end }}
+    {{- $db := (index $.Values $vk).database }}
+    {{- if and $db $db.existingSecret $np.databaseEgress.to }}
+    {{- $extra = 1 }}
+    - to: {{- toYaml $np.databaseEgress.to | nindent 8 }}   # Postgres (HA, ADR-0021)
+      ports:
+        {{- range $np.databaseEgress.ports }}
+        - {protocol: TCP, port: {{ . }}}
+        {{- end }}
+    {{- end }}
     {{- with $eg }}{{ toYaml . | nindent 4 }}{{ end }}
     {{- if and (not $eg) (not $extra) (not (and (eq $c "proxy") $.Values.shadow.enabled)) }}
     []

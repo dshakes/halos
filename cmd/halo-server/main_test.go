@@ -35,6 +35,13 @@ func TestParseFlags(t *testing.T) {
 		{"controller without data dir", []string{"--policy-dir", "p", "--token-file", "t", "--controller", "--clickhouse-url", "http://ch"}, "--data-dir", nil},
 		{"controller interval too short", []string{"--policy-dir", "p", "--token-file", "t", "--controller", "--clickhouse-url", "http://ch", "--data-dir", "d", "--interval", "5s"}, "at least 1m", nil},
 		{"killswitch without data dir", []string{"--policy-dir", "p", "--token-file", "t", "--killswitch-key-file", "k", "--gateway-token-file", "g"}, "requires --data-dir", nil},
+		{"data dir and database", []string{"--policy-dir", "p", "--token-file", "t", "--data-dir", "d", "--database-url-file", "u"}, "exclusive", nil},
+		{"lease ttl too short", []string{"--policy-dir", "p", "--token-file", "t", "--database-url-file", "u", "--leader-lease-ttl", "1s"}, "at least 3s", nil},
+		{"ha controller and kill switch", []string{"--policy-dir", "p", "--token-file", "t", "--database-url-file", "u", "--auto-migrate",
+			"--controller", "--clickhouse-url", "http://ch", "--killswitch-key-file", "k", "--gateway-token-file", "g"}, "",
+			func(o options) bool {
+				return o.dbURLFile == "u" && o.autoMigrate && o.leaseTTL == 15*time.Second && o.controller
+			}},
 		{"deprecated spellings", []string{"--policy-dir", "p", "--token-file", "t", "--verdicts", "v.json", "--controller-interval", "2m"}, "",
 			func(o options) bool { return o.verdicts == "v.json" && o.interval == 2*time.Minute }},
 		{"canonical spellings", []string{"--policy-dir", "p", "--token-file", "t", "--verdicts-file", "v.json", "--interval", "3m"}, "",

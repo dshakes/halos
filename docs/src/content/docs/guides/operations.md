@@ -10,11 +10,27 @@ Everything here is checked against the code it describes; `file:line` references
 | Component | Replicas | Why | Chart |
 |---|---|---|---|
 | `halo-proxy` | 2+ (HPA 2 to 10 on CPU) | Stateless: policy snapshot from a ConfigMap or git-sync, kill list polled from `halo-server` | `RollingUpdate` with `maxUnavailable: 0, maxSurge: 1` (`deploy/helm/halos/templates/proxy.yaml:74`), readinessProbe `/readyz` and livenessProbe `/healthz` on the admin port (`proxy.yaml:114-115`), `preStop` sleep (`proxy.yaml:118`), HPA (`proxy.yaml:187`), PDB `maxUnavailable: 1` (`proxy.yaml:212`), zone and hostname topology spread (`_helpers.tpl:53`) |
-| `halo-server` | **exactly 1** (`values.schema.json:23`) | Single writer over append-only JSONL files in `--data-dir` that are replayed into memory at start; no locking, no leader election; the controller loop would run once per replica | `Recreate` when persistence is on (`templates/server.yaml:107`), readinessProbe `/readyz` (policy loaded) and livenessProbe `/healthz` (`internal/server/server.go:168,172`) |
-| `halo-shadow` | **exactly 1** (`values.schema.json:47`) | One pair file and an in-process spend counter; a second replica splits pairs and doubles the budget | `Recreate` |
+| `halo-server`, file backend (default) | **exactly 1** (`values.schema.json`, `haWhenDatabase`) | Single writer over append-only JSONL files in `--data-dir` that are replayed into memory at start; no locking, no leader election | `Recreate` when persistence is on, readinessProbe `/readyz` (policy loaded) and livenessProbe `/healthz` (`internal/server/server.go`, `Handler`) |
+| `halo-server`, Postgres backend | **N** (`server.database.existingSecret`) | Shared state in Postgres; the experiment controller runs on the one replica holding the leader lease ([ADR-0021](/halos/adr/0021-ha-control-plane-on-postgres/)) | `RollingUpdate`, PDB `maxUnavailable: 1` when `replicas > 1`, `/readyz` also fails while Postgres is unreachable, startup probe |
+| `halo-shadow`, file backend (default) | **exactly 1** | One pair file and an in-process spend counter; a second replica splits pairs and doubles the budget | `Recreate` |
+| `halo-shadow`, Postgres backend | **N** (`halo-shadow.database.existingSecret`) | Stateless workers; pairs and one global budget in Postgres | `RollingUpdate`, PDB when `replicas > 1`, `/readyz` checks Postgres |
 | OTel collector | 1 by default (`otel.replicas`) | Stateless, can be raised | |
 
-The honest consequence: a `halo-server` upgrade or reschedule is a short outage of the console, enrollment, fleet reports and the kill-list endpoint. That outage does not reach developers' CLIs: gateways keep serving with their last accepted kill list (`internal/gateway/killswitch.go:86`), `halod` keeps its last-good release and logs failed reports at WARN (`cmd/halod/agent.go:239`, `:685`). We chose a pinned single replica over leader election because the state is a handful of local files and the blast radius of a 30-second restart is nil for end users; a second replica would need shared storage and locking the code does not have.
+On the file backend, the honest consequence: a `halo-server` upgrade or reschedule is a short outage of the console, enrollment, fleet reports and the kill-list endpoint. That outage does not reach developers' CLIs: gateways keep serving with their last accepted kill list (`internal/gateway/killswitch.go:86`), `halod` keeps its last-good release and logs failed reports at WARN (`cmd/halod/agent.go:239`, `:685`). A pinned single replica is the right default for a small install: the state is a handful of local files and the blast radius of a 30-second restart is nil for end users. When the console, enrollment and kill-list endpoints must survive a node loss or an upgrade, run the Postgres backend below.
+
+### HA on Postgres
+
+Design and guarantees: [ADR-0021](/halos/adr/0021-ha-control-plane-on-postgres/). In operational terms:
+
+- **Every replica serves every endpoint.** Each store keeps its in-memory index and catches up from Postgres before each read that matters (one indexed query), so a device revoked or a kill set on one replica holds on all of them at once. Enrollment tokens, login states, server-side sessions and approval claims live in a shared table, so a user can be routed to any replica at any step.
+- **Exactly one controller.** The experiment loop (verdicts, rollbacks, PRs, notifications, rollout ticks) runs on the replica holding lease `controller` in `halo_leases`. The leader renews every `leaseTTL/3` (default 5s of a 15s lease) and steps down by itself once `leaseTTL - leaseTTL/3` has passed without a renewal, before the lease can expire on the database clock. Each leadership term writes its action log and rollout state through a fence (the term's token must still own the lease, checked in the same transaction), so a deposed leader cannot write behind its successor.
+- **The audit chain stays linear.** Appends lock the single chain-head row; `seq` is the primary key.
+- **Fail closed.** If a replica cannot read Postgres, device authentication answers 503 and sessions are treated as revoked; `/readyz` fails so the Service stops sending it traffic. `/healthz` does not check the database, so an outage does not restart pods.
+- **halo-shadow** workers keep nothing: pairs go to `halo_shadow_pairs` (sealed exactly as in the file) and `budgetUSD` is one budget for every replica, named by `database.budgetScope`. Unlike the file mode's counter it does not reset on restart: use a new scope name (for example the quarter) to start a fresh budget. `halo-shadow export-pairs -database-url-file F > pairs.jsonl` writes the rows `decrypt-pairs` reads.
+
+Metrics on `--metrics-listen` (`server.metrics.enabled`): `halo_leader{lease="controller"}` (1 on the leader), `halo_leader_changes_total{lease}`, `halo_db_errors_total`, `halo_db_open_connections`.
+
+Turning it on (values): `server.database.existingSecret` (a Secret holding the URL under `url`), `server.persistence.enabled: false`, `server.replicas: 3`; the same for `halo-shadow`. The schema refuses `replicas > 1` without a database and a database together with persistence. See [production deployment](/halos/guides/production-deployment/#ha-on-postgres) for the install and the data migration.
 
 `make uat-k8s` proves the proxy side on a kind cluster with `test/load` at 200 rps through the ingress (`scripts/uat-k8s.sh:141-215`): delete a proxy pod mid-traffic, roll the Deployment with `helm upgrade`, and evict both pods back to back. Each must finish with zero client-visible errors and the second eviction must be refused by the PDB. Last measured on main (CI job 111349967655, 2026-10-04): pod kill, 0 of 2880 requests failed (p50 2.14 ms, p95 4.2 ms, p99 31.15 ms through the kind ingress); rolling upgrade, 0 of 4973 failed with both pods replaced; PDB, 1st eviction ok, 2nd refused (429), later eviction ok, no client errors. The HA scenarios print to the job log, not to `test/uat/REPORT.md`. A SIGKILLed proxy pod still drops its in-flight requests; only the graceful path (SIGTERM, drain) is covered.
 
@@ -105,6 +121,29 @@ groups:
         labels: {severity: ticket}
         annotations:
           summary: "controller errors: ClickHouse, policy clone, PR, kill or notify failing; rollbacks may not be enforced"
+      - alert: HaloNoControllerLeader
+        expr: (sum(halo_leader{lease="controller"}) or vector(0)) == 0
+        for: 2m
+        labels: {severity: page}
+        annotations:
+          summary: "HA: no halo-server replica holds the controller lease for 2m (Postgres down or every replica failing to renew); rollbacks are not being acted on"
+      - alert: HaloTwoControllerLeaders
+        expr: sum(halo_leader{lease="controller"}) > 1
+        for: 1m
+        labels: {severity: page}
+        annotations:
+          summary: "HA: two replicas report leadership for 1m; fenced writes keep state safe, but check clock and network health"
+      - alert: HaloDatabaseErrors
+        expr: sum(rate(halo_db_errors_total[5m])) > 0.1
+        for: 5m
+        labels: {severity: page}
+        annotations:
+          summary: "HA: Postgres statements failing on halo-server/halo-shadow; replicas go unready and device auth answers 503"
+      - alert: HaloLeaderFlapping
+        expr: sum(increase(halo_leader_changes_total[30m])) > 6
+        labels: {severity: ticket}
+        annotations:
+          summary: "HA: controller lease changed hands repeatedly in 30m; renewals are timing out (database latency or lease TTL too short)"
       - alert: HaloShadowBudgetNearlyExhausted
         expr: halo_shadow_spend_usd / halo_shadow_budget_usd > 0.9
         labels: {severity: ticket}
@@ -137,6 +176,8 @@ Two things no exporter covers, so wire them from CI: the daily `halo release ref
 
 All `--data-dir` files are append-only JSONL, last line per id wins, never compacted. Files are opened with `O_APPEND` and written one line at a time, so a snapshot taken while the server runs is consistent at line granularity: at worst the last line is torn, and replay skips it (`internal/fsutil/jsonl.go:26-47`). The chart keeps the PVC on `helm uninstall` (`helm.sh/resource-policy: keep`).
 
+With the Postgres backend none of the `--data-dir` rows above exist on the pods: the same data lives in the database (table per row: `halo_journal` streams `devices`, `requests`, `session-revocations`, `killswitch`, `controller-state`; `halo_audit`; `halo_docs` for rollout state; `halo_reports`; `halo_shadow_pairs`), and the database is the one thing to back up. Keys are unchanged.
+
 ### Backup
 
 ```bash
@@ -144,6 +185,12 @@ All `--data-dir` files are append-only JSONL, last line per id wins, never compa
 kubectl -n halos exec deploy/halos-server -- tar czf - -C /data . > halo-server-data-$(date +%F).tgz
 # Keys: export from your secret manager, never from the cluster; the Secrets hold the only copy
 # of the kill-switch private key if you did not keep one.
+```
+
+Postgres backend: use the database's own backups. Continuous archiving with point-in-time recovery (RDS/Cloud SQL automated backups, CloudNativePG `barmanObjectStore`, or `pg_basebackup` plus WAL archiving) is the recommendation, since the kill list must not lose recent writes. A logical dump is a consistent snapshot of every table (`pg_dump` runs in one repeatable-read transaction):
+
+```bash
+pg_dump --format=custom --file=halos-$(date +%F).dump "$HALOS_DATABASE_URL"   # a human runs this; the URL holds the password
 ```
 
 Take the data backup at least daily and immediately before an upgrade. Keep the kill-switch public key and the release public key alongside: they are what every gateway and `halod` already trusts, and a restore that changes them is a key rotation, not a restore.
@@ -156,7 +203,13 @@ Take the data backup at least daily and immediately before an upgrade. Keep the 
 4. Scale back to 1 and check: `GET /readyz` returns 200 (policy loaded), `GET /api/v1/killswitch` lists the kills you expect, `GET /api/v1/audit?limit=1` returns `verified: true`, and the console shows the device count you had.
 5. Gateways need nothing: on their next poll (10 s) they fetch the restored list and compare its `version` (`internal/gateway/killswitch.go:209`).
 
-If `killswitch.jsonl` is gone for good, re-issue the kills you know about (`POST /api/v1/experiments/{name}/kill`, `halo toggle kill`) before gateways poll an empty list; the audit log tells you which ones were active.
+Postgres backend:
+
+1. Scale `halo-server` and `halo-shadow` to 0. Replicas cache state in memory and tail the tables by id; restoring underneath running replicas would leave them on a view the database no longer has.
+2. Restore into an empty database: point-in-time recovery to just before the incident, or `pg_restore --clean --if-exists --dbname "$HALOS_DATABASE_URL" halos-<date>.dump`. Do not restore single tables: the audit chain head (`halo_audit_head`) and `halo_audit` must come from the same snapshot.
+3. Start one replica and check: `/readyz` 200, `GET /api/v1/audit?limit=1` returns `verified: true`, `GET /api/v1/killswitch` lists the kills you expect, `halo_leader{lease="controller"} 1` on its metrics port. Then scale out.
+
+If `killswitch.jsonl` (or the `killswitch` stream) is gone for good, re-issue the kills you know about (`POST /api/v1/experiments/{name}/kill`, `halo toggle kill`) before gateways poll an empty list; the audit log tells you which ones were active.
 
 ## Runbook
 
@@ -220,4 +273,21 @@ A single replica down is not an incident: the PDB and `maxUnavailable: 0` keep t
 
 ### halo-server down
 
-Console, enrollment, access requests, fleet reports and the kill-list endpoint are unavailable; gateways keep their last list, `halod` keeps its release and retries reports at WARN. Nothing a developer runs stops working. Restore the pod (a `Recreate` strategy means a stuck old pod holds the RWO volume: `kubectl -n halos describe pod` for `Multi-Attach`). Do not raise `server.replicas`: the schema refuses it and the state model above is why.
+Console, enrollment, access requests, fleet reports and the kill-list endpoint are unavailable; gateways keep their last list, `halod` keeps its release and retries reports at WARN. Nothing a developer runs stops working. Restore the pod (a `Recreate` strategy means a stuck old pod holds the RWO volume: `kubectl -n halos describe pod` for `Multi-Attach`). Do not raise `server.replicas` on the file backend: the schema refuses it and the state model above is why. To survive this next time, move to [HA on Postgres](#ha-on-postgres).
+
+### Controller failover (Postgres backend)
+
+Nothing to do in the common case: when the leader pod dies, is drained or loses Postgres, a peer takes lease `controller` within about one lease TTL (default 15s; immediately on a clean shutdown, which releases the lease) with a higher fencing token, opens the action log and continues from it. To check or force it:
+
+1. `halo_leader{lease="controller"}` on each replica's metrics port: exactly one should be 1. The holder and token are in the database: `SELECT holder, token, expires_at FROM halo_leases WHERE name = 'controller';` (`holder` is `<pod name>-<random>#<term>`).
+2. To move leadership off a pod, delete the pod (a clean shutdown releases the lease). Do not edit `halo_leases` by hand while replicas run; if you must force a takeover, `UPDATE halo_leases SET expires_at = now() WHERE name = 'controller';` makes the lease free on the next renewal round, and the old holder's next fenced write fails with `lease lost: write fenced off` in its log.
+3. `HaloNoControllerLeader` firing with Postgres healthy means every replica fails to renew: look for `leader lease renewal failed` in the logs (timeouts: renewals must finish within `leaseTTL/6`; raise `server.database.leaseTTL` if the database is far away).
+4. A deposed leader may finish a PR it had started; that is a duplicate PR a human closes, never a merge.
+
+### Postgres down (Postgres backend)
+
+Every halo-server and halo-shadow replica goes unready (`/readyz` 503) within one probe period and the Service has no endpoints: the effect is the same as "halo-server down" above (gateways keep their last kill list, `halod` keeps its release). A replica that still receives a request answers 503 for device authentication and treats sessions as revoked rather than serving a possibly stale revocation. The leader steps down within `leaseTTL - leaseTTL/3`, so no controller acts while the database is gone. Pods are not restarted (liveness does not check the database). When Postgres returns, replicas become ready on the next probe, catch up from the tables, and one takes the lease. Fail the database over with your provider's tooling; the URL in `server.database.existingSecret` should point at the provider's writer endpoint so failover needs no Halos change.
+
+### Upgrading the schema (Postgres backend)
+
+Migrations are forward-only and additive. Run them before rolling the new image (`halo-server migrate --database-url-file F`, for example as a Job with the new image), or set `server.database.autoMigrate: true` and let the first new pod apply them under an advisory lock. A binary refuses to start against a database newer than it knows, so roll forward rather than back; to undo an upgrade, restore the pre-upgrade backup.

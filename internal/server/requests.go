@@ -6,16 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/dshakes/halos/internal/fsutil"
 	"github.com/dshakes/halos/internal/policy"
+	"github.com/dshakes/halos/internal/storage"
 )
 
 // Request statuses.
@@ -59,20 +57,16 @@ var ErrManual = errors.New("no automatic policy change for this request kind")
 type requestLog struct {
 	mu   sync.Mutex
 	byID map[string]*Request
-	f    *os.File
+	log  storage.Log
 }
 
-func (l *requestLog) close() error { return closeFile(&l.mu, l.f) }
+func (l *requestLog) close() error { return storage.CloseLog(&l.mu, l.log) }
 
-func openRequestLog(dir string) (*requestLog, error) {
+func openRequestLog(o storage.Opener) (*requestLog, error) {
 	l := &requestLog{byID: map[string]*Request{}}
-	if dir == "" {
-		return l, nil
-	}
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		return nil, err
-	}
-	f, err := fsutil.OpenJSONL(filepath.Join(dir, "requests.jsonl"), func(line []byte) {
+	ctx, cancel := storage.Ctx()
+	defer cancel()
+	log, err := o.OpenLog(ctx, "requests", func(line []byte) {
 		var r Request
 		if json.Unmarshal(line, &r) == nil && r.ID != "" { // torn line: skip
 			if r.Status == StatusApproving {
@@ -84,26 +78,38 @@ func openRequestLog(dir string) (*requestLog, error) {
 	if err != nil {
 		return nil, err
 	}
-	l.f = f
+	l.log = log
 	return l, nil
 }
 
 // save persists r (caller holds mu).
 func (l *requestLog) save(r *Request) error {
-	if l.f == nil || r.Status == StatusApproving {
+	if l.log == nil || r.Status == StatusApproving {
 		return nil
 	}
 	b, err := json.Marshal(r)
 	if err != nil {
 		return err
 	}
-	_, err = l.f.Write(append(b, '\n'))
-	return err
+	ctx, cancel := storage.Ctx()
+	defer cancel()
+	return l.log.Append(ctx, r.ID, b)
+}
+
+// catchup applies other replicas' request records (caller holds mu).
+func (l *requestLog) catchup() error {
+	if l.log == nil {
+		return nil
+	}
+	ctx, cancel := storage.Ctx()
+	defer cancel()
+	return l.log.Catchup(ctx)
 }
 
 func (l *requestLog) list(filter func(*Request) bool) []Request {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	_ = l.catchup() // display only: serve the last view (the error is counted by the backend)
 	out := []Request{}
 	for _, r := range l.byID {
 		if filter(r) {
@@ -159,6 +165,11 @@ func (s *Server) postRequest(w http.ResponseWriter, r *http.Request, p Principal
 	l := s.reqs
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if err := l.catchup(); err != nil {
+		s.cfg.Log.Error("read requests", "err", err)
+		apiErr(w, http.StatusServiceUnavailable, "state store unavailable")
+		return
+	}
 	for _, x := range l.byID {
 		if x.User == p.ID && x.Kind == req.Kind && x.Item == req.Item && (x.Status == StatusPending || x.Status == StatusApproving) {
 			apiErr(w, http.StatusConflict, "you already have a pending request for this")
@@ -183,9 +194,33 @@ func (s *Server) listRequests(w http.ResponseWriter, _ *http.Request, p Principa
 
 func (s *Server) decide(approve bool) authedHandler {
 	return func(w http.ResponseWriter, r *http.Request, p Principal) {
+		// One decision at a time per request across replicas; the claim
+		// outlives a hung PR attempt only until it expires.
+		id := r.PathValue("id")
+		if ok, err := s.kv.Add(r.Context(), "request-claim", id, []byte(p.ID), s.cfg.Now().Add(proposeTimeout+time.Minute)); err != nil {
+			s.cfg.Log.Error("claim request", "id", id, "err", err)
+			apiErr(w, http.StatusServiceUnavailable, "state store unavailable")
+			return
+		} else if !ok {
+			apiErr(w, http.StatusConflict, "request is being decided")
+			return
+		}
+		defer func() {
+			ctx, cancel := storage.Ctx()
+			defer cancel()
+			if err := s.kv.Delete(ctx, "request-claim", id); err != nil {
+				s.cfg.Log.Warn("release request claim", "id", id, "err", err) // expires on its own
+			}
+		}()
 		l := s.reqs
 		l.mu.Lock()
-		req := l.byID[r.PathValue("id")]
+		if err := l.catchup(); err != nil {
+			l.mu.Unlock()
+			s.cfg.Log.Error("read requests", "err", err)
+			apiErr(w, http.StatusServiceUnavailable, "state store unavailable")
+			return
+		}
+		req := l.byID[id]
 		switch {
 		case req == nil:
 			l.mu.Unlock()

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/dshakes/halos/internal/fsutil"
+	"github.com/dshakes/halos/internal/storage"
 )
 
 // KillSwitch trips the traffic-plane kill switch for an experiment.
@@ -43,10 +44,14 @@ type KillRecord struct {
 // run` against halo-server's data dir) are picked up on the next read.
 // ponytail: whole-file re-read when the size changes; kills are rare. Cross-process
 // appends rely on O_APPEND single-line writes (local filesystem).
+//
+// NewKillStore puts it on a shared log instead (HA): every replica then
+// catches up with the others' kills on each read.
 type KillStore struct {
 	mu      sync.Mutex
 	path    string
 	f       *os.File
+	log     storage.Log // shared backend; nil = the file (or memory)
 	size    int64
 	version uint64
 	state   map[string]KillRecord
@@ -77,6 +82,17 @@ func OpenKillStore(dir string) (*KillStore, error) {
 	return s, nil
 }
 
+// NewKillStore opens the "killswitch" log of a shared backend.
+func NewKillStore(ctx context.Context, o storage.Opener) (*KillStore, error) {
+	s := &KillStore{state: map[string]KillRecord{}}
+	log, err := o.OpenLog(ctx, "killswitch", s.replay)
+	if err != nil {
+		return nil, fmt.Errorf("killswitch: %w", err)
+	}
+	s.log = log
+	return s, nil
+}
+
 func (s *KillStore) replay(line []byte) {
 	var r KillRecord
 	if json.Unmarshal(line, &r) == nil && r.Experiment != "" { // torn line: skip
@@ -87,6 +103,14 @@ func (s *KillStore) replay(line []byte) {
 
 // refresh re-reads the file if another process appended (caller holds mu).
 func (s *KillStore) refresh() error {
+	if s.log != nil {
+		ctx, cancel := storage.Ctx()
+		defer cancel()
+		if err := s.log.Catchup(ctx); err != nil {
+			return fmt.Errorf("killswitch: %w", err)
+		}
+		return nil
+	}
 	if s.f == nil {
 		return nil
 	}
@@ -129,7 +153,15 @@ func (s *KillStore) set(ctx context.Context, experiment, by, reason string, kill
 		now = s.Now
 	}
 	r := KillRecord{Experiment: experiment, Killed: killed, By: by, Reason: reason, At: now().UTC()}
-	if s.f != nil {
+	if s.log != nil {
+		b, err := json.Marshal(r)
+		if err != nil {
+			return false, fmt.Errorf("killswitch: encode: %w", err)
+		}
+		if err := s.log.Append(ctx, "", b); err != nil {
+			return false, fmt.Errorf("killswitch: %w", err)
+		}
+	} else if s.f != nil {
 		b, err := json.Marshal(r)
 		if err != nil {
 			return false, fmt.Errorf("killswitch: encode: %w", err)
@@ -177,6 +209,9 @@ func (s *KillStore) Killed() ([]KillRecord, uint64, error) {
 
 // Close closes the log file.
 func (s *KillStore) Close() error {
+	if s.log != nil {
+		return s.log.Close()
+	}
 	if s.f == nil {
 		return nil
 	}

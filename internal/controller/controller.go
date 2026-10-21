@@ -26,6 +26,7 @@ import (
 
 	"github.com/dshakes/halos/internal/policy"
 	"github.com/dshakes/halos/internal/promote"
+	"github.com/dshakes/halos/internal/rollout"
 )
 
 // Actor is the identity the controller records on kills and audit entries.
@@ -54,6 +55,8 @@ type Controller struct {
 	// RolloutStateDir holds one hash-chained state file per Rollout ("" =
 	// rollouts are not driven); PolicyDir is where step scorecards are read.
 	RolloutStateDir, PolicyDir string
+	// RolloutStates, when set, replaces RolloutStateDir (the shared store of an HA deployment).
+	RolloutStates rollout.StateStore
 
 	ticks, errs atomic.Uint64
 	vmu         sync.Mutex

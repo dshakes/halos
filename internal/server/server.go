@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -20,6 +21,7 @@ import (
 	"github.com/dshakes/halos/internal/harness"
 	_ "github.com/dshakes/halos/internal/harness/all" // register adapters for the capability matrix
 	"github.com/dshakes/halos/internal/policy"
+	"github.com/dshakes/halos/internal/storage"
 	"github.com/dshakes/halos/web"
 )
 
@@ -43,9 +45,12 @@ type Config struct {
 	SessionKey       []byte
 	OIDCClientSecret string
 	Portal           Portal
-	DataDir          string        // request/device/session-revocation logs ("" = in-memory)
-	DeviceTTL        time.Duration // device token lifetime after enrollment (0 = DefaultDeviceTTL)
-	Writer           PolicyWriter  // nil: approvals are recorded but need manual policy changes
+	DataDir          string // request/device/session-revocation logs ("" = in-memory)
+	// Backend, when set, replaces DataDir and in-process state with shared
+	// state so several replicas can serve (ADR-0021).
+	Backend   Backend
+	DeviceTTL time.Duration // device token lifetime after enrollment (0 = DefaultDeviceTTL)
+	Writer    PolicyWriter  // nil: approvals are recorded but need manual policy changes
 
 	// Kill switch. KillStore nil = opened from DataDir. GET
 	// /api/v1/gateway/killswitch is served only when both KillKey (signs the
@@ -83,7 +88,8 @@ type Server struct {
 	relFetch    pointerFetch  // ring pointer reader; swapped in tests
 	relChannels channelsFetch // ring release -> experiment channels; swapped in tests
 	kills       *controller.KillStore
-	gwSum       [32]byte // sha256 of GatewayToken
+	gwSum       [32]byte   // sha256 of GatewayToken
+	kv          storage.KV // ephemeral state: Backend, else in process
 }
 
 // New validates cfg and returns a Server. It does not require the policy dir to load yet.
@@ -114,27 +120,42 @@ func New(cfg Config) (*Server, error) {
 			cfg.Web = d
 		}
 	}
-	reqs, err := openRequestLog(cfg.DataDir)
+	var logs storage.Opener = storage.Dir(cfg.DataDir)
+	var kv storage.KV = &storage.MemKV{Now: cfg.Now}
+	auditDir := cfg.DataDir
+	if cfg.Backend != nil {
+		logs, kv, auditDir = cfg.Backend, cfg.Backend, ""
+	}
+	reqs, err := openRequestLog(logs)
 	if err != nil {
 		return nil, err
 	}
-	devs, err := openDeviceStore(cfg.DataDir, cfg.DeviceTTL)
+	devs, err := openDeviceStore(logs, cfg.DeviceTTL)
 	if err != nil {
 		return nil, err
 	}
-	revoked, err := openSessionRevocations(cfg.DataDir)
+	revoked, err := openSessionRevocations(logs)
 	if err != nil {
 		return nil, err
 	}
-	al, err := openAuditLog(cfg.DataDir)
+	al, err := openAuditLog(auditDir)
 	if err != nil {
 		return nil, err
 	}
+	al.shared = cfg.Backend
 	s := &Server{cfg: cfg, tokSum: sha256.Sum256([]byte(cfg.Token)), pol: &policyHolder{dir: cfg.PolicyDir, log: cfg.Log}, reqs: reqs, devices: devs, revoked: revoked,
-		auditLog: al, relCache: &releaseCache{byKey: map[string]cachedPointer{}, chans: map[string][]string{}}}
+		auditLog: al, relCache: &releaseCache{byKey: map[string]cachedPointer{}, chans: map[string][]string{}}, kv: kv}
+	s.oidc.kv, s.enroll.kv = kv, kv
 	s.relFetch, s.relChannels = s.registryFetch, s.registryChannels
 	if s.kills = cfg.KillStore; s.kills == nil {
-		if s.kills, err = controller.OpenKillStore(cfg.DataDir); err != nil {
+		if cfg.Backend != nil {
+			ctx, cancel := storage.Ctx()
+			s.kills, err = controller.NewKillStore(ctx, cfg.Backend)
+			cancel()
+		} else {
+			s.kills, err = controller.OpenKillStore(cfg.DataDir)
+		}
+		if err != nil {
 			return nil, err
 		}
 	}
@@ -167,8 +188,19 @@ func (s *Server) Handler() http.Handler {
 	m := http.NewServeMux()
 	// /healthz: liveness — process is alive. Always 200.
 	m.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "ok\n") })
-	// /readyz: readiness — policy loaded. 503 until the first successful policy load.
+	// /readyz: readiness — policy loaded and, with a shared Backend, the
+	// database reachable. 503 until the first successful policy load.
 	m.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
+		if b := s.cfg.Backend; b != nil {
+			ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+			err := b.Ping(ctx)
+			cancel()
+			if err != nil {
+				s.cfg.Log.Warn("readyz: database unreachable", "err", err)
+				apiErr(w, http.StatusServiceUnavailable, "database unreachable")
+				return
+			}
+		}
 		org, _, err := s.pol.Get()
 		if org == nil {
 			msg := "policy not loaded"

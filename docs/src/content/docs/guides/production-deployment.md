@@ -13,9 +13,9 @@ The `uat-k8s` CI job installs the chart on kind on every PR (`test/uat/REPORT.md
 |---|---|---|
 | `halo` (publish, promote, refresh, rollback) | CI runners and operator workstations | The signing key (CI secret or KMS) |
 | OCI registry | Managed registry (GHCR, ECR, Artifactory) | Releases and signed pointers |
-| `halo-server` | Cluster, single replica | `--data-dir`: device store, request log, fleet reports |
+| `halo-server` | Cluster, single replica, or N replicas on Postgres | `--data-dir` (device store, request log, audit, kill list, fleet reports) or Postgres |
 | `halo-proxy` | Cluster, 2+ replicas behind your ingress, or beside your gateway | Stateless; policy snapshot |
-| `halo-shadow` | Cluster, single replica | Pair file (contains prompts) |
+| `halo-shadow` | Cluster, single replica, or N replicas on Postgres | Pair file or table (contains prompts) and the spend budget |
 | OTEL collector, ClickHouse | Cluster | Telemetry |
 | `halod` | Every managed machine (or dev container) | `state.json` |
 
@@ -35,7 +35,7 @@ Things you must do:
 
 - **Grant network access.** The default-deny policy allows only DNS and proxy to halo-shadow. Grant the IdP, model upstreams, git host, registry, ClickHouse, ingress controller and Prometheus through `networkPolicy.ingressFrom.*`, `networkPolicy.egress.*` and `networkPolicy.metricsFrom`, or the pods cannot reach them.
 - **Terminate TLS** in front of `halo-proxy` (it serves plain HTTP). The default ingress annotations assume nginx with 3600s timeouts and buffering off.
-- **Keep single-replica components single.** `halo-server` and `halo-shadow` use RWO volumes with a Recreate strategy; `values.schema.json` pins their replicas to 1. Why, and what that costs during an upgrade: [Operations](/halos/guides/operations/#what-is-highly-available-and-what-is-not).
+- **Keep single-replica components single, or move them to Postgres.** On the default file backend `halo-server` and `halo-shadow` use RWO volumes with a Recreate strategy and `values.schema.json` pins their replicas to 1. Why, and what that costs during an upgrade: [Operations](/halos/guides/operations/#what-is-highly-available-and-what-is-not). For more than one replica, see [HA on Postgres](#ha-on-postgres).
 - **Set the policy repo.** `policy.gitSync.repo` ships as a placeholder and `NOTES.txt` warns until you change it.
 
 ### Secrets
@@ -55,6 +55,7 @@ The chart never holds secret values; it references Secrets you create.
 | `server.controller.policyRepo.ghToken.existingSecret` | `token` | `GH_TOKEN` for `gh` (controller PRs) |
 | `policy.gitSync.auth.existingSecret` | `ssh` and `known_hosts`, or `password` | git-sync |
 | `otel.clickhouse.existingSecret` | `username`, `password` | Collector ClickHouse exporter |
+| `server.database.existingSecret`, `halo-shadow.database.existingSecret` | `url` | HA: Postgres URL (`--database-url-file`); one Secret can serve both |
 | `otel.gatewayToken.existingSecret` | `token` | Collector gateway receiver (`HALO_OTLP_GATEWAY_TOKEN`, required by the generated config). Without it the collector does not start |
 | `proxy.telemetry.tokenSecret.existingSecret` | `token` | Bearer token `halo-proxy` presents to that receiver, mounted as a file (`--telemetry-token-file`). Defaults to `otel.gatewayToken.existingSecret`: same value |
 | `proxy.telemetry.unitSaltSecret.existingSecret` | `unit-salt` | Optional `halo.unit` hash salt (`--telemetry-unit-salt-file`), identical on every proxy replica |
@@ -65,6 +66,41 @@ kubectl -n halos create secret generic halos-session --from-literal=session-key=
 ```
 
 Prefer External Secrets or your secret manager over shell history for real values. The `--dev-insecure-*` flags of `halo-server` are deliberately not exposed by the chart.
+
+## HA on Postgres
+
+[ADR-0021](/halos/adr/0021-ha-control-plane-on-postgres/) is the design; [Operations](/halos/guides/operations/#ha-on-postgres) is the runbook. The install:
+
+1. **A database.** Postgres 13 or newer (tested with 15), a dedicated database and role that owns it. Managed Postgres with automated backups and point-in-time recovery is the recommendation. Use TLS: `sslmode=verify-full` in the URL.
+2. **The Secret** (a human runs this; prefer External Secrets):
+
+   ```bash
+   kubectl -n halos create secret generic halos-postgres \
+     --from-literal=url='postgres://halos:PASSWORD@pg.internal:5432/halos?sslmode=verify-full'
+   ```
+
+3. **The schema.** `halo-server migrate --database-url-file /path/to/url` from a workstation or a Job with the release image, or set `server.database.autoMigrate: true`.
+4. **Existing data.** Moving from the file backend: scale `halo-server` to 0, copy the data dir out of the PVC, then
+   `halo-server import --from-data-dir ./data --database-url-file ./url`. It only reads the directory, refuses a non-empty database and a source whose audit chain does not verify, and prints per-log counts and the verified audit head. halo-shadow's pair file is evidence, not state: keep it as a file archive.
+5. **Values** (`deploy/helm/halos/ci/ha-values.yaml` is a complete example):
+
+   ```yaml
+   server:
+     replicas: 3
+     persistence: {enabled: false}
+     database: {existingSecret: halos-postgres, key: url, autoMigrate: false, leaseTTL: 15s}
+     metrics: {enabled: true}            # halo_leader, halo_db_errors_total
+   shadow:
+     replicas: 2
+     persistence: {enabled: false}
+     database: {existingSecret: halos-postgres, key: url, budgetScope: "2026-q4"}
+   networkPolicy:
+     databaseEgress: {to: [{ipBlock: {cidr: 10.20.0.0/24}}], ports: [5432]}
+   ```
+
+The chart then drops the PVCs and the Recreate strategy, renders a PodDisruptionBudget (`maxUnavailable: 1`), a startup probe, and a readiness probe that fails while Postgres is unreachable. Check after install: every replica Ready, exactly one reports `halo_leader{lease="controller"} 1`, `GET /api/v1/audit?limit=1` returns `verified: true`.
+
+Not covered: the verdicts file (`server.verdictsPath`) stays a local file written by the leader; put it on shared storage or rely on `halo exp analyze` for verdicts on an HA install.
 
 ## Controller
 

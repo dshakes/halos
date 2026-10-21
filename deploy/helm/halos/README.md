@@ -5,6 +5,7 @@ OpenTelemetry collector and a `KongPlugin` CR for halo-kong. Each component is t
 
 ```
 helm lint deploy/helm/halos -f deploy/helm/halos/ci/all-values.yaml
+helm lint deploy/helm/halos -f deploy/helm/halos/ci/ha-values.yaml      # HA on Postgres
 helm template halo deploy/helm/halos -f my-values.yaml | kubectl diff -f -   # review, then a human runs helm upgrade --install
 ```
 
@@ -28,6 +29,7 @@ helm template halo deploy/helm/halos -f my-values.yaml | kubectl diff -f -   # r
 | `proxy.telemetry.tokenSecret.existingSecret` (defaults to `otel.gatewayToken.existingSecret`) | `token` | otel gateway-receiver bearer token -> halo-proxy `telemetry.tokenFile` (mounted at `/etc/halo-telemetry/token`); `proxy.telemetry.enabled=true` also sets `telemetry.otlpEndpoint` (default `http://<release>-otel:4319`) and opens proxy->otel:4319 in NetworkPolicy |
 | `proxy.telemetry.unitSaltSecret.existingSecret` | `unit-salt` | optional `--telemetry-unit-salt-file`: one shared `halo.unit` salt across proxy replicas |
 | `otel.clickhouse.existingSecret` | `username`, `password` | `${env:CLICKHOUSE_USER}` / `${env:CLICKHOUSE_PASSWORD}` in the generated collector config |
+| `server.database.existingSecret` / `halo-shadow.database.existingSecret` | `url` | HA: Postgres URL (`postgres://user:pass@host:5432/db?sslmode=verify-full`) -> `--database-url-file`; the same Secret may serve both |
 
 OIDC issuer/audience live in the policy repo (halo-server) and `proxy.config.identity` (halo-proxy).
 
@@ -43,8 +45,15 @@ OIDC issuer/audience live in the policy repo (halo-server) and `proxy.config.ide
 - halo-proxy timeouts default to long-stream values (`upstreamHeaderTimeout` 10m, responses never time-limited);
   `terminationGracePeriodSeconds` (150) must exceed `shutdownTimeout` (2m). HPA scale-down is slow (600s window, 1 pod / 2 min).
   Ingress defaults carry nginx 3600s timeouts and buffering off.
-- halo-server and halo-shadow are single-replica with RWO PVCs (Recreate strategy; PVCs carry `helm.sh/resource-policy: keep`).
+- halo-server and halo-shadow default to single-replica with RWO PVCs (Recreate strategy; PVCs carry `helm.sh/resource-policy: keep`).
   Their PDBs are off by default because a PDB on one replica blocks node drains.
+- HA (ADR-0021): `<component>.database.existingSecret` moves state to Postgres and lifts the replica pin (the schema allows
+  `replicas > 1` only then, and requires `persistence.enabled: false`). halo-server: every replica serves; the experiment
+  controller runs on the replica holding the leader lease (`database.leaseTTL`); `/readyz` fails while Postgres is unreachable
+  (liveness does not); a PDB (`maxUnavailable: 1`) is rendered when `replicas > 1`; `halo_leader` and `halo_db_errors_total` on
+  `/metrics`. halo-shadow: stateless workers, pairs in Postgres (sealed with `pairKey` as in the file), one global `budgetUSD`
+  named by `database.budgetScope`. `database.autoMigrate` adds `--auto-migrate`; otherwise run `halo-server migrate` before the
+  upgrade. `networkPolicy.databaseEgress` opens 5432 to your Postgres. See the operations guide for backup and failover.
 - NetworkPolicy: default deny for all chart pods + DNS + proxy->halo-shadow. Everything else (IdP, model upstreams, git host,
   registry, ClickHouse, ingress controller, Prometheus) must be granted through `networkPolicy.ingressFrom.*`,
   `networkPolicy.egress.*`, `networkPolicy.metricsFrom` (raw peers/rules; default allows the `monitoring` namespace to scrape 9090/9091/otel only). Other empty defaults mean pods cannot reach them.
@@ -114,7 +123,8 @@ OIDC issuer/audience live in the policy repo (halo-server) and `proxy.config.ide
 | `server.metrics.{enabled,port}` | off, 9092 | `--metrics-listen` |
 | `server.controller.{enabled,interval,clickhouse,notify,policyRepo}` | off, `5m` | automated experiment loop (see design notes) |
 | `server.proposals.enabled` | `false` | writable clone for self-service proposals |
-| `server.persistence.*` | 5Gi RWO | `--data-dir`; `existingClaim` supported; disabled = in-memory store |
+| `server.persistence.*` | 5Gi RWO | `--data-dir`; `existingClaim` supported; disabled = in-memory store (or Postgres with `server.database`) |
+| `server.database.{existingSecret,key,autoMigrate,leaseTTL}` | off, `url`, `false`, `15s` | HA: Postgres state, `replicas > 1` allowed |
 | `server.{service,resources,pdb,ingress,nodeSelector,tolerations,affinity,podAnnotations}` | | |
 | `proxy.enabled` | `true` | |
 | `proxy.{image,replicas,port,adminPort,args,extraEnv,extraVolumes,extraVolumeMounts}` | 2 replicas, 8088, admin 9090 | |
@@ -131,13 +141,14 @@ OIDC issuer/audience live in the policy repo (halo-server) and `proxy.config.ide
 | `halo-shadow.{token,upstreamHeaders,pairKey}` | Secret refs | see prerequisites |
 | `halo-shadow.policy.*` | inherit `proxy.policy` | compiled snapshot source |
 | `server.trustedProxyCIDRs` | `""` | `--trusted-proxy-cidrs` |
-| `halo-shadow.persistence.*` | 10Gi RWO | pairs JSONL; disabled = emptyDir |
+| `halo-shadow.persistence.*` | 10Gi RWO | pairs JSONL; disabled = emptyDir (or Postgres with `halo-shadow.database`) |
+| `halo-shadow.database.{existingSecret,key,autoMigrate,budgetScope}` | off, `url`, `false`, `default` | HA: pairs and one global budget in Postgres |
 | `otel.enabled` | `false` | |
 | `otel.{image,replicas,existingConfigMap,config,clickhouse,service,resources,pdb}` | | see design notes |
 | `networkPolicy.{enabled,dnsNamespaceSelector,ingressFrom,egress,metricsFrom}` | on, deny by default | |
-| `networkPolicy.{controllerEgress,aws}` | empty | server controller and proxy->AWS egress |
+| `networkPolicy.{controllerEgress,aws,databaseEgress}` | empty | server controller, proxy->AWS and server/halo-shadow->Postgres egress |
 | `serviceMonitor.{enabled,interval,labels}` | off | proxy (admin port), halo-shadow (metrics port), otel `/metrics`, halo-server (`server.metrics.enabled`) |
 | `kong.{enabled,pluginName,config,mirrorToShadow,killSwitch}` | off | UNVERIFIED |
 
 `values.schema.json` validates types, enums (`policy.gitSync.auth.type`, `proxy.policy.source`), ports, digests, and pins
-`server.replicas`/`halo-shadow.replicas` to 1.
+`server.replicas`/`halo-shadow.replicas` to 1 unless that component's `database.existingSecret` is set.

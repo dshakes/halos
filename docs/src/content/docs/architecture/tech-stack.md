@@ -114,6 +114,16 @@ No OpenTelemetry SDK runs in a Halos binary. The collector, ClickHouse and Grafa
 | `github.com/modelcontextprotocol/go-sdk` | `v1.8.0` | The MCP server behind `halo mcp serve` ([`internal/mcpserver/server.go:48-71`](https://github.com/dshakes/halos/blob/main/internal/mcpserver/server.go#L48-L71)). | `cmd/halo`, `internal/mcpserver` |
 <!-- /check -->
 
+### Storage (HA)
+
+<!-- check: go.mod -->
+| Module | Version | Used for | Used by |
+| --- | --- | --- | --- |
+| `github.com/jackc/pgx/v5` | `v5.10.0` | Postgres driver behind `database/sql` (`pgx/v5/stdlib`) for the optional HA backend of `halo-server` and `halo-shadow` ([ADR-0021](/halos/adr/0021-ha-control-plane-on-postgres/)). | `internal/pgstore` |
+<!-- /check -->
+
+The file backend (JSONL under `--data-dir`) needs no module; without `--database-url-file` the driver is linked but never opened.
+
 ### Platform
 
 <!-- check: go.mod -->

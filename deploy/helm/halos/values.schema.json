@@ -7,7 +7,14 @@
     "port": {"type": "integer", "minimum": 1, "maximum": 65535},
     "pvc": {"type": "object", "properties": {"enabled": {"type": "boolean"}, "existingClaim": {"type": "string"}, "size": {"type": "string"}, "storageClass": {"type": "string"}, "accessModes": {"type": "array", "items": {"type": "string"}}}},
     "egressTarget": {"type": "object", "properties": {"to": {"type": "array"}, "ports": {"type": "array", "items": {"$ref": "#/definitions/port"}}}},
-    "ingress": {"type": "object", "properties": {"enabled": {"type": "boolean"}, "className": {"type": "string"}, "annotations": {"type": "object"}, "hosts": {"type": "array", "items": {"type": "string"}}, "tls": {"type": "array"}}}
+    "ingress": {"type": "object", "properties": {"enabled": {"type": "boolean"}, "className": {"type": "string"}, "annotations": {"type": "object"}, "hosts": {"type": "array", "items": {"type": "string"}}, "tls": {"type": "array"}}},
+    "database": {"type": "object", "properties": {"existingSecret": {"type": "string"}, "key": {"type": "string", "minLength": 1}, "autoMigrate": {"type": "boolean"}}},
+    "haWhenDatabase": {
+      "description": "replicas > 1 only with shared Postgres state (database.existingSecret, ADR-0021); file state has a single writer",
+      "if": {"required": ["database"], "properties": {"database": {"required": ["existingSecret"], "properties": {"existingSecret": {"minLength": 1}}}}},
+      "then": {"properties": {"persistence": {"properties": {"enabled": {"const": false}}}}},
+      "else": {"properties": {"replicas": {"maximum": 1}}}
+    }
   },
   "properties": {
     "image": {"type": "object", "properties": {"registry": {"type": "string"}, "pullPolicy": {"enum": ["Always", "IfNotPresent", "Never"]}}},
@@ -18,9 +25,10 @@
       "repo": {"type": "string", "minLength": 1},
       "ref": {"type": "string"},
       "auth": {"type": "object", "properties": {"type": {"enum": ["none", "ssh", "token"]}}}}}}},
-    "server": {"type": "object", "properties": {
+    "server": {"type": "object", "allOf": [{"$ref": "#/definitions/haWhenDatabase"}], "properties": {
       "enabled": {"type": "boolean"}, "image": {"$ref": "#/definitions/image"},
-      "replicas": {"type": "integer", "minimum": 1, "maximum": 1, "description": "file-backed store; single writer"},
+      "replicas": {"type": "integer", "minimum": 1, "description": "1 unless database.existingSecret is set (file-backed store: single writer)"},
+      "database": {"allOf": [{"$ref": "#/definitions/database"}], "properties": {"leaseTTL": {"type": "string", "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h))+$"}}},
       "port": {"$ref": "#/definitions/port"},
       "fleetToken": {"$ref": "#/definitions/secretRef"}, "sessionKey": {"$ref": "#/definitions/secretRef"}, "oidcClientSecret": {"$ref": "#/definitions/secretRef"},
       "killSwitch": {"type": "object", "properties": {"existingSecret": {"type": "string"}, "signingKey": {"type": "string", "minLength": 1}, "gatewayToken": {"type": "string", "minLength": 1}}},
@@ -42,15 +50,17 @@
       "autoscaling": {"type": "object", "properties": {"enabled": {"type": "boolean"}, "minReplicas": {"type": "integer", "minimum": 1}, "maxReplicas": {"type": "integer", "minimum": 1}}},
       "terminationGracePeriodSeconds": {"type": "integer", "minimum": 0},
       "ingress": {"$ref": "#/definitions/ingress"}}},
-    "shadow": {"type": "object", "properties": {
+    "shadow": {"type": "object", "allOf": [{"$ref": "#/definitions/haWhenDatabase"}], "properties": {
       "enabled": {"type": "boolean"}, "image": {"$ref": "#/definitions/image"}, "port": {"$ref": "#/definitions/port"},
-      "replicas": {"type": "integer", "minimum": 1, "maximum": 1},
+      "replicas": {"type": "integer", "minimum": 1, "description": "1 unless database.existingSecret is set (pairs file and budget are per process)"},
+      "database": {"allOf": [{"$ref": "#/definitions/database"}], "properties": {"budgetScope": {"type": "string", "minLength": 1}}},
       "token": {"$ref": "#/definitions/secretRef"}, "persistence": {"$ref": "#/definitions/pvc"},
       "budgetUSD": {"type": "number", "exclusiveMinimum": 0}, "upstreamHeaders": {"$ref": "#/definitions/secretRef"}, "pairKey": {"$ref": "#/definitions/secretRef"}}},
     "otel": {"type": "object", "properties": {"enabled": {"type": "boolean"}, "image": {"$ref": "#/definitions/image"}}},
     "networkPolicy": {"type": "object", "properties": {"enabled": {"type": "boolean"},
       "controllerEgress": {"type": "object", "additionalProperties": {"$ref": "#/definitions/egressTarget"}},
-      "aws": {"type": "object", "properties": {"to": {"type": "array"}, "ports": {"type": "array", "items": {"$ref": "#/definitions/port"}}, "podIdentityAgent": {"type": "boolean"}}}}},
+      "aws": {"type": "object", "properties": {"to": {"type": "array"}, "ports": {"type": "array", "items": {"$ref": "#/definitions/port"}}, "podIdentityAgent": {"type": "boolean"}}},
+      "databaseEgress": {"$ref": "#/definitions/egressTarget"}}},
     "serviceMonitor": {"type": "object", "properties": {"enabled": {"type": "boolean"}}},
     "kong": {"type": "object", "properties": {"enabled": {"type": "boolean"}, "killSwitch": {"type": "object", "properties": {"enabled": {"type": "boolean"}, "url": {"type": "string"}, "allowInsecureInCluster": {"type": "boolean"}}}}}
   }

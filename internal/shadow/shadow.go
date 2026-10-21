@@ -141,28 +141,61 @@ func DecodePair(line []byte, keys ...[]byte) (Pair, error) {
 	return p, fmt.Errorf("shadow: pair %s: no key for kid %s", s.ID, s.KID)
 }
 
+// sealer encodes a pair as its at-rest row: plain JSON, or sealed with
+// AES-256-GCM when a key is configured. FileStore and DBStore share it, so a
+// row means the same thing (and DecodePair reads it) wherever it is stored.
+type sealer struct {
+	gcm cipher.AEAD // nil = plaintext
+	kid string
+}
+
+func newSealer(key []byte) (sealer, error) {
+	if key == nil {
+		return sealer{}, nil
+	}
+	if len(key) != 32 {
+		return sealer{}, fmt.Errorf("shadow: pair key must be 32 bytes, got %d", len(key))
+	}
+	g, err := newGCM(key)
+	if err != nil {
+		return sealer{}, err
+	}
+	return sealer{g, KeyID(key)}, nil
+}
+
+func (s sealer) row(p Pair) ([]byte, error) {
+	b, err := json.Marshal(p)
+	if err != nil {
+		return nil, fmt.Errorf("shadow: marshal pair %s: %w", p.ID, err)
+	}
+	if s.gcm == nil {
+		return b, nil
+	}
+	nonce := make([]byte, s.gcm.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, fmt.Errorf("shadow: pair %s nonce: %w", p.ID, err)
+	}
+	if b, err = json.Marshal(sealed{ID: p.ID, Time: p.Time, KID: s.kid, Enc: s.gcm.Seal(nonce, nonce, b, []byte(p.ID))}); err != nil {
+		return nil, fmt.Errorf("shadow: marshal sealed pair %s: %w", p.ID, err)
+	}
+	return b, nil
+}
+
 // FileStore appends JSONL to a file (mode 0600).
 type FileStore struct {
 	mu   sync.Mutex
 	path string
 	f    *os.File
-	gcm  cipher.AEAD // nil = plaintext
-	kid  string
+	seal sealer
 	ttl  time.Duration
 }
 
 func NewFileStore(path string, o StoreOptions) (*FileStore, error) {
-	s := &FileStore{path: path, ttl: o.Retention}
-	if o.Key != nil {
-		if len(o.Key) != 32 {
-			return nil, fmt.Errorf("shadow: pair key must be 32 bytes, got %d", len(o.Key))
-		}
-		g, err := newGCM(o.Key)
-		if err != nil {
-			return nil, err
-		}
-		s.gcm, s.kid = g, KeyID(o.Key)
+	seal, err := newSealer(o.Key)
+	if err != nil {
+		return nil, err
 	}
+	s := &FileStore{path: path, ttl: o.Retention, seal: seal}
 	if err := s.open(); err != nil {
 		return nil, err
 	}
@@ -186,18 +219,9 @@ func (s *FileStore) Append(ctx context.Context, p Pair) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	b, err := json.Marshal(p)
+	b, err := s.seal.row(p)
 	if err != nil {
-		return fmt.Errorf("shadow: marshal pair %s: %w", p.ID, err)
-	}
-	if s.gcm != nil {
-		nonce := make([]byte, s.gcm.NonceSize())
-		if _, err := rand.Read(nonce); err != nil {
-			return fmt.Errorf("shadow: pair %s nonce: %w", p.ID, err)
-		}
-		if b, err = json.Marshal(sealed{ID: p.ID, Time: p.Time, KID: s.kid, Enc: s.gcm.Seal(nonce, nonce, b, []byte(p.ID))}); err != nil {
-			return fmt.Errorf("shadow: marshal sealed pair %s: %w", p.ID, err)
-		}
+		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()

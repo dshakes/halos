@@ -1,0 +1,20 @@
+# HA on Postgres (ADR-0021): several halo-server and halo-shadow replicas share state.
+# helm lint deploy/helm/halos -f deploy/helm/halos/ci/ha-values.yaml
+server:
+  replicas: 3
+  persistence: {enabled: false}
+  database: {existingSecret: halos-postgres, key: url, autoMigrate: true, leaseTTL: 15s}
+  metrics: {enabled: true}
+  controller:
+    enabled: true
+    clickhouse: {url: "http://clickhouse.data.svc:8123"}
+  killSwitch: {existingSecret: halos-killswitch}
+shadow:
+  enabled: true
+  replicas: 2
+  persistence: {enabled: false}
+  database: {existingSecret: halos-postgres, key: url, budgetScope: "2026-q4"}
+proxy:
+  policy: {existingConfigMap: halos-gateway-snapshot}
+networkPolicy:
+  databaseEgress: {to: [{ipBlock: {cidr: 10.20.0.0/24}}], ports: [5432]}

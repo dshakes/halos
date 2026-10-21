@@ -22,6 +22,7 @@ import (
 
 	"github.com/dshakes/halos/internal/bundle"
 	"github.com/dshakes/halos/internal/controller"
+	"github.com/dshakes/halos/internal/pgstore"
 	"github.com/dshakes/halos/internal/policy"
 	"github.com/dshakes/halos/internal/promote"
 	"github.com/dshakes/halos/internal/server"
@@ -55,6 +56,11 @@ type options struct {
 	killKeyFile, gatewayTokenFile                                  string
 	slackURLFile, webhookURLFile, webhookSecretFile                string
 	policyRepoDir, policyRepoSubdir, policyRepoBase, metricsListen string
+
+	// HA: shared Postgres state instead of --data-dir files (ADR-0021)
+	dbURLFile   string
+	autoMigrate bool
+	leaseTTL    time.Duration
 }
 
 func parseFlags(args []string) (options, error) {
@@ -89,7 +95,10 @@ func parseFlags(args []string) (options, error) {
 	fs.StringVar(&o.policyRepoDir, "policy-repo-dir", "", "dedicated policy-repo clone the controller opens PRs from (hard-reset to origin before each PR; must not be --policy-dir or the portal clone)")
 	fs.StringVar(&o.policyRepoSubdir, "policy-repo-subdir", "", "policy root inside --policy-repo-dir")
 	fs.StringVar(&o.policyRepoBase, "policy-repo-base", "main", "PR base branch for controller PRs")
-	fs.StringVar(&o.metricsListen, "metrics-listen", "", "address serving controller /metrics (unauthenticated; keep it internal; empty disables)")
+	fs.StringVar(&o.metricsListen, "metrics-listen", "", "address serving /metrics: controller, leader lease and database (unauthenticated; keep it internal; empty disables)")
+	fs.StringVar(&o.dbURLFile, "database-url-file", "", "file holding a Postgres URL: shared state for running several replicas (replaces --data-dir state; see `halo-server migrate`)")
+	fs.BoolVar(&o.autoMigrate, "auto-migrate", false, "apply pending database migrations on start (else the schema must already be current)")
+	fs.DurationVar(&o.leaseTTL, "leader-lease-ttl", 15*time.Second, "with --database-url-file: controller leader lease length; a failed leader is replaced within about this long")
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), "Usage of halo-server:\n")
 		fs.VisitAll(func(f *flag.Flag) {
@@ -123,15 +132,21 @@ func parseFlags(args []string) (options, error) {
 	if o.postureMaxAge < time.Minute {
 		return o, errors.New("--posture-max-age must be at least 1m")
 	}
-	if o.killKeyFile != "" && o.dataDir == "" {
-		return o, errors.New("--killswitch-key-file requires --data-dir (kills must survive a restart)")
+	if o.killKeyFile != "" && o.dataDir == "" && o.dbURLFile == "" {
+		return o, errors.New("--killswitch-key-file requires --data-dir or --database-url-file (kills must survive a restart)")
+	}
+	if o.dbURLFile != "" && o.dataDir != "" {
+		return o, errors.New("--data-dir and --database-url-file are exclusive: state lives in one place (move a data dir with `halo-server import`)")
+	}
+	if o.dbURLFile != "" && o.leaseTTL < 3*time.Second {
+		return o, errors.New("--leader-lease-ttl must be at least 3s")
 	}
 	if o.controller {
 		switch {
 		case o.chURL == "":
 			return o, errors.New("--controller requires --clickhouse-url")
-		case o.dataDir == "":
-			return o, errors.New("--controller requires --data-dir (its action log prevents duplicate PRs across restarts)")
+		case o.dataDir == "" && o.dbURLFile == "":
+			return o, errors.New("--controller requires --data-dir or --database-url-file (its action log prevents duplicate PRs across restarts)")
 		case o.interval < time.Minute:
 			return o, errors.New("--interval must be at least 1m")
 		}
@@ -153,6 +168,14 @@ func policyWriter(portal server.Portal, policyDir string) (server.PolicyWriter, 
 
 // run serves until ctx ends (then shuts down gracefully) or the listener fails.
 func run(ctx context.Context, args []string) error {
+	if len(args) > 0 {
+		switch args[0] {
+		case "migrate":
+			return runMigrate(ctx, args[1:], os.Stdout)
+		case "import":
+			return runImport(ctx, args[1:], os.Stdout)
+		}
+	}
 	o, err := parseFlags(args)
 	if err != nil {
 		return err
@@ -199,8 +222,18 @@ func run(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	var db *pgstore.DB
+	if o.dbURLFile != "" {
+		if db, err = openDB(ctx, o.dbURLFile, o.autoMigrate); err != nil {
+			return err
+		}
+		defer func() { _ = db.Close() }()
+	}
 	store := server.NewMemStore()
-	if o.dataDir != "" {
+	switch {
+	case db != nil:
+		store = server.NewPGStore(db)
+	case o.dataDir != "":
 		if store, err = server.OpenLogStore(o.dataDir); err != nil {
 			return err
 		}
@@ -225,17 +258,26 @@ func run(ctx context.Context, args []string) error {
 		return errors.New("--gateway-token-file: token must be at least 16 characters")
 	}
 	// One kill store shared by the server (serves it) and the controller (reads it).
-	kills, err := controller.OpenKillStore(o.dataDir)
+	var kills *controller.KillStore
+	if db != nil {
+		kills, err = controller.NewKillStore(ctx, db)
+	} else {
+		kills, err = controller.OpenKillStore(o.dataDir)
+	}
 	if err != nil {
 		return err
 	}
 	defer func() { _ = kills.Close() }()
-	srv, err := server.New(server.Config{
+	cfg := server.Config{
 		PolicyDir: o.policyDir, Token: strings.TrimSpace(string(tok)), VerdictsPath: o.verdicts, Store: store,
 		SessionKey: []byte(sessionKey), OIDCClientSecret: clientSecret, Portal: portal, DataDir: o.dataDir, Writer: writer,
 		DeviceTTL: o.deviceTTL, DevUser: o.devUser, DevGroups: o.devGroups, DevAdmin: o.devAdmin, TrustedProxies: o.trusted,
 		KillStore: kills, KillKey: killKey, GatewayToken: gwToken, PostureMaxAge: o.postureMaxAge,
-	})
+	}
+	if db != nil {
+		cfg.Backend = server.NewPGBackend(db)
+	}
+	srv, err := server.New(cfg)
 	if err != nil {
 		return err
 	}
@@ -257,6 +299,10 @@ func run(ctx context.Context, args []string) error {
 		}
 	}()
 
+	var metrics []func(io.Writer)
+	if db != nil {
+		metrics = append(metrics, db.WriteMetrics)
+	}
 	if o.controller {
 		var ks *controller.KillStore
 		if killKey != nil { // only a served (signed) kill list enforces anything
@@ -268,27 +314,37 @@ func run(ctx context.Context, args []string) error {
 		}
 		cctx, stopCtrl := context.WithCancel(ctx)
 		done := make(chan struct{})
-		go func() { defer close(done); ctrl.Run(cctx, o.interval) }()
-		defer func() { // stop the loop before closing the log it appends to
-			stopCtrl()
-			<-done
-			_ = ctrl.State.Close()
-		}()
-		slog.Info("experiment controller running", "interval", o.interval, "prs", ctrl.Writer != nil, "killswitch_served", killKey != nil)
-		if o.metricsListen != "" {
-			mux := http.NewServeMux()
-			mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, _ *http.Request) {
-				w.Header().Set("Content-Type", "text/plain; version=0.0.4")
-				ctrl.WriteMetrics(w)
-			})
-			ms := &http.Server{Addr: o.metricsListen, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
-			go func() {
-				if err := ms.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-					slog.Error("metrics listener", "err", err)
-				}
+		if db != nil {
+			el := newElector(db, o.leaseTTL)
+			metrics = append(metrics, el.WriteMetrics)
+			go func() { defer close(done); el.Run(cctx, leadController(ctrl, db, o.interval)) }()
+			defer func() { stopCtrl(); <-done }() // stops the loop and releases the lease
+		} else {
+			go func() { defer close(done); ctrl.Run(cctx, o.interval) }()
+			defer func() { // stop the loop before closing the log it appends to
+				stopCtrl()
+				<-done
+				_ = ctrl.State.Close()
 			}()
-			defer func() { _ = ms.Close() }() // stateless scrapes
 		}
+		metrics = append(metrics, ctrl.WriteMetrics)
+		slog.Info("experiment controller running", "interval", o.interval, "prs", ctrl.Writer != nil, "killswitch_served", killKey != nil, "leader_elected", db != nil)
+	}
+	if o.metricsListen != "" && len(metrics) > 0 {
+		mux := http.NewServeMux()
+		mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+			for _, m := range metrics {
+				m(w)
+			}
+		})
+		ms := &http.Server{Addr: o.metricsListen, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+		go func() {
+			if err := ms.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				slog.Error("metrics listener", "err", err)
+			}
+		}()
+		defer func() { _ = ms.Close() }() // stateless scrapes
 	}
 
 	hs := &http.Server{Addr: o.listen, Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, IdleTimeout: 2 * time.Minute}
@@ -351,26 +407,26 @@ func newController(o options, portal server.Portal, portalWriter server.PolicyWr
 	if err != nil {
 		return nil, err
 	}
-	state, err := controller.OpenStateLog(o.dataDir)
-	if err != nil {
-		return nil, err
-	}
 	c := &controller.Controller{
 		Org:          func() (*policy.Org, error) { return policy.Load(o.policyDir) },
 		Metrics:      &promote.ClickHouse{URL: o.chURL, Database: o.chDB, User: o.chUser, Password: pw},
 		Writer:       writer,
 		Notifier:     notifiers,
-		State:        state,
 		VerdictsPath: o.verdicts,
 		PolicyDir:    o.policyDir,
 	}
-	if o.dataDir != "" { // rollouts need persistent state; GET /api/v1/rollouts reads it here
+	if o.dataDir != "" { // rollouts need persistent state; GET /api/v1/rollouts reads it here (HA: set per leadership term)
 		c.RolloutStateDir = filepath.Join(o.dataDir, "rollouts")
 	}
 	if kills != nil {
 		c.Kill, c.Kills = controller.KillFunc(srv.KillExperiment), kills
 	} else {
 		slog.Warn("--controller without --killswitch-key-file: rollbacks are NOT enforced until the pause PR merges")
+	}
+	if o.dataDir != "" { // HA: opened per leadership term, fenced by the lease (leadController)
+		if c.State, err = controller.OpenStateLog(o.dataDir); err != nil {
+			return nil, err
+		}
 	}
 	return c, nil
 }

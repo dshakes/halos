@@ -16,6 +16,21 @@ loop (`--controller`) and the gateway kill switch.
 | `--trusted-proxy-cidrs` | | Reverse proxies whose `X-Forwarded-For` is trusted for rate limiting. |
 | `--device-ttl` | 90d | Device token lifetime. |
 
+## HA on Postgres (ADR-0021)
+
+| Flag | Default | Purpose |
+|---|---|---|
+| `--database-url-file` | | File holding a Postgres URL. State (devices, requests, session revocations, audit chain, kill list, controller log, rollout state, reports, enrollment tokens, login states) lives there instead of `--data-dir` (the two are exclusive), so several replicas can serve. The controller runs on the replica holding the leader lease. |
+| `--auto-migrate` | off | Apply pending schema migrations at start; otherwise the schema must already be current. |
+| `--leader-lease-ttl` | 15s | Controller lease length (>= 3s); a failed leader is replaced within about this long. |
+
+```
+halo-server migrate --database-url-file F                       # apply migrations, print the schema version
+halo-server import --from-data-dir DIR --database-url-file F    # copy a STOPPED server's data dir into an empty database, then verify counts and the audit chain
+```
+
+`--killswitch-key-file` and `--controller` accept `--database-url-file` in place of `--data-dir`. `/readyz` also fails while the database is unreachable, and `--metrics-listen` adds `halo_leader`, `halo_leader_changes_total`, `halo_db_errors_total` and `halo_db_open_connections`. Integration tests run against a real Postgres when `HALO_TEST_PG_DSN` is set.
+
 ## Kill switch
 
 Instant rollback on the traffic plane, with no PR merge needed. Killed

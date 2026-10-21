@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/dshakes/halos/internal/fsutil"
+	"github.com/dshakes/halos/internal/storage"
 )
 
 // AuditEntry is one privileged action. Hash covers every other field, Prev is
@@ -63,12 +64,13 @@ func VerifyAuditChain(entries []AuditEntry) error {
 // auditLog is an append-only, hash-chained JSONL log (memory only when dir is "").
 // ponytail: verification and reads rescan the file; add an index/rotation if it gets big.
 type auditLog struct {
-	mu   sync.Mutex
-	path string
-	f    *os.File
-	mem  []AuditEntry // only when f == nil
-	seq  uint64
-	head string
+	mu     sync.Mutex
+	path   string
+	f      *os.File
+	mem    []AuditEntry // only when f == nil and shared == nil
+	seq    uint64
+	head   string
+	shared Backend // HA: the chain lives in the backend, whose head lock orders appends across replicas
 }
 
 func openAuditLog(dir string) (*auditLog, error) {
@@ -112,12 +114,27 @@ func (e AuditEntry) validUTF8() AuditEntry {
 	return e
 }
 
+// ChainAuditEntry returns e as the entry after (seq, head): UTF-8 repaired,
+// Seq, Prev and Hash set. Every backend chains through it.
+func ChainAuditEntry(e AuditEntry, seq uint64, head string) AuditEntry {
+	e = e.validUTF8()
+	e.Seq, e.Prev = seq+1, head
+	e.Hash = e.sum()
+	return e
+}
+
 func (l *auditLog) append(e AuditEntry) error {
+	if l.shared != nil {
+		ctx, cancel := storage.Ctx() // not the request's: a client hanging up must not drop the record
+		defer cancel()
+		if err := l.shared.AppendAudit(ctx, e); err != nil {
+			return fmt.Errorf("audit: append: %w", err)
+		}
+		return nil
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	e = e.validUTF8()
-	e.Seq, e.Prev = l.seq+1, l.head
-	e.Hash = e.sum()
+	e = ChainAuditEntry(e, l.seq, l.head)
 	if l.f != nil {
 		b, _ := json.Marshal(e) // plain struct: cannot fail
 		if _, err := l.f.Write(append(b, '\n')); err != nil {
@@ -135,6 +152,11 @@ func (l *auditLog) append(e AuditEntry) error {
 
 // all returns every entry as stored (re-read from disk, so on-disk tampering shows up).
 func (l *auditLog) all() ([]AuditEntry, error) {
+	if l.shared != nil {
+		ctx, cancel := storage.Ctx()
+		defer cancel()
+		return l.shared.AuditEntries(ctx)
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.f == nil {

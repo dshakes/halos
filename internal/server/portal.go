@@ -3,6 +3,7 @@ package server
 import (
 	"cmp"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -12,13 +13,13 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/dshakes/halos/internal/harness"
 	"github.com/dshakes/halos/internal/policy"
+	"github.com/dshakes/halos/internal/storage"
 )
 
 // Portal is the self-service section of the server config (JSON file, --portal-config).
@@ -491,7 +492,12 @@ func (s *Server) launch(w http.ResponseWriter, r *http.Request, p Principal) {
 		if ttl <= 0 {
 			ttl = 15 * time.Minute
 		}
-		tok, exp := s.enroll.issue(p, ttl, s.cfg.Now())
+		tok, exp, err := s.enroll.issue(p, ttl, s.cfg.Now())
+		if err != nil {
+			s.cfg.Log.Error("store enrollment token", "user", p.ID, "err", err)
+			apiErr(w, http.StatusServiceUnavailable, "state store unavailable")
+			return
+		}
 		out.Token, out.ExpiresAt, out.TTLSeconds = tok, &exp, int(ttl.Seconds())
 		out.Bash = fmt.Sprintf("curl -fsSL %s/enroll.sh | sh -s -- %s", base, tok)
 		out.PowerShell = fmt.Sprintf("& ([scriptblock]::Create((irm %s/enroll.ps1))) -Token %s", base, tok)
@@ -503,49 +509,41 @@ func (s *Server) launch(w http.ResponseWriter, r *http.Request, p Principal) {
 
 // ---- enrollment tokens: random, stored only as SHA-256, single-use, short TTL ----
 
-type enrollment struct {
-	user Principal
-	exp  time.Time
-}
+// enrollments keeps issued tokens by SHA-256 until they expire or are used.
+type enrollments struct{ kv storage.KV }
 
-type enrollments struct {
-	mu sync.Mutex
-	m  map[[32]byte]enrollment
-}
+const kvEnroll = "enroll"
 
 func hashTok(tok string) [32]byte { return sha256.Sum256([]byte(tok)) }
 
-func (e *enrollments) issue(p Principal, ttl time.Duration, now time.Time) (string, time.Time) {
+func (e *enrollments) issue(p Principal, ttl time.Duration, now time.Time) (string, time.Time, error) {
 	tok := randB64(32) // 32 random bytes
 	exp := now.Add(ttl)
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if e.m == nil {
-		e.m = map[[32]byte]enrollment{}
+	b, err := json.Marshal(p)
+	if err != nil {
+		return "", time.Time{}, err
 	}
-	for h, v := range e.m { // sweep expired
-		if now.After(v.exp) {
-			delete(e.m, h)
-		}
+	ctx, cancel := storage.Ctx()
+	defer cancel()
+	h := hashTok(tok)
+	if err := e.kv.Put(ctx, kvEnroll, hex.EncodeToString(h[:]), b, exp); err != nil {
+		return "", time.Time{}, err
 	}
-	e.m[hashTok(tok)] = enrollment{p, exp}
-	return tok, exp
+	return tok, exp, nil
 }
 
-// consume burns the token (even if expired) and returns the principal it was issued to.
-func (e *enrollments) consume(tok string, now time.Time) (Principal, bool) {
+// consume burns the token (even if expired) and returns the principal it was
+// issued to. Of concurrent consumes, on any replica, at most one succeeds.
+func (e *enrollments) consume(tok string) (Principal, bool) {
+	ctx, cancel := storage.Ctx()
+	defer cancel()
 	h := hashTok(tok)
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	v, ok := e.m[h]
-	if !ok {
+	b, ok, err := e.kv.Take(ctx, kvEnroll, hex.EncodeToString(h[:]))
+	var p Principal
+	if err != nil || !ok || json.Unmarshal(b, &p) != nil {
 		return Principal{}, false
 	}
-	delete(e.m, h)
-	if now.After(v.exp) {
-		return Principal{}, false
-	}
-	return v.user, true
+	return p, true
 }
 
 func (s *Server) postEnroll(w http.ResponseWriter, r *http.Request) {
@@ -563,7 +561,7 @@ func (s *Server) postEnroll(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, http.StatusTooManyRequests, "too many failed attempts")
 		return
 	}
-	p, ok := s.enroll.consume(body.Token, s.cfg.Now())
+	p, ok := s.enroll.consume(body.Token)
 	if !ok {
 		s.authFails.fail(ip)
 		s.cfg.Log.Warn("enrollment rejected", "remote", r.RemoteAddr)
