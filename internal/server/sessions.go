@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,10 +16,12 @@ import (
 // sessionRevocations is the per-user session epoch: a session cookie issued at
 // or before a user's revocation time is dead. Logout and the admin revoke
 // endpoint bump it; it is an append-only JSONL log in DataDir so a restart does
-// not resurrect sessions.
+// not resurrect sessions. Users are keyed case-insensitively (revocationKey),
+// as SCIM, devices and enrollments match them: an IdP that provisions
+// "Alice@Corp.com" must still revoke the session of "alice@corp.com".
 type sessionRevocations struct {
 	mu     sync.Mutex
-	before map[string]int64 // user -> unix nanos
+	before map[string]int64 // revocationKey(user) -> unix nanos
 	f      *os.File         // nil = memory only
 }
 
@@ -26,6 +29,9 @@ type revocation struct {
 	User string `json:"user"`
 	At   int64  `json:"at"`
 }
+
+// revocationKey canonicalises a user id for the revocation map and log.
+func revocationKey(user string) string { return strings.ToLower(user) }
 
 func (r *sessionRevocations) close() error { return closeFile(&r.mu, r.f) }
 
@@ -39,8 +45,11 @@ func openSessionRevocations(dir string) (*sessionRevocations, error) {
 	}
 	f, err := fsutil.OpenJSONL(filepath.Join(dir, "session-revocations.jsonl"), func(line []byte) {
 		var v revocation
-		if json.Unmarshal(line, &v) == nil && v.User != "" && v.At > r.before[v.User] { // torn line: skip
-			r.before[v.User] = v.At
+		if json.Unmarshal(line, &v) != nil || v.User == "" { // torn line: skip
+			return
+		}
+		if k := revocationKey(v.User); v.At > r.before[k] { // lines written before keys were canonical, too
+			r.before[k] = v.At
 		}
 	})
 	if err != nil {
@@ -55,6 +64,7 @@ func (r *sessionRevocations) revoke(user string, now time.Time) error {
 	if user == "" {
 		return errors.New("empty user")
 	}
+	user = revocationKey(user)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	at := max(now.UnixNano(), r.before[user])
@@ -71,7 +81,7 @@ func (r *sessionRevocations) revoke(user string, now time.Time) error {
 func (r *sessionRevocations) valid(user string, issuedAt int64) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	b, ok := r.before[user]
+	b, ok := r.before[revocationKey(user)]
 	return !ok || issuedAt > b
 }
 

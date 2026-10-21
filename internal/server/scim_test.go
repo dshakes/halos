@@ -714,3 +714,57 @@ func TestSCIMDiscovery(t *testing.T) {
 		t.Errorf("discovery without the token: %d", c)
 	}
 }
+
+// TestSCIMDeprovisionIgnoresCase: the IdP provisions "Dev@Acme.Example" while
+// the session, device and enrollment carry "dev@acme.example". Deleting the
+// user still revokes all three, and the revocation survives a restart.
+func TestSCIMDeprovisionIgnoresCase(t *testing.T) {
+	dir := t.TempDir()
+	e := scimEnv(t, false, func(c *Config) { c.DataDir = dir })
+	id := e.createSCIMUser(t, "Dev@Acme.Example", true)
+	dt := enrollDevice(t, e, dev)
+	pending := decode[Launch](t, e.as(dev, "POST", "/api/v1/launch/laptop", "")).Token
+	if c := e.as(dev, "GET", "/api/v1/me", "").Code; c != 200 {
+		t.Fatalf("session before: %d", c)
+	}
+	if w := e.scim("DELETE", "/scim/v2/Users/"+id, ""); w.Code != http.StatusNoContent {
+		t.Fatalf("delete: %d %s", w.Code, w.Body)
+	}
+	if c := e.as(dev, "GET", "/api/v1/me", "").Code; c != 401 {
+		t.Fatalf("session after a delete under another case: %d, want 401", c)
+	}
+	if c := do(e.h, "GET", "/api/v1/fleet/ring", "Bearer "+dt, "").Code; c != 401 {
+		t.Fatalf("device token after delete: %d, want 401", c)
+	}
+	if c := do(e.h, "POST", "/api/v1/enroll", "", `{"token":"`+pending+`"}`).Code; c != 401 {
+		t.Fatalf("pending enrollment after delete: %d, want 401", c)
+	}
+	r, err := openSessionRevocations(dir) // replay
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = r.close() })
+	if r.valid(strings.ToUpper(dev.ID), e.now.UnixNano()) {
+		t.Fatal("replayed revocation ignores case: session still valid")
+	}
+}
+
+// TestSessionRevocationReplayCanonical: a log written before keys were
+// canonical (mixed case) still revokes on replay.
+func TestSessionRevocationReplayCanonical(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "session-revocations.jsonl"), []byte(`{"user":"Alice@Corp.com","at":100}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r, err := openSessionRevocations(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = r.close() })
+	if r.valid("alice@corp.com", 50) {
+		t.Fatal("legacy mixed-case revocation not applied to the canonical subject")
+	}
+	if !r.valid("alice@corp.com", 150) {
+		t.Fatal("session issued after the revocation refused")
+	}
+}
