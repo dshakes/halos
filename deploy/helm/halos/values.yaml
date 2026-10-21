@@ -89,6 +89,10 @@ server:
   # The gateways (halo-proxy / halo-kong) poll GET /api/v1/gateway/killswitch with that token and verify the signature.
   # Requires persistence.enabled (kills live in --data-dir/killswitch.jsonl and must survive a restart).
   killSwitch: {existingSecret: "", signingKey: signing-key, gatewayToken: gateway-token}
+  # Per-capability gateway tokens (recommended): one Secret, a key per capability -> --gateway-<cap>-token-file. A capability
+  # with a key accepts only that token; one without falls back to killSwitch.gatewayToken. Give each gateway only the
+  # tokens it needs (e.g. proxy.killSwitch.token -> the killswitch key). Empty key = not set.
+  gatewayTokens: {existingSecret: "", killswitch: "", posture: "", budget: "", directory: ""}
   # Metrics listener (--metrics-listen, controller /metrics, UNAUTHENTICATED: keep internal). Adds a `metrics`
   # container/Service port; NetworkPolicy admits only networkPolicy.metricsFrom. ServiceMonitor scrapes it.
   metrics: {enabled: false, port: 9092}

@@ -29,6 +29,8 @@
 {{- $wr := or $s.proposals.enabled $pr }}
 {{- $wsub := trimAll "/" (default $s.policySubdir $c.policyRepo.subdir) }}
 {{- $wbase := default "main" $c.policyRepo.base }}
+{{- $gt := $s.gatewayTokens | default dict }}{{- /* per-capability gateway bearer tokens (one Secret, a key per capability) */}}
+{{- if and $gt.existingSecret (not (or $gt.killswitch $gt.posture $gt.budget $gt.directory)) }}{{ fail "server.gatewayTokens.existingSecret needs at least one of killswitch, posture, budget, directory (the Secret key holding that capability's token)" }}{{ end }}
 {{- $ha := $s.database.existingSecret }}{{- /* shared Postgres state (ADR-0021): replicas may be > 1 */}}
 {{- if and $ha $s.persistence.enabled }}{{ fail "server.database.existingSecret and server.persistence.enabled are exclusive: state lives in Postgres (move a data dir with `halo-server import`)" }}{{ end }}
 {{- if and (gt (int $s.replicas) 1) (not $ha) }}{{ fail "server.replicas > 1 requires server.database.existingSecret (file state has a single writer)" }}{{ end }}
@@ -182,6 +184,13 @@ spec:
             - --killswitch-key-file=/secrets/killswitch-key
             - --gateway-token-file=/secrets/gateway-token
             {{- end }}
+            {{- if $gt.existingSecret }}
+            {{- range $cap := list "killswitch" "posture" "budget" "directory" }}
+            {{- if index $gt $cap }}
+            - --gateway-{{ $cap }}-token-file=/secrets/gateway-{{ $cap }}-token
+            {{- end }}
+            {{- end }}
+            {{- end }}
             {{- if $c.enabled }}
             - --controller
             - --interval={{ $c.interval }}
@@ -303,6 +312,16 @@ spec:
               - secret:
                   name: {{ $ks.existingSecret }}
                   items: [{key: {{ $ks.signingKey }}, path: killswitch-key}, {key: {{ $ks.gatewayToken }}, path: gateway-token}]
+              {{- end }}
+              {{- if $gt.existingSecret }}
+              - secret:
+                  name: {{ $gt.existingSecret }}
+                  items:
+                    {{- range $cap := list "killswitch" "posture" "budget" "directory" }}
+                    {{- with index $gt $cap }}
+                    - {key: {{ . }}, path: gateway-{{ $cap }}-token}
+                    {{- end }}
+                    {{- end }}
               {{- end }}
               {{- if and $c.enabled $c.clickhouse.existingSecret }}
               - secret:

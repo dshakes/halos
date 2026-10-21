@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -119,10 +117,7 @@ func cmpHead(h string) string {
 
 // newElector campaigns for the controller lease under a replica-unique holder id.
 func newElector(db *pgstore.DB, ttl time.Duration) *pgstore.Elector {
-	host, _ := os.Hostname() // the pod name in Kubernetes; best effort, the suffix makes it unique
-	var b [4]byte
-	_, _ = rand.Read(b[:]) // crypto/rand never fails on supported platforms
-	return &pgstore.Elector{Store: db, Name: controllerLease, Holder: host + "-" + hex.EncodeToString(b[:]), TTL: ttl}
+	return &pgstore.Elector{Store: db, Name: controllerLease, Holder: pgstore.HolderID(), TTL: ttl}
 }
 
 // leadController runs ctrl for one leadership term: its action log and
@@ -137,7 +132,7 @@ func leadController(ctrl *controller.Controller, db *pgstore.DB, interval time.D
 			return
 		}
 		defer func() { _ = st.Close() }()
-		ctrl.State, ctrl.RolloutStates = st, rollout.DocStore{DB: view}
+		ctrl.State, ctrl.RolloutStates, ctrl.VerdictDocs = st, rollout.DocStore{DB: view}, view
 		slog.Info("controller leading", "token", token)
 		ctrl.Run(ctx, interval)
 		slog.Info("controller stopped leading", "token", token)

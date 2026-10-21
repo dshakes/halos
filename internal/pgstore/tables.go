@@ -286,6 +286,7 @@ func (d *DB) Counts(ctx context.Context) (map[string]int64, error) {
 		{"", `SELECT 'audit', count(*) FROM halo_audit`},
 		{"", `SELECT 'reports', count(*) FROM halo_reports`},
 		{"docs/", `SELECT kind, count(*) FROM halo_docs GROUP BY kind`},
+		{"", `SELECT 'budget-buckets', count(*) FROM halo_budget_buckets`},
 	} {
 		if err := d.count(ctx, q.prefix, q.sql, out); err != nil {
 			return nil, err

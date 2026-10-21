@@ -54,6 +54,9 @@ func pruneBudgets(ctx context.Context, t *sql.Tx, keep map[string]int64) error {
 	if _, err := t.ExecContext(ctx, `DELETE FROM halo_budget_batches WHERE applied_at < now() - $1 * interval '1 second'`, int64(budgetBatchMemory.Seconds())); err != nil {
 		return fmt.Errorf("pgstore: prune budget batches: %w", err)
 	}
+	if keep == nil { // no policy view (import): prune nothing else
+		return nil
+	}
 	names := make([]string, 0, len(keep))
 	for name, oldest := range keep {
 		names = append(names, name)

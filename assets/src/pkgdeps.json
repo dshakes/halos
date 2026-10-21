@@ -19,6 +19,7 @@
         "internal/intent",
         "internal/mcpserver",
         "internal/onboard",
+        "internal/pgstore",
         "internal/policy",
         "internal/promote",
         "internal/release",

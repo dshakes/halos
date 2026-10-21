@@ -12,11 +12,13 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/dshakes/halos/internal/budget"
+	"github.com/dshakes/halos/internal/pgstore"
 	"github.com/dshakes/halos/internal/rollout"
 )
 
 // importLogs are the JSONL logs `halo-server import` copies record for record.
-var importLogs = []string{"devices", "requests", "session-revocations", "killswitch", "controller-state"}
+var importLogs = []string{"devices", "requests", "session-revocations", "killswitch", "controller-state", "scim"}
 
 // ImportReport is what ImportDataDir copied, by the names pgstore.DB.Counts uses.
 type ImportReport struct {
@@ -42,12 +44,21 @@ func ImportDataDir(ctx context.Context, dir string, b *PGBackend) (ImportReport,
 	}
 
 	// Audit first: refuse a source whose chain is already broken.
-	entries, skipped, err := readJSONL[AuditEntry](filepath.Join(dir, "audit.jsonl"), func(e AuditEntry) bool { return e.Hash != "" })
+	// Rotated segments (ADR-0016) oldest first, then the active one: one chain.
+	segs, err := listAuditSegs(dir)
 	if err != nil {
-		return rep, err
+		return rep, fmt.Errorf("import: %w", err)
 	}
-	if skipped > 0 {
-		rep.Skipped["audit.jsonl"] = skipped
+	var entries []AuditEntry
+	for _, p := range append(segPaths(segs), filepath.Join(dir, auditActive)) {
+		es, skipped, err := readJSONL[AuditEntry](p, func(e AuditEntry) bool { return e.Hash != "" })
+		if err != nil {
+			return rep, err
+		}
+		if skipped > 0 {
+			rep.Skipped[filepath.Base(p)] = skipped
+		}
+		entries = append(entries, es...)
 	}
 	if err := VerifyAuditChain(entries); err != nil {
 		return rep, fmt.Errorf("import: source audit chain does not verify, not importing: %w", err)
@@ -103,6 +114,13 @@ func ImportDataDir(ctx context.Context, dir string, b *PGBackend) (ImportReport,
 		rep.Copied["reports"] = int64(len(latest))
 	}
 
+	if err := importBudgets(ctx, dir, b, &rep); err != nil {
+		return rep, err
+	}
+	if err := importCursors(ctx, dir, b, &rep); err != nil {
+		return rep, err
+	}
+
 	names, err := rolloutNames(filepath.Join(dir, "rollouts"))
 	if err != nil {
 		return rep, err
@@ -148,6 +166,75 @@ func ImportDataDir(ctx context.Context, dir string, b *PGBackend) (ImportReport,
 		return rep, errors.New("import: verify: imported audit head differs from the source head")
 	}
 	return rep, nil
+}
+
+func segPaths(segs []auditSeg) []string {
+	out := make([]string, 0, len(segs))
+	for _, s := range segs {
+		out = append(out, s.path)
+	}
+	return out
+}
+
+// importBudgets copies budgets.json's counters (ADR-0017), bucket for bucket.
+// Remembered batch ids are not copied: they expire within the hour.
+func importBudgets(ctx context.Context, dir string, b *PGBackend, rep *ImportReport) error {
+	raw, err := os.ReadFile(filepath.Join(dir, "budgets.json"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("import: %w", err)
+	}
+	if _, err := budget.LoadLedger(raw); err != nil { // the version check the server applies
+		return fmt.Errorf("import: budgets.json: %w", err)
+	}
+	var f struct {
+		Counters budget.Counters `json:"counters"`
+	}
+	if err := json.Unmarshal(raw, &f); err != nil {
+		return fmt.Errorf("import: budgets.json: %w", err)
+	}
+	var incs []pgstore.BudgetCounter
+	for name, byKey := range f.Counters {
+		for key, bk := range byKey {
+			for start, sp := range bk {
+				incs = append(incs, pgstore.BudgetCounter{Budget: name, Key: key, Bucket: start, USD: sp.USD, Tokens: sp.Tokens})
+			}
+		}
+	}
+	if len(incs) == 0 {
+		return nil
+	}
+	if _, err := b.ApplyBudget(ctx, "", incs, nil); err != nil {
+		return fmt.Errorf("import: budgets: %w", err)
+	}
+	rep.Copied["budget-buckets"] = int64(len(incs))
+	return nil
+}
+
+// importCursors copies the SIEM export cursors (audit-forward/<sink>.json)
+// so each sink resumes where it was instead of re-sending the whole log.
+func importCursors(ctx context.Context, dir string, b *PGBackend, rep *ImportReport) error {
+	paths, err := filepath.Glob(filepath.Join(dir, "audit-forward", "*.json"))
+	if err != nil {
+		return fmt.Errorf("import: %w", err)
+	}
+	for _, p := range paths {
+		raw, err := os.ReadFile(p)
+		if err != nil {
+			return fmt.Errorf("import: %w", err)
+		}
+		var c auditCursor
+		if err := json.Unmarshal(raw, &c); err != nil {
+			return fmt.Errorf("import: cursor %s: %w", p, err)
+		}
+		if err := b.PutDoc(ctx, kindAuditCursor, strings.TrimSuffix(filepath.Base(p), ".json"), raw); err != nil {
+			return fmt.Errorf("import: cursor %s: %w", p, err)
+		}
+		rep.Copied["docs/"+kindAuditCursor]++
+	}
+	return nil
 }
 
 // readJSONL decodes every line of path (missing = empty), counting lines that

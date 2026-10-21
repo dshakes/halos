@@ -58,7 +58,7 @@ The response is RFC 8693 (`access_token`, `issued_token_type`, `token_type: Bear
 - Good: no provider key in CI; every agent call in CI is attributable to a repository/pipeline and a policy rule, and goes through rings, allowlist, kill switch and gateway telemetry.
 - Good: a policy PR revokes a pipeline; credentials die within `maxTTLSeconds` (at most an hour), or at once by rotating the workload key at the gateways.
 - Good: a dedicated signing key; stealing it allows minting workload credentials only, not releases or kills.
-- Bad: the replay cache is per process. With several `halo-server` replicas a captured CI token can be exchanged once per replica within its lifetime. Sharing it belongs with the HA work (ADR-0021).
+- Neutral: the replay cache is per process on the single-replica file backend. On the Postgres backend ([ADR-0021](/halos/adr/0021-ha-control-plane-on-postgres/)) it is one table row per exchanged token (hashed replay key, primary key, expiry = the subject token's `exp`), inserted unless a live row exists, so a token is exchanged once across every replica; if the table cannot be written the exchange is refused (503), never allowed.
 - Bad: a GitLab `id_tokens` value is fixed per job, so a job can exchange it only once; it must reuse the exported variables.
 - Bad: issued credentials cannot be revoked individually before `exp`; there is no revocation list for them.
 - Neutral: `halo-server` makes outbound discovery/JWKS requests to the trusted issuers.
@@ -75,7 +75,7 @@ The response is RFC 8693 (`access_token`, `issued_token_type`, `token_type: Bear
 | `halo-kong` accepts it | `cmd/halo-kong/main.go` (`workload_pubkey`) | shares `identity.New`; no Kong-specific test | Done, thin |
 | `halo ci token` / `halo ci config` | `cmd/halo/cmd_ci.go` | `cmd/halo/cmd_ci_test.go` | Done |
 | GitHub composite action, GitLab snippet | `examples/ci-agents/` | `TestExamplesValidate` (policy only) | Done; not run on real runners |
-| Shared replay cache across replicas | | | Gap (ADR-0021) |
+| Shared replay cache across replicas | `internal/server/tokenexchange.go` `rememberSubjectToken` (`halo_kv`, ns `workload-jti`) | `ha_shared_test.go` `TestSharedWorkloadReplay` (memory and Postgres) | Done (ADR-0021) |
 
 ## Amended 2026-10-21 (security review)
 

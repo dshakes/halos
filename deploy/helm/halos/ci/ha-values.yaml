@@ -5,10 +5,18 @@ server:
   persistence: {enabled: false}
   database: {existingSecret: halos-postgres, key: url, autoMigrate: true, leaseTTL: 15s}
   metrics: {enabled: true}
+  audit: # no rotation on Postgres: one table; each sink forwards from one replica under its lease
+    export:
+      sinks:
+        - {name: splunk, type: splunk-hec, format: ocsf, url: "https://splunk.acme.dev:8088/services/collector/event", token: {env: HALO_SPLUNK_HEC_TOKEN}, index: halo}
+  extraEnv:
+    - name: HALO_SPLUNK_HEC_TOKEN
+      valueFrom: {secretKeyRef: {name: halos-siem, key: hec-token}}
   controller:
     enabled: true
     clickhouse: {url: "http://clickhouse.data.svc:8123"}
   killSwitch: {existingSecret: halos-killswitch}
+  gatewayTokens: {existingSecret: halos-gateway-tokens, killswitch: killswitch, posture: posture, budget: budget, directory: directory}
 shadow:
   enabled: true
   replicas: 2

@@ -222,7 +222,7 @@ Two things no exporter covers, so wire them from CI: the daily `halo release ref
 
 All `--data-dir` files are append-only JSONL, last line per id wins, never compacted (the audit log is split into segments by [rotation](#audit-log-rotation), never rewritten). Files are opened with `O_APPEND` and written one line at a time, so a snapshot taken while the server runs is consistent at line granularity: at worst the last line is torn, and replay skips it (`internal/fsutil/jsonl.go:26-47`). The chart keeps the PVC on `helm uninstall` (`helm.sh/resource-policy: keep`).
 
-With the Postgres backend none of the `--data-dir` rows above exist on the pods: the same data lives in the database (table per row: `halo_journal` streams `devices`, `requests`, `session-revocations`, `killswitch`, `controller-state`; `halo_audit`; `halo_docs` for rollout state; `halo_reports`; `halo_shadow_pairs`), and the database is the one thing to back up. Keys are unchanged.
+With the Postgres backend none of the `--data-dir` rows above exist on the pods: the same data lives in the database (table per row: `halo_journal` streams `devices`, `requests`, `session-revocations`, `killswitch`, `controller-state`, `scim`; `halo_audit` (one table, no segments); `halo_docs` for rollout state, verdicts and SIEM export cursors; `halo_budget_buckets` and `halo_budget_batches`; `halo_reports`; `halo_kv` for enrollment tokens, sessions and the workload replay cache; `halo_shadow_pairs`), and the database is the one thing to back up. Keys are unchanged.
 
 ### Backup
 

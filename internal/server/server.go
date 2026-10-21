@@ -583,7 +583,7 @@ func (s *Server) experiments(w http.ResponseWriter) ([]ExperimentDetail, bool) {
 		apiErr(w, http.StatusServiceUnavailable, "policy not loaded: "+err.Error())
 		return nil, false
 	}
-	vs, verr := LoadVerdicts(s.cfg.VerdictsPath)
+	vs, verr := s.verdicts()
 	if verr != nil {
 		s.cfg.Log.Warn("verdicts unreadable", "path", s.cfg.VerdictsPath, "err", verr)
 	}

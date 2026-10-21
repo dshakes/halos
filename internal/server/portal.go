@@ -521,6 +521,10 @@ const (
 	// enrollDropTTL outlives any enrollment token (policy enrollmentTTLSeconds
 	// defaults to 15 minutes; a year covers any sane setting).
 	enrollDropTTL = 366 * 24 * time.Hour
+	// enrollDropSkew covers clock skew between replicas: the void also covers
+	// tokens another replica stamped up to this long after it (a user
+	// re-provisioned that fast just enrolls again a minute later).
+	enrollDropSkew = time.Minute
 )
 
 // enrollToken is the stored value: who it was issued to, and when.
@@ -578,7 +582,8 @@ func (e *enrollments) consume(tok string) (Principal, bool) {
 func (e *enrollments) dropUser(user string, now time.Time) error {
 	ctx, cancel := storage.Ctx()
 	defer cancel()
-	return e.kv.Put(ctx, kvEnrollDrop, strings.ToLower(user), []byte(strconv.FormatInt(now.UnixNano(), 10)), now.Add(enrollDropTTL))
+	at := now.Add(enrollDropSkew)
+	return e.kv.Put(ctx, kvEnrollDrop, strings.ToLower(user), []byte(strconv.FormatInt(at.UnixNano(), 10)), at.Add(enrollDropTTL))
 }
 
 func (s *Server) postEnroll(w http.ResponseWriter, r *http.Request) {

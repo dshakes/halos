@@ -20,6 +20,7 @@ helm template halo deploy/helm/halos -f my-values.yaml | kubectl diff -f -   # r
 | `halo-shadow.upstreamHeaders.existingSecret` | `upstream-headers.yaml` | halo-shadow `--upstream-headers`: YAML `{upstream: {Header: value}}`, `${ENV}` expanded (`halo-shadow.extraEnv`). `HALO_SHADOW_AUTH_HEADER` is refused by halo-shadow |
 | `halo-shadow.pairKey.existingSecret` | `pair-key` | optional `--pair-key-file` (base64 32-byte AES-256-GCM key) |
 | `server.killSwitch.existingSecret` | `signing-key`, `gateway-token` | halo-server `--killswitch-key-file` (Ed25519 PKCS#8 PEM, `halo keys generate --name killswitch`) and `--gateway-token-file` (>= 16 chars); set together |
+| `server.gatewayTokens.existingSecret` | the keys you name (`killswitch`, `posture`, `budget`, `directory`) | per-capability gateway bearer tokens (`--gateway-<cap>-token-file`); recommended over the shared `gateway-token` |
 | `proxy.killSwitch.pubkey.existingSecret` | `killswitch.pub` | PUBLIC half of the signing key -> halo-proxy `killSwitch.pubkeyFile`; token defaults to `server.killSwitch.existingSecret`/`gateway-token` |
 | `server.controller.clickhouse.existingSecret` | `username`, `password` | `--clickhouse-user` (via env) / `--clickhouse-password-file` |
 | `server.controller.notify.slack.existingSecret` | `url` | `--notify-slack-url-file` |
@@ -130,6 +131,7 @@ OIDC issuer/audience live in the policy repo (halo-server) and `proxy.config.ide
 | `server.proposals.enabled` | `false` | writable clone for self-service proposals |
 | `server.persistence.*` | 5Gi RWO | `--data-dir`; `existingClaim` supported; disabled = in-memory store (or Postgres with `server.database`) |
 | `server.database.{existingSecret,key,autoMigrate,leaseTTL}` | off, `url`, `false`, `15s` | HA: Postgres state, `replicas > 1` allowed |
+| `server.gatewayTokens.{existingSecret,killswitch,posture,budget,directory}` | off | per-capability gateway tokens: each set key -> `--gateway-<cap>-token-file` (that capability then accepts only its token) |
 | `server.{service,resources,pdb,ingress,nodeSelector,tolerations,affinity,podAnnotations}` | | |
 | `proxy.enabled` | `true` | |
 | `proxy.{image,replicas,port,adminPort,args,extraEnv,extraVolumes,extraVolumeMounts}` | 2 replicas, 8088, admin 9090 | |

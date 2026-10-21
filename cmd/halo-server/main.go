@@ -386,7 +386,7 @@ func run(ctx context.Context, args []string) error {
 		WorkloadKey: workloadKey,
 	}
 	if db != nil {
-		cfg.Backend = server.NewPGBackend(db)
+		cfg.Backend = &server.PGBackend{DB: db, LeaseTTL: o.leaseTTL}
 	}
 	srv, err := server.New(cfg)
 	if err != nil {

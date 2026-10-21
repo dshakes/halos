@@ -100,7 +100,7 @@ Prefer External Secrets or your secret manager over shell history for real value
 
 The chart then drops the PVCs and the Recreate strategy, renders a PodDisruptionBudget (`maxUnavailable: 1`), a startup probe, and a readiness probe that fails while Postgres is unreachable. Check after install: every replica Ready, exactly one reports `halo_leader{lease="controller"} 1`, `GET /api/v1/audit?limit=1` returns `verified: true`.
 
-Not covered: the verdicts file (`server.verdictsPath`) stays a local file written by the leader; put it on shared storage or rely on `halo exp analyze` for verdicts on an HA install.
+On Postgres the controller keeps verdicts in the database (one document per experiment) instead of `server.verdictsPath`, and every replica's console shows them. Budgets, SCIM, workload token replay protection and SIEM export cursors are shared too ([ADR-0021](/halos/adr/0021-ha-control-plane-on-postgres/#state-added-by-later-features)); `server.audit.rotation` is refused there (the chain is one table). Per-capability gateway tokens: `server.gatewayTokens` (one Secret, a key per capability).
 ## Console roles
 
 Who may do what in the console and API is policy, not chart configuration: map IdP groups to `halo-server` roles in the policy repo's `halos.yaml`, so every change to it is a reviewed PR ([ADR-0015](/halos/adr/0015-rbac-roles-for-halo-server/)).

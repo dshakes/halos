@@ -48,7 +48,19 @@ Each store's records go to `halo_journal` under a stream name (`devices`, `reque
 - Session revocations and the kill list are unkeyed: the full history replays, so the kill list `version` is the same on every replica.
 - Device authentication and session checks **fail closed**: if `Catchup` fails, a device gets 503 (no rate-limit penalty) and a session is treated as revoked, because a revocation made on another replica might be unseen. List views serve the last view and the error is counted.
 - Enrollment tokens are `Take`n (`DELETE ... RETURNING`): of concurrent redemptions on any replicas exactly one succeeds. Login states are consumed with `Add` (insert, or overwrite only an expired row). Server-side sessions are `Put`/`Get`. Approving or denying an access request first `Add`s a claim (`request-claim/<id>`, expiring after the PR timeout), so two admins on two replicas cannot open two PRs for one request.
-- Known gap: the "already have a pending request" check on `POST /api/v1/requests` is not atomic across replicas, so two simultaneous identical requests on two replicas can both be created. Both are visible and an admin denies one.
+- At most one pending access request per (user, kind, item): `POST /api/v1/requests` takes a claim row (`halo_request_pending`, primary key on the hashed triple) before it appends the request. A claim whose holder this replica sees decided is replaced at once; one whose request never reached the log (the replica died between the two writes) is replaced after a minute. Deciding a request releases its claim.
+
+### State added by later features
+
+These landed after the first cut of this ADR and are shared the same way:
+
+- **Gateway budgets (ADR-0017).** Counters are rows (`halo_budget_buckets`: budget, key, bucket start), usage is added in place, and the usage batch id is a primary key (`halo_budget_batches`) inserted in the same transaction, so a batch retried to two replicas at once counts once. `check` and `GET /api/v1/budgets` read the rows, so N replicas grant one budget, not N. The gateway's estimated charges (`EstimateUsage`) are ordinary usage records and take the same path. Expired buckets and removed budgets are pruned in the usage transaction.
+- **Workload token exchange (ADR-0023).** The replay cache is a KV row per exchanged token (hashed replay key, expiry = the token's `exp`), inserted only if no live row exists: a token is exchanged once cluster-wide. A store error refuses the exchange.
+- **SCIM (ADR-0022).** The directory is the `scim` log, replayed into the same in-memory store with its `memberOf` index; every read catches up first, and `Lookup` fails closed (user inactive) when it cannot. Mutations take a cluster lock (an expiring KV row) so uniqueness checks hold across replicas. Deprovisioning revokes sessions (lowercased epoch), devices (after catching up, so devices enrolled on other replicas count) and pending enrollment tokens, all in shared state. Enrollment tokens are keyed by hash, so the last is a per-user void epoch (`enroll-drop`) that `consume` checks; it reaches one minute past the deprovisioning to cover replica clock skew.
+- **Audit export and rotation (ADR-0016).** Segments and rotation are file-backend features; on Postgres the chain is one table and rotation is refused. Each sink forwards from one replica under lease `audit-export-<sink>`, with its cursor a fenced document, so sinks do not receive N copies. `GET /api/v1/audit` pages by `seq` and caches the verified prefix while its last hash reads back unchanged; `halo audit verify --database-url-file` re-reads the whole chain.
+
+Replicas are assumed to run NTP-synced clocks: session revocations compare a cookie's issue time (one replica's clock) with the revocation time (another's), as on the file backend across restarts.
+
 
 ### Audit chain
 
@@ -80,7 +92,7 @@ With `-database-url-file`, workers keep no state. Pairs go to `halo_shadow_pairs
 - Bad: Postgres becomes a dependency of an HA install, and its availability bounds the control plane's. Gateways and `halod` are unaffected by a control-plane outage, as before.
 - Bad: every device authentication and session check is one indexed query (the catch-up). That is the price of revocations taking effect on every replica at once.
 - Bad: rows in `halo_journal` for unkeyed streams (session revocations, kills, the controller log) grow without compaction, as their files did.
-- Neutral: the verdicts file (`--verdicts-file`) stays a local file written by the leader and recomputed every tick; on an HA install the console's verdict column is only populated on the replica holding the lease unless the path is on shared storage.
+- Neutral: on the Postgres backend the controller writes verdicts as one document per experiment (kind `verdict`, fenced) instead of `--verdicts-file`, and every replica's console reads them. `halo exp analyze --verdicts-file` still writes a file.
 
 ## Implementation status (2026-10-21)
 
@@ -97,5 +109,9 @@ With `-database-url-file`, workers keep no state. Pairs go to `halo_shadow_pairs
 | `/readyz` reflects the database; leader and DB metrics | `server.go` `/readyz`; `shadow/server.go`; `pgstore.WriteMetrics`, `Elector.WriteMetrics` | `TestReadyzReflectsBackend`, `TestReadyzPing`, `TestElectorMetrics` | Done |
 | Helm: conditional replica pin, PDB, probes, DSN Secret | `deploy/helm/halos/{values.yaml,values.schema.json,templates/*}`, `ci/ha-values.yaml` | `helm lint -f ci/ha-values.yaml` | Done; not run on a cluster |
 | `import --from-data-dir` with verification | `internal/server/import.go`; `cmd/halo-server/ha.go` | `TestImportDataDir`, `TestImportRefusesBrokenChain`, `TestHA` | Done |
-| Verdicts shared across replicas | | | Gap, documented |
-| Atomic duplicate-request check across replicas | | | Gap, documented |
+| Verdicts shared across replicas | `controller.VerdictDocs`; `server.verdicts` | `TestSharedVerdicts` | Done |
+| Budget ledger shared; batch dedupe atomic | `migrations/0002_budgets_requests.sql`; `pgstore.ApplyBudget`; `server/budgets.go` | `TestBudgetLedger`; `TestSharedBudgets` | Done |
+| Workload jti replay cache shared | `server.rememberSubjectToken` | `TestSharedWorkloadReplay` | Done |
+| SCIM directory shared; deprovisioning on every replica | `OpenSCIMStoreOn`; `clusterMutex`; `enrollments.dropUser` | `TestSharedSCIMDeprovision` | Done |
+| Audit export: one forwarder per sink, shared fenced cursor; paging and verify on the table | `RunAuditExport`, `verifyShared`, `VerifyAuditBackend`; `halo audit verify --database-url-file` | `TestSharedAuditExport`, `TestAuditVerifyDatabase` | Done |
+| Atomic duplicate-request check across replicas | `pgstore.ClaimPending`; `server.claimPending` | `TestClaimPending`; `TestSharedPendingRequestUnique` | Done |

@@ -525,3 +525,99 @@ func TestPingAndMetrics(t *testing.T) {
 		t.Fatal("ping on a closed pool")
 	}
 }
+
+func TestBudgetLedger(t *testing.T) {
+	ctx := context.Background()
+	a, schema := pgtest.OpenTest(t)
+	b, _ := pgtest.OpenTest(t, schema)
+	inc := []pgstore.BudgetCounter{{Budget: "d", Key: "user:x", Bucket: 100, USD: 1.5, Tokens: 10}}
+	keep := map[string]int64{"d": 50}
+	var wg sync.WaitGroup
+	dups := make(chan bool, 6)
+	for i := range 6 {
+		d := a
+		if i%2 == 1 {
+			d = b
+		}
+		wg.Go(func() {
+			dup, err := d.ApplyBudget(ctx, "batch-1", inc, keep)
+			if err != nil {
+				t.Error(err)
+			}
+			dups <- dup
+		})
+	}
+	wg.Wait()
+	close(dups)
+	applied := 0
+	for d := range dups {
+		if !d {
+			applied++
+		}
+	}
+	if applied != 1 {
+		t.Fatalf("one batch applied %d times across replicas", applied)
+	}
+	if _, err := a.ApplyBudget(ctx, "batch-2", inc, keep); err != nil {
+		t.Fatal(err)
+	}
+	got, err := b.BudgetCounters(ctx, [][2]string{{"d", "user:x"}})
+	if err != nil || len(got) != 1 || got[0].USD != 3 || got[0].Tokens != 20 {
+		t.Fatalf("counters %+v %v", got, err)
+	}
+	// Pruning: buckets before the window and budgets no longer in policy.
+	_, _ = a.ApplyBudget(ctx, "batch-3", []pgstore.BudgetCounter{{Budget: "gone", Key: "org", Bucket: 100, USD: 1}}, nil)
+	if all, _ := a.BudgetCounters(ctx, nil); len(all) != 2 {
+		t.Fatalf("import-style apply (nil keep) must not prune: %+v", all)
+	}
+	if _, err := a.ApplyBudget(ctx, "batch-4", nil, map[string]int64{"d": 200}); err != nil {
+		t.Fatal(err)
+	}
+	if all, _ := a.BudgetCounters(ctx, nil); len(all) != 0 {
+		t.Fatalf("expired bucket and removed budget kept: %+v", all)
+	}
+	if got, err := a.BudgetCounters(ctx, [][2]string{}); got != nil || err != nil {
+		t.Fatalf("empty key list: %v %v", got, err)
+	}
+}
+
+func TestClaimPending(t *testing.T) {
+	ctx := context.Background()
+	db, _ := pgtest.OpenTest(t)
+	view := map[string][2]bool{} // id -> known, pending
+	holder := func(id string) (bool, bool) { v := view[id]; return v[0], v[1] }
+	if ok, err := db.ClaimPending(ctx, "k", "r1", holder); !ok || err != nil {
+		t.Fatalf("first claim: %v %v", ok, err)
+	}
+	view["r1"] = [2]bool{true, true}
+	if ok, _ := db.ClaimPending(ctx, "k", "r2", holder); ok {
+		t.Fatal("claimed over a pending request")
+	}
+	view["r1"] = [2]bool{true, false} // decided, release lost
+	if ok, _ := db.ClaimPending(ctx, "k", "r2", holder); !ok {
+		t.Fatal("decided holder not replaced")
+	}
+	// r2 never reached the log (the replica died): young, it still holds.
+	if ok, _ := db.ClaimPending(ctx, "k", "r3", holder); ok {
+		t.Fatal("young unknown claim taken over")
+	}
+	if err := pgstore.ExecForTest(db, `UPDATE halo_request_pending SET claimed_at = now() - interval '2 minutes'`); err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := db.ClaimPending(ctx, "k", "r3", holder); !ok {
+		t.Fatal("orphan claim not taken over after it aged")
+	}
+	if err := db.ReleasePending(ctx, "k", "r2"); err != nil { // not the holder: no effect
+		t.Fatal(err)
+	}
+	view["r3"] = [2]bool{true, true}
+	if ok, _ := db.ClaimPending(ctx, "k", "r4", holder); ok {
+		t.Fatal("stale release removed the live claim")
+	}
+	if err := db.ReleasePending(ctx, "k", "r3"); err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := db.ClaimPending(ctx, "k", "r4", holder); !ok {
+		t.Fatal("claim after release")
+	}
+}
