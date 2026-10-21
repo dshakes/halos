@@ -109,8 +109,8 @@ func TestSCIMScalesLinearly(t *testing.T) {
 		}
 	}
 	patchAddAll(t, e, gid, ids)
-	if d := time.Since(start); d > 5*time.Second {
-		t.Fatalf("20k lookups + a 20k-member PATCH add took %v; want < 5s (quadratic membership handling?)", d)
+	if d := time.Since(start); d > 2*time.Second {
+		t.Fatalf("20k lookups + a 20k-member PATCH add took %v; want < 2s (quadratic membership handling?)", d)
 	}
 	if _, groups, _ := e.s.scim.store.Lookup(ids[0] + "@x.example"); !slices.Contains(groups, "everyone") {
 		t.Fatalf("PATCH add not indexed: %v", groups)
