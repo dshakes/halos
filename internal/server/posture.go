@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/dshakes/halos/internal/gateway"
@@ -128,7 +129,7 @@ func (d *deviceStore) active(userID string, now time.Time) []Device {
 		if exp.IsZero() {
 			exp = v.CreatedAt.Add(d.ttl)
 		}
-		if v.UserID == userID && !v.Revoked && now.Before(exp) {
+		if strings.EqualFold(v.UserID, userID) && !v.Revoked && now.Before(exp) { // ids compare case-insensitively everywhere (SCIM, revocation)
 			out = append(out, *v)
 		}
 	}
