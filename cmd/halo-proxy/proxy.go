@@ -291,8 +291,11 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if p.dir != nil { // SCIM directory is authoritative: its groups, or an unknown caller
-		sub = p.dir.Resolve(r.Context(), sub)
+	if p.dir != nil { // SCIM directory is authoritative: its groups; a deprovisioned caller is refused, never anonymous
+		if sub, err = p.dir.Resolve(r.Context(), sub); err != nil {
+			writeReject(sw, gateway.RejectNotProvisioned(r.URL.EscapedPath()))
+			return
+		}
 	}
 
 	// Body: bounded for every request; fully read only for model calls, which

@@ -56,7 +56,6 @@ func TestDirectoryIsAuthoritative(t *testing.T) {
 	}{
 		{"directory group wins over an empty claim", "alice@acme.com", nil, "ring0"},
 		{"claimed group not in the directory", "bob@acme.com", []string{"ai-platform"}, "ga"},
-		{"never provisioned", "eve@acme.com", []string{"ai-platform"}, "unknown"},
 	} {
 		resp := e.post(t, "/v1/messages", e.token(t, c.user, c.claim...), msgBody, spoof)
 		if resp.StatusCode != 200 {
@@ -69,11 +68,46 @@ func TestDirectoryIsAuthoritative(t *testing.T) {
 	mu.Lock()
 	dir["alice@acme.com"] = gateway.DirectoryEntry{} // deprovisioned
 	mu.Unlock()
-	if resp := e.post(t, "/v1/messages", e.token(t, "alice@acme.com", "ai-platform"), msgBody, nil); resp.StatusCode != 200 {
-		t.Fatalf("deprovisioned: %d", resp.StatusCode)
+	// A verified caller the directory does not list as active is refused in
+	// the protocol's error shape, never demoted to an anonymous caller (which
+	// would skip the posture gate and per-user budgets).
+	for _, user := range []string{"alice@acme.com", "eve@acme.com"} {
+		resp := e.post(t, "/v1/messages", e.token(t, user, "ai-platform"), msgBody, nil)
+		b, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode != http.StatusForbidden || !strings.Contains(string(b), `"permission_error"`) {
+			t.Errorf("%s (not active in the directory): %d %s, want 403 permission_error", user, resp.StatusCode, b)
+		}
 	}
-	if _, h, _, _ := s.get(); h.Get("x-halo-ring") != "unknown" {
-		t.Errorf("deprovisioned user: x-halo-ring=%q, want unknown", h.Get("x-halo-ring"))
+}
+
+// TestDirectoryKeepsWorkloads: with a directory configured, a workload
+// credential (not in SCIM) keeps its identity, groups and Kind.
+func TestDirectoryKeepsWorkloads(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		_ = json.NewEncoder(w).Encode(gateway.DirectoryEntry{})
+	}))
+	t.Cleanup(srv.Close)
+	tokFile := filepath.Join(t.TempDir(), "gw.token")
+	if err := os.WriteFile(tokFile, []byte("gw-token"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e, s, priv := workloadEnv(t, false)
+	dc, err := DirectoryConfig{URL: srv.URL, TokenFile: tokFile}.build(e.p.log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.p.dir = dc
+	resp := e.post(t, "/v1/messages", mintWorkload(t, priv, time.Now(), 15*time.Minute), msgBody, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("workload with a directory configured: %d", resp.StatusCode)
+	}
+	if _, h, _, _ := s.get(); h.Get("x-halo-ring") != "ring0" {
+		t.Errorf("workload: x-halo-ring=%q, want ring0 (from the credential's groups)", h.Get("x-halo-ring"))
+	}
+	if hits.Load() != 0 {
+		t.Errorf("workload looked up in the SCIM directory: %d", hits.Load())
 	}
 }
 

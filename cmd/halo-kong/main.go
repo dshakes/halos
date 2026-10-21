@@ -112,15 +112,15 @@ type Config struct {
 	// Posture: halo-server's per-subject device posture verdicts, applied on
 	// rings with posture warn|enforce. Empty URL disables the posture gate.
 	PostureURL   string `json:"posture_url"`   // https://halo-server/api/v1/gateway/posture
-	PostureToken string `json:"posture_token"` // {vault://env/NAME} or literal (the halo-server gateway token)
+	PostureToken string `json:"posture_token"` // {vault://env/NAME} or literal (halo-server --gateway-posture-token-file, else the shared gateway token)
 	// PostureAllowInsecure permits plain http to a non-loopback host.
 	PostureAllowInsecure bool `json:"posture_allow_insecure_in_cluster"`
 
 	// Directory: halo-server's SCIM directory (ADR-0022), authoritative when
-	// set: a verified caller's groups are the directory's, and a caller it does
-	// not list as active gets default routing. Empty URL disables.
+	// set: a verified caller's groups are the directory's, and a verified caller
+	// it does not list as active is refused (403). Empty URL disables.
 	DirectoryURL   string `json:"directory_url"`   // https://halo-server/api/v1/gateway/directory
-	DirectoryToken string `json:"directory_token"` // {vault://env/NAME} or literal (the halo-server gateway token)
+	DirectoryToken string `json:"directory_token"` // {vault://env/NAME} or literal (halo-server --gateway-directory-token-file, else the shared gateway token)
 	// DirectoryAllowInsecure permits plain http to a non-loopback host.
 	DirectoryAllowInsecure bool `json:"directory_allow_insecure_in_cluster"`
 }
@@ -448,7 +448,10 @@ func (c Config) access(kong kongAPI) {
 	}
 
 	if dc, invalid := c.directoryClient(kong); dc != nil {
-		sub = dc.Resolve(context.Background(), sub) // directory groups, or an unknown caller
+		if sub, err = dc.Resolve(context.Background(), sub); err != nil { // a deprovisioned caller is refused, never anonymous
+			exit(kong, gateway.RejectNotProvisioned(path))
+			return
+		}
 	} else if invalid {
 		sub = nil
 	}

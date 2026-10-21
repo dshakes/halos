@@ -222,7 +222,7 @@ func (s *Server) scimAuth(w http.ResponseWriter, r *http.Request) bool {
 
 // getGatewayDirectory: GET /api/v1/gateway/directory?subject=<id> (gateway
 // token). Gateways with a directory configured route only active users with
-// these groups; anyone else is an unknown caller (default routing).
+// these groups; a verified caller listed inactive here is refused (403).
 func (s *Server) getGatewayDirectory(w http.ResponseWriter, r *http.Request) {
 	if s.cfg.GatewayToken == "" || s.scim == nil {
 		apiErr(w, http.StatusNotFound, "SCIM directory not configured")

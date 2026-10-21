@@ -33,8 +33,8 @@ const (
 
 // DirectoryClient makes halo-server's SCIM directory authoritative for a
 // verified subject (ADR-0022): the subject's groups are the directory's, and a
-// subject the directory does not list as active is treated as unknown
-// (default routing, no experiments). Groups never come from the request.
+// subject the directory does not list as active is refused (ErrNotProvisioned).
+// Groups never come from the request.
 type DirectoryClient struct {
 	URL, Token string
 	TTL, Grace time.Duration
@@ -75,13 +75,31 @@ func (c *DirectoryClient) now() time.Time {
 	return time.Now()
 }
 
-// Resolve returns sub with the directory's groups, or nil (unknown caller)
-// when sub is nil, the directory does not list it as active, or halo-server
-// cannot be asked and no entry younger than Grace is cached.
+// ErrNotProvisioned is Resolve's answer for a verified subject the directory
+// does not list as active (deactivated, deleted or never provisioned). Callers
+// refuse the request (RejectNotProvisioned): demoting it to an anonymous
+// caller would skip the posture gate and per-user budgets.
+var ErrNotProvisioned = errors.New("gateway: subject is deactivated or not provisioned in the directory")
+
+// RejectNotProvisioned is the 403, in the caller's protocol, for ErrNotProvisioned.
+func RejectNotProvisioned(path string) *Rejection {
+	return &Rejection{Status: http.StatusForbidden, Protocol: protocolOrPrefix(path), Code: "user_not_provisioned",
+		Message: "your identity is deactivated or not provisioned in the Halos directory; ask your administrator"}
+}
+
+// Resolve returns sub with the directory's groups. It returns nil, nil
+// (unknown caller) when sub is nil, or when halo-server cannot be asked and no
+// entry younger than Grace is cached; and ErrNotProvisioned when the directory
+// does not list sub as active. Workload subjects (ADR-0023) are not in SCIM:
+// they are returned unchanged without a lookup. Kind always comes from the
+// verified credential, never from the directory.
 // ponytail: concurrent misses for one subject each call halo-server, as PostureClient.Check does.
-func (c *DirectoryClient) Resolve(ctx context.Context, sub *policy.Subject) *policy.Subject {
+func (c *DirectoryClient) Resolve(ctx context.Context, sub *policy.Subject) (*policy.Subject, error) {
 	if sub == nil || sub.ID == "" {
-		return nil
+		return nil, nil
+	}
+	if sub.Kind == policy.SubjectWorkload {
+		return &policy.Subject{ID: sub.ID, Groups: append([]string(nil), sub.Groups...), Kind: sub.Kind}, nil
 	}
 	now := c.now()
 	c.mu.Lock()
@@ -102,13 +120,13 @@ func (c *DirectoryClient) Resolve(ctx context.Context, sub *policy.Subject) *pol
 			if c.Log != nil {
 				c.Log.Warn("directory lookup failed; caller treated as unknown", "err", err)
 			}
-			return nil
+			return nil, nil
 		}
 	}
 	if !e.Active {
-		return nil
+		return nil, ErrNotProvisioned
 	}
-	return &policy.Subject{ID: sub.ID, Groups: append([]string(nil), e.Groups...)}
+	return &policy.Subject{ID: sub.ID, Groups: append([]string(nil), e.Groups...), Kind: sub.Kind}, nil
 }
 
 func (c *DirectoryClient) store(subject string, e DirectoryEntry, now time.Time) {
