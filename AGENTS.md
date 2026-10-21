@@ -23,6 +23,7 @@ Before finishing: `gofmt -l .` empty, `go build ./... && go vet ./... && go test
 - `internal/harness/{claudecode,codex,gemini,copilot,cursor,opencode}` adapters: render config + capability matrix.
 - `internal/release` build/diff of release bundles; `internal/bundle` OCI push/pull + signing.
 - `internal/assign` deterministic hashing. `internal/gateway`, `internal/identity`, `internal/server`, `internal/shadow`.
+- `internal/a2a` A2A AgentCard fetch, canonical digest and signature checks.
 - `internal/eval` replay evals + scorecards. `internal/stats` mSPRT/bootstrap. `internal/promote` verdicts, promotion/rollback plans, PRs.
 - `internal/mcpserver` MCP server behind `halo mcp serve`. `plugins/claude-code` Claude Code plugin. `schemas/` JSON Schemas. `examples/acme-corp` example policy repo.
 
