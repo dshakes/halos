@@ -22,5 +22,6 @@ Decisions that shape Halos. New ADRs use [MADR](https://adr.github.io/madr/): co
 | [0011](/halos/adr/0011-gateway-enforced-posture-and-version/) | Gateway-enforced device posture and CLI version |
 | [0012](/halos/adr/0012-policy-api-v1/) | halos.dev/v1 is the stable policy API |
 | [0013](/halos/adr/0013-external-gateway-engine/) | Halos manages clients behind a gateway it does not run |
+| [0016](/halos/adr/0016-audit-export-to-siem/) | Audit export to SIEM, with rotation across a continuous hash chain |
 
 The canonical files live in `docs/adr/` in the repository; the docs build copies them into the site.

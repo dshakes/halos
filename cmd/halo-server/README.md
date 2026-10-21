@@ -13,6 +13,7 @@ loop (`--controller`) and the gateway kill switch.
 | `--data-dir` | in-memory | JSONL logs: fleet, requests, devices, audit, `killswitch.jsonl`, `controller-state.jsonl`. |
 | `--verdicts-file` | | Verdicts JSON array shown in the console; the controller (and `halo exp analyze --verdicts-file`) upserts it. `--verdicts` is a deprecated alias. |
 | `--portal-config` | | Portal/self-service JSON config. |
+| `--audit-config` | | Audit log rotation and SIEM export JSON config (ADR-0016). Requires `--data-dir`. |
 | `--trusted-proxy-cidrs` | | Reverse proxies whose `X-Forwarded-For` is trusted for rate limiting. |
 | `--device-ttl` | 90d | Device token lifetime. |
 
@@ -51,6 +52,13 @@ lift it. Unkill it explicitly before you restart the experiment.
 
 Privileged actions append to the hash-chained `audit.jsonl` in `--data-dir`, fsynced before the action is acknowledged. They fail closed: kill, unkill, device enrollment, session and device revocation and experiment-status PRs return HTTP 500 if the append fails. A kill whose audit append fails stays applied (fail safe), a failed unkill is reverted, and a revocation stays in force. `audit.jsonl` has a single writer: do not point `halo controller run` at a data dir this server is using.
 
+With `--audit-config`, `rotation` (`maxBytes`, `maxAgeSeconds`) renames the active `audit.jsonl` to
+`audit-<first seq, 20 digits>.jsonl` and starts a new one; the hash chain runs on across segments. `halo audit
+verify --data-dir DIR` checks the whole chain. `export.sinks` forwards every entry, at least once and in order,
+to a Splunk HEC endpoint, an HTTPS webhook (signed like the controller's) or RFC 5424 syslog over TLS, each with a
+cursor in `<data-dir>/audit-forward/`. Export never blocks or fails an action. See the
+[SIEM export guide](https://dshakes.github.io/halos/guides/siem-export/).
+
 ## Controller (`--controller`)
 
 On every tick the controller evaluates each `status: running` experiment
@@ -79,7 +87,7 @@ retried on later ticks without re-posting to the others.
 | `--notify-slack-url-file` | | Slack incoming-webhook URL. Posts `{text, blocks}`. |
 | `--notify-webhook-url-file` | | Generic webhook URL. Posts the JSON event. |
 | `--notify-webhook-secret-file` | | HMAC-SHA256 secret. Adds `X-Halo-Timestamp: <unix s>` and `X-Halo-Signature: sha256=<hex HMAC(secret, timestamp + "." + body)>`. Receivers must verify it and reject timestamps more than 5 minutes off (Go and Python snippets: docs site, CLI reference, "Verifying the webhook signature"). |
-| `--metrics-listen` | off | Serves `/metrics` with `halo_controller_ticks_total`, `halo_controller_verdicts_total{verdict}` and `halo_controller_errors_total`. Unauthenticated, so keep it internal. |
+| `--metrics-listen` | off | Serves `/metrics` with `halo_server_audit_rotate_errors_total`, the `halo_server_audit_forward_*` export series (with sinks) and, with `--controller`, `halo_controller_ticks_total`, `halo_controller_verdicts_total{verdict}` and `halo_controller_errors_total`. Unauthenticated, so keep it internal. |
 
 Webhook URLs are secrets. They are read from files and never logged.
 

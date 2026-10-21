@@ -30,6 +30,8 @@
 {{- $wsub := trimAll "/" (default $s.policySubdir $c.policyRepo.subdir) }}
 {{- $wbase := default "main" $c.policyRepo.base }}
 {{- if and $ks.existingSecret (not $s.persistence.enabled) }}{{ fail "server.killSwitch.existingSecret requires server.persistence.enabled (--data-dir: kills must survive a restart)" }}{{ end }}
+{{- $audit := $s.audit | default dict }}
+{{- if and $audit (not $s.persistence.enabled) }}{{ fail "server.audit requires server.persistence.enabled (--data-dir: audit segments and export cursors must survive a restart)" }}{{ end }}
 {{- if $c.enabled }}
 {{- if not $c.clickhouse.url }}{{ fail "server.controller.clickhouse.url is required when server.controller.enabled" }}{{ end }}
 {{- if not $s.persistence.enabled }}{{ fail "server.controller.enabled requires server.persistence.enabled (--data-dir action log)" }}{{ end }}
@@ -53,6 +55,11 @@ metadata:
 data:
   portal.json: |
     {{- toPrettyJson $portal | nindent 4 }}
+  {{- if $audit }}
+  # Secret refs only ({env}/{file}); values.schema.json rejects literals.
+  audit.json: |
+    {{- toPrettyJson $audit | nindent 4 }}
+  {{- end }}
   {{- if $wr }}
   # GIT_ASKPASS helper: the token is read from the mounted Secret, never put in the remote URL.
   askpass.sh: |
@@ -112,7 +119,7 @@ spec:
     metadata:
       labels: {{- include "halo.selector" (list . "server") | nindent 8 }}
       annotations:
-        checksum/config: {{ toJson $portal | sha256sum }}
+        checksum/config: {{ ternary (printf "%s%s" (toJson $portal) (toJson $audit)) (toJson $portal) (not (empty $audit)) | sha256sum }}
         {{- with $s.podAnnotations }}{{ toYaml . | nindent 8 }}{{ end }}
     spec:
       serviceAccountName: {{ include "halo.serviceAccountName" . }}
@@ -150,6 +157,9 @@ spec:
             - --portal-config=/etc/halos/portal.json
             {{- if $s.persistence.enabled }}
             - --data-dir=/data
+            {{- end }}
+            {{- if $audit }}
+            - --audit-config=/etc/halos/audit.json
             {{- end }}
             {{- with $s.trustedProxyCIDRs }}
             - --trusted-proxy-cidrs={{ . }}

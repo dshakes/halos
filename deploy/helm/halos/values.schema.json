@@ -2,6 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
   "definitions": {
+    "secretRef": {"type": "object", "additionalProperties": false, "properties": {"env": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"}, "file": {"type": "string", "minLength": 1}}, "oneOf": [{"required": ["env"]}, {"required": ["file"]}]},
     "image": {"type": "object", "properties": {"registry": {"type": "string"}, "repository": {"type": "string", "minLength": 1}, "tag": {"type": "string"}, "digest": {"type": "string", "pattern": "^(sha256:[a-f0-9]{64})?$"}}},
     "secretRef": {"type": "object", "properties": {"existingSecret": {"type": "string"}, "key": {"type": "string"}}},
     "port": {"type": "integer", "minimum": 1, "maximum": 65535},
@@ -25,6 +26,7 @@
       "fleetToken": {"$ref": "#/definitions/secretRef"}, "sessionKey": {"$ref": "#/definitions/secretRef"}, "oidcClientSecret": {"$ref": "#/definitions/secretRef"},
       "killSwitch": {"type": "object", "properties": {"existingSecret": {"type": "string"}, "signingKey": {"type": "string", "minLength": 1}, "gatewayToken": {"type": "string", "minLength": 1}}},
       "metrics": {"type": "object", "properties": {"enabled": {"type": "boolean"}, "port": {"$ref": "#/definitions/port"}}},
+      "audit": {"type": "object", "additionalProperties": false, "properties": {"rotation": {"type": "object", "additionalProperties": false, "properties": {"maxBytes": {"type": "integer", "anyOf": [{"const": 0}, {"minimum": 4096}]}, "maxAgeSeconds": {"type": "integer", "minimum": 0}}}, "export": {"type": "object", "additionalProperties": false, "properties": {"sinks": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["name", "type"], "properties": {"name": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"}, "type": {"enum": ["webhook", "splunk-hec", "syslog"]}, "format": {"enum": ["native", "ocsf"]}, "url": {"type": "string", "pattern": "^https://"}, "headers": {"type": "object", "additionalProperties": {"$ref": "#/definitions/secretRef"}}, "hmacSecret": {"$ref": "#/definitions/secretRef"}, "token": {"$ref": "#/definitions/secretRef"}, "index": {"type": "string"}, "sourceType": {"type": "string"}, "address": {"type": "string", "minLength": 3}, "facility": {"type": "integer", "minimum": 0, "maximum": 23}, "caFile": {"type": "string"}, "certFile": {"type": "string"}, "keyFile": {"type": "string"}, "timeoutSeconds": {"type": "integer", "minimum": 0}}}}, "batchSize": {"type": "integer", "minimum": 0, "maximum": 1000}, "pollIntervalSeconds": {"type": "integer", "minimum": 0}, "maxBackoffSeconds": {"type": "integer", "minimum": 0}}}}},
       "controller": {"type": "object", "properties": {
         "enabled": {"type": "boolean"},
         "interval": {"type": "string", "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h))+$"},

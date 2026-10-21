@@ -46,7 +46,7 @@ State-changing Session and Admin requests (anything but `GET`) are rejected with
 | Method and path | Auth | Purpose |
 |---|---|---|
 | `GET /api/v1/releases` | Admin | Per ring: the signature-verified pointer read from the registry (digest, `seq`, issued and expiry times, `expired`, `expiringSoon` under 48 hours), convergence of reporting devices on that digest, and drift. Cached 30 seconds; if the registry is unreachable the last verified state is returned flagged `stale`. Needs `registry` and `pubKeyFile` in the portal config |
-| `GET /api/v1/audit` | Admin | Hash-chained audit log. Query: `limit` (1 to 500, default 100), `since` (sequence number or RFC3339 time; returns entries after it, oldest first, else the newest `limit`), exact-match `actor` and `action`. Response: `entries`, `next` (pass as `since` to page), `total`, `verified`, `verifyError`, `head` |
+| `GET /api/v1/audit` | Admin | Hash-chained audit log. Query: `limit` (1 to 500, default 100), `since` (sequence number or RFC3339 time; returns entries after it, oldest first, else the newest `limit`), exact-match `actor` and `action`. Response: `entries`, `next` (pass as `since` to page), `total`, `verified` (the whole chain, across rotated segments), `verifyError`, `head`. Reads stream, so memory is bounded by `limit` whatever the log size |
 
 ### Policy, experiments and the kill switch
 

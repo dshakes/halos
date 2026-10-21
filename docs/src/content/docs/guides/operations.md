@@ -31,8 +31,9 @@ Set these on the gateway: it is the only component in the developer's request pa
 | Kill-switch propagation | 100% of gateways on the current list within 2 poll intervals (default 10 s) | No metric; `halo-proxy` logs each list change. `GET /api/v1/killswitch` on the server shows the list `version` |
 | Pointer freshness | Every ring refreshed in the last 48 h (pointers expire after 7 days) | The refresh CI job; `halod` warns from 24 h before expiry |
 | Controller health | Ticks every `--interval`, no sustained errors | `halo_controller_ticks_total`, `halo_controller_errors_total` (`server.metrics.enabled`) |
+| Audit export freshness | Every audit entry in the SIEM within 15 minutes | `halo_server_audit_forward_lag_entries`, `halo_server_audit_forward_last_success_timestamp_seconds` (`server.metrics.enabled`, `server.audit.export`) |
 
-`halo-server` itself exposes no request metrics (only the controller counters). Measure its availability from your ingress controller or a blackbox probe of `GET /readyz` (returns 503 until policy is loaded and during drain).
+`halo-server` itself exposes no request metrics (only the controller and audit export series). Measure its availability from your ingress controller or a blackbox probe of `GET /readyz` (returns 503 until policy is loaded and during drain).
 
 ## Alerts
 
@@ -105,6 +106,17 @@ groups:
         labels: {severity: ticket}
         annotations:
           summary: "controller errors: ClickHouse, policy clone, PR, kill or notify failing; rollbacks may not be enforced"
+      - alert: HaloAuditExportStalled
+        expr: halo_server_audit_forward_lag_entries > 0 and time() - halo_server_audit_forward_last_success_timestamp_seconds > 900
+        for: 5m
+        labels: {severity: page}
+        annotations:
+          summary: "{{ $labels.sink }}: audit entries waiting >15m; the SIEM is down, rejecting credentials, or the hash chain broke (see the server log)"
+      - alert: HaloAuditRotationFailing
+        expr: increase(halo_server_audit_rotate_errors_total[1h]) > 0
+        labels: {severity: ticket}
+        annotations:
+          summary: "audit log rotation failing; audit.jsonl keeps growing (nothing is lost)"
       - alert: HaloShadowBudgetNearlyExhausted
         expr: halo_shadow_spend_usd / halo_shadow_budget_usd > 0.9
         labels: {severity: ticket}
@@ -122,7 +134,8 @@ Two things no exporter covers, so wire them from CI: the daily `halo release ref
 |---|---|---|---|
 | Device store | `<data-dir>/devices.jsonl` | `internal/server/devices.go:77` | Every enrolled machine must re-enroll (holds token SHA-256s, not tokens) |
 | Access requests | `<data-dir>/requests.jsonl` | `internal/server/requests.go:75` | Pending requests and the decision trail |
-| Audit log | `<data-dir>/audit.jsonl` | `internal/server/audit.go:82` | Hash-chained; a gap is detectable (`GET /api/v1/audit` reports `verified`) but not recoverable |
+| Audit log | `<data-dir>/audit.jsonl` and rotated `<data-dir>/audit-<seq>.jsonl` | `internal/server/audit.go` | Hash-chained across segments; a gap is detectable (`halo audit verify`, `GET /api/v1/audit` reports `verified`) but not recoverable here. With [SIEM export](/halos/guides/siem-export/) the SIEM holds a second copy |
+| Audit export cursors | `<data-dir>/audit-forward/<sink>.json` | `internal/server/audit_export.go` | Each sink re-sends from the oldest entry still on disk (duplicates, never gaps) |
 | Session revocations | `<data-dir>/session-revocations.jsonl` | `internal/server/sessions.go:40` | Revoked user sessions become valid again until they expire |
 | Kill list | `<data-dir>/killswitch.jsonl` | `internal/controller/killstore.go:65` | Active kills are forgotten: gateways and `halod` get an **empty** list at the next poll and the killed change comes back. Treat this file as the one you cannot lose |
 | Controller action log | `<data-dir>/controller-state.jsonl` | `internal/controller/state.go:68` | The controller may open duplicate PRs for verdicts it already acted on |
@@ -135,7 +148,7 @@ Two things no exporter covers, so wire them from CI: the daily `halo release ref
 | Signer state file | `~/.local/state/halos/pointers.json` on the signer | | Replay check has nothing to compare against; see [lost signer state](#lost-signer-state-file) |
 | Policy repo | git | | Source of truth for everything above except device identity |
 
-All `--data-dir` files are append-only JSONL, last line per id wins, never compacted. Files are opened with `O_APPEND` and written one line at a time, so a snapshot taken while the server runs is consistent at line granularity: at worst the last line is torn, and replay skips it (`internal/fsutil/jsonl.go:26-47`). The chart keeps the PVC on `helm uninstall` (`helm.sh/resource-policy: keep`).
+All `--data-dir` files are append-only JSONL, last line per id wins, never compacted (the audit log is split into segments by [rotation](#audit-log-rotation), never rewritten). Files are opened with `O_APPEND` and written one line at a time, so a snapshot taken while the server runs is consistent at line granularity: at worst the last line is torn, and replay skips it (`internal/fsutil/jsonl.go:26-47`). The chart keeps the PVC on `helm uninstall` (`helm.sh/resource-policy: keep`).
 
 ### Backup
 
@@ -156,7 +169,17 @@ Take the data backup at least daily and immediately before an upgrade. Keep the 
 4. Scale back to 1 and check: `GET /readyz` returns 200 (policy loaded), `GET /api/v1/killswitch` lists the kills you expect, `GET /api/v1/audit?limit=1` returns `verified: true`, and the console shows the device count you had.
 5. Gateways need nothing: on their next poll (10 s) they fetch the restored list and compare its `version` (`internal/gateway/killswitch.go:209`).
 
+With SIEM export on, restore the `audit-forward/` cursors **with** the audit log from the same snapshot. If the restored log is older than what a sink already received, that sink halts (`halo_server_audit_forward_failed_total` rises, the server log says the cursor is ahead of the log): the SIEM holds entries the restored log does not. Keep the SIEM copy as the record of those, then delete `<data-dir>/audit-forward/<sink>.json` while the server is stopped; the sink re-sends what is on disk and continues.
+
 If `killswitch.jsonl` is gone for good, re-issue the kills you know about (`POST /api/v1/experiments/{name}/kill`, `halo toggle kill`) before gateways poll an empty list; the audit log tells you which ones were active.
+
+### Audit log rotation
+
+Without `--audit-config` rotation, `audit.jsonl` grows forever and every `GET /api/v1/audit` re-verifies all of it. Set `server.audit.rotation` (`maxBytes`, `maxAgeSeconds`; for example 64 MiB or 1 day). On the append that would cross a bound, `audit.jsonl` is renamed to `audit-<seq of its first entry, 20 digits>.jsonl` and a new one starts; its first entry's `prev` is the last hash of the segment before, so the chain is one chain across files.
+
+- Rotated segments are immutable. `GET /api/v1/audit` and the export read them by streaming; the API caches the verification of rotated segments by name, size and mtime, so a request re-reads only the active one. `halo audit verify --data-dir <dir>` re-reads every segment, from a backup or a live data dir (read-only), and exits 2 on a break.
+- The server never deletes a segment. To free the volume, copy old segments to WORM/object storage first, confirm the SIEM sinks are past them (`halo_server_audit_forward_lag_entries` near 0), then remove them. From then on `verified` is `false` on the server (the chain no longer starts at seq 1); run `halo audit verify` against the archive plus the data dir to check the whole history.
+- A failed rotation (for example a stray file with the segment's name, or on Windows a reader holding the file open) is logged and counted in `halo_server_audit_rotate_errors_total`; the entry goes to the active segment and the next append retries. Audit appends still fail closed only when the write or fsync fails.
 
 ## Runbook
 
