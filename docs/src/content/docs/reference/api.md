@@ -15,6 +15,7 @@ Routes are registered in `internal/server/server.go` (`Handler`). This page list
 | **Fleet or device token** | `Authorization: Bearer` with the shared fleet token (`--token-file`) or a per-device token | 401, or 429 after repeated failures |
 | **Device token** | Per-device bearer token from enrollment | 401, or 429 |
 | **Gateway token** | `Authorization: Bearer` with `--gateway-token-file` | 401, or 429 after repeated failures; 404 if the kill switch is not configured |
+| **SCIM token** | `Authorization: Bearer` with a token whose SHA-256 is in `--scim-token-sha256-file`. A session cookie is never accepted | SCIM error 401, or 429 after repeated failures; 404 when SCIM is off |
 
 State-changing Session and Admin requests (anything but `GET`) are rejected with 403 when an `Origin` header does not match the host. `--dev-insecure-user` replaces the session check with a fixed user; demos only.
 
@@ -67,6 +68,7 @@ State-changing Session and Admin requests (anything but `GET`) are rejected with
 | `GET /api/v1/rollouts/{name}` | Admin | One rollout, same shape |
 | `GET /api/v1/killswitch` | Admin | Active kills with who, when and why, and the list `version` |
 | `GET /api/v1/gateway/killswitch` | Gateway token | The signed kill list for `halo-proxy` and `halo-kong` |
+| `GET /api/v1/gateway/directory` | Gateway token | SCIM directory entry for `?subject=<id>`: `{"active": true, "groups": [...]}` for an active provisioned user, `{"active": false}` otherwise. 404 without SCIM or a gateway token ([SCIM provisioning](/halos/guides/scim-provisioning/)) |
 | `GET /api/v1/gateway/posture` | Gateway token | Device-posture verdict for `?subject=<id>` (at most 256 characters), read by `halo-proxy` posture gates. 404 when no gateway token is configured |
 | `GET /api/v1/fleet/killswitch` | Device token | The same signed list for `halod` (client-axis devices; configured via `killSwitch` in `halod.yaml`; portal enrollment sets it when the server has a kill key). 404 when the server has no kill key |
 | `GET /api/v1/capabilities` | Session | Optional features this server is configured for. `killSwitch` is true only when a kill-list signing key (`--killswitch-key-file`) is set and the kill route is registered, so the console never probes with a real POST |
@@ -90,7 +92,18 @@ State-changing Session and Admin requests (anything but `GET`) are rejected with
 | `GET /enroll/release.pub` | Public | Release public key |
 | `POST /api/v1/enroll` | Public (enrollment token in the body) | Exchange a single-use token for a device token and `halod.yaml`. A bad, expired or used token is 401 |
 
-The console itself is served from `/` (any path that is not `/api/`).
+### SCIM 2.0 provisioning
+
+RFC 7644 endpoints for the IdP, all with the **SCIM token**. Bodies and errors are `application/scim+json`; errors use the `urn:ietf:params:scim:api:messages:2.0:Error` schema with `scimType`. Setup and semantics: [SCIM provisioning](/halos/guides/scim-provisioning/), [ADR-0022](/halos/adr/0022-scim-provisioning/).
+
+| Method and path | Purpose |
+|---|---|
+| `GET /scim/v2/ServiceProviderConfig`, `/ResourceTypes[/{id}]`, `/Schemas[/{id}]` | Discovery |
+| `GET /scim/v2/Users`, `GET /scim/v2/Groups` | List. `filter` (`userName`, `externalId`, `id` on users; `displayName`, `externalId`, `id` on groups; `eq` only), `startIndex`, `count` (max 1000), `excludedAttributes=members` |
+| `POST /scim/v2/Users`, `POST /scim/v2/Groups` | Create (409 `uniqueness` for a taken `userName` or `displayName`) |
+| `GET`, `PUT`, `PATCH`, `DELETE /scim/v2/Users/{id}` and `/scim/v2/Groups/{id}` | Read, replace, patch, delete. `If-Match` is honoured (412). Deactivating, deleting or renaming a user revokes their sessions, devices and pending enrollments |
+
+The console itself is served from `/` (any path that is not `/api/` or `/scim/v2/`).
 
 ## Kill switch
 
@@ -124,4 +137,4 @@ curl -X POST https://halo.acme.example/api/v1/experiments/opus-5-5-canary/kill \
 
 ### Audit actions
 
-`login`, `logout`, `request.create`, `request.approve`, `request.deny`, `device.enroll`, `device.revoke`, `session.revoke`, `experiment.status`, `experiment.kill`, `experiment.unkill`, `toggle.propose`, `toggle.kill`, `toggle.unkill`. The controller's kills are recorded with actor `halo-controller`.
+`login`, `logout`, `request.create`, `request.approve`, `request.deny`, `device.enroll`, `device.revoke`, `session.revoke`, `experiment.status`, `experiment.kill`, `experiment.unkill`, `toggle.propose`, `toggle.kill`, `toggle.unkill`. The controller's kills are recorded with actor `halo-controller`. SCIM mutations are recorded with actor `scim`: `scim.user.create`, `scim.user.replace`, `scim.user.patch`, `scim.user.delete`, `scim.group.create`, `scim.group.replace`, `scim.group.patch`, `scim.group.delete`.

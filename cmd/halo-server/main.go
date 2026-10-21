@@ -55,6 +55,10 @@ type options struct {
 	killKeyFile, gatewayTokenFile                                  string
 	slackURLFile, webhookURLFile, webhookSecretFile                string
 	policyRepoDir, policyRepoSubdir, policyRepoBase, metricsListen string
+
+	// SCIM provisioning (ADR-0022)
+	scimTokenHashFile string
+	scimAuthoritative bool
 }
 
 func parseFlags(args []string) (options, error) {
@@ -90,6 +94,8 @@ func parseFlags(args []string) (options, error) {
 	fs.StringVar(&o.policyRepoSubdir, "policy-repo-subdir", "", "policy root inside --policy-repo-dir")
 	fs.StringVar(&o.policyRepoBase, "policy-repo-base", "main", "PR base branch for controller PRs")
 	fs.StringVar(&o.metricsListen, "metrics-listen", "", "address serving controller /metrics (unauthenticated; keep it internal; empty disables)")
+	fs.StringVar(&o.scimTokenHashFile, "scim-token-sha256-file", "", "file holding the hex SHA-256 of each accepted SCIM bearer token, one per line (two while rotating); enables /scim/v2")
+	fs.BoolVar(&o.scimAuthoritative, "scim-authoritative", false, "the SCIM directory decides who is active and their groups (console, devices); unprovisioned users are refused")
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), "Usage of halo-server:\n")
 		fs.VisitAll(func(f *flag.Flag) {
@@ -123,6 +129,12 @@ func parseFlags(args []string) (options, error) {
 	if o.postureMaxAge < time.Minute {
 		return o, errors.New("--posture-max-age must be at least 1m")
 	}
+	if o.scimAuthoritative && o.scimTokenHashFile == "" {
+		return o, errors.New("--scim-authoritative requires --scim-token-sha256-file")
+	}
+	if o.scimTokenHashFile != "" && o.dataDir == "" {
+		return o, errors.New("--scim-token-sha256-file requires --data-dir (the provisioned directory must survive a restart)")
+	}
 	if o.killKeyFile != "" && o.dataDir == "" {
 		return o, errors.New("--killswitch-key-file requires --data-dir (kills must survive a restart)")
 	}
@@ -149,6 +161,28 @@ func policyWriter(portal server.Portal, policyDir string) (server.PolicyWriter, 
 		return nil, fmt.Errorf("portal policyRepoDir: %w", err)
 	}
 	return &server.GitPolicyWriter{RepoDir: portal.PolicyRepoDir, ServedDir: policyDir, Subdir: portal.PolicySubdir, Base: portal.PolicyBase, Opener: promote.GHOpener{}}, nil
+}
+
+// readSCIMHashes reads one hex SHA-256 per line; blank lines and # comments
+// are skipped. server.New validates each digest.
+func readSCIMHashes(path string) ([]string, error) {
+	if path == "" {
+		return nil, nil
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("--scim-token-sha256-file: %w", err)
+	}
+	var out []string
+	for _, l := range strings.Split(string(b), "\n") {
+		if l = strings.TrimSpace(l); l != "" && !strings.HasPrefix(l, "#") {
+			out = append(out, l)
+		}
+	}
+	if len(out) == 0 {
+		return nil, errors.New("--scim-token-sha256-file: no token hash in the file")
+	}
+	return out, nil
 }
 
 // run serves until ctx ends (then shuts down gracefully) or the listener fails.
@@ -224,6 +258,10 @@ func run(ctx context.Context, args []string) error {
 	if o.gatewayTokenFile != "" && len(gwToken) < 16 {
 		return errors.New("--gateway-token-file: token must be at least 16 characters")
 	}
+	scimHashes, err := readSCIMHashes(o.scimTokenHashFile)
+	if err != nil {
+		return err
+	}
 	// One kill store shared by the server (serves it) and the controller (reads it).
 	kills, err := controller.OpenKillStore(o.dataDir)
 	if err != nil {
@@ -235,6 +273,7 @@ func run(ctx context.Context, args []string) error {
 		SessionKey: []byte(sessionKey), OIDCClientSecret: clientSecret, Portal: portal, DataDir: o.dataDir, Writer: writer,
 		DeviceTTL: o.deviceTTL, DevUser: o.devUser, DevGroups: o.devGroups, DevAdmin: o.devAdmin, TrustedProxies: o.trusted,
 		KillStore: kills, KillKey: killKey, GatewayToken: gwToken, PostureMaxAge: o.postureMaxAge,
+		SCIMTokenSHA256: scimHashes, SCIMAuthoritative: o.scimAuthoritative,
 	})
 	if err != nil {
 		return err

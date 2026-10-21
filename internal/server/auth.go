@@ -127,6 +127,11 @@ func (s *Server) principal(r *http.Request) (Principal, bool) {
 		}
 		p.Groups = g
 	}
+	g, ok := s.directoryGroups(p.Sub, p.Groups) // SCIM: deactivated users are out; authoritative groups win
+	if !ok {
+		return Principal{}, false
+	}
+	p.Groups = g
 	// Admin is recomputed from current policy rather than trusted from the cookie.
 	return Principal{ID: p.Sub, Groups: p.Groups, Admin: s.isAdmin(p.Groups)}, true
 }
@@ -387,6 +392,12 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 		fail(http.StatusForbidden, err.Error(), err)
 		return
 	}
+	var provisioned bool
+	if p.Groups, provisioned = s.directoryGroups(p.ID, p.Groups); !provisioned {
+		fail(http.StatusForbidden, "user is deactivated or not provisioned", nil)
+		return
+	}
+	p.Admin = s.isAdmin(p.Groups)
 	org, _, _ := s.pol.Get()
 	exp := s.cfg.Now().Add(sessionTTL)
 	sess := cookiePayload{Sub: p.ID, Groups: policyGroups(org, p.Groups), Exp: exp.Unix(), Iat: s.cfg.Now().UnixNano()}

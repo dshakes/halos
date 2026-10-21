@@ -59,6 +59,15 @@ type Config struct {
 	// /api/v1/gateway/posture, served whenever GatewayToken is set). 0 = DefaultPostureMaxAge.
 	PostureMaxAge time.Duration
 
+	// SCIM 2.0 provisioning at /scim/v2 (ADR-0022). SCIMTokenSHA256 holds the
+	// hex SHA-256 of each accepted bearer token (two while rotating); empty =
+	// SCIM off. SCIMAuthoritative: the directory, not the login's groups claim
+	// or a device's enrollment groups, decides who is active and their groups.
+	// SCIMStore nil = opened from DataDir.
+	SCIMTokenSHA256   []string
+	SCIMAuthoritative bool
+	SCIMStore         SCIMStore
+
 	// DevUser disables authentication and acts as this user. INSECURE: local demos only.
 	DevUser   string
 	DevGroups []string
@@ -83,7 +92,8 @@ type Server struct {
 	relFetch    pointerFetch  // ring pointer reader; swapped in tests
 	relChannels channelsFetch // ring release -> experiment channels; swapped in tests
 	kills       *controller.KillStore
-	gwSum       [32]byte // sha256 of GatewayToken
+	gwSum       [32]byte     // sha256 of GatewayToken
+	scim        *scimService // nil = SCIM off
 }
 
 // New validates cfg and returns a Server. It does not require the policy dir to load yet.
@@ -139,13 +149,16 @@ func New(cfg Config) (*Server, error) {
 		}
 	}
 	s.gwSum = sha256.Sum256([]byte(cfg.GatewayToken))
+	if s.scim, err = newSCIM(cfg); err != nil {
+		return nil, err
+	}
 	return s, nil
 }
 
 // Close releases the files New opened under Config.DataDir. A Store or
 // KillStore passed in via Config stays the caller's to close.
 func (s *Server) Close() error {
-	errs := []error{s.reqs.close(), s.devices.close(), s.revoked.close(), s.auditLog.close()}
+	errs := []error{s.reqs.close(), s.devices.close(), s.revoked.close(), s.auditLog.close(), s.scim.close()}
 	if s.cfg.KillStore == nil && s.kills != nil {
 		errs = append(errs, s.kills.Close())
 	}
@@ -229,6 +242,7 @@ func (s *Server) Handler() http.Handler {
 	m.HandleFunc("GET /auth/login", s.login)
 	m.HandleFunc("GET /auth/callback", s.callback)
 	m.HandleFunc("POST /auth/logout", s.logout)
+	s.scimRoutes(m) // /scim/v2 and GET /api/v1/gateway/directory
 	m.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) { apiErr(w, http.StatusNotFound, "not found") })
 	m.HandleFunc("/", s.static)
 	return s.logging(secure(m))

@@ -318,6 +318,13 @@ func (s *Server) deviceAuth(w http.ResponseWriter, r *http.Request) (Device, boo
 		apiErr(w, http.StatusUnauthorized, "unauthorized")
 		return Device{}, false
 	}
+	g, ok := s.directoryGroups(dev.UserID, dev.Groups) // SCIM-authoritative groups; an unprovisioned user's device is refused
+	if !ok {
+		w.Header().Set("WWW-Authenticate", `Bearer error="invalid_token"`)
+		apiErr(w, http.StatusUnauthorized, "user is deactivated or not provisioned")
+		return Device{}, false
+	}
+	dev.Groups = g
 	return dev, true
 }
 

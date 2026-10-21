@@ -126,7 +126,7 @@ export default defineConfig({
             },
             {
               label: 'Operate',
-              items: ['guides/production-deployment', 'guides/operations', 'guides/new-harness-adapter'],
+              items: ['guides/production-deployment', 'guides/operations', 'guides/scim-provisioning', 'guides/new-harness-adapter'],
             },
           ],
         },

@@ -44,6 +44,10 @@ func TestParseFlags(t *testing.T) {
 			func(o options) bool {
 				return o.controller && o.interval == 5*time.Minute && o.policyRepoBase == "main" && o.killKeyFile == "k" && o.gatewayTokenFile == "g" && o.policyRepoDir == "r"
 			}},
+		{"scim authoritative without token hashes", []string{"--policy-dir", "p", "--token-file", "t", "--scim-authoritative"}, "requires --scim-token-sha256-file", nil},
+		{"scim without data dir", []string{"--policy-dir", "p", "--token-file", "t", "--scim-token-sha256-file", "h"}, "requires --data-dir", nil},
+		{"scim ok", []string{"--policy-dir", "p", "--token-file", "t", "--scim-token-sha256-file", "h", "--scim-authoritative", "--data-dir", "d"}, "",
+			func(o options) bool { return o.scimTokenHashFile == "h" && o.scimAuthoritative }},
 		{"ok", []string{"--policy-dir", "p", "--token-file", "t", "--trusted-proxy-cidrs", " 10.1.2.3/8 ,", "--dev-insecure-groups", "a, b,", "--dev-insecure-admin", "--device-ttl", "24h"}, "",
 			func(o options) bool {
 				return o.policyDir == "p" && o.listen == "127.0.0.1:8080" && len(o.trusted) == 1 && o.trusted[0].String() == "10.0.0.0/8" &&
@@ -63,6 +67,31 @@ func TestParseFlags(t *testing.T) {
 				t.Fatalf("%+v %v", o, err)
 			}
 		})
+	}
+}
+
+func TestReadSCIMHashes(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, body string) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	h1, h2 := strings.Repeat("ab", 32), strings.Repeat("cd", 32)
+	got, err := readSCIMHashes(write("pair", "# current\n"+h1+"\n\n  "+h2+"  \n"))
+	if err != nil || strings.Join(got, ",") != h1+","+h2 {
+		t.Fatalf("rotation pair: %v %v", got, err)
+	}
+	if got, err := readSCIMHashes(""); got != nil || err != nil {
+		t.Fatalf("unset: %v %v", got, err)
+	}
+	if _, err := readSCIMHashes(write("empty", "# nothing\n\n")); err == nil {
+		t.Fatal("a file without hashes was accepted")
+	}
+	if _, err := readSCIMHashes(filepath.Join(dir, "missing")); err == nil {
+		t.Fatal("a missing file was accepted")
 	}
 }
 

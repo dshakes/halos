@@ -36,9 +36,10 @@ type Proxy struct {
 	rp     *httputil.ReverseProxy
 	mirror *shadow.Mirrorer // nil = mirroring off
 	sigv4  *upstreamauth.Bedrock
-	kill   *gateway.KillSwitch    // nil = no kill switch
-	pc     *gateway.PostureClient // nil = posture gate off
-	otlp   *gwmetrics.Emitter     // nil = request metrics export off
+	kill   *gateway.KillSwitch      // nil = no kill switch
+	pc     *gateway.PostureClient   // nil = posture gate off
+	dir    *gateway.DirectoryClient // nil = groups from the verified identity alone
+	otlp   *gwmetrics.Emitter       // nil = request metrics export off
 	m      *metrics
 	log    *slog.Logger
 
@@ -94,6 +95,9 @@ func newProxy(cfg Config, log *slog.Logger) (*Proxy, error) {
 		return nil, err
 	}
 	if p.pc, err = cfg.Posture.build(log); err != nil {
+		return nil, err
+	}
+	if p.dir, err = cfg.Directory.build(log); err != nil {
 		return nil, err
 	}
 	if p.otlp, err = gwmetrics.New(cfg.Telemetry); err != nil {
@@ -256,6 +260,9 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	sub, ok := p.authenticate(sw, r, org)
 	if !ok {
 		return
+	}
+	if p.dir != nil { // SCIM directory is authoritative: its groups, or an unknown caller
+		sub = p.dir.Resolve(r.Context(), sub)
 	}
 
 	// Body: bounded for every request; fully read only for model calls, which
