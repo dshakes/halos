@@ -24,6 +24,7 @@
         "internal/release",
         "internal/rollout",
         "internal/server",
+        "internal/shadow",
         "internal/telemetry",
         "internal/toggle",
         "internal/upgrade",
@@ -129,6 +130,7 @@
       "path": "internal/eval",
       "imports": [
         "internal/gateway",
+        "internal/policy",
         "internal/shadow",
         "internal/stats"
       ]
@@ -255,6 +257,7 @@
         "internal/promote",
         "internal/release",
         "internal/rollout",
+        "internal/shadow",
         "internal/toggle",
         "internal/upgrade",
         "internal/yamledit"

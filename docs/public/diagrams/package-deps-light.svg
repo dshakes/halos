@@ -255,6 +255,7 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <circle class="fa" cx="555.5" cy="482.5" r="3"/>
 <circle class="fa" cx="599.5" cy="482.5" r="3"/>
 <circle class="ft" cx="555.5" cy="493.5" r="3"/>
+<circle class="ft" cx="335.5" cy="493.5" r="3"/>
 <circle class="ft" cx="599.5" cy="493.5" r="3"/>
 <circle class="ft" cx="291.5" cy="493.5" r="3"/>
 <circle class="ft" cx="643.5" cy="504.5" r="3"/>
@@ -285,6 +286,7 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <circle class="ft" cx="434.5" cy="537.5" r="3"/>
 <circle class="ft" cx="522.5" cy="537.5" r="3"/>
 <circle class="ft" cx="654.5" cy="537.5" r="3"/>
+<circle class="ft" cx="599.5" cy="537.5" r="3"/>
 <circle class="ft" cx="500.5" cy="537.5" r="3"/>
 <circle class="ft" cx="665.5" cy="537.5" r="3"/>
 <circle class="ft" cx="401.5" cy="537.5" r="3"/>
@@ -320,6 +322,7 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <circle class="fa" cx="522.5" cy="559.5" r="3"/>
 <circle class="fa" cx="654.5" cy="559.5" r="3"/>
 <circle class="fa" cx="698.5" cy="559.5" r="3"/>
+<circle class="fa" cx="599.5" cy="559.5" r="3"/>
 <circle class="fa" cx="302.5" cy="559.5" r="3"/>
 <circle class="fa" cx="500.5" cy="559.5" r="3"/>
 <circle class="fa" cx="665.5" cy="559.5" r="3"/>
@@ -329,6 +332,6 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <circle class="fa" cx="335.5" cy="570.5" r="3"/>
 <circle class="fa" cx="434.5" cy="570.5" r="3"/>
 <circle class="fa" cx="698.5" cy="570.5" r="3"/>
-<text class="s" x="24" y="610">46 packages, 159 import edges, 13 layers (shaded bands alternate by layer).</text>
+<text class="s" x="24" y="610">46 packages, 162 import edges, 13 layers (shaded bands alternate by layer).</text>
 <text class="xs" x="24" y="628">Gold dots: a binary under cmd/ importing an internal package.</text>
 </svg>

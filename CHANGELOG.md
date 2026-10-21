@@ -14,6 +14,29 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
   - agreement by depth.
 - `halo.eval.agent.fidelity` and `halo.eval.agent.invalid_call_rate` are registered metrics, one sample per hashed session and arm, usable as shadow-experiment guardrails in `halo exp analyze` and the controller. Shadow evidence still never promotes.
 - `stats.ClusterBootstrapMean` / `PairedClusterBootstrap`.
+- **Session-to-eval harvesting** ([ADR-0020](https://dshakes.github.io/halos/adr/0020-harvest-shadow-sessions-into-replay-evals/)). `halo eval harvest` turns shadow steps into redacted step-level regression cases. It selects steps where the candidate diverged, made an invalid call, stopped early or lost on judge score, plus a depth-stratified sample. Cases are written 0600 with hashed sessions; redaction is mandatory and fail-closed. `halo eval steps run` replays them against a model route and grades the next action with session-clustered CIs. MCP: `eval_harvest` (preview without `--allow-writes`).
+- **Role-based access control for halo-server** ([ADR-0015](https://dshakes.github.io/halos/adr/0015-rbac-roles-for-halo-server/)).
+  - `identity.roles` maps IdP groups to `viewer`, `operator`, `approver`, `auditor` and `admin`. `adminGroups` still grants admin.
+  - Every console and API route is enforced from one deny-by-default permission table, and every denial is audited as `authz.deny`.
+  - `/api/v1/me` and `/api/v1/capabilities` report the caller's roles and permissions, and the console hides actions accordingly. New `--dev-insecure-roles` for demos.
+- **Audit export to SIEM** ([ADR-0016](https://dshakes.github.io/halos/adr/0016-audit-export-to-siem/)).
+  - `--audit-config` forwards every audit entry at least once and in order to Splunk HEC, an HMAC-signed HTTPS webhook (Datadog-ready) or RFC 5424 syslog over TLS.
+  - Formats are native (hash-verifiable) or OCSF API Activity.
+  - Each sink has its own cursor and backoff, and chain checks halt export on tampering. Metrics: `halo_server_audit_forward_*`.
+  - The audit log rotates by size or age into segments the hash chain runs across. `GET /api/v1/audit` streams instead of loading the log into memory, and `halo audit verify --data-dir` checks every segment. Helm: `server.audit`.
+- **Org hierarchy** ([ADR-0018](https://dshakes.github.io/halos/adr/0018-org-hierarchy-and-delegated-policy/)).
+  - The new `Unit` kind covers business units and teams with delegated owners, member selectors and overlays.
+  - Enforced security fields can only be tightened, and `halo validate` reports each loosening with its field path.
+  - New `halo units codeowners`, and `halo explain --user`, which shows the effective config with the layer that set each field.
+  - Unit files ship inside the signed release, and `halod` applies them.
+- **Agent extension governance.** Profiles can govern `extensions.{marketplaces,blockedMarketplaces,plugins,skills,subagents,outputStyle,statusLine}` and `login`.
+  - These render only where the vendor documents a key (Claude Code, Codex, Gemini CLI, Copilot CLI) and warn in the release manifest everywhere else.
+  - `mcp.denied` now renders for Gemini (`mcp.excluded`) and Copilot (`deniedMcpServers`). For Copilot, `mcp.managedOnly` with no servers renders `allowedMcpServers: []`.
+  - The harness matrix gains an `extensions` capability.
+- **OpenTelemetry GenAI semantic conventions** (semconv v1.40.0, Development stability).
+  - halo-proxy exports `gen_ai.client.token.usage`, `gen_ai.client.operation.duration` and `gen_ai.server.time_to_first_token` alongside the unchanged `halo.gateway.*` series, on by default.
+  - Opt-in `telemetry.genai.traces` sends one content-free `chat {model}` span per call.
+  - `halo telemetry collector-config` gains a `traces/gateway` pipeline.
 
 ### Changed
 - `halo eval online` intervals, the judge-score delta included, now resample sessions instead of pairs: steps of one session are correlated, and per-pair intervals were falsely narrow on multi-turn data. With one pair per session the result is identical to before.
