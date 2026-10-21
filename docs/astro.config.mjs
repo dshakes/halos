@@ -78,6 +78,7 @@ export default defineConfig({
             'concepts/rollouts',
             'concepts/experiments',
             'concepts/toggles',
+            'concepts/org-hierarchy',
             'concepts/evals',
             'concepts/shadow-traffic',
             'concepts/delivery',

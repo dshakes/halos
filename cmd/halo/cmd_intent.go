@@ -779,13 +779,30 @@ func cmpOr(a, b string) string {
 }
 
 func (a *app) cmdExplain() *cobra.Command {
-	var kind string
+	var kind, user, groups string
 	c := &cobra.Command{
-		Use: "explain", Short: "Print the full low-level policy halos.yaml expands to (the hidden layer)", Args: cobra.NoArgs, Annotations: policyDirAnno,
+		Use: "explain", Short: "Print the full low-level policy halos.yaml expands to, or with --user one user's effective config and which layer set each field",
+		Args: cobra.NoArgs, Annotations: policyDirAnno,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			r, err := a.openRepo(cmd)
 			if err != nil {
 				return err
+			}
+			if user != "" {
+				if kind != "" {
+					return errors.New("--kind and --user are exclusive")
+				}
+				var gs []string
+				for _, g := range strings.Split(groups, ",") {
+					if g = strings.TrimSpace(g); g != "" {
+						gs = append(gs, g)
+					}
+				}
+				res, err := explainUser(r.Org, user, gs)
+				if err != nil {
+					return err
+				}
+				return a.emit(res, func() { a.printExplained(res) })
 			}
 			docs, err := r.Explain(kind)
 			if err != nil {
@@ -801,7 +818,9 @@ func (a *app) cmdExplain() *cobra.Command {
 			})
 		},
 	}
-	c.Flags().StringVar(&kind, "kind", "", "only this kind (Gateway, Profile, Ring, Experiment, Toggle, Rollout)")
+	c.Flags().StringVar(&kind, "kind", "", "only this kind (Gateway, Profile, Ring, Experiment, Toggle, Rollout, Unit)")
+	c.Flags().StringVar(&user, "user", "", "explain this user's effective config (ring, variant, unit) with the layer that set each field")
+	c.Flags().StringVar(&groups, "groups", "", "comma-separated IdP groups of --user")
 	return c
 }
 

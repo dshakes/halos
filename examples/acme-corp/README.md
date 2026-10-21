@@ -16,6 +16,8 @@ Anthropic upstream for experiments.
 | `experiments/opus-5-5-canary.yaml` | Experiment | Traffic-axis canary: new Opus route for 5% of ring1 |
 | `experiments/claude-cli-2.1.3xx-ab.yaml` | Experiment | Client-axis A/B of a CLI upgrade |
 | `experiments/sonnet-next-shadow.yaml` | Experiment | Shadow: 5% of first-turn requests mirrored to a candidate |
+| `units/payments/unit.yaml` | Unit | Business unit (IdP group `payments-eng`): narrower models, PCI deny rules, owned by `@acme/payments-platform` |
+| `units/payments/checkout/unit.yaml` | Unit | Team inside payments (`checkout-eng`): plan mode, push confirmation; tightens its parent only |
 
 All experiments use mSPRT stopping with the `halo.*` metrics
 (`halo.task.success`, `halo.cost.usd_per_session`, `halo.api.error_rate`,

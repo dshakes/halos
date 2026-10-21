@@ -44,6 +44,14 @@ type Org struct {
 	// Rollouts are omitted when empty, like Toggles.
 	Rollouts []*Rollout `json:",omitempty"`
 
+	// Units are the org hierarchy (ADR-0018), omitted when empty like Toggles.
+	Units []*Unit `json:",omitempty"`
+
+	// Sources records which repo-relative file declared each document, so
+	// Validate can keep unit directories (delegated by CODEOWNERS) to Unit
+	// documents. Not part of the snapshot.
+	Sources []Source `json:"-"`
+
 	// Deprecations are load-time warnings (one per file still on a deprecated
 	// apiVersion) that Validate reports. Not part of the snapshot.
 	Deprecations []Issue `json:"-"`

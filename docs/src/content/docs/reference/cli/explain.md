@@ -1,9 +1,9 @@
 ---
 title: "halo explain"
-description: "Print the full low-level policy halos.yaml expands to (the hidden layer)"
+description: "Print the full low-level policy halos.yaml expands to, or with --user one user's effective config and which layer set each field"
 ---
 
-Print the full low-level policy halos.yaml expands to (the hidden layer)
+Print the full low-level policy halos.yaml expands to, or with --user one user's effective config and which layer set each field
 
 ## Usage
 
@@ -15,8 +15,10 @@ halo explain [flags]
 
 | Flag | Shorthand | Type | Default | Description |
 |---|---|---|---|---|
-| `--kind` |  | string |  | only this kind (Gateway, Profile, Ring, Experiment, Toggle, Rollout) |
+| `--groups` |  | string |  | comma-separated IdP groups of --user |
+| `--kind` |  | string |  | only this kind (Gateway, Profile, Ring, Experiment, Toggle, Rollout, Unit) |
 | `--policy-dir` |  | string |  | policy repo directory (default ".") |
+| `--user` |  | string |  | explain this user's effective config (ring, variant, unit) with the layer that set each field |
 
 ## Global flags
 

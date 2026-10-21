@@ -1,0 +1,19 @@
+# yaml-language-server: $schema=../../../../../schemas/unit.schema.json
+# A team inside payments: it inherits the payments overlay and can only
+# tighten it further. Its owners approve units/payments/checkout/.
+apiVersion: halos.dev/v1
+kind: Unit
+name: checkout
+parent: payments
+description: Checkout team. Plan mode by default; pushes need a confirmation.
+owners: ["@acme/checkout-team"]
+members:
+  groups: [checkout-eng]
+overlay:
+  permissions:
+    mode: plan
+    ask:
+      - Bash(git push:*)
+  telemetry:
+    attributes:
+      team: checkout
