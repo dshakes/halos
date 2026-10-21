@@ -54,6 +54,15 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
   - Opt-in `telemetry.genai.traces` sends one content-free `chat {model}` span per call.
   - `halo telemetry collector-config` gains a `traces/gateway` pipeline.
 
+### Security
+- SCIM deprovisioning revokes sessions whatever the case of the user id, and gateway posture matches device owners case-insensitively.
+- Gateways with a SCIM directory refuse (403) a verified caller who is deactivated or not provisioned, instead of routing them anonymously. Workload credentials skip the directory, and human identities cannot start with `workload:`.
+- SCIM memberships are indexed: lookups and member changes are linear.
+- New optional `--gateway-{killswitch,posture,budget,directory}-token-file` flags give each gateway capability its own token.
+- Workload rules must pin an exact tenant claim. Issuers Halos doesn't know must set `issuers[].tenantClaim`, so AWS, AKS and self-managed GitLab issuers fail `halo validate` until they do.
+- A unit that adds hooks, env keys, MCP servers or extensions is loosening policy, unless the org delegates it (`delegation.allowHooks`, `delegation.envKeys`, `selfService.catalog`). Provider, proxy and runtime-injection env keys are refused even when delegated. Top-level units select groups only, and their files belong to the root owners.
+- Aborted or compressed metered responses are charged (new `estimated` outcome, replacing `no_usage`), so a successful call is never free. GenAI telemetry and budgets share one usage parser.
+
 ### Changed
 - `halo eval online` intervals, the judge-score delta included, now resample sessions instead of pairs: steps of one session are correlated, and per-pair intervals were falsely narrow on multi-turn data. With one pair per session the result is identical to before.
 - `halo.eval.judge.score` analysis samples use unit = hashed session instead of pair id. Pairs from one session are correlated, so per-pair units made `halo exp analyze` intervals too narrow.
