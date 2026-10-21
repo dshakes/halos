@@ -66,7 +66,7 @@ type routeCtx struct {
 	served   *attempt
 	failover bool // an earlier target failed or was skipped
 
-	tap *usageTap // GenAI usage observer on the response body; nil unless GenAI telemetry is on for this call
+	tap    *usageTap    // GenAI usage observer on the response body; nil unless GenAI telemetry is on for this call
 	budget *budgetMeter // nil = response not metered
 }
 
