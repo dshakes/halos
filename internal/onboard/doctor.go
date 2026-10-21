@@ -43,7 +43,7 @@ var tools = []struct{ bin, why, fix string }{
 	{"git", "policy repo and PRs", "install git: https://git-scm.com/downloads"},
 	{"gh", "opening the policy PR (company path)", "install the GitHub CLI: https://cli.github.com, then gh auth login"},
 	{"docker", "halo quickstart and halo eval run", "install Docker Desktop or Docker Engine with Compose v2: https://docs.docker.com/get-docker/"},
-	{"npm", "installing codex, gemini-cli and copilot-cli", "install Node.js 22+: https://nodejs.org"},
+	{"npm", "installing codex, gemini-cli, copilot-cli and opencode", "install Node.js 22+: https://nodejs.org"},
 	{"halo-proxy", "a local gateway (halo onboard proxy)", "go install github.com/dshakes/halos/cmd/halo-proxy@latest, or the halo-proxy archive from https://github.com/dshakes/halos/releases"},
 }
 
@@ -87,7 +87,7 @@ func Doctor(ctx context.Context, e Env, dir string) Report {
 		}
 	}
 	if installed == 0 {
-		add(Check{"harnesses", StatusWarn, "no AI coding CLI found on PATH (claude, codex, gemini, copilot)",
+		add(Check{"harnesses", StatusWarn, "no AI coding CLI found on PATH (claude, codex, gemini, copilot, cursor-agent, opencode)",
 			installFix("claude-code", "", e.GOOS) + "   # or: " + installFix("codex", "", e.GOOS)})
 	}
 

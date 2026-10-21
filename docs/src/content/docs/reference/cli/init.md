@@ -29,7 +29,7 @@ halo init [flags]
 | `--provider` |  | string | anthropic | anthropic \| bedrock \| vertex \| openai \| gemini \| multi |
 | `--rollout` |  | string | standard | rollout preset: fast \| standard \| careful |
 | `--safety` |  | string | standard | safety preset: strict \| standard \| relaxed |
-| `--tools` |  | stringSlice | [claude-code@2.1.280] | harnesses as name@version (claude-code, codex, gemini-cli, copilot-cli) |
+| `--tools` |  | stringSlice | [claude-code@2.1.280] | harnesses as name@version (claude-code, codex, gemini-cli, copilot-cli, cursor-agent, opencode) |
 
 ## Global flags
 

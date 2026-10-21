@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "preToolUse": [
+      {
+        "command": "/opt/halo/audit.sh",
+        "matcher": "Shell"
+      }
+    ],
+    "sessionStart": [
+      {
+        "command": "/opt/halo/start.sh"
+      }
+    ]
+  },
+  "version": 1
+}

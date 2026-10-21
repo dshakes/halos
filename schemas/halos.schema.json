@@ -286,7 +286,9 @@
           "claude-code",
           "codex",
           "gemini-cli",
-          "copilot-cli"
+          "copilot-cli",
+          "cursor-agent",
+          "opencode"
         ]
       },
       "additionalProperties": {

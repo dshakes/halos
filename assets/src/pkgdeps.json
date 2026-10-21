@@ -186,7 +186,9 @@
         "internal/harness/claudecode",
         "internal/harness/codex",
         "internal/harness/copilot",
-        "internal/harness/gemini"
+        "internal/harness/cursor",
+        "internal/harness/gemini",
+        "internal/harness/opencode"
       ]
     },
     {
@@ -214,6 +216,14 @@
       ]
     },
     {
+      "path": "internal/harness/cursor",
+      "imports": [
+        "internal/harness",
+        "internal/harness/hutil",
+        "internal/policy"
+      ]
+    },
+    {
       "path": "internal/harness/gemini",
       "imports": [
         "internal/harness",
@@ -231,6 +241,14 @@
     {
       "path": "internal/harness/hutil/hutiltest",
       "imports": [
+        "internal/policy"
+      ]
+    },
+    {
+      "path": "internal/harness/opencode",
+      "imports": [
+        "internal/harness",
+        "internal/harness/hutil",
         "internal/policy"
       ]
     },

@@ -17,7 +17,7 @@ import (
 // strictHarnesses are the adapters whose rendered JSON/TOML must parse; for
 // any other adapter unparseable files are skipped (only parseable ones get
 // the universal checks).
-var strictHarnesses = []string{"claude-code", "codex", "gemini-cli"}
+var strictHarnesses = []string{"claude-code", "codex", "gemini-cli", "cursor-agent", "opencode"}
 
 // forbiddenValues may never appear as a config value in any rendered file
 // (AGENTS.md invariant 1).
@@ -69,6 +69,10 @@ func CheckRendered(harnessName string, os harness.OS, files []harness.File, p *p
 			err = checkCodex(doc, p, g, !strings.HasSuffix(f.Path, "requirements.toml"), fail)
 		case harnessName == "gemini-cli":
 			err = checkGemini(doc, p, fail)
+		case harnessName == "opencode" && strings.HasSuffix(f.Path, "opencode.json"):
+			err = checkOpenCode(doc, g, fail)
+		case harnessName == "cursor-agent":
+			err = checkCursor(doc, fail)
 		}
 		if err != nil {
 			return err
@@ -209,6 +213,70 @@ func checkGemini(d map[string]any, p *policy.Profile, fail func(string, ...any) 
 	t, _ := d["telemetry"].(map[string]any)
 	if t["logPrompts"] == true && !p.Telemetry.LogPrompts {
 		return fail("telemetry.logPrompts = true but the profile does not enable telemetry.logPrompts")
+	}
+	return nil
+}
+
+// checkOpenCode: a permission block that is the bare string "allow" or has a
+// "*": "allow" entry approves every action (OpenCode's bypass equivalent), which
+// no profile may render. With a gateway, every provider must point under it and
+// only gateway providers may be enabled (a user provider could otherwise reach
+// a model vendor directly). Keys per https://opencode.ai/config.json.
+func checkOpenCode(d map[string]any, g *policy.Gateway, fail func(string, ...any) error) error {
+	switch perm := d["permission"].(type) {
+	case string:
+		if perm == "allow" {
+			return fail(`permission = "allow" approves every action and is never allowed`)
+		}
+	case map[string]any:
+		if perm["*"] == "allow" {
+			return fail(`permission["*"] = "allow" approves every action and is never allowed`)
+		}
+	}
+	if g == nil {
+		return nil
+	}
+	base := strings.TrimRight(g.BaseURL, "/")
+	provs, _ := d["provider"].(map[string]any)
+	for _, id := range sortedKeys(provs) {
+		pm, _ := provs[id].(map[string]any)
+		opts, _ := pm["options"].(map[string]any)
+		if u, _ := opts["baseURL"].(string); u != base && !strings.HasPrefix(u, base+"/") {
+			return fail("provider.%s.options.baseURL = %q is not under gateway %q", id, u, g.BaseURL)
+		}
+	}
+	enabled, _ := d["enabled_providers"].([]any)
+	if len(enabled) == 0 {
+		return fail("gateway is configured but enabled_providers is unset (OpenCode would also load direct providers)")
+	}
+	for _, e := range enabled {
+		if _, ok := provs[fmt.Sprint(e)]; !ok {
+			return fail("enabled_providers names %v, which is not a gateway provider", e)
+		}
+	}
+	if m, ok := d["model"].(string); ok {
+		if id, _, _ := strings.Cut(m, "/"); provs[id] == nil {
+			return fail("model = %q does not name a gateway provider", m)
+		}
+	}
+	return nil
+}
+
+// checkCursor: every rendered hook must be a command hook with a command (a
+// "prompt" hook would hand the decision to a model).
+func checkCursor(d map[string]any, fail func(string, ...any) error) error {
+	hooks, _ := d["hooks"].(map[string]any)
+	for _, ev := range sortedKeys(hooks) {
+		list, _ := hooks[ev].([]any)
+		for i, e := range list {
+			h, _ := e.(map[string]any)
+			if t, ok := h["type"]; ok && t != "command" {
+				return fail("hooks.%s[%d].type = %v, only command hooks are rendered", ev, i, t)
+			}
+			if c, _ := h["command"].(string); c == "" {
+				return fail("hooks.%s[%d] has no command", ev, i)
+			}
+		}
 	}
 	return nil
 }

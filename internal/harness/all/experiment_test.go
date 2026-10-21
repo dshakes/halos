@@ -2,6 +2,7 @@ package all_test
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -14,10 +15,17 @@ import (
 // CLI's telemetry resource attributes: claude-code via managed env, the others
 // via their /etc/profile.d wrapper on Linux (they all honor
 // OTEL_RESOURCE_ATTRIBUTES; test/uat), with a warning elsewhere. Neither is
-// ever a request header: the gateway assigns x-halo-experiment.
+// ever a request header: the gateway assigns x-halo-experiment. An adapter that
+// does not declare CapTelemetry (opencode: its OTLP endpoint is environment-only
+// and a managed file cannot set it; cursor-agent: dashboard-side) renders no
+// telemetry, so there is nothing to attribute; it warns instead (adapter tests).
 func TestExperimentAttribution(t *testing.T) {
+	matrix := harness.Matrix()
 	attrRe := regexp.MustCompile(`OTEL_RESOURCE_ATTRIBUTES"?[:=] ?["']([^"']*)`)
 	for _, name := range harness.Names() {
+		if !slices.Contains(matrix[name], harness.CapTelemetry) {
+			continue
+		}
 		t.Run(name, func(t *testing.T) {
 			ad, _ := harness.Get(name)
 			p, g := hutiltest.Fixture()

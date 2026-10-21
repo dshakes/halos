@@ -1,9 +1,9 @@
 ---
 title: "halo onboard verify"
-description: "Run each installed CLI headless (claude -p, codex exec, gemini -p, copilot -p) and check the reply"
+description: "Run each installed CLI headless (claude -p, codex exec, gemini -p, copilot -p, cursor-agent -p, opencode run) and check the reply"
 ---
 
-Run each installed CLI headless (claude -p, codex exec, gemini -p, copilot -p) and check the reply
+Run each installed CLI headless (claude -p, codex exec, gemini -p, copilot -p, cursor-agent -p, opencode run) and check the reply
 
 One short model call per CLI, through whatever endpoint its config points at. Skipped when the CLI
 is missing or no credential variable is set; a CLI that is logged in (OAuth, keychain) needs

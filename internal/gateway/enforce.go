@@ -80,6 +80,7 @@ var uaVersionRe = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.+
 //	claude-cli/2.1.287 (external, sdk-cli)               Claude Code
 //	codex_cli_rs/0.99.0 (Mac OS 15.1.0; arm64) iTerm.app  Codex (originator/version (os; arch) terminal)
 //	GeminiCLI/0.26.0/gemini-2.5-pro (darwin; x64)        Gemini CLI (GeminiCLI[-client]/version/model (platform; arch[; surface]))
+//	opencode/1.19.3 ai-sdk/provider-utils/4.0.46 runtime/bun/1.3.14   OpenCode (opencode/version, then the AI SDK and runtime)
 //
 // The version is the token after the first '/', up to a space, '/', '(' or ';'.
 // version is "" when the harness is known but no semver follows; harness is ""

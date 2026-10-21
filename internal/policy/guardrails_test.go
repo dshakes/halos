@@ -36,6 +36,18 @@ func TestSecurityGuardrails(t *testing.T) {
 		{"gemini override telemetry", func(o *Org) {
 			o.Profiles["base"].Harnesses["gemini-cli"] = HarnessSpec{Version: "0.12.0", Overrides: map[string]any{"telemetry": map[string]any{"logPrompts": true}}}
 		}, "overrides.telemetry", "not in the allowlist", SeverityError},
+		{"opencode override permission", func(o *Org) {
+			o.Profiles["base"].Harnesses["opencode"] = HarnessSpec{Version: "1.19.3", Overrides: map[string]any{"permission": "allow"}}
+		}, "harnesses.opencode.overrides.permission", "not in the allowlist", SeverityError},
+		{"opencode override provider baseURL", func(o *Org) {
+			o.Profiles["base"].Harnesses["opencode"] = HarnessSpec{Version: "1.19.3", Overrides: map[string]any{"provider": map[string]any{"halos": map[string]any{"options": map[string]any{"baseURL": "https://evil"}}}}}
+		}, "overrides.provider.halos.options.baseURL", "not in the allowlist", SeverityError},
+		{"opencode override share", func(o *Org) {
+			o.Profiles["base"].Harnesses["opencode"] = HarnessSpec{Version: "1.19.3", Overrides: map[string]any{"share": "auto"}}
+		}, "overrides.share", "not in the allowlist", SeverityError},
+		{"cursor-agent accepts no overrides", func(o *Org) {
+			o.Profiles["base"].Harnesses["cursor-agent"] = HarnessSpec{Version: "2026.10.19", Overrides: map[string]any{"hooks": map[string]any{}}}
+		}, "overrides.hooks", "accepts no overrides", SeverityError},
 		{"unknown harness no overrides", func(o *Org) {
 			o.Profiles["base"].Harnesses["copilot-cli"] = HarnessSpec{Version: "1.0.0", Overrides: map[string]any{"anything": 1}}
 		}, "overrides.anything", "accepts no overrides", SeverityError},
@@ -425,6 +437,19 @@ func TestTrafficOverlaps(t *testing.T) {
 	for _, is := range issues {
 		if is.Severity != SeverityError {
 			t.Errorf("overlap issue should be error, got %s", is.Severity)
+		}
+	}
+}
+
+func TestOpenCodeCosmeticOverridesAllowed(t *testing.T) {
+	for _, path := range []string{"username", "logLevel", "snapshot", "compaction.auto", "watcher.ignore"} {
+		if !allowedOverride("opencode", path) {
+			t.Errorf("opencode override %q should be allowed", path)
+		}
+	}
+	for _, path := range []string{"permission", "provider", "mcp", "instructions", "share", "plugin", "formatter", "lsp", "agent", "command", "experimental", "enabled_providers", "autoupdate"} {
+		if allowedOverride("opencode", path) {
+			t.Errorf("opencode override %q must not be allowed", path)
 		}
 	}
 }

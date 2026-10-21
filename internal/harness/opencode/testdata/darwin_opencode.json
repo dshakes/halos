@@ -1,0 +1,65 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "autoupdate": false,
+  "enabled_providers": [
+    "halos"
+  ],
+  "instructions": [
+    "/Library/Application Support/opencode/halos-instructions.md"
+  ],
+  "mcp": {
+    "docs": {
+      "headers": {
+        "X-Org": "acme"
+      },
+      "type": "remote",
+      "url": "https://mcp.example.com/docs"
+    },
+    "filesystem": {
+      "enabled": false
+    },
+    "lint": {
+      "command": [
+        "npx",
+        "-y",
+        "lint-mcp"
+      ],
+      "type": "local"
+    }
+  },
+  "model": "halos/halo-haiku",
+  "permission": {
+    "bash": {
+      "*": "ask",
+      "go test": "allow",
+      "go test *": "allow",
+      "git push": "ask",
+      "git push *": "ask"
+    },
+    "read": {
+      ".env": "deny"
+    }
+  },
+  "provider": {
+    "halos": {
+      "models": {
+        "halo-haiku": {
+          "name": "halo-haiku"
+        },
+        "halo-sonnet": {
+          "name": "halo-sonnet"
+        }
+      },
+      "name": "Halos",
+      "npm": "@ai-sdk/anthropic",
+      "options": {
+        "apiKey": "{env:HALO_GATEWAY_TOKEN}",
+        "baseURL": "https://gw.example.com/v1",
+        "headers": {
+          "x-halo-release": "v7",
+          "x-halo-ring": "ring1"
+        }
+      }
+    }
+  }
+}
