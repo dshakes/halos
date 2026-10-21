@@ -26,5 +26,6 @@ Decisions that shape Halos. New ADRs use [MADR](https://adr.github.io/madr/): co
 | [0015](/halos/adr/0015-rbac-roles-for-halo-server/) | RBAC roles for halo-server |
 | [0016](/halos/adr/0016-audit-export-to-siem/) | Audit export to SIEM, with rotation across a continuous hash chain |
 | [0018](/halos/adr/0018-org-hierarchy-and-delegated-policy/) | Org hierarchy: units with delegated owners that can only tighten the baseline |
+| [0020](/halos/adr/0020-harvest-shadow-sessions-into-replay-evals/) | Harvesting shadow sessions into replay evals (builds on 0014) |
 
 The canonical files live in `docs/adr/` in the repository; the docs build copies them into the site.

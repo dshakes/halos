@@ -689,10 +689,18 @@ var depthBuckets = []struct {
 	lo, hi int
 }{{"0", 0, 0}, {"1-4", 1, 4}, {"5-19", 5, 19}, {"20+", 20, 1 << 30}}
 
-// AnalyzeAgent computes the step-level reading over pairs whose both sides
-// answered. It returns nil when no pair's actions could be parsed.
-func AnalyzeAgent(pairs []shadow.Pair, seed uint64) *AgentResult {
-	r := &AgentResult{}
+// stepSet is the parsed steps of a pair set plus what was excluded.
+type stepSet struct {
+	steps                         []agentStep // ordered by session, depth, pair id
+	auxiliary, retries, truncated int
+}
+
+// agentSteps parses every pair whose both sides answered into a step, with
+// production's action recovered where it can be. Auxiliary requests (no
+// tools offered), byte-identical retries and truncated steps are not steps:
+// they are counted and excluded.
+func agentSteps(pairs []shadow.Pair) stepSet {
+	var r stepSet
 	var sources []agentStep // every parsed step: reference candidates
 	seen := map[string]bool{}
 	for _, p := range pairs {
@@ -704,7 +712,7 @@ func AnalyzeAgent(pairs []shadow.Pair, seed uint64) *AgentResult {
 			continue
 		}
 		if len(c.tools) == 0 {
-			r.Auxiliary++
+			r.auxiliary++
 			continue
 		}
 		ca, ok1 := parseResponse(p.Protocol, p.Control.Response)
@@ -714,7 +722,7 @@ func AnalyzeAgent(pairs []shadow.Pair, seed uint64) *AgentResult {
 		}
 		h := sha256.Sum256(p.Request)
 		if key := cluster(p) + "\x00" + string(h[:]); seen[key] {
-			r.Retries++
+			r.retries++
 			continue
 		} else {
 			seen[key] = true
@@ -736,20 +744,27 @@ func AnalyzeAgent(pairs []shadow.Pair, seed uint64) *AgentResult {
 	for _, s := range sources {
 		bySession[cluster(s.pair)] = append(bySession[cluster(s.pair)], s)
 	}
-	var steps []agentStep
 	for _, s := range sources {
 		if s.ctl.Truncated || s.cand.Truncated {
-			r.Truncated++
+			r.truncated++
 			continue
 		}
 		s.ref = reference(s, bySession[cluster(s.pair)])
-		steps = append(steps, s)
+		r.steps = append(r.steps, s)
 	}
+	return r
+}
+
+// AnalyzeAgent computes the step-level reading over pairs whose both sides
+// answered. It returns nil when no pair's actions could be parsed.
+func AnalyzeAgent(pairs []shadow.Pair, seed uint64) *AgentResult {
+	set := agentSteps(pairs)
+	steps := set.steps
 	if len(steps) == 0 {
 		return nil
 	}
+	r := &AgentResult{Steps: len(steps), Auxiliary: set.auxiliary, Retries: set.retries, Truncated: set.truncated}
 	sessions := map[string]bool{}
-	r.Steps = len(steps)
 	var tool, arg []float64
 	var cls []string
 	var refCl []string
