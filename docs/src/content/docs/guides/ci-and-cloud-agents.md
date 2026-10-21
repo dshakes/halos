@@ -32,7 +32,7 @@ workloads:
     - name: github-main
       issuer: github
       match:                   # every entry must hold; exact or glob, * never crosses /
-        repository_owner: acme
+        repository_owner_id: "123456789"   # the tenant pin: acme's immutable org id
         repository: acme/*
         ref: refs/heads/main
         environment: ai-agents
@@ -42,19 +42,51 @@ workloads:
   experiments: false           # default: workloads are never in experiments
 ```
 
-`halo validate` refuses a rule whose patterns all start with a wildcard. GitHub, GitLab.com and Google sign tokens for every customer, so an unpinned rule would admit anyone's pipeline. Pin the owner (`repository_owner`, `namespace_path`, `organization_slug`) and, for anything that can write, the branch or environment too.
+### Pinning the tenant
+
+GitHub, GitLab.com, Buildkite, CircleCI and Google sign a token for every customer, with whatever `aud` the job asks for. The audience proves nothing about who you are, so `ref: refs/heads/main` alone would admit every repository on GitHub, and `repository_owner: acme*` would admit `acme-evil`. `halo validate` therefore requires every rule to match one of its issuer's **tenant claims** exactly, or as `literal/*` (one path segment under a literal, such as `repository: acme/*`):
+
+| Issuer | Tenant claims |
+|---|---|
+| GitHub Actions (`token.actions.githubusercontent.com`, also `/<enterprise>`) | `repository_owner_id`, `repository_owner`, `repository`, `repository_id` |
+| GitLab.com | `namespace_id`, `namespace_path`, `project_id`, `project_path` |
+| Buildkite | `organization_id`, `organization_slug` |
+| CircleCI (`oidc.circleci.com/org/<org-id>`) | `oidc.circleci.com/org-id` |
+| Google (`accounts.google.com`) | `email`, `sub` |
+| Entra ID (`login.microsoftonline.com`, `sts.windows.net`) | `tid` |
+
+Any other issuer (self-managed GitLab, AWS, AKS, your own) must name its tenant claim, and every rule of it must pin that claim:
+
+```yaml
+  issuers:
+    - name: aws
+      url: https://0f1e2d3c.tokens.sts.global.api.aws
+      tenantClaim: sub         # rules must match sub exactly, e.g. the role ARN
+```
+
+On a known issuer `tenantClaim` may narrow the choice to one of its tenant claims (for example `repository_owner_id`), never widen it.
+
+**Prefer immutable ids.** `repository_owner` and `repository` are names. If `acme` renames or deletes its organization, anyone can register `acme` and its workflows then match. `repository_owner_id` and `repository_id` never change (`gh api orgs/acme --jq .id`, `gh api repos/acme/app --jq .id`). `halo validate` warns on a GitHub rule that pins names only. The same holds for GitLab: prefer `namespace_id` or `project_id`.
+
+**Forks and `pull_request_target`.** A pinned owner or repository says which repository's workflow runs, not whose code. `pull_request_target` and `workflow_run` workflows run on the base branch (`ref: refs/heads/main`), with the base repository's identity, and can be made to check out and run a fork's code. Pinning `ref` does not stop that. For anything that reaches production models or spends real budget, also pin one of:
+
+- `environment: <name>` with required reviewers on the GitHub environment, so a human approves each run;
+- `job_workflow_ref: acme/ai-platform/.github/workflows/agent.yml@refs/heads/main`, a reusable workflow the platform team owns, so only that workflow's jobs match;
+- `event_name: push` (or `workflow_dispatch`), so pull-request-triggered runs never match.
+
+`halo validate` warns on a GitHub rule that pins neither `environment` nor `job_workflow_ref`. On GitLab, `ref_protected: "true"` plus a protected `environment` plays the same role; note that in a merge request pipeline `project_path` and `namespace_path` name the source project.
 
 ### Issuers and claims
 
-| Provider | `url` (exact `iss`) | Claims worth matching | Getting the token |
+| Provider | `url` (exact `iss`) | Claims worth matching (tenant claim first) | Getting the token |
 |---|---|---|---|
-| GitHub Actions | `https://token.actions.githubusercontent.com` (GHE with a custom issuer: `.../<enterprise>`) | `repository_owner`, `repository`, `ref`, `environment`, `job_workflow_ref`, `repository_id` | `permissions: id-token: write`; `halo ci token` requests it with your audience |
-| GitLab | `https://gitlab.com` or your instance URL | `namespace_path`, `project_path`, `ref`, `ref_protected`, `environment`, `ci_config_ref_uri` | `id_tokens: HALO_ID_TOKEN: {aud: halos}` |
-| Buildkite | `https://agent.buildkite.com` | `organization_slug`, `pipeline_slug`, `build_branch` | `HALO_ID_TOKEN=$(buildkite-agent oidc request-token --audience halos)` |
-| CircleCI | `https://oidc.circleci.com/org/<org-id>` | `oidc.circleci.com/project-id`, `oidc.circleci.com/vcs-origin`, `oidc.circleci.com/vcs-ref` (V2 token) | `HALO_ID_TOKEN=$CIRCLE_OIDC_TOKEN_V2`; the default `aud` is the org id, so set the issuer's `audience` to it |
+| GitHub Actions | `https://token.actions.githubusercontent.com` (GHE with a custom issuer: `.../<enterprise>`) | `repository_owner_id`, `repository_owner`, `repository`, `repository_id`, `ref`, `environment`, `job_workflow_ref`, `event_name` | `permissions: id-token: write`; `halo ci token` requests it with your audience |
+| GitLab | `https://gitlab.com` or your instance URL | `namespace_id`, `namespace_path`, `project_id`, `project_path`, `ref`, `ref_protected`, `environment`, `ci_config_ref_uri` (self-managed: set `tenantClaim`) | `id_tokens: HALO_ID_TOKEN: {aud: halos}` |
+| Buildkite | `https://agent.buildkite.com` | `organization_id`, `organization_slug`, `pipeline_slug`, `build_branch` | `HALO_ID_TOKEN=$(buildkite-agent oidc request-token --audience halos)` |
+| CircleCI | `https://oidc.circleci.com/org/<org-id>` | `oidc.circleci.com/org-id`, `oidc.circleci.com/project-id`, `oidc.circleci.com/vcs-origin`, `oidc.circleci.com/vcs-ref` (V2 token) | `HALO_ID_TOKEN=$CIRCLE_OIDC_TOKEN_V2`; the default `aud` is the org id, so set the issuer's `audience` to it |
 | Google Cloud | `https://accounts.google.com` | `email` (service account), `sub` | metadata server `.../service-accounts/default/identity?audience=halos` |
-| AWS | `https://<id>.tokens.sts.global.api.aws` (per account) | `sub` (role ARN) | STS `GetWebIdentityToken` (IAM outbound identity federation) |
-| Azure AKS workload identity | `https://<region>.oic.prod-aks.azure.com/<tenant>/<uuid>/` | `sub` (`system:serviceaccount:<ns>:<sa>`) | projected service account token |
+| AWS | `https://<id>.tokens.sts.global.api.aws` (per account) | `sub` (role ARN; set `tenantClaim: sub`) | STS `GetWebIdentityToken` (IAM outbound identity federation) |
+| Azure AKS workload identity | `https://<region>.oic.prod-aks.azure.com/<tenant>/<uuid>/` | `sub` (`system:serviceaccount:<ns>:<sa>`; set `tenantClaim: sub`) | projected service account token |
 
 Sources: GitHub [OIDC reference](https://docs.github.com/en/actions/reference/security/oidc), GitLab [ID token authentication](https://docs.gitlab.com/ci/secrets/id_token_authentication/), Buildkite [`oidc request-token`](https://buildkite.com/docs/agent/v3/cli-oidc), CircleCI [OIDC tokens](https://circleci.com/docs/guides/permissions-authentication/openid-connect-tokens/), Google [instance identity](https://cloud.google.com/compute/docs/instances/verifying-instance-identity), AWS [outbound identity federation](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_providers_outbound.html), Azure [AKS workload identity](https://learn.microsoft.com/en-us/azure/aks/workload-identity-deploy-cluster). The `url` must equal the token's `iss` byte for byte, trailing slash included. Only string, boolean and number claims can be matched; arrays and objects never match.
 

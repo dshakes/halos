@@ -67,7 +67,7 @@ func (m *metrics) budget(name, outcome string) {
 	m.mu.Unlock()
 }
 
-// budgetResponse counts one metered response (metered, unpriced or no_usage) and its spend.
+// budgetResponse counts one metered response (metered, unpriced or estimated) and its spend.
 func (m *metrics) budgetResponse(outcome string, usd float64, u budget.Usage) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -93,9 +93,9 @@ func (m *metrics) writeBudget(w io.Writer, reported, failed, dropped int64) {
 	for _, k := range bk {
 		fmt.Fprintf(w, "halo_proxy_budget_checks_total{budget=\"%s\",outcome=\"%s\"} %d\n", esc(k[0]), esc(k[1]), m.budgets[k])
 	}
-	fmt.Fprintln(w, "# HELP halo_proxy_budget_responses_total Metered model responses: metered, unpriced (model has no price: tokens only), no_usage (no usage object found).")
+	fmt.Fprintln(w, "# HELP halo_proxy_budget_responses_total Metered model responses: metered, unpriced (model has no price: tokens only), estimated (final usage not read: client hung up, upstream cut, no usage object or an undecodable encoding; charged a pessimistic estimate).")
 	fmt.Fprintln(w, "# TYPE halo_proxy_budget_responses_total counter")
-	for _, o := range []string{"metered", "no_usage", "unpriced"} {
+	for _, o := range []string{"estimated", "metered", "unpriced"} {
 		fmt.Fprintf(w, "halo_proxy_budget_responses_total{outcome=\"%s\"} %d\n", o, m.budgetRes[o])
 	}
 	fmt.Fprintf(w, "# HELP halo_proxy_budget_spend_usd_total Spend charged to budgets, priced from policy gateway.pricing.\n# TYPE halo_proxy_budget_spend_usd_total counter\nhalo_proxy_budget_spend_usd_total %g\n", m.budgetUSD)

@@ -73,6 +73,7 @@ type budgetMeter struct {
 	proto     string
 	model     string // planned provider model; the served attempt's wins
 	prices    map[string]policy.ModelPrice
+	request   []byte // the forwarded request body, for the estimate when usage is missing
 }
 
 // budgetGate checks the caller's budgets before a model call. It returns the
@@ -154,27 +155,29 @@ func exhausted(s budget.Status) string {
 		s.Budget, s.Scope, window, strings.Join(used, ", "), s.ResetAt.UTC().Format(time.RFC3339))
 }
 
-// meterResponse wraps a successful model response so its usage is charged when the body ends.
-func (p *Proxy) meterResponse(resp *http.Response, rc *routeCtx) {
+// meterResponse returns what charges a successful metered model response once
+// its body ends (nil = not metered). A 2xx model call is never free: when the
+// final usage was not read (client hung up, upstream cut, undecodable
+// encoding) it charges gateway.EstimateUsage, counted as "estimated".
+func (p *Proxy) meterResponse(resp *http.Response, rc *routeCtx) func(gateway.UsageResult) {
 	m := rc.budget
 	if m == nil || resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return
+		return nil
 	}
 	model := m.model
 	if rc.served != nil {
 		model = rc.served.model
 	}
-	resp.Body = gateway.UsageTap(m.proto, resp.Header.Get("Content-Type"), resp.Body, func(u budget.Usage, ok bool) {
-		if !ok {
-			p.m.budgetResponse("no_usage", 0, u)
-			return
+	return func(r gateway.UsageResult) {
+		u, outcome := r.Usage, "metered"
+		if !r.Complete {
+			u, outcome = gateway.EstimateUsage(r, len(m.request), gateway.MaxOutputTokens(m.request)), "estimated"
 		}
 		usd, priced := budget.Cost(m.prices, model, u)
-		outcome := "metered"
-		if !priced {
+		if !priced && outcome == "metered" {
 			outcome = "unpriced"
 		}
 		p.m.budgetResponse(outcome, usd, u)
 		p.bc.Record(m.principal, budget.Spend{USD: usd, Tokens: u.Tokens()}, p.bc.Time())
-	})
+	}
 }

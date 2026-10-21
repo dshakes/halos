@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/url"
 	"path"
+	"slices"
 	"strings"
 	"time"
 )
@@ -45,6 +46,65 @@ type WorkloadIssuer struct {
 	// URL is the exact iss claim; discovery is <url>/.well-known/openid-configuration.
 	URL      string `yaml:"url" json:"url"`
 	Audience string `yaml:"audience,omitempty" json:"audience,omitempty"`
+	// TenantClaim names the claim that identifies the tenant (org, group,
+	// account) a token was minted for; every rule of this issuer must match it
+	// exactly. Required for an issuer Halos does not know (see TenantClaims);
+	// for a known one it may only narrow the choice to one of its claims.
+	TenantClaim string `yaml:"tenantClaim,omitempty" json:"tenantClaim,omitempty"`
+}
+
+// knownIssuer is a public OIDC issuer that signs tokens for every tenant on
+// it, with whatever audience the job asks for, and the claims that name the
+// tenant. Claim names are the providers' documented ones:
+//
+//   - GitHub: https://docs.github.com/en/actions/reference/security/oidc
+//   - GitLab: https://docs.gitlab.com/ci/secrets/id_token_authentication/
+//   - Buildkite: https://buildkite.com/docs/agent/v3/cli-oidc
+//   - CircleCI: https://circleci.com/docs/guides/permissions-authentication/openid-connect-tokens/
+//   - Google: https://cloud.google.com/compute/docs/instances/verifying-instance-identity
+//   - Microsoft Entra: https://learn.microsoft.com/en-us/entra/identity-platform/id-token-claims-reference
+type knownIssuer struct {
+	provider string
+	url      string // the iss, or its prefix up to a "/" (per-tenant issuer paths)
+	claims   []string
+}
+
+var knownIssuers = []knownIssuer{
+	// repository_owner_id and repository_id are immutable; names can be renamed and re-registered.
+	{"GitHub Actions", "https://token.actions.githubusercontent.com", []string{"repository_owner_id", "repository_owner", "repository", "repository_id"}},
+	{"GitLab.com", "https://gitlab.com", []string{"namespace_id", "namespace_path", "project_id", "project_path"}},
+	{"Buildkite", "https://agent.buildkite.com", []string{"organization_id", "organization_slug"}},
+	{"CircleCI", "https://oidc.circleci.com/org", []string{"oidc.circleci.com/org-id"}},
+	{"Google", "https://accounts.google.com", []string{"email", "sub"}},
+	{"Microsoft Entra ID", "https://login.microsoftonline.com", []string{"tid"}},
+	{"Microsoft Entra ID", "https://sts.windows.net", []string{"tid"}},
+}
+
+// TenantClaims returns the provider name ("" for an issuer Halos does not
+// know) and the claims a rule of issuer i may pin its tenant with (none for
+// an unknown issuer without tenantClaim).
+func (i WorkloadIssuer) TenantClaims() (provider string, claims []string) {
+	u := strings.ToLower(strings.TrimRight(i.URL, "/"))
+	for _, k := range knownIssuers {
+		if u == k.url || strings.HasPrefix(u, k.url+"/") {
+			if i.TenantClaim != "" {
+				return k.provider, []string{i.TenantClaim}
+			}
+			return k.provider, k.claims
+		}
+	}
+	if i.TenantClaim != "" {
+		return "", []string{i.TenantClaim}
+	}
+	return "", nil
+}
+
+// pinsTenant reports whether pat selects one tenant: a literal, or a literal
+// followed by "/*" (one path segment under it, e.g. repository: acme/*).
+// "acme*" or "*" would also match acme-evil or anyone.
+func pinsTenant(pat string) bool {
+	lit := strings.TrimSuffix(pat, "/*")
+	return lit != "" && !strings.ContainsAny(lit, `*?[\`)
 }
 
 // WorkloadRule maps matching tokens of one issuer to a workload subject.
@@ -168,12 +228,6 @@ func ClaimString(claims map[string]any, name string) (string, bool) {
 	return "", false
 }
 
-// hasLiteralPrefix: the pattern constrains the value (it does not start with a
-// wildcard), e.g. "acme/*" but not "*" or "*/app".
-func hasLiteralPrefix(pat string) bool {
-	return pat != "" && !strings.ContainsAny(pat[:1], `*?[\`)
-}
-
 func (v *validator) workloads() {
 	w := v.org.Workloads
 	if w == nil {
@@ -196,6 +250,13 @@ func (v *validator) workloads() {
 			v.errf(p+".url", "duplicate issuer url %q", is.URL)
 		}
 		issuers[is.Name], urls[is.URL] = is, true
+		provider, known := (WorkloadIssuer{URL: is.URL}).TenantClaims()
+		switch {
+		case provider == "" && is.TenantClaim == "":
+			v.errf(p+".tenantClaim", "required: Halos does not know issuer %q, so name the claim that identifies your tenant (org, group or account); every rule must match it exactly, or one issuer that signs for other tenants admits them all", is.URL)
+		case provider != "" && is.TenantClaim != "" && !slices.Contains(known, is.TenantClaim):
+			v.errf(p+".tenantClaim", "%q does not identify a %s tenant; use one of %s", is.TenantClaim, provider, strings.Join(known, ", "))
+		}
 	}
 	if len(w.Rules) == 0 {
 		v.warnf("workloads.rules", "no rules: every token exchange is denied")
@@ -209,21 +270,17 @@ func (v *validator) workloads() {
 			v.errf(p+".name", "duplicate rule %q", r.Name)
 		}
 		names[r.Name] = true
-		if _, ok := issuers[r.Issuer]; !ok {
+		is, ok := issuers[r.Issuer]
+		if !ok {
 			v.errf(p+".issuer", "%q is not a workloads.issuers name", r.Issuer)
 		}
-		pinned := false
 		for _, claim := range sortedKeys(r.Match) {
-			pat := r.Match[claim]
-			if _, err := path.Match(pat, ""); err != nil {
-				v.errf(p+".match."+claim, "%q is not a valid glob: %v", pat, err)
+			if _, err := path.Match(r.Match[claim], ""); err != nil {
+				v.errf(p+".match."+claim, "%q is not a valid glob: %v", r.Match[claim], err)
 			}
-			pinned = pinned || hasLiteralPrefix(pat)
 		}
-		if !pinned {
-			// A public issuer (GitHub, GitLab.com, Google) signs tokens for everyone:
-			// an unpinned rule would admit any repository or account on it.
-			v.errf(p+".match", "at least one claim must be pinned by a pattern that does not start with a wildcard (e.g. repository_owner: acme)")
+		if ok {
+			v.workloadTenantPin(p, r, is)
 		}
 		if !strings.HasPrefix(r.Subject, WorkloadSubjectPrefix) || len(r.Subject) == len(WorkloadSubjectPrefix) {
 			v.errf(p+".subject", "%q must start with %q so a workload can never take a human's id", r.Subject, WorkloadSubjectPrefix)
@@ -233,6 +290,44 @@ func (v *validator) workloads() {
 		}
 		if r.MaxTTLSeconds < 0 || time.Duration(r.MaxTTLSeconds)*time.Second > MaxWorkloadTTL {
 			v.errf(p+".maxTTLSeconds", "%d must be 1..%d", r.MaxTTLSeconds, int(MaxWorkloadTTL.Seconds()))
+		}
+	}
+}
+
+// workloadTenantPin: rule r (at path p) must match one of its issuer's tenant
+// claims exactly. Any audience check is moot here: a public issuer mints a
+// token with whatever aud the job asks for, for every tenant on it, so
+// "ref: refs/heads/main" or "repository_owner: acme*" admits anyone's job.
+func (v *validator) workloadTenantPin(p string, r WorkloadRule, is WorkloadIssuer) {
+	provider, claims := is.TenantClaims()
+	if len(claims) == 0 {
+		return // issuers[].tenantClaim is reported
+	}
+	pinned := map[string]bool{}
+	for _, c := range claims {
+		if pat, ok := r.Match[c]; ok && pinsTenant(pat) {
+			pinned[c] = true
+		}
+	}
+	if len(pinned) == 0 {
+		who := provider
+		if who == "" {
+			who = is.URL
+		}
+		v.errf(p+".match", "pins no tenant: %s signs tokens for every tenant on it, with any audience a job asks for, so this rule would admit other organizations' jobs. "+
+			"Match one of %s exactly (a literal, or literal/* for one path segment, e.g. repository: acme/*); globs like acme* also match acme-evil",
+			who, strings.Join(claims, ", "))
+		return
+	}
+	if provider != "GitHub Actions" {
+		return
+	}
+	if !pinned["repository_owner_id"] && !pinned["repository_id"] {
+		v.warnf(p+".match", "pins the tenant by name only: an owner or repository can be renamed or deleted and the name re-registered by someone else, who then matches; add repository_owner_id (or repository_id), which never changes")
+	}
+	if _, env := r.Match["environment"]; !env {
+		if _, wf := r.Match["job_workflow_ref"]; !wf {
+			v.warnf(p+".match", "any workflow in the matched repositories mints this credential, including pull_request_target and workflow_run jobs that run on the base branch with fork-supplied code; for production pin environment (with required reviewers) or job_workflow_ref")
 		}
 	}
 }

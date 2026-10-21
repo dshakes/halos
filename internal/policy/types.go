@@ -47,6 +47,10 @@ type Org struct {
 	// Units are the org hierarchy (ADR-0018), omitted when empty like Toggles.
 	Units []*Unit `json:",omitempty"`
 
+	// Delegation is what units may add beyond the baseline (ADR-0018); omitted
+	// when unset, like Toggles.
+	Delegation *Delegation `json:",omitempty"`
+
 	// Sources records which repo-relative file declared each document, so
 	// Validate can keep unit directories (delegated by CODEOWNERS) to Unit
 	// documents. Not part of the snapshot.

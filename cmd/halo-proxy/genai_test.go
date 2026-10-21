@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dshakes/halos/internal/gateway"
 	"github.com/dshakes/halos/internal/policy"
 	"github.com/dshakes/halos/internal/telemetry/gwmetrics"
 )
@@ -22,7 +23,7 @@ const (
 		`data: {"type":"content_block_delta","delta":{"text":"COMPLETION-CANARY"}}` + "\n\n" +
 		"event: message_delta\n" +
 		`data: {"type":"message_delta","usage":{"output_tokens":42}}` + "\n\n"
-	jsonUsage = `{"id":"m1","model":"gpt-4o-2024-08-06","choices":[{"message":{"content":"hi \"usage\": {\"prompt_tokens\": 999}"}}],"usage":{"prompt_tokens":11,"completion_tokens":7,"total_tokens":18}}`
+	jsonUsage = `{"id":"r1","model":"gpt-4o-2024-08-06","output":[{"content":[{"text":"hi \"usage\": {\"input_tokens\": 999}"}]}],"usage":{"input_tokens":11,"output_tokens":7,"total_tokens":18}}`
 	geminiRes = `{"candidates":[{"content":{"parts":[{"text":"x"}]}}],"usageMetadata":{"promptTokenCount":9,"candidatesTokenCount":4,"thoughtsTokenCount":3},"modelVersion":"gemini-2.5-pro"}`
 )
 
@@ -30,10 +31,12 @@ type rd struct{ io.Reader }
 
 func (rd) Close() error { return nil }
 
-// The tap must report the same numbers however the body is chunked.
-func TestUsageTap(t *testing.T) {
+// GenAI telemetry reads usage from the one parser, gateway.UsageTap, and the
+// model and TTFT from genaiTap; the numbers must not depend on chunking.
+func TestGenAITap(t *testing.T) {
 	for _, tc := range []struct {
 		name         string
+		proto        string
 		body         string
 		stream       bool
 		in, out      int64
@@ -41,24 +44,30 @@ func TestUsageTap(t *testing.T) {
 		ok           bool
 		wantTTFTUnit bool
 	}{
-		{"anthropic sse", sseUsage, true, 30, 42, "claude-sonnet-4-5-20250929", true, true},
-		{"openai chat json ignores escaped usage in text", jsonUsage, false, 11, 7, "gpt-4o-2024-08-06", true, false},
-		{"gemini json counts thoughts as output", geminiRes, false, 9, 7, "gemini-2.5-pro", true, false},
-		{"openai responses sse", "data: {\"type\":\"response.completed\",\"response\":{\"model\":\"gpt-5\",\"usage\":{\"input_tokens\":3,\"output_tokens\":4}}}\r\n\r\n", true, 3, 4, "gpt-5", true, true},
-		{"no usage", `{"ok":true}`, false, 0, 0, "", false, false},
-		{"usage null", "data: {\"model\":\"m\",\"usage\":null}\n\n", true, 0, 0, "m", false, true},
-		{"truncated usage object", `{"usage":{"input_tokens":5,"outp`, false, 0, 0, "", false, false},
-		{"model with hostile chars is dropped", `{"model":"a b\u0000<script>","usage":{"input_tokens":1}}`, false, 1, 0, "", true, false},
-		{"overlong sse line is skipped, next line scanned", "data: " + strings.Repeat("x", tapMaxLine+10) + "\ndata: {\"usage\":{\"input_tokens\":2,\"output_tokens\":3}}\n", true, 2, 3, "", true, true},
+		{"anthropic sse", gateway.ProtoAnthropic, sseUsage, true, 30, 42, "claude-sonnet-4-5-20250929", true, true},
+		{"responses json ignores escaped usage in text", gateway.ProtoResponses, jsonUsage, false, 11, 7, "gpt-4o-2024-08-06", true, false},
+		{"gemini json counts thoughts as output", gateway.ProtoGemini, geminiRes, false, 9, 7, "gemini-2.5-pro", true, false},
+		{"openai responses sse", gateway.ProtoResponses, "data: {\"type\":\"response.completed\",\"response\":{\"model\":\"gpt-5\",\"usage\":{\"input_tokens\":3,\"output_tokens\":4}}}\r\n\r\n", true, 3, 4, "gpt-5", true, true},
+		{"no usage", gateway.ProtoAnthropic, `{"ok":true}`, false, 0, 0, "", false, false},
+		{"usage null", gateway.ProtoResponses, "data: {\"model\":\"m\",\"usage\":null}\n\n", true, 0, 0, "m", false, true},
+		{"truncated usage object", gateway.ProtoAnthropic, `{"usage":{"input_tokens":5,"outp`, false, 0, 0, "", false, false},
+		{"model with hostile chars is dropped", gateway.ProtoAnthropic, `{"model":"a b\u0000<script>","usage":{"input_tokens":1}}`, false, 1, 0, "", true, false},
+		{"overlong sse line, next line scanned", gateway.ProtoAnthropic, "data: " + strings.Repeat("x", 2<<20) + "\ndata: {\"usage\":{\"input_tokens\":2,\"output_tokens\":3}}\n", true, 2, 3, "", true, true},
 	} {
 		for _, chunk := range []int{1, 7, 1 << 20} {
-			tap := newUsageTap(rd{strings.NewReader(tc.body)}, tc.stream, time.Now())
+			ctype := "application/json"
+			if tc.stream {
+				ctype = "text/event-stream"
+			}
+			tap := newGenAITap(rd{strings.NewReader(tc.body)}, tc.stream, true, time.Now())
+			body := gateway.UsageTap(tc.proto, ctype, "", tap, tap.usage)
 			buf := make([]byte, chunk)
 			for {
-				if _, err := tap.Read(buf); err != nil {
+				if _, err := body.Read(buf); err != nil {
 					break
 				}
 			}
+			_ = body.Close()
 			in, out, model, ok := tap.result()
 			if in != tc.in || out != tc.out || model != tc.model || ok != tc.ok {
 				t.Errorf("%s (chunk %d): got in=%d out=%d model=%q ok=%v", tc.name, chunk, in, out, model, ok)
