@@ -60,8 +60,23 @@ type Identity struct {
 	// UserClaim / GroupsClaim name the JWT claims for subject id and groups.
 	UserClaim   string `yaml:"userClaim,omitempty" json:"userClaim,omitempty"`     // default "email"
 	GroupsClaim string `yaml:"groupsClaim,omitempty" json:"groupsClaim,omitempty"` // default "groups"
-	// AdminGroups may approve requests and manage experiments in the portal.
+	// AdminGroups hold halo-server's admin role; same as Roles.Admin (kept for
+	// existing policy repos).
 	AdminGroups []string `yaml:"adminGroups,omitempty" json:"adminGroups,omitempty"`
+	// Roles maps halo-server roles to IdP groups (ADR-0015). omitzero keeps
+	// the JSON form, and so existing snapshot digests, unchanged when unset.
+	Roles RoleGroups `yaml:"roles,omitempty" json:"roles,omitzero"`
+}
+
+// RoleGroups lists, per halo-server role, the IdP groups that hold it. A user
+// holds every role any of their groups maps to. Strict YAML decoding rejects an
+// unknown role name, so a typo cannot silently grant nothing.
+type RoleGroups struct {
+	Viewer   []string `yaml:"viewer,omitempty" json:"viewer,omitempty"`     // read fleet, releases, rollouts, experiments, toggles, policy
+	Operator []string `yaml:"operator,omitempty" json:"operator,omitempty"` // viewer + kill switch, experiment status
+	Approver []string `yaml:"approver,omitempty" json:"approver,omitempty"` // viewer + decide access requests
+	Auditor  []string `yaml:"auditor,omitempty" json:"auditor,omitempty"`   // audit log only
+	Admin    []string `yaml:"admin,omitempty" json:"admin,omitempty"`       // everything, incl. devices, sessions, toggle config
 }
 
 // SelfService configures the developer portal ("kiosk").

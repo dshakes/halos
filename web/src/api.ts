@@ -143,6 +143,8 @@ const Me = z.object({
   id: z.string(),
   groups: arr(z.string()),
   admin: z.boolean(),
+  roles: arr(z.string()),
+  permissions: arr(z.string()),
   ring: z.string(),
   release: z.string().optional(),
   variants: arr(z.object({ experiment: z.string(), status: z.string(), variant: z.string().optional(), control: z.boolean().optional() })),
@@ -323,6 +325,12 @@ export const useAudit = (actor: string, action: string) =>
 
 // Optional server features, so the console renders e.g. the kill switch only where it exists.
 const Capabilities = z.object({ killSwitch: z.boolean().optional() });
+/** Server permissions (ADR-0015): read, operate, approve, audit, admin. Hides actions only; the server enforces. */
+export type Permission = "read" | "operate" | "approve" | "audit" | "admin";
+export const useCan = () => {
+  const perms = useMe().data?.permissions ?? [];
+  return (p: Permission) => perms.includes(p);
+};
 export const useCapabilities = () => useQuery({ queryKey: ["capabilities"], queryFn: () => get("/api/v1/capabilities", Capabilities), staleTime: Infinity, retry: false });
 
 export type SettableStatus = "running" | "paused" | "concluded";

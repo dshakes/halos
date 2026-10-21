@@ -219,7 +219,7 @@ Flags (Go style, single or double dash):
 | `-verdicts-file` (deprecated alias `-verdicts`) | | Verdicts JSON file shown in the console; written by `halo exp analyze --verdicts-file` or the controller |
 | `-trusted-proxy-cidrs` | | Reverse proxies whose `X-Forwarded-For` is trusted for rate limiting |
 | `-device-ttl` | `2160h` (90 days) | Device token lifetime after enrollment; expired devices must re-enroll |
-| `-dev-insecure-user`, `-dev-insecure-groups`, `-dev-insecure-admin` | | Demo only: disable login and act as this user |
+| `-dev-insecure-user`, `-dev-insecure-groups`, `-dev-insecure-roles`, `-dev-insecure-admin` | | Demo only: disable login and act as this user, with these roles (`viewer`, `operator`, `approver`, `auditor`, `admin`; `-dev-insecure-admin` adds `admin`) |
 | `-killswitch-key-file` | | ed25519 PKCS#8 PEM private key signing the kill list (`halo keys generate --name killswitch`). Use a dedicated key. Requires `-data-dir`. Without it the kill and unkill endpoints return 501, no kill list is served, `GET /api/v1/capabilities` reports `killSwitch: false`, and the in-process controller reports rollbacks as **not enforced** ("merge urgently": only the pause PR stops traffic). Startup fails if `-killswitch-key-file` is set without `-data-dir` or without `-gateway-token-file` |
 | `-gateway-token-file` | | Bearer token (16+ characters) gateways present to `GET /api/v1/gateway/killswitch` and `GET /api/v1/gateway/posture`. Alone, it serves only posture |
 | `-posture-max-age` | `45m` | A device whose last `halod` report is older is non-compliant for the [posture gate](/halos/concepts/delivery/#gateway-gates); minimum `1m` |

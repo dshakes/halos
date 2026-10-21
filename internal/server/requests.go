@@ -178,7 +178,7 @@ func (s *Server) postRequest(w http.ResponseWriter, r *http.Request, p Principal
 
 // listRequests: developers see their own; admins see everyone's.
 func (s *Server) listRequests(w http.ResponseWriter, _ *http.Request, p Principal) {
-	writeJSON(w, http.StatusOK, s.reqs.list(func(r *Request) bool { return p.Admin || r.User == p.ID }))
+	writeJSON(w, http.StatusOK, s.reqs.list(func(r *Request) bool { return p.can(permApprove) || r.User == p.ID }))
 }
 
 func (s *Server) decide(approve bool) authedHandler {

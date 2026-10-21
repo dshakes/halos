@@ -161,8 +161,8 @@ func TestKillWithoutKeyNotImplemented(t *testing.T) {
 		h    http.Handler
 		want bool
 	}{{h, false}, {func() http.Handler { _, h, _ := newKillServer(t, true); return h }(), true}} {
-		var caps map[string]bool
-		if w := do(tc.h, "GET", "/api/v1/capabilities", "", ""); w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &caps) != nil || caps["killSwitch"] != tc.want {
+		var caps Capabilities
+		if w := do(tc.h, "GET", "/api/v1/capabilities", "", ""); w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &caps) != nil || caps.KillSwitch != tc.want {
 			t.Fatalf("capabilities = %d %s, want killSwitch=%v", w.Code, w.Body, tc.want)
 		}
 	}

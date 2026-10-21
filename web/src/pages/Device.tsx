@@ -1,4 +1,4 @@
-import { useDevice, useRevokeDevice, type Host } from "../api";
+import { useCan, useDevice, useRevokeDevice, type Host } from "../api";
 import { Card, Empty, ErrorBox, Mono, Pill, ago, shortDigest } from "../ui";
 
 function Harnesses({ h }: { h: Host }) {
@@ -20,6 +20,7 @@ function Harnesses({ h }: { h: Host }) {
 export function Device({ id }: { id: string }) {
   const { data, error, isLoading } = useDevice(id);
   const revoke = useRevokeDevice();
+  const isAdmin = useCan()("admin");
   if (error) return <ErrorBox error={error} />;
   if (isLoading || !data) return <Empty>Loading…</Empty>;
   const { device: d, last, history } = data;
@@ -31,7 +32,7 @@ export function Device({ id }: { id: string }) {
         <Mono className="text-mute">{d.id}</Mono>
         {d.revoked ? <Pill tone="bad" dot>revoked</Pill> : <Pill tone="ok" dot>active</Pill>}
         {last?.errorCode && <Pill tone="bad">error: {last.errorCode}</Pill>}
-        {!d.revoked && (
+        {!d.revoked && isAdmin && (
           <button
             className="ml-auto rounded-md border border-line px-3 py-1.5 hover:bg-panel2 disabled:opacity-50"
             disabled={revoke.isPending}
