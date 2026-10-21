@@ -250,13 +250,8 @@ func run(ctx context.Context, args []string) error {
 	srv, err := server.New(server.Config{
 		PolicyDir: o.policyDir, Token: strings.TrimSpace(string(tok)), VerdictsPath: o.verdicts, Store: store,
 		SessionKey: []byte(sessionKey), OIDCClientSecret: clientSecret, Portal: portal, DataDir: o.dataDir, Writer: writer,
-<<<<<<< HEAD
 		DeviceTTL: o.deviceTTL, DevUser: o.devUser, DevGroups: o.devGroups, DevRoles: o.devRoles, DevAdmin: o.devAdmin, TrustedProxies: o.trusted,
-		KillStore: kills, KillKey: killKey, GatewayToken: gwToken, PostureMaxAge: o.postureMaxAge,
-=======
-		DeviceTTL: o.deviceTTL, DevUser: o.devUser, DevGroups: o.devGroups, DevAdmin: o.devAdmin, TrustedProxies: o.trusted,
 		KillStore: kills, KillKey: killKey, GatewayToken: gwToken, PostureMaxAge: o.postureMaxAge, Audit: audit,
->>>>>>> worktree-agent-a987e2999cf80f433
 	})
 	if err != nil {
 		return err
