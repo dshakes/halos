@@ -29,6 +29,22 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
   - Enforced security fields can only be tightened, and `halo validate` reports each loosening with its field path.
   - New `halo units codeowners`, and `halo explain --user`, which shows the effective config with the layer that set each field.
   - Unit files ship inside the signed release, and `halod` applies them.
+- **Cost budgets and quotas at the gateway** ([ADR-0017](https://dshakes.github.io/halos/adr/0017-gateway-cost-budgets/)).
+  - Optional `gateway.pricing` and `gateway.budgets`: user, group, ring or org scope; day, week, month or rolling window; USD and/or tokens; `warn` or `enforce`, with `alertAt`.
+  - halo-proxy meters streamed usage and answers 429 with `Retry-After` in each CLI's wire format.
+  - halo-server holds the counters (`POST /api/v1/gateway/budget/{check,usage}`, and `GET /api/v1/budgets`, which needs the read role). `budgets.failMode` is `open` or `closed`.
+  - New `halo budget status`, and `halo_proxy_budget_*` metrics.
+- **SCIM 2.0 provisioning** ([ADR-0022](https://dshakes.github.io/halos/adr/0022-scim-provisioning/)).
+  - halo-server serves `/scim/v2` for Okta and Entra ID.
+  - Deactivating, deleting or renaming a user immediately revokes their sessions, device tokens and pending enrollments, audited as actor `scim`.
+  - `--scim-authoritative` makes directory groups decide rings, toggles and roles.
+  - halo-proxy `directory.url` and halo-kong `directory_url` make the directory authoritative at the gateway too; deprovisioned users get default routing.
+- **Workload identity federation for CI and cloud agents** ([ADR-0023](https://dshakes.github.io/halos/adr/0023-workload-identity-federation/)).
+  - New `workloads` policy section.
+  - halo-server `POST /api/v1/token/exchange` (RFC 8693) trades a GitHub Actions, GitLab, Buildkite, CircleCI or cloud OIDC token for an ed25519-signed gateway credential that lasts at most 1h. Exchanges are audited, and a token's `jti` cannot be replayed.
+  - halo-proxy reads `identity.workloadPubkeyFile` and halo-kong reads `workload_pubkey` to accept these credentials.
+  - New `halo ci token` and `halo ci config`. Workloads are excluded from experiments by default.
+  - Examples in `examples/ci-agents`.
 - **Agent extension governance.** Profiles can govern `extensions.{marketplaces,blockedMarketplaces,plugins,skills,subagents,outputStyle,statusLine}` and `login`.
   - These render only where the vendor documents a key (Claude Code, Codex, Gemini CLI, Copilot CLI) and warn in the release manifest everywhere else.
   - `mcp.denied` now renders for Gemini (`mcp.excluded`) and Copilot (`deniedMcpServers`). For Copilot, `mcp.managedOnly` with no servers renders `allowedMcpServers: []`.
