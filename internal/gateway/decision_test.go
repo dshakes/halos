@@ -272,6 +272,8 @@ func TestSpoofingImpossible(t *testing.T) {
 		h.Set("X-Halo-Experiment", "sonnet-canary")
 		h.Set("x-halo-variant", "direct")
 		h.Set("x-halo-anything", "1")
+		h.Set("X-Halo-Actor", "root-agent")
+		h.Set("x-halo-actor-depth", "0")
 	}
 
 	t.Run("identical decision with and without spoofed headers", func(t *testing.T) {
@@ -288,7 +290,7 @@ func TestSpoofingImpossible(t *testing.T) {
 		h := http.Header{}
 		spoof(h)
 		res := PrepareVerified(org, carol, h, "/v1/messages", body)
-		if len(res.ClearHeaders) != 5 {
+		if len(res.ClearHeaders) != 7 {
 			t.Fatalf("ClearHeaders=%v", res.ClearHeaders)
 		}
 		for _, n := range res.ClearHeaders {

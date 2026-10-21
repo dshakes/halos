@@ -454,6 +454,160 @@
         "careful"
       ],
       "description": "Simple mode: rollout preset (rings and step template; default standard)."
+    },
+    "agents": {
+      "type": "object",
+      "description": "Agent identity and delegation (ADR-0024): which agents may act for a principal (RFC 8693 act chain), how deep and for how long, what delegated agents may not do, and the allowlist of remote A2A agents.",
+      "properties": {
+        "maxDepth": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5,
+          "description": "Longest delegation chain (default 2)."
+        },
+        "maxTTLSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600,
+          "description": "Delegated credential lifetime cap (default 900). Never longer than the parent's remaining lifetime."
+        },
+        "experiments": {
+          "type": "boolean",
+          "description": "Enroll delegated callers in experiments with their root (default false: control routing, no shadow)."
+        },
+        "allowedModels": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true,
+          "description": "Gateway model aliases any delegated agent may call; empty = every alias the root may."
+        },
+        "deniedTools": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true,
+          "description": "Tool names a delegated agent's model call may not declare (tools[].name; Gemini functionDeclarations[].name). Case-insensitive."
+        },
+        "actors": {
+          "type": "array",
+          "description": "Agents that may act. Any other actor_id is refused.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9._-]{0,62}$",
+                "description": "The actor_id an exchange names."
+              },
+              "harnesses": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "uniqueItems": true,
+                "description": "Harnesses it may run in (claude-code, codex, gemini-cli, copilot-cli, cursor-agent, opencode); empty = any."
+              },
+              "groups": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "uniqueItems": true,
+                "description": "The root must hold one of these groups; empty = any root."
+              },
+              "models": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "uniqueItems": true,
+                "description": "Narrows agents.allowedModels for this agent."
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "remote": {
+          "type": "array",
+          "description": "Allowlisted remote A2A agents. Answered by POST /api/v1/agents/egress and pinned into ring releases.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9._-]{0,62}$"
+              },
+              "cardURL": {
+                "type": "string",
+                "format": "uri",
+                "pattern": "^https://",
+                "description": "The AgentCard, usually https://host/.well-known/agent-card.json."
+              },
+              "digest": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$",
+                "description": "sha256 of the card's RFC 8785 canonical JSON, as `halo agents verify` prints it."
+              },
+              "publicKey": {
+                "type": "string",
+                "minLength": 1,
+                "description": "PEM public key (Ed25519, ECDSA P-256/P-384, RSA >= 2048) the card's JWS signature must verify with."
+              },
+              "jwksURL": {
+                "type": "string",
+                "format": "uri",
+                "pattern": "^https://",
+                "description": "https JWKS holding the card signing key. A jku in the card is never followed."
+              },
+              "skills": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "uniqueItems": true,
+                "description": "Skill ids that may be invoked; empty = any."
+              },
+              "rings": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "uniqueItems": true,
+                "description": "Rings whose members may call it."
+              },
+              "units": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "uniqueItems": true,
+                "description": "Units (and units below them) whose members may call it."
+              }
+            },
+            "required": [
+              "name",
+              "cardURL",
+              "digest"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
     }
   },
   "required": [

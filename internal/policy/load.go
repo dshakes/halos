@@ -29,6 +29,8 @@ type Root struct {
 	SelfService SelfService `yaml:"selfService,omitempty" json:"selfService,omitempty"`
 	// Workloads federates CI / cloud agents' OIDC tokens (ADR-0023).
 	Workloads *Workloads `yaml:"workloads,omitempty" json:"workloads,omitempty"`
+	// Agents governs delegated and remote (A2A) agents (ADR-0024).
+	Agents *Agents `yaml:"agents,omitempty" json:"agents,omitempty"`
 	// Delegation is what units may add beyond the baseline (ADR-0018).
 	Delegation *Delegation `yaml:"delegation,omitempty" json:"delegation,omitempty"`
 	// Simple mode fields (tools, provider, models, ...): see simple.go.
@@ -87,7 +89,7 @@ func Load(dir string) (*Org, error) {
 		return nil, err
 	}
 
-	org := &Org{Name: root.Org, Identity: root.Identity, SelfService: root.SelfService, Workloads: root.Workloads, Delegation: root.Delegation, Profiles: map[string]*Profile{}}
+	org := &Org{Name: root.Org, Identity: root.Identity, SelfService: root.SelfService, Workloads: root.Workloads, Agents: root.Agents, Delegation: root.Delegation, Profiles: map[string]*Profile{}}
 	if root.APIVersion == APIVersionV1Alpha1 {
 		org.Deprecations = append(org.Deprecations, deprecation(dir, rootPath))
 	}

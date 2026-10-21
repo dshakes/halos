@@ -15,7 +15,11 @@ package gwmetrics
 //
 // All carry gen_ai.operation.name, gen_ai.provider.name, gen_ai.request.model
 // and (when the response names one) gen_ai.response.model, plus the halo.ring /
-// release / experiment / variant / harness cohort. Token usage is recorded only
+// release / experiment / variant / harness cohort and, for a delegated agent
+// (ADR-0024), halo.actor.agent. Spans also carry halo.actor.depth,
+// halo.actor.chain and gen_ai.agent.name (the current agent): v1.40 lists
+// gen_ai.agent.name on agent spans; the registry attribute means the same
+// thing on the inference span the agent caused, so it is set there too. Token usage is recorded only
 // when the provider reported it. Never exported: prompts, completions, headers,
 // raw user or session ids (spans carry the same salted halo.unit hash as the
 // halo.gateway.* series). Content capture is deliberately not implemented.
@@ -72,6 +76,7 @@ const (
 type gkey struct {
 	op, provider, reqModel, respModel, tokenType, errType string
 	ring, release, experiment, variant, harness           string
+	actor                                                 string
 }
 
 func (k gkey) attrs() [][2]string {
@@ -81,7 +86,7 @@ func (k gkey) attrs() [][2]string {
 		{"gen_ai.request.model", k.reqModel}, {"gen_ai.response.model", k.respModel},
 		{"gen_ai.token.type", k.tokenType}, {"error.type", k.errType},
 		{"halo.ring", k.ring}, {"halo.release", k.release}, {"halo.experiment", k.experiment},
-		{"halo.variant", k.variant}, {"halo.harness", k.harness},
+		{"halo.variant", k.variant}, {"halo.harness", k.harness}, {"halo.actor.agent", k.actor},
 	} {
 		if kv[1] != "" {
 			out = append(out, kv)
@@ -122,7 +127,7 @@ func (e *Emitter) recordGenAI(r Request) {
 		errType = strconv.Itoa(r.Status)
 	}
 	k := gkey{op: g.Operation, provider: g.Provider, reqModel: r.Model, respModel: g.ResponseModel,
-		ring: r.Ring, release: r.Release, experiment: r.Experiment, variant: r.Variant, harness: r.Harness}
+		ring: r.Ring, release: r.Release, experiment: r.Experiment, variant: r.Variant, harness: r.Harness, actor: r.Actor}
 	if e.genai.metrics {
 		dk := k
 		dk.errType = errType
@@ -197,6 +202,12 @@ func (e *Emitter) newSpan(r Request, errType string) span {
 	add("halo.variant", r.Variant)
 	add("halo.harness", r.Harness)
 	add("halo.unit", e.Unit(r.Subject))
+	if r.Actor != "" {
+		add("gen_ai.agent.name", r.Actor)
+		add("halo.actor.agent", r.Actor)
+		add("halo.actor.chain", r.Chain)
+		sp.attrs = append(sp.attrs, spanAttr{k: "halo.actor.depth", i: int64(r.ActorDepth), isInt: true})
+	}
 	return sp
 }
 

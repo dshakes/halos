@@ -9,6 +9,10 @@ Generated from `schemas/profile.schema.json`; do not edit. Nested fields use dot
 
 | Field | Type | Required | Default | Allowed values | Constraints | Description |
 |---|---|---|---|---|---|---|
+| `agents` | object |  |  |  |  | Bounds delegated agents for this profile's members (ADR-0024). A unit overlay may only lower maxDepth and narrow remote. |
+| `agents.maxDepth` | integer |  |  |  | minimum 1; maximum 5 | Lowers agents.maxDepth for these members. |
+| `agents.remote` | array of string |  |  |  |  | agents.remote names these members may call; empty = every entry whose rings or units admit them. |
+| `agents.remote[]` | string |  |  |  | minLength 1 |  |
 | `apiVersion` | string | yes |  | const halos.dev/v1 |  | Document version. |
 | `egress` | object |  |  |  |  | Egress policy. |
 | `egress.allowedDomains` | array of string |  |  |  |  | Only egress permitted from managed environments; must include the gateway host when non-empty. |

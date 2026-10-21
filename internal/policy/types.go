@@ -60,6 +60,10 @@ type Org struct {
 	// when unset, like Toggles.
 	Workloads *Workloads `json:",omitempty"`
 
+	// Agents governs delegated and remote agents (ADR-0024); omitted when
+	// unset, like Toggles.
+	Agents *Agents `json:",omitempty"`
+
 	// Deprecations are load-time warnings (one per file still on a deprecated
 	// apiVersion) that Validate reports. Not part of the snapshot.
 	Deprecations []Issue `json:"-"`
@@ -278,6 +282,9 @@ type Profile struct {
 	// Extensions governs agent-extension surfaces: plugins and their marketplaces,
 	// skills, subagents, output style and status line.
 	Extensions Extensions `yaml:"extensions,omitempty" json:"extensions,omitempty"`
+	// Agents lowers the delegation depth and narrows the remote agents for
+	// this profile's members (ADR-0024). Gateway and halo-server enforced.
+	Agents AgentLimits `yaml:"agents,omitempty" json:"agents,omitzero"`
 	// Login restricts how users authenticate: subscription (claude.ai / ChatGPT /
 	// Google login) | api (API key or gateway credential). Empty = unrestricted.
 	Login string `yaml:"login,omitempty" json:"login,omitempty"`

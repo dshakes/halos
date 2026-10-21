@@ -21,6 +21,10 @@ Generated from `schemas/unit.schema.json`; do not edit. Nested fields use dotted
 | `members.users[]` | string |  |  |  |  |  |
 | `name` | string | yes |  |  | pattern ^[a-z0-9][a-zA-Z0-9._-]*$ | Unique name within its kind. |
 | `overlay` | object |  |  |  |  | Profile settings the unit changes on top of the baseline. Lists in permissions.deny, mcp.denied and hooks.items union; mcp.servers are added; other lists replace; env and telemetry.attributes merge per key. |
+| `overlay.agents` | object |  |  |  |  | Bounds delegated agents for this profile's members (ADR-0024). A unit overlay may only lower maxDepth and narrow remote. |
+| `overlay.agents.maxDepth` | integer |  |  |  | minimum 1; maximum 5 | Lowers agents.maxDepth for these members. |
+| `overlay.agents.remote` | array of string |  |  |  |  | agents.remote names these members may call; empty = every entry whose rings or units admit them. |
+| `overlay.agents.remote[]` | string |  |  |  | minLength 1 |  |
 | `overlay.egress` | object |  |  |  |  | Egress policy. |
 | `overlay.egress.allowedDomains` | array of string |  |  |  |  | Only egress permitted from managed environments; must include the gateway host when non-empty. |
 | `overlay.egress.allowedDomains[]` | string |  |  |  |  |  |

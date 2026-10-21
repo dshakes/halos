@@ -161,7 +161,7 @@ func PrepareVerified(org *policy.Org, sub *policy.Subject, h http.Header, path s
 	// Always clear the owned names, even if the header list the host gave us
 	// was truncated (Kong's GetHeaders caps the count).
 	seen := map[string]bool{}
-	names := []string{HeaderRing, HeaderRelease, HeaderExperiment, HeaderVariant}
+	names := []string{HeaderRing, HeaderRelease, HeaderExperiment, HeaderVariant, HeaderActor, HeaderActorDepth}
 	for name := range h {
 		if l := strings.ToLower(name); strings.HasPrefix(l, HaloPrefix) {
 			names = append(names, l)
@@ -174,13 +174,21 @@ func PrepareVerified(org *policy.Org, sub *policy.Subject, h http.Header, path s
 		}
 	}
 	req := NewRequestInfo(h, path, body)
+	var dlg *policy.DelegationChain
 	if sub != nil {
 		req.UserID, req.Groups, req.Workload = sub.ID, sub.Groups, sub.Kind == policy.SubjectWorkload
+		dlg, req.Agent = sub.Delegation, sub.Delegation.Depth() > 0
 	}
 	res.Protocol = req.Protocol
 	res.Decision = Decide(org, req)
+	agentHeaders(res.Decision.Headers, dlg)
 	if res.Reject = admit(org, req, res.Decision, path); res.Reject != nil {
 		return res
+	}
+	if req.Agent && req.Protocol != "" {
+		if res.Reject = admitAgent(org, dlg, req, body); res.Reject != nil {
+			return res
+		}
 	}
 	// JSON-body wires are always re-encoded, even when the alias is the upstream
 	// id: the client's body may hold duplicate or case-variant "model" keys that

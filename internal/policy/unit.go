@@ -121,6 +121,8 @@ type Overlay struct {
 	Egress       Egress            `yaml:"egress,omitempty" json:"egress,omitempty"`
 	Instructions string            `yaml:"instructions,omitempty" json:"instructions,omitempty"`
 	Env          map[string]string `yaml:"env,omitempty" json:"env,omitempty"`
+	// Agents may only lower maxDepth and narrow remote (ADR-0024).
+	Agents AgentLimits `yaml:"agents,omitempty" json:"agents,omitzero"`
 }
 
 // Source is the repo-relative file that declared one document.
@@ -235,7 +237,7 @@ func applyOverlay(out *Profile, u *Unit) error {
 	deny, denied, hooks := out.Permissions.Deny, out.MCP.Denied, out.Hooks.Hooks
 	servers, instr := slices.Clone(out.MCP.Servers), out.Instructions
 	layer := &Profile{
-		Models: ov.Models, Permissions: ov.Permissions, Telemetry: ov.Telemetry, Egress: ov.Egress, Env: ov.Env,
+		Models: ov.Models, Permissions: ov.Permissions, Telemetry: ov.Telemetry, Egress: ov.Egress, Env: ov.Env, Agents: ov.Agents,
 		MCP: MCP{ManagedOnly: ov.MCP.ManagedOnly}, Hooks: Hooks{ManagedOnly: ov.Hooks.ManagedOnly},
 	}
 	mergeValue(reflect.ValueOf(out).Elem(), reflect.ValueOf(layer).Elem())
@@ -281,7 +283,8 @@ func rank(m map[string]int, v string) int {
 // sandbox, sandboxRequired, disableBypass, deny, allow, ask), mcp.denied and
 // mcp.managedOnly, hooks.managedOnly, telemetry (enabled, endpoint, protocol,
 // logPrompts, existing attributes), egress.allowedDomains, existing env keys,
-// and models.allowed while the parent enforces it. Additions that run code or
+// models.allowed while the parent enforces it, and agents (maxDepth may only
+// go down, remote may only narrow; ADR-0024). Additions that run code or
 // reroute traffic on members' machines are loosenings too, unless o allows
 // them: hooks (delegation.allowHooks), env keys (delegation.envKeys; provider,
 // proxy and runtime-injection keys never), MCP servers (an exact
@@ -400,6 +403,23 @@ func (o *Org) Loosenings(parent, child *Profile) []Loosening {
 		}
 		if !child.Models.Enforce {
 			add("models.enforce", "cannot be turned off")
+		}
+	}
+	if pd, cd := o.agentDepth(parent), o.agentDepth(child); cd > pd {
+		add("agents.maxDepth", "%d raises the delegation depth %d; units may only lower it", cd, pd)
+	}
+	if pr := parent.Agents.Remote; len(pr) > 0 {
+		var added []string
+		for _, n := range child.Agents.Remote {
+			if !slices.Contains(pr, n) {
+				added = append(added, n)
+			}
+		}
+		switch {
+		case len(added) > 0:
+			add("agents.remote", "adds remote agents %v; units may only narrow the remote-agent allowlist", added)
+		case len(child.Agents.Remote) == 0:
+			add("agents.remote", "drops the remote-agent allowlist %v", pr)
 		}
 	}
 	return out

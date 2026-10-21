@@ -9,6 +9,36 @@ Generated from `schemas/halos.schema.json`; do not edit. Nested fields use dotte
 
 | Field | Type | Required | Default | Allowed values | Constraints | Description |
 |---|---|---|---|---|---|---|
+| `agents` | object |  |  |  |  | Agent identity and delegation (ADR-0024): which agents may act for a principal (RFC 8693 act chain), how deep and for how long, what delegated agents may not do, and the allowlist of remote A2A agents. |
+| `agents.actors` | array of object |  |  |  |  | Agents that may act. Any other actor_id is refused. |
+| `agents.actors[]` | object |  |  |  |  |  |
+| `agents.actors[].groups` | array of string |  |  |  |  | The root must hold one of these groups; empty = any root. |
+| `agents.actors[].groups[]` | string |  |  |  | minLength 1 |  |
+| `agents.actors[].harnesses` | array of string |  |  |  |  | Harnesses it may run in (claude-code, codex, gemini-cli, copilot-cli, cursor-agent, opencode); empty = any. |
+| `agents.actors[].harnesses[]` | string |  |  |  | minLength 1 |  |
+| `agents.actors[].models` | array of string |  |  |  |  | Narrows agents.allowedModels for this agent. |
+| `agents.actors[].models[]` | string |  |  |  | minLength 1 |  |
+| `agents.actors[].name` | string | yes |  |  | pattern ^[a-z0-9][a-z0-9._-]&#123;0,62}$ | The actor_id an exchange names. |
+| `agents.allowedModels` | array of string |  |  |  |  | Gateway model aliases any delegated agent may call; empty = every alias the root may. |
+| `agents.allowedModels[]` | string |  |  |  | minLength 1 |  |
+| `agents.deniedTools` | array of string |  |  |  |  | Tool names a delegated agent's model call may not declare (tools[].name; Gemini functionDeclarations[].name). Case-insensitive. |
+| `agents.deniedTools[]` | string |  |  |  | minLength 1 |  |
+| `agents.experiments` | boolean |  |  |  |  | Enroll delegated callers in experiments with their root (default false: control routing, no shadow). |
+| `agents.maxDepth` | integer |  |  |  | minimum 1; maximum 5 | Longest delegation chain (default 2). |
+| `agents.maxTTLSeconds` | integer |  |  |  | minimum 1; maximum 3600 | Delegated credential lifetime cap (default 900). Never longer than the parent's remaining lifetime. |
+| `agents.remote` | array of object |  |  |  |  | Allowlisted remote A2A agents. Answered by POST /api/v1/agents/egress and pinned into ring releases. |
+| `agents.remote[]` | object |  |  |  |  |  |
+| `agents.remote[].cardURL` | string | yes |  |  | format uri; pattern ^https:// | The AgentCard, usually https://host/.well-known/agent-card.json. |
+| `agents.remote[].digest` | string | yes |  |  | pattern ^sha256:[0-9a-f]&#123;64}$ | sha256 of the card's RFC 8785 canonical JSON, as `halo agents verify` prints it. |
+| `agents.remote[].jwksURL` | string |  |  |  | format uri; pattern ^https:// | https JWKS holding the card signing key. A jku in the card is never followed. |
+| `agents.remote[].name` | string | yes |  |  | pattern ^[a-z0-9][a-z0-9._-]&#123;0,62}$ |  |
+| `agents.remote[].publicKey` | string |  |  |  | minLength 1 | PEM public key (Ed25519, ECDSA P-256/P-384, RSA >= 2048) the card's JWS signature must verify with. |
+| `agents.remote[].rings` | array of string |  |  |  |  | Rings whose members may call it. |
+| `agents.remote[].rings[]` | string |  |  |  | minLength 1 |  |
+| `agents.remote[].skills` | array of string |  |  |  |  | Skill ids that may be invoked; empty = any. |
+| `agents.remote[].skills[]` | string |  |  |  | minLength 1 |  |
+| `agents.remote[].units` | array of string |  |  |  |  | Units (and units below them) whose members may call it. |
+| `agents.remote[].units[]` | string |  |  |  | minLength 1 |  |
 | `apiVersion` | string |  |  | const halos.dev/v1 |  | Document version. |
 | `delegation` | object |  |  |  |  | What units (ADR-0018) may add on top of the baseline; anything else a unit adds is a loosening that validate rejects. MCP servers a unit adds must be exact selfService.catalog entries. |
 | `delegation.allowHooks` | boolean |  |  |  |  | Let units add hooks.items (shell commands every member's harness runs). Default false. |

@@ -5,6 +5,7 @@
       "path": "cmd/halo",
       "imports": [
         "cmd/halo/scaffold",
+        "internal/a2a",
         "internal/bundle",
         "internal/controller",
         "internal/delivery/devcontainer",
@@ -86,6 +87,12 @@
         "internal/policy",
         "internal/release",
         "internal/toggle"
+      ]
+    },
+    {
+      "path": "internal/a2a",
+      "imports": [
+        "internal/policy"
       ]
     },
     {

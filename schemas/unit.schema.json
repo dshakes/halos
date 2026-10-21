@@ -310,6 +310,28 @@
           "additionalProperties": {
             "type": "string"
           }
+        },
+        "agents": {
+          "type": "object",
+          "description": "Bounds delegated agents for this profile's members (ADR-0024). A unit overlay may only lower maxDepth and narrow remote.",
+          "properties": {
+            "maxDepth": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 5,
+              "description": "Lowers agents.maxDepth for these members."
+            },
+            "remote": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uniqueItems": true,
+              "description": "agents.remote names these members may call; empty = every entry whose rings or units admit them."
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
