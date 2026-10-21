@@ -330,13 +330,13 @@ func TestSCIMAuth(t *testing.T) {
 		{"gateway token", "Bearer " + gwTok, 401},
 		{"fleet token", "Bearer " + tok, 401},
 	} {
-		e.s.authFails = authLimiter{}
+		e.s.scimFails = authLimiter{}
 		if got := e.scimAs(c.auth, "GET", "/scim/v2/Users", "").Code; got != c.want {
 			t.Errorf("%s: %d, want %d", c.name, got, c.want)
 		}
 	}
 	// An admin session cookie is never a SCIM credential.
-	e.s.authFails = authLimiter{}
+	e.s.scimFails = authLimiter{}
 	r := httptest.NewRequest("POST", "/scim/v2/Users", strings.NewReader(`{"userName":"x@acme.example"}`))
 	r.AddCookie(&http.Cookie{Name: sessionCookie, Value: e.s.seal(cookiePayload{Sub: admin.ID, Groups: admin.Groups, Exp: e.now.Add(time.Hour).Unix()})})
 	w := httptest.NewRecorder()
@@ -349,7 +349,7 @@ func TestSCIMAuth(t *testing.T) {
 		t.Fatalf("not a SCIM error: %s", w.Body)
 	}
 	// Brute force runs into the shared failed-auth budget.
-	e.s.authFails = authLimiter{}
+	e.s.scimFails = authLimiter{}
 	last := 0
 	for range authFailBurst + 1 {
 		last = e.scimAs("Bearer guess", "GET", "/scim/v2/Users", "").Code
@@ -680,7 +680,7 @@ func TestGatewayDirectoryEndpoint(t *testing.T) {
 		{"SCIM token is not the gateway token", "a@x.example", "Bearer " + scimTok, 401, gateway.DirectoryEntry{}},
 		{"no token", "a@x.example", "", 401, gateway.DirectoryEntry{}},
 	} {
-		e.s.authFails = authLimiter{}
+		e.s.scimFails = authLimiter{}
 		w := do(e.h, "GET", "/api/v1/gateway/directory?subject="+c.subject, c.auth, "")
 		if w.Code != c.code {
 			t.Errorf("%s: %d %s", c.name, w.Code, w.Body)

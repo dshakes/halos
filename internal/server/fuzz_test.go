@@ -112,7 +112,7 @@ func FuzzAPIJSONDecoders(f *testing.F) {
 	f.Fuzz(func(t *testing.T, epi, mode uint8, body []byte) {
 		ep := fuzzEndpoints[int(epi)%len(fuzzEndpoints)]
 		mode %= fuzzModes
-		for _, l := range []*authLimiter{&e.s.authFails, &e.s.loginFails} { // each input starts with a clean budget
+		for _, l := range []*authLimiter{&e.s.authFails, &e.s.loginFails, &e.s.gwFails, &e.s.exchangeFails, &e.s.scimFails} { // each input starts with a clean budget
 			l.mu.Lock()
 			l.m = nil
 			l.mu.Unlock()

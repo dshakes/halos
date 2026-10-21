@@ -101,3 +101,28 @@ func TestValidateRejectsUnitLoosening(t *testing.T) {
 		t.Fatalf("release build of a loosening policy: %d %s", code, errs)
 	}
 }
+
+// `halo release build` (and so publish) refuses a workload rule that pins no
+// tenant, as `halo validate` does.
+func TestReleaseBuildRefusesUnpinnedWorkload(t *testing.T) {
+	dir := copyDir(t, "../../examples/ci-agents")
+	p := filepath.Join(dir, "halos.yaml")
+	b, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errs := halo(t, "release", "build", "--policy-dir", dir, "--ring", "ring3-ga", "--release-version", "1.0.0", "--no-artifacts", "--out", filepath.Join(t.TempDir(), "r.tar")); code != 0 {
+		t.Fatalf("fixture: %d %s", code, errs)
+	}
+	bad := strings.Replace(string(b), "        namespace_id: \"4242\"\n        namespace_path: acme\n", "", 1)
+	if bad == string(b) {
+		t.Fatal("fixture changed")
+	}
+	if err := os.WriteFile(p, []byte(bad), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, _, errs := halo(t, "release", "build", "--policy-dir", dir, "--ring", "ring3-ga", "--release-version", "1.0.0", "--no-artifacts", "--out", filepath.Join(t.TempDir(), "r.tar"))
+	if code != exitValidation || !strings.Contains(errs, "pins no tenant") {
+		t.Fatalf("release build of an unpinned workload rule: %d %s", code, errs)
+	}
+}

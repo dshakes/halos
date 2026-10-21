@@ -61,7 +61,6 @@
         "internal/bundle",
         "internal/controller",
         "internal/pgstore",
-        "internal/policy",
         "internal/promote",
         "internal/rollout",
         "internal/server"

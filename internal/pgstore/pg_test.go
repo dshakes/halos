@@ -447,7 +447,7 @@ func TestPairsAndBudget(t *testing.T) {
 	// exactly 10 succeed, globally.
 	var wg sync.WaitGroup
 	var mu sync.Mutex
-	won := 0
+	won, winner := 0, ""
 	for i := range 30 {
 		d := db
 		if i%2 == 1 {
@@ -461,7 +461,7 @@ func TestPairsAndBudget(t *testing.T) {
 				t.Error(err)
 			} else if ok {
 				mu.Lock()
-				won++
+				won, winner = won+1, fmt.Sprintf("r%d", i)
 				mu.Unlock()
 			}
 		}()
@@ -470,7 +470,7 @@ func TestPairsAndBudget(t *testing.T) {
 	if won != 10 {
 		t.Fatalf("%d reservations of 1.0 under a 10.0 cap", won)
 	}
-	if err := db.Settle(ctx, "s", "r0", 1, 0.25); err != nil { // settle below the reservation
+	if err := db.Settle(ctx, "s", winner, 1, 0.25); err != nil { // settle below the reservation
 		t.Fatal(err)
 	}
 	if spent, _ := db.Spent(ctx, "s"); spent != 0.25 {

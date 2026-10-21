@@ -26,6 +26,8 @@ Design and guarantees: [ADR-0021](/halos/adr/0021-ha-control-plane-on-postgres/)
 - **Exactly one controller.** The experiment loop (verdicts, rollbacks, PRs, notifications, rollout ticks) runs on the replica holding lease `controller` in `halo_leases`. The leader renews every `leaseTTL/3` (default 5s of a 15s lease) and steps down by itself once `leaseTTL - leaseTTL/3` has passed without a renewal, before the lease can expire on the database clock. Each leadership term writes its action log and rollout state through a fence (the term's token must still own the lease, checked in the same transaction), so a deposed leader cannot write behind its successor.
 - **The audit chain stays linear.** Appends lock the single chain-head row; `seq` is the primary key.
 - **Fail closed.** If a replica cannot read Postgres, device authentication answers 503 and sessions are treated as revoked; `/readyz` fails so the Service stops sending it traffic. `/healthz` does not check the database, so an outage does not restart pods.
+- **Rate limits are per replica.** The failed-auth buckets (per IP and endpoint class) live in each replica's memory, so with N replicas a client spread across them gets up to N times the configured budget (10 failures/min becomes up to 10N). Use session affinity on the ingress if that matters ([ADR-0021](/halos/adr/0021-ha-control-plane-on-postgres/) explains why they are not in the database).
+- **Policy.** Each replica refuses a policy with security validation errors and keeps its last good one; the controller acts on that same accepted policy. A replica started while the repository head is refused stays unready until a good commit lands.
 - **halo-shadow** workers keep nothing: pairs go to `halo_shadow_pairs` (sealed exactly as in the file) and `budgetUSD` is one budget for every replica, named by `database.budgetScope`. Unlike the file mode's counter it does not reset on restart: use a new scope name (for example the quarter) to start a fresh budget. `halo-shadow export-pairs -database-url-file F > pairs.jsonl` writes the rows `decrypt-pairs` reads.
 
 Metrics on `--metrics-listen` (`server.metrics.enabled`): `halo_leader{lease="controller"}` (1 on the leader), `halo_leader_changes_total{lease}`, `halo_db_errors_total`, `halo_db_open_connections`.
@@ -188,6 +190,11 @@ groups:
         labels: {severity: ticket}
         annotations:
           summary: "audit log rotation failing; audit.jsonl keeps growing (nothing is lost)"
+      - alert: HaloPolicyRefused
+        expr: increase(halo_server_policy_refused_total[15m]) > 0 or increase(halo_proxy_policy_refused_total[15m]) > 0
+        labels: {severity: page}
+        annotations:
+          summary: "a policy with security validation errors (unpinned workload rule, unit loosening) was refused; the last good policy is serving, see the 'policy refused' log line"
       - alert: HaloShadowBudgetNearlyExhausted
         expr: halo_shadow_spend_usd / halo_shadow_budget_usd > 0.9
         labels: {severity: ticket}

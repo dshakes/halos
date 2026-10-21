@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -156,10 +155,10 @@ func (s *scimLogStore) apply(rec scimRecord) {
 	switch {
 	case rec.User != nil && rec.User.ID != "":
 		if old, ok := s.users[rec.User.ID]; ok {
-			delete(s.byName, strings.ToLower(old.UserName))
+			delete(s.byName, canonicalUser(old.UserName))
 		}
 		s.users[rec.User.ID] = *rec.User
-		s.byName[strings.ToLower(rec.User.UserName)] = rec.User.ID
+		s.byName[canonicalUser(rec.User.UserName)] = rec.User.ID
 	case rec.Group != nil && rec.Group.ID != "":
 		s.unindex(rec.Group.ID)
 		s.groups[rec.Group.ID] = *rec.Group
@@ -171,7 +170,7 @@ func (s *scimLogStore) apply(rec scimRecord) {
 		}
 	case rec.DelUser != "":
 		if old, ok := s.users[rec.DelUser]; ok {
-			delete(s.byName, strings.ToLower(old.UserName))
+			delete(s.byName, canonicalUser(old.UserName))
 			delete(s.users, rec.DelUser)
 		}
 		for gid := range s.memberOf[rec.DelUser] {
@@ -293,7 +292,7 @@ func (s *scimLogStore) Lookup(userName string) (SCIMUser, []string, bool) {
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	id, ok := s.byName[strings.ToLower(userName)]
+	id, ok := s.byName[canonicalUser(userName)]
 	if !ok {
 		return SCIMUser{}, nil, false
 	}

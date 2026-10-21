@@ -57,9 +57,9 @@ func FuzzSCIMJSONDecoders(f *testing.F) {
 	f.Fuzz(func(t *testing.T, epi, mode uint8, body []byte) {
 		ep := paths[int(epi)%len(paths)]
 		mode %= scimFuzzModes
-		e.s.authFails.mu.Lock()
-		e.s.authFails.m = nil // each input starts with a clean budget
-		e.s.authFails.mu.Unlock()
+		e.s.scimFails.mu.Lock()
+		e.s.scimFails.m = nil // each input starts with a clean budget
+		e.s.scimFails.mu.Unlock()
 		body = bytes.ReplaceAll(body, []byte("USER"), []byte(uid))
 		r := httptest.NewRequest(ep.method, ep.path, bytes.NewReader(body))
 		switch mode {

@@ -261,22 +261,82 @@ func TestUsageTapContentEncoding(t *testing.T) {
 
 func TestEstimateUsage(t *testing.T) {
 	for _, tc := range []struct {
-		name     string
-		r        UsageResult
-		reqBytes int
-		max      int64
-		want     budget.Usage
+		name string
+		r    UsageResult
+		e    Estimate
+		want budget.Usage
 	}{
-		{"nothing seen: request and response bytes / 3", UsageResult{Bytes: 3000}, 900, 0, budget.Usage{Input: 300, Output: 1000}},
-		{"capped at max tokens", UsageResult{Bytes: 3000}, 900, 64, budget.Usage{Input: 300, Output: 64}},
-		{"message_start input wins over request bytes", UsageResult{Usage: budget.Usage{Input: 500, CacheRead: 40, Output: 1}, Found: true, Bytes: 30}, 900, 0,
+		{"nothing seen: request bytes / 3, response bytes / 4", UsageResult{Bytes: 4000}, Estimate{RequestBytes: 900}, budget.Usage{Input: 300, Output: 1000}},
+		{"capped at max tokens", UsageResult{Bytes: 4000}, Estimate{RequestBytes: 900, MaxOutput: 64}, budget.Usage{Input: 300, Output: 64}},
+		{"message_start input wins over request bytes", UsageResult{Usage: budget.Usage{Input: 500, CacheRead: 40, Output: 1}, Found: true, Bytes: 40}, Estimate{RequestBytes: 900},
 			budget.Usage{Input: 500, CacheRead: 40, Output: 10}},
-		{"reported output beats the byte guess and the cap", UsageResult{Usage: budget.Usage{Input: 5, Output: 200}, Found: true, Bytes: 30}, 9, 100,
+		{"reported output beats the byte guess and the cap", UsageResult{Usage: budget.Usage{Input: 5, Output: 200}, Found: true, Bytes: 30}, Estimate{RequestBytes: 9, MaxOutput: 100},
 			budget.Usage{Input: 5, Output: 200}},
-		{"never zero", UsageResult{}, 0, 0, budget.Usage{Input: 1}},
+		{"never zero", UsageResult{}, Estimate{}, budget.Usage{Input: 1}},
+		// A cut stream is charged its decoded output text, not its SSE framing.
+		{"stream: delta text / 4", UsageResult{Streamed: true, Bytes: 1 << 20, OutputText: 4000, OutputEvents: 300}, Estimate{RequestBytes: 30}, budget.Usage{Input: 10, Output: 1000}},
+		{"stream: at least a token per delta", UsageResult{Streamed: true, Bytes: 1 << 20, OutputText: 400, OutputEvents: 300}, Estimate{RequestBytes: 30}, budget.Usage{Input: 10, Output: 300}},
+		{"stream: no deltas yet", UsageResult{Streamed: true, Bytes: 500}, Estimate{RequestBytes: 30}, budget.Usage{Input: 10}},
+		// An inflated body without max tokens is capped at the ceiling.
+		{"default ceiling", UsageResult{Bytes: 256 << 20}, Estimate{RequestBytes: 30}, budget.Usage{Input: 10, Output: DefaultOutputCeiling}},
+		{"configured ceiling", UsageResult{Bytes: 256 << 20}, Estimate{RequestBytes: 30, OutputCeiling: 8000}, budget.Usage{Input: 10, Output: 8000}},
+		// Server-side state is charged a worst case, not request bytes / 3.
+		{"server state", UsageResult{Bytes: 40}, Estimate{RequestBytes: 300, ServerStateInput: 200_000}, budget.Usage{Input: 200_000, Output: 10}},
+		{"server state, input partly reported", UsageResult{Usage: budget.Usage{Input: 50, CacheRead: 150_000}, Found: true}, Estimate{ServerStateInput: 200_000},
+			budget.Usage{Input: 50_000, CacheRead: 150_000}},
+		{"reported input above the server state charge", UsageResult{Usage: budget.Usage{Input: 300_000}, Found: true}, Estimate{ServerStateInput: 200_000},
+			budget.Usage{Input: 300_000}},
 	} {
-		if got := EstimateUsage(tc.r, tc.reqBytes, tc.max); got != tc.want {
+		if got := EstimateUsage(tc.r, tc.e); got != tc.want {
 			t.Errorf("%s: %+v, want %+v", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestServerStateInput(t *testing.T) {
+	for _, tc := range []struct {
+		proto, body string
+		want        bool
+	}{
+		{ProtoResponses, `{"model":"m","previous_response_id":"resp_1","input":"hi"}`, true},
+		{ProtoResponses, `{"model":"m","conversation":"conv_1","input":"hi"}`, true},
+		{ProtoResponses, `{"model":"m","conversation":{"id":"conv_1"},"input":"hi"}`, true},
+		{ProtoResponses, `{"model":"m","prompt":{"id":"pmpt_1","version":"2"}}`, true},
+		{ProtoResponses, `{"model":"m","input":"hi"}`, false},
+		{ProtoResponses, `{"model":"m","previous_response_id":"","conversation":null,"prompt":{}}`, false},
+		{ProtoResponses, `not json`, false},
+		{ProtoAnthropic, `{"previous_response_id":"resp_1"}`, false},
+	} {
+		if got := ServerStateInput(tc.proto, []byte(tc.body)); got != tc.want {
+			t.Errorf("%s %s: %v, want %v", tc.proto, tc.body, got, tc.want)
+		}
+	}
+}
+
+// The tap measures a stream's generated output from its delta payloads, per
+// protocol, so a cut stream is not charged for SSE framing (about 10x the text).
+func TestUsageTapOutputText(t *testing.T) {
+	text := strings.Repeat("abcd", 25) // 100 bytes per delta
+	for _, tc := range []struct {
+		proto, ct, event string
+	}{
+		{ProtoAnthropic, "text/event-stream", `event: content_block_delta` + "\n" + `data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"` + text + `"}}`},
+		{ProtoResponses, "text/event-stream", `event: response.output_text.delta` + "\n" + `data: {"type":"response.output_text.delta","item_id":"msg_0123456789abcdef","output_index":0,"content_index":0,"delta":"` + text + `"}`},
+		{ProtoGemini, "text/event-stream", `data: {"candidates":[{"content":{"parts":[{"text":"` + text + `"}],"role":"model"},"index":0}],"modelVersion":"gemini-2.5-pro"}`},
+	} {
+		var body strings.Builder
+		for range 50 {
+			body.WriteString(tc.event + "\n\n")
+		}
+		var got UsageResult
+		rc := UsageTap(tc.proto, tc.ct, "", io.NopCloser(strings.NewReader(body.String())), func(r UsageResult) { got = r })
+		_, _ = io.Copy(io.Discard, rc)
+		_ = rc.Close()
+		if !got.Streamed || got.OutputText != 50*100 || got.OutputEvents != 50 || got.Complete {
+			t.Errorf("%s: %+v, want 5000 bytes of output text in 50 events", tc.proto, got)
+		}
+		if u := EstimateUsage(got, Estimate{RequestBytes: 30}); u.Output != 50*100/4 {
+			t.Errorf("%s: output estimate %d, want %d (text / 4, not wire bytes %d / 3)", tc.proto, u.Output, 50*100/4, got.Bytes)
 		}
 	}
 }

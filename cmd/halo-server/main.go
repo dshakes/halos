@@ -23,7 +23,6 @@ import (
 	"github.com/dshakes/halos/internal/bundle"
 	"github.com/dshakes/halos/internal/controller"
 	"github.com/dshakes/halos/internal/pgstore"
-	"github.com/dshakes/halos/internal/policy"
 	"github.com/dshakes/halos/internal/promote"
 	"github.com/dshakes/halos/internal/server"
 )
@@ -530,7 +529,7 @@ func newController(o options, portal server.Portal, portalWriter server.PolicyWr
 		return nil, err
 	}
 	c := &controller.Controller{
-		Org:          func() (*policy.Org, error) { return policy.Load(o.policyDir) },
+		Org:          srv.Policy, // the policy the server accepted (SecurityIssues), not a raw load
 		Metrics:      &promote.ClickHouse{URL: o.chURL, Database: o.chDB, User: o.chUser, Password: pw},
 		Writer:       writer,
 		Notifier:     notifiers,

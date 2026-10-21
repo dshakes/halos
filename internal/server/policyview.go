@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/dshakes/halos/internal/policy"
@@ -24,6 +25,8 @@ type policyHolder struct {
 	sig   string
 	force bool
 	err   error
+	// refused counts loads refused by policy.SecurityIssues.
+	refused atomic.Uint64
 }
 
 // Invalidate forces a reload on the next read.
@@ -59,6 +62,12 @@ func (p *policyHolder) Get() (*policy.Org, PolicyView, error) {
 	if sig := dirSig(p.dir); p.force || sig != p.sig || p.org == nil && p.err == nil {
 		p.force, p.sig = false, sig
 		org, err := policy.Load(p.dir)
+		if err == nil {
+			if iss := policy.SecurityIssues(org); len(iss) > 0 {
+				p.refused.Add(1)
+				err = fmt.Errorf("policy refused (keeping the last good policy): %d security validation error(s), first: %s", len(iss), iss[0])
+			}
+		}
 		if err != nil {
 			p.err = err
 			p.log.Error("policy reload failed", "dir", p.dir, "err", err)

@@ -564,7 +564,7 @@ func (e *enrollments) consume(tok string) (Principal, bool) {
 	if err != nil || !ok || json.Unmarshal(b, &t) != nil {
 		return Principal{}, false
 	}
-	drop, dropped, err := e.kv.Get(ctx, kvEnrollDrop, strings.ToLower(t.User.ID))
+	drop, dropped, err := e.kv.Get(ctx, kvEnrollDrop, canonicalUser(t.User.ID))
 	if err != nil {
 		return Principal{}, false
 	}
@@ -583,7 +583,7 @@ func (e *enrollments) dropUser(user string, now time.Time) error {
 	ctx, cancel := storage.Ctx()
 	defer cancel()
 	at := now.Add(enrollDropSkew)
-	return e.kv.Put(ctx, kvEnrollDrop, strings.ToLower(user), []byte(strconv.FormatInt(at.UnixNano(), 10)), at.Add(enrollDropTTL))
+	return e.kv.Put(ctx, kvEnrollDrop, canonicalUser(user), []byte(strconv.FormatInt(at.UnixNano(), 10)), at.Add(enrollDropTTL))
 }
 
 func (s *Server) postEnroll(w http.ResponseWriter, r *http.Request) {

@@ -62,6 +62,10 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 - Workload rules must pin an exact tenant claim. Issuers Halos doesn't know must set `issuers[].tenantClaim`, so AWS, AKS and self-managed GitLab issuers fail `halo validate` until they do.
 - A unit that adds hooks, env keys, MCP servers or extensions is loosening policy, unless the org delegates it (`delegation.allowHooks`, `delegation.envKeys`, `selfService.catalog`). Provider, proxy and runtime-injection env keys are refused even when delegated. Top-level units select groups only, and their files belong to the root owners.
 - Aborted or compressed metered responses are charged (new `estimated` outcome, replacing `no_usage`), so a successful call is never free. GenAI telemetry and budgets share one usage parser.
+- During a directory outage gateways keep the verified caller (no groups) instead of routing them anonymously; `directory.failMode: closed` returns 503 instead. halo-server's failed-auth lockout is per endpoint class, so public endpoints cannot lock out the gateways.
+- halo-server and the gateways refuse a policy with security validation errors (unpinned workload rules, undelegated unit loosenings) at load time and keep the last good one (`halo_{server,proxy}_policy_refused_total`).
+- Interrupted streams are estimated from generated text, capped at `max_tokens` or `budgets.maxEstimatedOutputTokens`; Responses calls that reuse server-side state are charged at least `budgets.serverStateInputTokens` when usage is missing.
+- User ids compare by one canonical form everywhere, including access-request self-approval. More env keys can never be set by a unit (`PATH`, `BASH_ENV`, `CLAUDE_CODE_*`, `AWS_*`, `GIT_SSH_COMMAND`, CA-bundle overrides).
 
 ### Changed
 - `halo eval online` intervals, the judge-score delta included, now resample sessions instead of pairs: steps of one session are correlated, and per-pair intervals were falsely narrow on multi-turn data. With one pair per session the result is identical to before.

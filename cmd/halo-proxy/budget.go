@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"log/slog"
@@ -29,6 +30,14 @@ type BudgetConfig struct {
 	// FailMode decides an unknown verdict for callers under an enforce budget:
 	// open (default) lets the request through and counts it; closed answers 503.
 	FailMode string `yaml:"failMode"`
+	// ServerStateInputTokens is the input charged when a response's final
+	// usage is missing and the request named server-side state (an OpenAI
+	// Responses previous_response_id, conversation or stored prompt id), whose
+	// tokens the request bytes do not show. Default 200000.
+	ServerStateInputTokens int64 `yaml:"serverStateInputTokens"`
+	// MaxEstimatedOutputTokens caps the output estimate of a request that sets
+	// no maximum output tokens. Default 128000.
+	MaxEstimatedOutputTokens int64 `yaml:"maxEstimatedOutputTokens"`
 	// AllowInsecureInCluster permits plain http to a non-loopback host.
 	AllowInsecureInCluster bool `yaml:"allowInsecureInCluster"`
 }
@@ -46,6 +55,9 @@ const unknownRetry = 30 * time.Second
 func (c BudgetConfig) build(log *slog.Logger) (*gateway.BudgetClient, error) {
 	if c.FailMode != "" && c.FailMode != failOpen && c.FailMode != failClosed {
 		return nil, fmt.Errorf("halo-proxy: budgets.failMode %q must be open or closed", c.FailMode)
+	}
+	if c.ServerStateInputTokens < 0 || c.MaxEstimatedOutputTokens < 0 {
+		return nil, fmt.Errorf("halo-proxy: budgets.serverStateInputTokens and budgets.maxEstimatedOutputTokens must not be negative")
 	}
 	if c.URL == "" {
 		if c.TokenFile != "" {
@@ -171,7 +183,11 @@ func (p *Proxy) meterResponse(resp *http.Response, rc *routeCtx) func(gateway.Us
 	return func(r gateway.UsageResult) {
 		u, outcome := r.Usage, "metered"
 		if !r.Complete {
-			u, outcome = gateway.EstimateUsage(r, len(m.request), gateway.MaxOutputTokens(m.request)), "estimated"
+			e := gateway.Estimate{RequestBytes: len(m.request), MaxOutput: gateway.MaxOutputTokens(m.request), OutputCeiling: p.cfg.Budgets.MaxEstimatedOutputTokens}
+			if gateway.ServerStateInput(m.proto, m.request) {
+				e.ServerStateInput = cmp.Or(p.cfg.Budgets.ServerStateInputTokens, gateway.DefaultServerStateInputTokens)
+			}
+			u, outcome = gateway.EstimateUsage(r, e), "estimated"
 		}
 		usd, priced := budget.Cost(m.prices, model, u)
 		if !priced && outcome == "metered" {

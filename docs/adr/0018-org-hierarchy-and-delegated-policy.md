@@ -8,6 +8,8 @@ date: 2026-10-21
 # ADR-0018: Org hierarchy and delegated policy
 
 > **Amended 2026-10-21.** A unit's own owners approve its file, so additions that run code or reroute traffic on members' machines are loosenings too: `hooks.items` (unless `halos.yaml` sets `delegation.allowHooks`), new `env` keys (unless listed in `delegation.envKeys`; provider, base-URL, proxy and runtime-injection keys never), and MCP servers that are not an exact `selfService.catalog` entry; overlays carry no extensions. A top-level unit may select `members.groups` only, and `halo units codeowners` gives a top-level unit's file to the root owners alone (`--owner` is then required). See [Org hierarchy](/halos/concepts/org-hierarchy/#enforced-fields).
+>
+> **Amended again 2026-10-21 (second security review).** The never-delegable env keys now also cover, case-insensitively: `PATH`, `BASH_ENV`, `ENV`, `CLAUDE_CODE_*` (all, not just `CLAUDE_CODE_USE_*`), `AWS_*` (including `AWS_ENDPOINT_URL*`), `GOOGLE_*`, `CLOUD_ML_REGION`, `OTEL_EXPORTER_OTLP_*`, `GIT_SSH_COMMAND`, `GIT_CONFIG_*`, `GIT_EXEC_PATH`, `npm_config_*`, `JAVA_TOOL_OPTIONS`, `_JAVA_OPTIONS`, `PERL5OPT`, `RUBYOPT`, `SSL_CERT_FILE`, `SSL_CERT_DIR`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE` and `NODE_EXTRA_CA_CERTS` (test: `TestUnitForbiddenEnv`). Loosening was enforced only by `halo validate`; halo-server and the gateways now refuse to activate a policy whose `units` or `delegation` have validation errors and keep the last good one (tests: `TestPolicyLoadRefusesSecurityErrors`, `TestSnapshotRefusesSecurityErrors`).
 
 ## Context and problem statement
 

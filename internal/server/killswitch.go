@@ -173,23 +173,29 @@ func (s *Server) gatewayEnabled(cp gatewayCap) bool {
 	return ok
 }
 
-// gatewayAuth checks the bearer token for capability cp (rate-limited per
-// client IP), writing the 401/429 itself on failure.
+// gatewayAuth checks the bearer token for capability cp, writing the 401/429
+// itself on failure. Failures count against the gateway class's own per-IP
+// budget (gwFails), and a valid token is accepted even from a blocked IP: a
+// gateway sharing an egress IP with someone sending garbage is never locked
+// out of its directory, posture, budget or kill list. The cost is that a
+// blocked guesser still learns when a guess is right; gateway tokens are at
+// least 16 characters (halo-server refuses shorter), so guessing stays
+// infeasible for a random token.
 func (s *Server) gatewayAuth(w http.ResponseWriter, r *http.Request, cp gatewayCap) bool {
-	ip := s.clientIP(r)
-	if s.authFails.blocked(ip) {
-		apiErr(w, http.StatusTooManyRequests, "too many failed attempts")
-		return false
-	}
 	tok, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	sum := sha256.Sum256([]byte(tok)) // hash first: constant-time regardless of length
 	want, enabled := s.gwSums[cp]
-	if !ok || !enabled || subtle.ConstantTimeCompare(sum[:], want[:]) != 1 {
-		s.authFails.fail(ip)
-		apiErr(w, http.StatusUnauthorized, "gateway token required")
+	if ok && enabled && subtle.ConstantTimeCompare(sum[:], want[:]) == 1 {
+		return true
+	}
+	ip := s.clientIP(r)
+	if s.gwFails.blocked(ip) {
+		apiErr(w, http.StatusTooManyRequests, "too many failed attempts")
 		return false
 	}
-	return true
+	s.gwFails.fail(ip)
+	apiErr(w, http.StatusUnauthorized, "gateway token required")
+	return false
 }
 
 // getFleetKillswitch: the same signed kill list for enrolled halod devices

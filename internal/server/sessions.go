@@ -14,12 +14,11 @@ import (
 // sessionRevocations is the per-user session epoch: a session cookie issued at
 // or before a user's revocation time is dead. Logout and the admin revoke
 // endpoint bump it; it is an append-only JSONL log in DataDir so a restart does
-// not resurrect sessions. Users are keyed case-insensitively (revocationKey),
-// as SCIM, devices and enrollments match them: an IdP that provisions
-// "Alice@Corp.com" must still revoke the session of "alice@corp.com".
+// not resurrect sessions. Users are keyed by canonicalUser: an IdP that
+// provisions "Alice@Corp.com" must still revoke the session of "alice@corp.com".
 type sessionRevocations struct {
 	mu     sync.Mutex
-	before map[string]int64 // revocationKey(user) -> unix nanos
+	before map[string]int64 // canonicalUser(user) -> unix nanos
 	log    storage.Log      // nil = memory only
 }
 
@@ -28,8 +27,17 @@ type revocation struct {
 	At   int64  `json:"at"`
 }
 
-// revocationKey canonicalises a user id for the revocation map and log.
-func revocationKey(user string) string { return strings.ToLower(user) }
+// canonicalUser is the one form in which halo-server compares or keys a
+// human user id: sessions, devices, enrollments, posture, SCIM userName,
+// access-request self-approval and the whoami self check. It lowercases and
+// trims surrounding space. Not strings.EqualFold: map keys need a canonical
+// string, and EqualFold's Unicode folding (the Kelvin sign K matches k, long
+// s matches s) is not what ToLower produces, so a fold-equal pair could match
+// in one place and miss in another.
+func canonicalUser(id string) string { return strings.ToLower(strings.TrimSpace(id)) }
+
+// sameUser reports whether a and b name the same user (canonicalUser).
+func sameUser(a, b string) bool { return canonicalUser(a) == canonicalUser(b) }
 
 func (r *sessionRevocations) close() error { return storage.CloseLog(&r.mu, r.log) }
 
@@ -42,7 +50,7 @@ func openSessionRevocations(o storage.Opener) (*sessionRevocations, error) {
 		if json.Unmarshal(line, &v) != nil || v.User == "" { // torn line: skip
 			return
 		}
-		if k := revocationKey(v.User); v.At > r.before[k] { // lines written before keys were canonical, too
+		if k := canonicalUser(v.User); v.At > r.before[k] { // lines written before keys were canonical, too
 			r.before[k] = v.At
 		}
 	})
@@ -58,7 +66,7 @@ func (r *sessionRevocations) revoke(user string, now time.Time) error {
 	if user == "" {
 		return errors.New("empty user")
 	}
-	user = revocationKey(user)
+	user = canonicalUser(user)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.log != nil {
@@ -91,7 +99,7 @@ func (r *sessionRevocations) valid(user string, issuedAt int64) bool {
 			return false
 		}
 	}
-	b, ok := r.before[revocationKey(user)]
+	b, ok := r.before[canonicalUser(user)]
 	return !ok || issuedAt > b
 }
 

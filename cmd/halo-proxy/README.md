@@ -210,6 +210,8 @@ budgets:
   grace: 15m                                                     # last verdict kept while halo-server is unreachable
   flushInterval: 5s                                              # usage report interval
   failMode: open                                                 # open | closed: unknown verdict under an enforce budget
+  serverStateInputTokens: 200000                                 # input charged when a cut Responses call names server-side state
+  maxEstimatedOutputTokens: 128000                               # output estimate cap when the request sets no max tokens
 ```
 
 An exhausted `enforce` budget answers 429 with `Retry-After` at the window reset, in the caller's wire format
