@@ -196,6 +196,28 @@ Enforce answers 403 in the caller's wire format with the reason and `halod statu
 on the request log line. An unreachable halo-server past `grace` makes the posture unknown: the request passes.
 `/metrics` counts `halo_proxy_gate_total{gate,ring,outcome}`.
 
+## Budgets
+
+The policy's `gateway.budgets` cap spend per user, group, ring or org (ADR-0017). halo-proxy reads token usage from
+each model response as it streams, prices it from `gateway.pricing`, reports it to halo-server every
+`flushInterval`, and checks the caller's counters before each model call:
+
+```yaml
+budgets:
+  url: https://halo.internal.example.com/api/v1/gateway/budget   # empty: budgets are neither metered nor enforced
+  tokenFile: /run/secrets/halo-gateway-token                     # halo-server --gateway-token-file
+  cacheTTL: 30s                                                  # per-caller verdict cache
+  grace: 15m                                                     # last verdict kept while halo-server is unreachable
+  flushInterval: 5s                                              # usage report interval
+  failMode: open                                                 # open | closed: unknown verdict under an enforce budget
+```
+
+An exhausted `enforce` budget answers 429 with `Retry-After` at the window reset, in the caller's wire format
+(Anthropic `rate_limit_error`, OpenAI `insufficient_quota`, Gemini `RESOURCE_EXHAUSTED`, Bedrock
+`ThrottlingException`). `warn` budgets and soft thresholds (`alertAt`) pass with an `X-Halo-Budget` response header.
+Flags: `--budget-url`, `--budget-token-file`, `--budget-fail-mode`. `/metrics` exports `halo_proxy_budget_*`. See
+the [cost budgets guide](https://dshakes.github.io/halos/guides/cost-budgets/).
+
 ## Kill switch
 
 halo-proxy can poll halo-server's signed kill list and treat killed experiments as **not running**:

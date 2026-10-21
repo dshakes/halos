@@ -79,6 +79,38 @@ groups:
         labels: {severity: ticket}
         annotations:
           summary: "shadow mirror dropping jobs: halo-shadow down, queue full or token mismatch (client traffic unaffected)"
+      - alert: HaloBudgetNearLimit
+        expr: sum(increase(halo_proxy_budget_checks_total{outcome="alert"}[15m])) by (budget) > 0
+        labels: {severity: ticket}
+        annotations:
+          summary: "budget {{ $labels.budget }}: callers past an alertAt threshold (halo budget status shows which counters)"
+      - alert: HaloBudgetExhausted
+        expr: sum(increase(halo_proxy_budget_checks_total{outcome=~"exceeded|refused"}[15m])) by (budget, outcome) > 0
+        labels: {severity: ticket}
+        annotations:
+          summary: "budget {{ $labels.budget }} used up ({{ $labels.outcome }}): refused means developers are getting 429s"
+      - alert: HaloBudgetVerdictUnknown
+        expr: sum(rate(halo_proxy_budget_checks_total{outcome="unknown"}[5m])) > 0
+        for: 10m
+        labels: {severity: page}
+        annotations:
+          summary: "no budget verdicts from halo-server past grace: budgets are not enforced (failMode open) or callers get 503 (failMode closed)"
+      - alert: HaloBudgetReportsFailing
+        expr: |
+          sum(rate(halo_proxy_budget_reports_total{outcome="failed"}[10m])) > 0
+            or sum(rate(halo_proxy_budget_dropped_total[10m])) > 0
+        for: 10m
+        labels: {severity: ticket}
+        annotations:
+          summary: "halo-proxy cannot report usage to halo-server (or is dropping it): budget counters lag or under-count"
+      - alert: HaloBudgetUsageUnmetered
+        expr: |
+          sum(rate(halo_proxy_budget_responses_total{outcome=~"no_usage|unpriced"}[30m]))
+            / sum(rate(halo_proxy_budget_responses_total[30m])) > 0.05
+        for: 30m
+        labels: {severity: ticket}
+        annotations:
+          summary: ">5% of metered responses had no usage object or no price in gateway.pricing: USD budgets under-count"
       - alert: HaloProxyBelowTwoReplicas
         expr: |
           sum(kube_deployment_status_replicas_available{deployment=~".*-proxy"}) < 2
@@ -140,6 +172,7 @@ Two things no exporter covers, so wire them from CI: the daily `halo release ref
 | Kill list | `<data-dir>/killswitch.jsonl` | `internal/controller/killstore.go:65` | Active kills are forgotten: gateways and `halod` get an **empty** list at the next poll and the killed change comes back. Treat this file as the one you cannot lose |
 | Controller action log | `<data-dir>/controller-state.jsonl` | `internal/controller/state.go:68` | The controller may open duplicate PRs for verdicts it already acted on |
 | Rollout state | `<data-dir>/rollouts/<name>.json` | `internal/rollout/state.go:151` | Rollout step and gate history |
+| Budget counters | `<data-dir>/budgets.json` | `internal/server/budgets.go:79` | Spend in the current windows resets to zero: enforce budgets let callers spend their limit again ([ADR-0017](/halos/adr/0017-gateway-cost-budgets/)) |
 | Fleet reports | `<data-dir>/reports.jsonl` | `internal/server/store.go:88` | Rebuilds itself as `halod` reports; optional |
 | Verdicts | `--verdicts-file` | | Recomputable from ClickHouse |
 | Shadow pairs | `halo-shadow -out` (default `pairs.jsonl`) | `cmd/halo-shadow/main.go:62` | Evidence only. Contains prompts; encrypt with `-pair-key-file` and back the key up separately or the file is unreadable |

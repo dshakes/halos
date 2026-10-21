@@ -39,9 +39,12 @@ type Proxy struct {
 	kill   *gateway.KillSwitch      // nil = no kill switch
 	pc     *gateway.PostureClient   // nil = posture gate off
 	dir    *gateway.DirectoryClient // nil = groups from the verified identity alone
+	bc     *gateway.BudgetClient    // nil = budgets not metered or enforced
 	otlp   *gwmetrics.Emitter       // nil = request metrics export off
 	m      *metrics
 	log    *slog.Logger
+
+	budgetOff sync.Once // warns once that policy budgets have no budgets.url
 
 	breaker    *gateway.Breaker
 	getenv     func(string) string
@@ -64,6 +67,7 @@ type routeCtx struct {
 	failover bool // an earlier target failed or was skipped
 
 	tap *usageTap // GenAI usage observer on the response body; nil unless GenAI telemetry is on for this call
+	budget *budgetMeter // nil = response not metered
 }
 
 type ctxKey struct{}
@@ -103,6 +107,9 @@ func newProxy(cfg Config, log *slog.Logger) (*Proxy, error) {
 	if p.dir, err = cfg.Directory.build(log); err != nil {
 		return nil, err
 	}
+	if p.bc, err = cfg.Budgets.build(log); err != nil {
+		return nil, err
+	}
 	if p.otlp, err = gwmetrics.New(cfg.Telemetry); err != nil {
 		return nil, fmt.Errorf("halo-proxy: telemetry: %w", err)
 	}
@@ -127,6 +134,7 @@ func newProxy(cfg Config, log *slog.Logger) (*Proxy, error) {
 					rc.tap = newUsageTap(resp.Body, strings.HasPrefix(ct, "text/event-stream") || strings.HasPrefix(ct, "application/vnd.amazon.eventstream"), rc.start)
 					resp.Body = rc.tap
 				}
+				p.meterResponse(resp, rc)
 			}
 			return nil
 		},
@@ -167,6 +175,7 @@ func (p *Proxy) upstreamError(w http.ResponseWriter, r *http.Request, err error)
 
 // writeReject answers a gateway Rejection in the caller's wire format.
 func writeReject(w http.ResponseWriter, r *gateway.Rejection) {
+	r.SetHeaders(w.Header())
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(r.Status)
 	_, _ = w.Write(r.JSON())
@@ -194,6 +203,11 @@ func (p *Proxy) AdminHandler() http.Handler {
 			d, f = p.mirror.Dropped(), p.mirror.Failed()
 		}
 		p.m.write(w, d, f)
+		var rep, fail, drop int64
+		if p.bc != nil {
+			rep, fail, drop = p.bc.Counters()
+		}
+		p.m.writeBudget(w, rep, fail, drop)
 		var ms runtime.MemStats
 		runtime.ReadMemStats(&ms)
 		fmt.Fprintf(w, "# TYPE go_goroutines gauge\ngo_goroutines %d\n# TYPE go_memstats_heap_inuse_bytes gauge\ngo_memstats_heap_inuse_bytes %d\n", runtime.NumGoroutine(), ms.HeapInuse)
@@ -330,6 +344,18 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if gates, rej = p.gate(r, org, d.Ring, sub, res.Protocol); rej != nil {
 			writeReject(sw, rej)
 			return
+		}
+		if !gateway.IsCountTokens(escPath) { // token counting is free: never refused, never charged
+			var notes []string
+			rc.budget, notes, rej = p.budgetGate(r.Context(), org, sub, d.Ring, res.Protocol, d.UpstreamModel, sw.Header())
+			gates = append(gates, notes...)
+			if rej != nil {
+				writeReject(sw, rej)
+				return
+			}
+			if rc.budget != nil {
+				r.Header.Del("Accept-Encoding") // usage is read from the response as it streams: it must arrive uncompressed
+			}
 		}
 	}
 

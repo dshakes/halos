@@ -158,6 +158,7 @@ func (v *validator) gateway() {
 	for _, alias := range sortedKeys(g.Models) {
 		v.route("gateway.models."+alias, g.Models[alias])
 	}
+	v.budgets(g)
 }
 
 // upstreamKind checks the per-kind fields: where a provider's credential lives

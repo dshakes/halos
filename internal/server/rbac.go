@@ -61,6 +61,7 @@ var routePerms = map[string]perm{
 	"GET /api/v1/requests":           permSession, // everyone's need permApprove, filtered in the handler
 
 	"GET /api/v1/fleet":              permRead,
+	"GET /api/v1/budgets":            permRead, // spend per user, group, ring and org (ADR-0017)
 	"GET /api/v1/devices":            permRead,
 	"GET /api/v1/devices/{id}":       permRead,
 	"GET /api/v1/policy":             permRead,

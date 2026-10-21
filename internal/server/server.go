@@ -101,6 +101,7 @@ type Server struct {
 	kills       *controller.KillStore
 	gwSum       [32]byte     // sha256 of GatewayToken
 	scim        *scimService // nil = SCIM off
+	budgets     *budgetStore
 }
 
 // New validates cfg and returns a Server. It does not require the policy dir to load yet.
@@ -165,8 +166,16 @@ func New(cfg Config) (*Server, error) {
 		_ = al.close() // already failing
 		return nil, err
 	}
+	bs, err := openBudgetStore(cfg.DataDir)
+	if err != nil {
+		_ = al.close() // already failing
+		return nil, err
+	}
+	if cfg.GatewayToken != "" && cfg.DataDir == "" {
+		cfg.Log.Warn("no --data-dir: gateway budget counters are in memory and reset on restart")
+	}
 	s := &Server{cfg: cfg, tokSum: sha256.Sum256([]byte(cfg.Token)), pol: &policyHolder{dir: cfg.PolicyDir, log: cfg.Log}, reqs: reqs, devices: devs, revoked: revoked,
-		auditLog: al, forwarders: fwds, relCache: &releaseCache{byKey: map[string]cachedPointer{}, chans: map[string][]string{}}}
+		auditLog: al, forwarders: fwds, relCache: &releaseCache{byKey: map[string]cachedPointer{}, chans: map[string][]string{}}, budgets: bs}
 	s.relFetch, s.relChannels = s.registryFetch, s.registryChannels
 	if s.kills = cfg.KillStore; s.kills == nil {
 		if s.kills, err = controller.OpenKillStore(cfg.DataDir); err != nil {
@@ -183,7 +192,7 @@ func New(cfg Config) (*Server, error) {
 // Close releases the files New opened under Config.DataDir. A Store or
 // KillStore passed in via Config stays the caller's to close.
 func (s *Server) Close() error {
-	errs := []error{s.reqs.close(), s.devices.close(), s.revoked.close(), s.auditLog.close(), s.scim.close()}
+	errs := []error{s.reqs.close(), s.devices.close(), s.revoked.close(), s.auditLog.close(), s.scim.close(), s.budgets.save(s.cfg.Now(), true)}
 	if s.cfg.KillStore == nil && s.kills != nil {
 		errs = append(errs, s.kills.Close())
 	}
@@ -243,6 +252,9 @@ func (s *Server) mux() *routeMux {
 	s.route(m, "GET /api/v1/killswitch", s.getKills)
 	m.HandleFunc("GET /api/v1/gateway/killswitch", s.getGatewayKillswitch)
 	m.HandleFunc("GET /api/v1/gateway/posture", s.getGatewayPosture)
+	m.HandleFunc("POST /api/v1/gateway/budget/check", s.postGatewayBudgetCheck) // gateway token
+	m.HandleFunc("POST /api/v1/gateway/budget/usage", s.postGatewayBudgetUsage) // gateway token
+	s.route(m, "GET /api/v1/budgets", s.getBudgets)
 	s.route(m, "POST /api/v1/devices/{id}/revoke", s.revokeDevice)
 	s.route(m, "POST /api/v1/users/{id}/revoke-sessions", s.revokeSessions)
 	s.route(m, "GET /api/v1/fleet", s.getFleet)

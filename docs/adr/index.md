@@ -28,5 +28,6 @@ Decisions that shape Halos. New ADRs use [MADR](https://adr.github.io/madr/): co
 | [0018](/halos/adr/0018-org-hierarchy-and-delegated-policy/) | Org hierarchy: units with delegated owners that can only tighten the baseline |
 | [0020](/halos/adr/0020-harvest-shadow-sessions-into-replay-evals/) | Harvesting shadow sessions into replay evals (builds on 0014) |
 | [0022](/halos/adr/0022-scim-provisioning/) | SCIM 2.0 provisioning: immediate deprovisioning, authoritative directory groups |
+| [0017](/halos/adr/0017-gateway-cost-budgets/) | Cost budgets and quotas enforced at the gateway |
 
 The canonical files live in `docs/adr/` in the repository; the docs build copies them into the site.

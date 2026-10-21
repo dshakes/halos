@@ -119,6 +119,12 @@ type Gateway struct {
 	// nothing translates aliases). Multi-target routes (weights, failover) are
 	// halo-proxy-only; Kong uses each route's first target.
 	Engine string `yaml:"engine,omitempty" json:"engine,omitempty"`
+	// Pricing is USD per million tokens keyed by provider model id (the model a
+	// route target names). It costs gateway usage for Budgets.
+	Pricing map[string]ModelPrice `yaml:"pricing,omitempty" json:"pricing,omitempty"`
+	// Budgets cap spend per user, group, ring or org (ADR-0017). halo-proxy
+	// enforces them; halo-server holds the counters.
+	Budgets []Budget `yaml:"budgets,omitempty" json:"budgets,omitempty"`
 }
 
 // EngineExternal is a gateway Halos does not run.
