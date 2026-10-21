@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strings"
 )
 
 // Severity of a validation Issue.
@@ -295,6 +296,94 @@ func (v *validator) profiles() {
 		if pr := p.Telemetry.Protocol; pr != "" {
 			v.oneOf(path+".telemetry.protocol", "protocol", pr, otlpProtocols)
 		}
+		if l := p.Login; l != "" {
+			v.oneOf(path+".login", "login", l, loginModes)
+		}
+		v.extensions(path+".extensions", p.Extensions)
+	}
+}
+
+var (
+	loginModes        = []string{LoginSubscription, LoginAPI}
+	marketplaceRepoRe = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
+	pluginKeyRe       = regexp.MustCompile(`^[^@\s]+@[^@\s]+$`)
+)
+
+func (v *validator) extensions(path string, e Extensions) {
+	for _, g := range []struct {
+		field string
+		list  []Marketplace
+	}{{"marketplaces", e.Marketplaces}, {"blockedMarketplaces", e.BlockedMarketplaces}} {
+		for i, m := range g.list {
+			v.marketplace(fmt.Sprintf("%s.%s[%d]", path, g.field, i), m)
+		}
+	}
+	for _, g := range []struct {
+		field string
+		list  []string
+	}{{"enabled", e.Plugins.Enabled}, {"blocked", e.Plugins.Blocked}} {
+		for i, k := range g.list {
+			if !pluginKeyRe.MatchString(k) {
+				v.errf(fmt.Sprintf("%s.plugins.%s[%d]", path, g.field, i), "%q must be PLUGIN@MARKETPLACE", k)
+			}
+			if g.field == "enabled" && slices.Contains(e.Plugins.Blocked, k) {
+				v.errf(fmt.Sprintf("%s.plugins.enabled[%d]", path, i), "plugin %q is both enabled and blocked", k)
+			}
+		}
+	}
+	for _, g := range []struct {
+		field string
+		names []string
+	}{{"skills.deny", e.Skills.Deny}, {"subagents.deny", e.Subagents.Deny}} {
+		for i, n := range g.names {
+			// Names are spliced into permission-rule syntax such as Agent(NAME).
+			if n == "" || strings.ContainsAny(n, "()\r\n") {
+				v.errf(fmt.Sprintf("%s.%s[%d]", path, g.field, i), "%q must be a non-empty name without parentheses or newlines", n)
+			}
+		}
+	}
+	if strings.ContainsAny(e.OutputStyle, "\r\n") {
+		v.errf(path+".outputStyle", "must not contain a newline")
+	}
+	sl := e.StatusLine
+	if sl.Padding < 0 {
+		v.errf(path+".statusLine.padding", "%d must be >= 0", sl.Padding)
+	}
+	if sl.Command == "" && sl.Padding != 0 {
+		v.errf(path+".statusLine.command", "command is required when padding is set")
+	}
+}
+
+func (v *validator) marketplace(path string, m Marketplace) {
+	only := func(fields map[string]string, allowed ...string) {
+		for _, f := range sortedKeys(fields) {
+			if fields[f] != "" && !slices.Contains(allowed, f) {
+				v.errf(path+"."+f, "not valid for source %q", m.Source)
+			}
+		}
+	}
+	all := map[string]string{"repo": m.Repo, "url": m.URL, "ref": m.Ref, "hostPattern": m.HostPattern}
+	switch m.Source {
+	case MarketplaceGitHub:
+		only(all, "repo", "ref")
+		if !marketplaceRepoRe.MatchString(m.Repo) {
+			v.errf(path+".repo", "%q must be OWNER/REPO", m.Repo)
+		}
+	case MarketplaceGit, MarketplaceURL:
+		only(all, "url", "ref")
+		if m.Source == MarketplaceURL && m.Ref != "" {
+			v.errf(path+".ref", "not valid for source %q", m.Source)
+		}
+		if u, err := url.Parse(m.URL); err != nil || u.Host == "" {
+			v.errf(path+".url", "%q must be an absolute URL", m.URL)
+		}
+	case MarketplaceHostPattern:
+		only(all, "hostPattern")
+		if _, err := regexp.Compile(m.HostPattern); err != nil || m.HostPattern == "" {
+			v.errf(path+".hostPattern", "%q must be a non-empty regular expression", m.HostPattern)
+		}
+	default:
+		v.oneOf(path+".source", "source", m.Source, []string{MarketplaceGitHub, MarketplaceGit, MarketplaceURL, MarketplaceHostPattern})
 	}
 }
 

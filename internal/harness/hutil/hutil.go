@@ -103,6 +103,18 @@ func Populated(p *policy.Profile) []string {
 	add(len(p.Egress.AllowedDomains) > 0, "egress.allowedDomains")
 	add(p.Instructions != "", "instructions")
 	add(len(p.Env) > 0, "env")
+	e := p.Extensions
+	add(len(e.Marketplaces) > 0, "extensions.marketplaces")
+	add(len(e.BlockedMarketplaces) > 0, "extensions.blockedMarketplaces")
+	add(len(e.Plugins.Enabled) > 0, "extensions.plugins.enabled")
+	add(len(e.Plugins.Blocked) > 0, "extensions.plugins.blocked")
+	add(len(e.Skills.Deny) > 0, "extensions.skills.deny")
+	add(e.Skills.PluginOnly, "extensions.skills.pluginOnly")
+	add(len(e.Subagents.Deny) > 0, "extensions.subagents.deny")
+	add(e.Subagents.PluginOnly, "extensions.subagents.pluginOnly")
+	add(e.OutputStyle != "", "extensions.outputStyle")
+	add(e.StatusLine.Command != "", "extensions.statusLine")
+	add(p.Login != "", "login")
 	return out
 }
 

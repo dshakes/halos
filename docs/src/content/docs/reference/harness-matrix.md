@@ -3,7 +3,7 @@ title: Harness matrix
 description: What each harness adapter renders, what Halos enforces instead, and where the files land. Generated from halo harnesses and internal/harness/FACTS.md.
 ---
 
-The capability sets below are what `halo harnesses` prints (from each adapter's `Capabilities()`); the mechanisms and paths come from [`internal/harness/FACTS.md`](https://github.com/dshakes/halos/blob/main/internal/harness/FACTS.md), which cites the vendor page for every claim. Facts were last verified against vendor documentation on 2026-09-30.
+The capability sets below are what `halo harnesses` prints (from each adapter's `Capabilities()`); the mechanisms and paths come from [`internal/harness/FACTS.md`](https://github.com/dshakes/halos/blob/main/internal/harness/FACTS.md), which cites the vendor page for every claim. Facts were last verified against vendor documentation on 2026-09-30; the plugin, skill, subagent, output style, status line, login and MCP denylist rows on 2026-10-21 (documentation-sourced, not yet exercised by `make uat-clis`).
 
 :::note[What was executed]
 `make uat-clis` runs the real Claude Code 2.1.280, Codex 0.99.0, Gemini CLI 0.34.0 and Copilot CLI 1.0.90 against `halod`-applied config on every PR (`test/uat/CLI-REPORT.md`). Cells marked UNVERIFIED there, for example Copilot `disableBypassPermissionsMode` and Copilot gateway routing, are documentation-sourced only. Golden tests check the *rendered bytes*, not the CLI's behavior.
@@ -20,13 +20,22 @@ halo harnesses --output json   # machine-readable
 |---|---|---|---|---|
 | Version pin | Rendered (`requiredMinimumVersion` / `requiredMaximumVersion`; the CLI refuses to start outside the range) | `halod` | `halod` | `halod` |
 | Model lock | Rendered (`availableModels`, `enforceAvailableModels`; with a gateway, `modelOverrides` maps the built-in fallback for a disallowed `--model` to an alias. The CLI drops a disallowed `--model` silently, with no setting to refuse it) | Rendered | Rendered (`model.name`) | No: `models.default` only, users may override (warns) |
-| MCP allowlist | Rendered (`allowManagedMcpServersOnly`) | Rendered (`requirements.toml` `mcp_servers.<id>.identity`; verified against OpenAI docs and schema) | Rendered (`mcp.allowed`) | Rendered (`allowedMcpServers`) |
+| MCP allowlist | Rendered (`allowManagedMcpServersOnly`) | Rendered (`requirements.toml` `mcp_servers.<id>.identity`; verified against OpenAI docs and schema) | Rendered (`mcp.allowed`, matched by server name) | Rendered (`allowedMcpServers`; `managedOnly` with no servers renders `[]`, which blocks all) |
+| MCP denylist (`mcp.denied`) | Rendered (`deniedMcpServers`; by URL, a name warns) | No: `requirements.toml` has no denylist, so the allowlist is the control (warns) | Rendered (`mcp.excluded`, names only; a URL warns and is skipped) | Rendered (`deniedMcpServers`; by URL, a name warns) |
 | Hooks lock | Rendered (`allowManagedHooksOnly`) | No | No | No |
 | Permissions | Rendered (`disableBypassPermissionsMode` plus rules) | Rendered (`allowed_approval_policies`, `allowed_sandbox_modes`) | Partial: `security.disableYoloMode` for `disableBypass`; not a declared capability in `halo harnesses` | Rendered (`permissions.disableBypassPermissionsMode: "disable"`); `permissions.mode` and `sandbox` are not (warns) |
 | Gateway | Rendered (`ANTHROPIC_BASE_URL` / Bedrock env) | Rendered (`model_providers.<id>`) | Rendered as env via `/etc/profile.d` (login shells only) | **No**: BYOK is env-only and managed settings cannot set env (warns) |
 | Request headers (ring stamps) | Rendered (`ANTHROPIC_CUSTOM_HEADERS`) | Rendered (`http_headers`) | No | No |
 | Telemetry (OTEL) | Rendered | Rendered (`[otel]`) | Rendered | Rendered (`http/json`, `http/protobuf`; `grpc` warns and is not rendered) |
 | Instructions | Managed `CLAUDE.md` | No | No | No |
+| Plugin marketplace allowlist (`extensions.marketplaces`) | Rendered (`strictKnownMarketplaces`) | Rendered (`requirements.toml` `[marketplaces]`; `github` and `git` become git rules, `hostPattern` a `host_pattern` rule; a `url` source warns) | No (warns) | Rendered (`strictKnownMarketplaces`) |
+| Blocked marketplaces | Rendered (`blockedMarketplaces`) | No (warns) | No (warns) | No (warns) |
+| Plugin pins (`extensions.plugins`) | Rendered (`enabledPlugins`; a managed `false` blocks install at every scope) | Partial: `plugins.<name>.enabled` in `managed_config.toml` is a default a trusted project can override (warns) | No (warns) | Rendered (`enabledPlugins`) |
+| Skills deny | Rendered (`permissions.deny` `Skill(skill:NAME)`) | No (warns) | Rendered (`skills.disabled`) | No (warns) |
+| Subagents deny | Rendered (`permissions.deny` `Agent(NAME)`) | No (warns) | Rendered (`agents.overrides.<name>.enabled: false`) | No (warns) |
+| Skills / subagents plugin-only | Rendered (`strictPluginOnlyCustomization`) | No (warns) | No (warns) | No (warns) |
+| Output style, status line | Rendered (`outputStyle`, `statusLine`) | No (warns) | No (warns) | No (warns) |
+| Login restriction (`login`) | Rendered (`forceLoginMethod`: `claudeai` / `console`) | Rendered (`requirements.toml` `allowed_login_methods`: `chatgpt` / `api`) | Rendered (`security.auth.enforcedType`; `subscription` is not honored with a gateway, which needs `gemini-api-key`) | No (warns) |
 
 Fields the adapters cannot render are listed by `halo render` and `halo release build` with warnings such as `gemini-cli: profile field "hooks.items" is not supported and was not rendered`.
 

@@ -38,6 +38,19 @@ func Fixture() (*policy.Profile, *policy.Gateway) {
 		Egress:       policy.Egress{AllowedDomains: []string{"example.com", "github.com"}},
 		Instructions: "Be careful.\n",
 		Env:          map[string]string{"FOO": "bar"},
+		Extensions: policy.Extensions{
+			Marketplaces: []policy.Marketplace{
+				{Source: policy.MarketplaceGitHub, Repo: "acme/plugins", Ref: "v1"},
+				{Source: policy.MarketplaceHostPattern, HostPattern: `^git\.example\.com$`},
+			},
+			BlockedMarketplaces: []policy.Marketplace{{Source: policy.MarketplaceGitHub, Repo: "untrusted/plugins"}},
+			Plugins:             policy.Plugins{Enabled: []string{"audit@acme-plugins"}, Blocked: []string{"risky@acme-plugins"}},
+			Skills:              policy.ExtensionSet{Deny: []string{"deploy"}, PluginOnly: true},
+			Subagents:           policy.ExtensionSet{Deny: []string{"Explore"}},
+			OutputStyle:         "Explanatory",
+			StatusLine:          policy.StatusLine{Command: "/opt/halo/statusline.sh", Padding: 1},
+		},
+		Login: policy.LoginAPI,
 	}
 	g := &policy.Gateway{
 		BaseURL: "https://gw.example.com",

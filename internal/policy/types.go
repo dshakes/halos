@@ -238,6 +238,12 @@ type Profile struct {
 	Hooks       Hooks       `yaml:"hooks" json:"hooks"`
 	Telemetry   Telemetry   `yaml:"telemetry" json:"telemetry"`
 	Egress      Egress      `yaml:"egress" json:"egress"`
+	// Extensions governs agent-extension surfaces: plugins and their marketplaces,
+	// skills, subagents, output style and status line.
+	Extensions Extensions `yaml:"extensions,omitempty" json:"extensions,omitempty"`
+	// Login restricts how users authenticate: subscription (claude.ai / ChatGPT /
+	// Google login) | api (API key or gateway credential). Empty = unrestricted.
+	Login string `yaml:"login,omitempty" json:"login,omitempty"`
 	// Instructions is org-wide memory (managed CLAUDE.md / AGENTS.md / GEMINI.md).
 	Instructions string `yaml:"instructions,omitempty" json:"instructions,omitempty"`
 	// Env is extra environment applied to every harness.
@@ -314,6 +320,71 @@ type Telemetry struct {
 type Egress struct {
 	// AllowedDomains is the only egress permitted from managed environments (firewall + harness sandbox).
 	AllowedDomains []string `yaml:"allowedDomains,omitempty" json:"allowedDomains,omitempty"`
+}
+
+// Marketplace source kinds for Extensions.Marketplaces.
+const (
+	MarketplaceGitHub      = "github"      // Repo (OWNER/REPO), optional Ref
+	MarketplaceGit         = "git"         // URL, optional Ref
+	MarketplaceURL         = "url"         // URL of a marketplace.json
+	MarketplaceHostPattern = "hostPattern" // HostPattern, a regex over marketplace hosts
+)
+
+// Login restrictions for Profile.Login.
+const (
+	LoginSubscription = "subscription"
+	LoginAPI          = "api"
+)
+
+// Extensions is the plugin/skill/subagent governance surface. Unset means
+// unrestricted; each adapter renders what its harness can enforce and warns
+// about the rest.
+type Extensions struct {
+	// Marketplaces is the allowlist of plugin marketplace sources; empty = any.
+	Marketplaces []Marketplace `yaml:"marketplaces,omitempty" json:"marketplaces,omitempty"`
+	// BlockedMarketplaces are sources users may never use. Unions down an extends chain.
+	BlockedMarketplaces []Marketplace `yaml:"blockedMarketplaces,omitempty" json:"blockedMarketplaces,omitempty"`
+	Plugins             Plugins       `yaml:"plugins,omitempty" json:"plugins,omitempty"`
+	Skills              ExtensionSet  `yaml:"skills,omitempty" json:"skills,omitempty"`
+	Subagents           ExtensionSet  `yaml:"subagents,omitempty" json:"subagents,omitempty"`
+	// OutputStyle selects the harness's output style by name.
+	OutputStyle string `yaml:"outputStyle,omitempty" json:"outputStyle,omitempty"`
+	// StatusLine runs a managed command to render the status line.
+	StatusLine StatusLine `yaml:"statusLine,omitempty" json:"statusLine,omitempty"`
+}
+
+// Marketplace is one plugin marketplace source.
+type Marketplace struct {
+	// Source: github | git | url | hostPattern
+	Source      string `yaml:"source" json:"source"`
+	Repo        string `yaml:"repo,omitempty" json:"repo,omitempty"`
+	URL         string `yaml:"url,omitempty" json:"url,omitempty"`
+	Ref         string `yaml:"ref,omitempty" json:"ref,omitempty"`
+	HostPattern string `yaml:"hostPattern,omitempty" json:"hostPattern,omitempty"`
+}
+
+// Plugins pins individual plugins, keyed PLUGIN@MARKETPLACE.
+type Plugins struct {
+	// Enabled plugins are required on.
+	Enabled []string `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	// Blocked plugins are required off. Unions down an extends chain.
+	Blocked []string `yaml:"blocked,omitempty" json:"blocked,omitempty"`
+}
+
+// ExtensionSet governs a user-authored extension kind (skills or subagents).
+type ExtensionSet struct {
+	// Deny names that must not load. Unions down an extends chain.
+	Deny []string `yaml:"deny,omitempty" json:"deny,omitempty"`
+	// PluginOnly allows only extensions that arrive via plugins or managed
+	// settings (the allowlist is then the allowed marketplaces); user and
+	// project sources are blocked.
+	PluginOnly bool `yaml:"pluginOnly,omitempty" json:"pluginOnly,omitempty"`
+}
+
+// StatusLine is a managed status-line command.
+type StatusLine struct {
+	Command string `yaml:"command,omitempty" json:"command,omitempty"`
+	Padding int    `yaml:"padding,omitempty" json:"padding,omitempty"`
 }
 
 // Ring is an ordered rollout cohort pointing at a profile.

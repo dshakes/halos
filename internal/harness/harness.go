@@ -32,6 +32,7 @@ const (
 	CapTelemetry    Capability = "telemetry"     // OTEL export
 	CapInstructions Capability = "instructions"  // managed org-wide memory file
 	CapHeaders      Capability = "headers"       // custom request headers (ring stamping)
+	CapExtensions   Capability = "extensions"    // plugin marketplaces, plugins, skills, subagents (each adapter covers a subset; the rest warns)
 )
 
 // File is one rendered artifact.
