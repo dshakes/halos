@@ -16,7 +16,6 @@ Generated from `schemas/profile.schema.json`; do not edit. Nested fields use dot
 | `env` | object |  |  |  |  | Extra environment applied to every harness. |
 | `env.*` | string |  |  |  |  |  |
 | `extends` | string |  |  |  |  | Parent profile. Scalars: child wins; lists: child replaces; maps: merged. |
-<<<<<<< HEAD
 | `extensions` | object |  |  |  |  | Plugin, skill, subagent, output style and status line governance. Unset means unrestricted; each adapter renders what its harness can enforce and warns about the rest. |
 | `extensions.blockedMarketplaces` | array of object |  |  |  |  | Marketplace sources users may never use (Claude Code blockedMarketplaces). Unions down an extends chain. |
 | `extensions.blockedMarketplaces[]` | object |  |  |  |  | A plugin marketplace source. |
@@ -49,10 +48,7 @@ Generated from `schemas/profile.schema.json`; do not edit. Nested fields use dot
 | `extensions.subagents.deny` | array of string |  |  |  |  | Names that must not load. Unions down an extends chain. |
 | `extensions.subagents.deny[]` | string |  |  |  |  |  |
 | `extensions.subagents.pluginOnly` | boolean |  |  |  |  | Allow only extensions delivered by plugins or managed settings; user and project sources are blocked (Claude Code strictPluginOnlyCustomization). |
-| `harnesses` | object |  |  |  |  | Enabled harnesses keyed by adapter name (claude-code, codex, gemini-cli, copilot-cli). |
-=======
 | `harnesses` | object |  |  |  |  | Enabled harnesses keyed by adapter name (claude-code, codex, gemini-cli, copilot-cli, cursor-agent, opencode). |
->>>>>>> worktree-agent-a257b8ef901a7230a
 | `harnesses.*` | object |  |  |  |  | Harness settings. |
 | `harnesses.*.model` | string |  |  |  |  | This harness's default model alias, replacing models.default for it (e.g. codex-default). Must be a gateway.models alias, and in models.allowed when enforce is set. |
 | `harnesses.*.overrides` | object |  |  |  |  | Raw harness-native keys merged last (escape hatch; guardrails still apply). |
