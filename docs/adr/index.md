@@ -24,5 +24,6 @@ Decisions that shape Halos. New ADRs use [MADR](https://adr.github.io/madr/): co
 | [0013](/halos/adr/0013-external-gateway-engine/) | Halos manages clients behind a gateway it does not run |
 | [0014](/halos/adr/0014-step-level-multi-turn-shadow/) | Step-level shadowing of multi-turn agent sessions (amends 0004) |
 | [0015](/halos/adr/0015-rbac-roles-for-halo-server/) | RBAC roles for halo-server |
+| [0018](/halos/adr/0018-org-hierarchy-and-delegated-policy/) | Org hierarchy: units with delegated owners that can only tighten the baseline |
 
 The canonical files live in `docs/adr/` in the repository; the docs build copies them into the site.

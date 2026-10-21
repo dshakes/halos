@@ -39,17 +39,29 @@ func (a *Agent) activeToggles(rel *release.Release, ring, subject string) (on []
 }
 
 // withToggles returns the files to write for one harness: the release's own
-// (toggle-off) files with the fragments of the toggles that are on merged in.
+// (toggle-off) files, with the device's unit files (if any) in their place,
+// and the fragments of the toggles that are on merged in.
 // Everything merged comes from the signature-verified release. A fragment that
 // fails to merge is reported and skipped: that file keeps its toggle-off
 // content rather than blocking the rest of the release.
-func (a *Agent) withToggles(rel *release.Release, harnessName string, he release.HarnessEntry, on []release.ToggleEntry) ([]applied, []error) {
+func (a *Agent) withToggles(rel *release.Release, harnessName string, he release.HarnessEntry, unit *release.UnitEntry, on []release.ToggleEntry) ([]applied, []error) {
 	var out []applied
 	idx := map[string]int{}
 	for _, f := range he.Files[a.Cfg.OS] {
 		data, ok := rel.Content(f)
 		idx[f.Path] = len(out)
 		out = append(out, applied{f, data, ok})
+	}
+	if unit != nil {
+		for _, f := range unit.Files[harnessName][a.Cfg.OS] {
+			data, ok := rel.Content(f)
+			if i, had := idx[f.Path]; had {
+				out[i] = applied{f, data, ok}
+				continue
+			}
+			idx[f.Path] = len(out)
+			out = append(out, applied{f, data, ok})
+		}
 	}
 	deltas := map[string][][]byte{}
 	mode := map[string]uint32{}

@@ -1,0 +1,25 @@
+# yaml-language-server: $schema=../../../../schemas/unit.schema.json
+# A business unit (ADR-0018). Its owners approve everything under
+# units/payments/ (see `halo units codeowners`); the org baseline (the ring's
+# profile) stays with ai-platform, and validate rejects any overlay that
+# loosens an enforced field.
+apiVersion: halos.dev/v1
+kind: Unit
+name: payments
+description: Payments engineering. Narrower models, PCI deny rules.
+owners: ["@acme/payments-platform"]
+members:
+  groups: [payments-eng]
+overlay:
+  models:
+    allowed: [sonnet, haiku, codex-default, gemini-default] # narrows the enforced allowlist: no opus
+  permissions:
+    deny:
+      - Read(./pci-vault/**)
+      - Bash(psql:*)
+  telemetry:
+    attributes:
+      business_unit: payments
+  instructions: |
+    # Payments
+    - Card data never leaves the PCI vault: do not read or summarise files under pci-vault/.

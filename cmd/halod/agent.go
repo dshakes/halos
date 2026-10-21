@@ -69,6 +69,9 @@ type Status struct {
 	// toggle names as of the last apply, so a change triggers a re-apply.
 	Toggles       []string `json:"toggles,omitempty"`
 	KilledToggles []string `json:"killedToggles,omitempty"`
+	// Unit is the org unit whose files are applied (ADR-0018): picked from the
+	// signed manifest with the subject and IdP groups the ring endpoint returned.
+	Unit string `json:"unit,omitempty"`
 }
 
 // State is persisted to state.json between runs.
@@ -457,8 +460,13 @@ func (a *Agent) apply(ctx context.Context, st *Status, prev State, ring, subject
 	for _, t := range on {
 		st.Toggles = append(st.Toggles, t.Name)
 	}
-	// A toggle flip rewrites files without a new release: not drift.
-	sameRelease := prev.Digest == rel.Digest && slices.Equal(prev.Status.Toggles, st.Toggles)
+	unit := rel.Manifest.MatchUnit(policy.Subject{ID: subject, Groups: a.groups})
+	st.Unit = ""
+	if unit != nil {
+		st.Unit = unit.Name
+	}
+	// A toggle flip or unit change rewrites files without a new release: not drift.
+	sameRelease := prev.Digest == rel.Digest && slices.Equal(prev.Status.Toggles, st.Toggles) && prev.Status.Unit == st.Unit
 	owned := map[string]bool{}
 	sandboxChecked := false
 	names := make([]string, 0, len(rel.Manifest.Harnesses))
@@ -473,7 +481,7 @@ func (a *Agent) apply(ctx context.Context, st *Status, prev State, ring, subject
 			errs = append(errs, fmt.Errorf("install %s@%s: %w", name, he.Version, err))
 		}
 		st.Harnesses[name] = hs
-		files, terrs := a.withToggles(rel, name, he, on)
+		files, terrs := a.withToggles(rel, name, he, unit, on)
 		errs = append(errs, terrs...)
 		for _, af := range files {
 			f := af.f

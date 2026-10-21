@@ -20,22 +20,9 @@ import (
 // The result is a deep-ish copy: mutating it does not affect the Org.
 // Extends cycles and missing parents are errors.
 func (o *Org) ResolveProfile(name string) (*Profile, error) {
-	var chain []*Profile
-	seen := map[string]bool{}
-	for cur := name; cur != ""; {
-		if seen[cur] {
-			return nil, fmt.Errorf("policy: profile extends cycle: %s -> %s", strings.Join(names(chain), " -> "), cur)
-		}
-		seen[cur] = true
-		p, ok := o.Profiles[cur]
-		if !ok {
-			if len(chain) == 0 {
-				return nil, fmt.Errorf("policy: profile %q not found", cur)
-			}
-			return nil, fmt.Errorf("policy: profile %q extends unknown profile %q", chain[len(chain)-1].Name, cur)
-		}
-		chain = append(chain, p)
-		cur = p.Extends
+	chain, err := o.profileChain(name)
+	if err != nil {
+		return nil, err
 	}
 	out := &Profile{}
 	var deny, mcpDenied, plugBlocked, skillDeny, agentDeny []string
@@ -65,6 +52,29 @@ func (o *Org) ResolveProfile(name string) (*Profile, error) {
 	out.Extensions.BlockedMarketplaces = blockedMkts
 	out.Extends = ""
 	return out, nil
+}
+
+// profileChain returns name's extends chain, child first. Extends cycles and
+// missing parents are errors.
+func (o *Org) profileChain(name string) ([]*Profile, error) {
+	var chain []*Profile
+	seen := map[string]bool{}
+	for cur := name; cur != ""; {
+		if seen[cur] {
+			return nil, fmt.Errorf("policy: profile extends cycle: %s -> %s", strings.Join(names(chain), " -> "), cur)
+		}
+		seen[cur] = true
+		p, ok := o.Profiles[cur]
+		if !ok {
+			if len(chain) == 0 {
+				return nil, fmt.Errorf("policy: profile %q not found", cur)
+			}
+			return nil, fmt.Errorf("policy: profile %q extends unknown profile %q", chain[len(chain)-1].Name, cur)
+		}
+		chain = append(chain, p)
+		cur = p.Extends
+	}
+	return chain, nil
 }
 
 func unionAppend[T comparable](dst, src []T) []T {

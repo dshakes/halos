@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -26,7 +27,7 @@ type Doc struct {
 }
 
 // Docs lists every document of the loaded (expanded and overlaid) policy in
-// a stable order: gateway, profiles, rings, experiments, toggles, rollouts.
+// a stable order: gateway, profiles, rings, experiments, toggles, rollouts, units.
 func Docs(org *policy.Org) []Doc {
 	var out []Doc
 	if g := org.Gateway; g != nil {
@@ -46,6 +47,13 @@ func Docs(org *policy.Org) []Doc {
 	}
 	for _, r := range org.Rollouts {
 		out = append(out, Doc{policy.KindRollout, r.Name, "rollouts/" + r.Name + ".yaml", r})
+	}
+	for _, u := range org.Units {
+		p := "units/" + u.Name + "/unit.yaml"
+		if u.Dir != "" {
+			p = path.Join(u.Dir, "unit.yaml")
+		}
+		out = append(out, Doc{policy.KindUnit, u.Name, p, u})
 	}
 	return out
 }
