@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -42,35 +43,72 @@ func TestDirectoryClientResolve(t *testing.T) {
 	alice := &policy.Subject{ID: "alice@acme.com", Groups: []string{"platform-admins", "spoofed"}}
 	ctx := context.Background()
 
-	if got := c.Resolve(ctx, alice); got == nil || got.ID != alice.ID || !slices.Equal(got.Groups, []string{"ai-platform"}) {
-		t.Fatalf("active: %+v", got)
+	if got, err := c.Resolve(ctx, alice); err != nil || got == nil || got.ID != alice.ID || !slices.Equal(got.Groups, []string{"ai-platform"}) {
+		t.Fatalf("active: %+v %v", got, err)
 	}
-	c.Resolve(ctx, alice)
+	_, _ = c.Resolve(ctx, alice)
 	if hits.Load() != 1 {
 		t.Fatalf("cached entry not reused within TTL: %d fetches", hits.Load())
 	}
 	now = now.Add(time.Minute)
 	entry.Store(DirectoryEntry{})
-	if got := c.Resolve(ctx, alice); got != nil {
-		t.Fatalf("deprovisioned after TTL: %+v, want nil", got)
+	if got, err := c.Resolve(ctx, alice); got != nil || !errors.Is(err, ErrNotProvisioned) {
+		t.Fatalf("deprovisioned after TTL: %+v %v, want ErrNotProvisioned (refused, never anonymous)", got, err)
 	}
 	entry.Store(DirectoryEntry{Active: true})
 	now = now.Add(time.Minute)
-	c.Resolve(ctx, alice) // cache: active, no groups
+	_, _ = c.Resolve(ctx, alice) // cache: active, no groups
 	down.Store(1)
 	now = now.Add(4 * time.Minute)
-	if got := c.Resolve(ctx, alice); got == nil || len(got.Groups) != 0 {
-		t.Fatalf("within grace: %+v, want the cached active entry", got)
+	if got, err := c.Resolve(ctx, alice); err != nil || got == nil || len(got.Groups) != 0 {
+		t.Fatalf("within grace: %+v %v, want the cached active entry", got, err)
 	}
 	now = now.Add(2 * time.Minute)
-	if got := c.Resolve(ctx, alice); got != nil {
-		t.Fatalf("past grace with the server down: %+v, want nil (unknown)", got)
+	if got, err := c.Resolve(ctx, alice); got != nil || err != nil {
+		t.Fatalf("past grace with the server down: %+v %v, want nil (unknown)", got, err)
 	}
-	if got := c.Resolve(ctx, nil); got != nil {
-		t.Fatalf("anonymous: %+v", got)
+	if got, err := c.Resolve(ctx, nil); got != nil || err != nil {
+		t.Fatalf("anonymous: %+v %v", got, err)
 	}
-	if got := c.Resolve(ctx, &policy.Subject{ID: "bob@acme.com"}); got != nil {
-		t.Fatalf("server error, nothing cached: %+v", got)
+	if got, err := c.Resolve(ctx, &policy.Subject{ID: "bob@acme.com"}); got != nil || err != nil {
+		t.Fatalf("server error, nothing cached: %+v %v", got, err)
+	}
+}
+
+// TestDirectoryClientWorkloads: workload subjects (ADR-0023) are not in SCIM,
+// so they skip the lookup and keep their Kind and credential groups. A human
+// whose id has the workload prefix still gets no Kind from the directory.
+func TestDirectoryClientWorkloads(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		_ = json.NewEncoder(w).Encode(DirectoryEntry{Active: true, Groups: []string{"scim-group"}})
+	}))
+	t.Cleanup(srv.Close)
+	c, err := NewDirectoryClient(srv.URL, "tok", time.Minute, time.Minute, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wl := &policy.Subject{ID: policy.WorkloadSubjectPrefix + "gh:acme/app", Groups: []string{"ci"}, Kind: policy.SubjectWorkload}
+	got, err := c.Resolve(context.Background(), wl)
+	if err != nil || got == nil || got.Kind != policy.SubjectWorkload || got.ID != wl.ID || !slices.Equal(got.Groups, []string{"ci"}) {
+		t.Fatalf("workload: %+v %v, want it unchanged", got, err)
+	}
+	if hits.Load() != 0 {
+		t.Fatalf("workload looked up in the SCIM directory: %d fetches", hits.Load())
+	}
+	human := &policy.Subject{ID: policy.WorkloadSubjectPrefix + "x"} // Kind "" : only a workload credential sets Kind
+	if got, err := c.Resolve(context.Background(), human); err != nil || got == nil || got.Kind != "" || hits.Load() != 1 {
+		t.Fatalf("human with a workload-looking id: %+v %v (fetches %d), want a lookup and Kind \"\"", got, err, hits.Load())
+	}
+}
+
+func TestRejectNotProvisioned(t *testing.T) {
+	for path, proto := range map[string]string{"/v1/messages": ProtoAnthropic, "/v1/responses": ProtoResponses} {
+		r := RejectNotProvisioned(path)
+		if r.Status != http.StatusForbidden || r.Protocol != proto {
+			t.Errorf("%s: %+v", path, r)
+		}
 	}
 }
 

@@ -473,6 +473,9 @@ func TestSCIMResourceRules(t *testing.T) {
 		{"duplicate userName (case-insensitive)", "POST", "/scim/v2/Users", `{"userName":"A@X.example"}`, "", 409, "uniqueness"},
 		{"missing userName", "POST", "/scim/v2/Users", `{"displayName":"x"}`, "", 400, "invalidValue"},
 		{"control character", "POST", "/scim/v2/Users", `{"userName":"a\nb@x.example"}`, "", 400, "invalidValue"},
+		{"workload userName", "POST", "/scim/v2/Users", `{"userName":"workload:ci/deploy"}`, "", 400, "invalidValue"},
+		{"workload userName any case", "POST", "/scim/v2/Users", `{"userName":"WORKLOAD:ci/deploy"}`, "", 400, "invalidValue"},
+		{"rename to a workload userName", "PATCH", "/scim/v2/Users/" + uid, `{"Operations":[{"op":"replace","path":"userName","value":"workload:ci/deploy"}]}`, "", 400, "invalidValue"},
 		{"over-long userName", "POST", "/scim/v2/Users", `{"userName":"` + strings.Repeat("a", 257) + `"}`, "", 400, "invalidValue"},
 		{"active not boolean", "POST", "/scim/v2/Users", `{"userName":"z@x.example","active":"maybe"}`, "", 400, "invalidSyntax"},
 		{"trailing data", "POST", "/scim/v2/Users", `{"userName":"z@x.example"}{}`, "", 400, "invalidSyntax"},
@@ -712,5 +715,59 @@ func TestSCIMDiscovery(t *testing.T) {
 	}
 	if c := e.scimAs("", "GET", "/scim/v2/ServiceProviderConfig", "").Code; c != 401 {
 		t.Errorf("discovery without the token: %d", c)
+	}
+}
+
+// TestSCIMDeprovisionIgnoresCase: the IdP provisions "Dev@Acme.Example" while
+// the session, device and enrollment carry "dev@acme.example". Deleting the
+// user still revokes all three, and the revocation survives a restart.
+func TestSCIMDeprovisionIgnoresCase(t *testing.T) {
+	dir := t.TempDir()
+	e := scimEnv(t, false, func(c *Config) { c.DataDir = dir })
+	id := e.createSCIMUser(t, "Dev@Acme.Example", true)
+	dt := enrollDevice(t, e, dev)
+	pending := decode[Launch](t, e.as(dev, "POST", "/api/v1/launch/laptop", "")).Token
+	if c := e.as(dev, "GET", "/api/v1/me", "").Code; c != 200 {
+		t.Fatalf("session before: %d", c)
+	}
+	if w := e.scim("DELETE", "/scim/v2/Users/"+id, ""); w.Code != http.StatusNoContent {
+		t.Fatalf("delete: %d %s", w.Code, w.Body)
+	}
+	if c := e.as(dev, "GET", "/api/v1/me", "").Code; c != 401 {
+		t.Fatalf("session after a delete under another case: %d, want 401", c)
+	}
+	if c := do(e.h, "GET", "/api/v1/fleet/ring", "Bearer "+dt, "").Code; c != 401 {
+		t.Fatalf("device token after delete: %d, want 401", c)
+	}
+	if c := do(e.h, "POST", "/api/v1/enroll", "", `{"token":"`+pending+`"}`).Code; c != 401 {
+		t.Fatalf("pending enrollment after delete: %d, want 401", c)
+	}
+	r, err := openSessionRevocations(dir) // replay
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = r.close() })
+	if r.valid(strings.ToUpper(dev.ID), e.now.UnixNano()) {
+		t.Fatal("replayed revocation ignores case: session still valid")
+	}
+}
+
+// TestSessionRevocationReplayCanonical: a log written before keys were
+// canonical (mixed case) still revokes on replay.
+func TestSessionRevocationReplayCanonical(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "session-revocations.jsonl"), []byte(`{"user":"Alice@Corp.com","at":100}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r, err := openSessionRevocations(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = r.close() })
+	if r.valid("alice@corp.com", 50) {
+		t.Fatal("legacy mixed-case revocation not applied to the canonical subject")
+	}
+	if !r.valid("alice@corp.com", 150) {
+		t.Fatal("session issued after the revocation refused")
 	}
 }

@@ -106,11 +106,11 @@ func validPrincipal(p budget.Principal) error {
 
 // gatewayBudgetOK answers the shared preamble of the gateway budget endpoints.
 func (s *Server) gatewayBudgetOK(w http.ResponseWriter, r *http.Request) ([]policy.Budget, bool) {
-	if s.cfg.GatewayToken == "" {
+	if !s.gatewayEnabled(capBudget) {
 		apiErr(w, http.StatusNotFound, "budgets not configured")
 		return nil, false
 	}
-	if !s.gatewayAuth(w, r) {
+	if !s.gatewayAuth(w, r, capBudget) {
 		return nil, false
 	}
 	org, _, err := s.pol.Get()

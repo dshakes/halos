@@ -486,3 +486,42 @@ func TestKillAuditFailure(t *testing.T) {
 		t.Fatal("unrecorded unkill must be reverted: kill stays in force")
 	}
 }
+
+// TestGatewayCapabilityTokens: a per-capability gateway token is the only
+// token its endpoint accepts (the shared token stops working there) and
+// grants nothing else; capabilities without one keep the shared token.
+func TestGatewayCapabilityTokens(t *testing.T) {
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const budgetTok, dirTok = "budget-token-0123456789", "directory-token-0123456789"
+	e := scimEnv(t, false, func(c *Config) {
+		c.KillKey, c.GatewayBudgetToken, c.GatewayDirectoryToken = priv, budgetTok, dirTok
+	})
+	endpoints := map[string][2]string{ // capability -> method, path
+		"killswitch": {"GET", "/api/v1/gateway/killswitch"},
+		"posture":    {"GET", "/api/v1/gateway/posture?subject=a@x.example"},
+		"budget":     {"POST", "/api/v1/gateway/budget/usage"},
+		"directory":  {"GET", "/api/v1/gateway/directory?subject=a@x.example"},
+	}
+	allowed := map[string][]string{ // token -> the capabilities it opens
+		gwTok:     {"killswitch", "posture"},
+		budgetTok: {"budget"},
+		dirTok:    {"directory"},
+	}
+	n := 0
+	for tok, caps := range allowed {
+		for cp, ep := range endpoints {
+			n++
+			r := httptest.NewRequest(ep[0], ep[1], strings.NewReader(`{}`))
+			r.RemoteAddr = fmt.Sprintf("192.0.2.%d:1", n) // keep the failed-auth limiter out of it
+			r.Header.Set("Authorization", "Bearer "+tok)
+			w := httptest.NewRecorder()
+			e.h.ServeHTTP(w, r)
+			if want := slices.Contains(caps, cp); (w.Code != http.StatusUnauthorized) != want {
+				t.Errorf("%s token on %s: %d %s, want authorized=%t", tok[:6], cp, w.Code, w.Body, want)
+			}
+		}
+	}
+}

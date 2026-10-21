@@ -12,10 +12,11 @@ import (
 
 // DirectoryConfig points at halo-server's SCIM directory (ADR-0022). When set,
 // the directory is authoritative: a verified caller's groups are the
-// directory's, and a caller it does not list as active gets default routing.
+// directory's, and a verified caller it does not list as active is refused
+// (403); workload credentials skip the lookup (they are not in SCIM).
 type DirectoryConfig struct {
 	URL       string `yaml:"url"`       // https://halo-server/api/v1/gateway/directory; empty disables
-	TokenFile string `yaml:"tokenFile"` // halo-server --gateway-token-file value
+	TokenFile string `yaml:"tokenFile"` // halo-server --gateway-directory-token-file value (else --gateway-token-file)
 	// CacheTTL is how long an entry is reused per subject (default 1m): the
 	// longest a deprovisioned user keeps their cohort at this gateway.
 	CacheTTL time.Duration `yaml:"cacheTTL"`

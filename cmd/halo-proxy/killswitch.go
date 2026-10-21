@@ -14,7 +14,7 @@ import (
 // KillSwitchConfig points at halo-server's signed kill list.
 type KillSwitchConfig struct {
 	URL        string        `yaml:"url"`        // https://halo-server/api/v1/gateway/killswitch; empty disables
-	TokenFile  string        `yaml:"tokenFile"`  // halo-server --gateway-token-file value
+	TokenFile  string        `yaml:"tokenFile"`  // halo-server --gateway-killswitch-token-file value (else --gateway-token-file)
 	PubkeyFile string        `yaml:"pubkeyFile"` // public half of halo-server --killswitch-key-file
 	Interval   time.Duration `yaml:"interval"`   // default 10s
 	// AllowInsecureInCluster permits plain http to a non-loopback host (an

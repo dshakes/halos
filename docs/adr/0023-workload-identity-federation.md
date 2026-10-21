@@ -74,3 +74,8 @@ The response is RFC 8693 (`access_token`, `issued_token_type`, `token_type: Bear
 | `halo ci token` / `halo ci config` | `cmd/halo/cmd_ci.go` | `cmd/halo/cmd_ci_test.go` | Done |
 | GitHub composite action, GitLab snippet | `examples/ci-agents/` | `TestExamplesValidate` (policy only) | Done; not run on real runners |
 | Shared replay cache across replicas | | | Gap (ADR-0021) |
+
+## Amended 2026-10-21 (security review)
+
+- **`workload:` is reserved for workload credentials.** Human identities starting with `workload:` (any case) are refused in OIDC (`identity.SubjectFromClaims`), trusted-header mode and SCIM `userName` creation (`identity.CheckHumanID`). Tests: `TestSubjectFromClaims`, `TestTrustedHeader`, `TestSCIMResourceRules`.
+- **Workloads and the SCIM directory.** With a gateway directory configured (ADR-0022), workload subjects skip the directory lookup and keep `Kind: workload`; before, every workload resolved to an unknown caller. The kind always comes from the verified credential, never from the directory. Tests: `TestDirectoryClientWorkloads`, `TestDirectoryKeepsWorkloads`.

@@ -115,6 +115,9 @@ func SubjectFromClaims(claims map[string]any, cfg Options) (policy.Subject, erro
 	if id = strings.TrimSpace(id); id == "" {
 		return policy.Subject{}, fmt.Errorf("identity: token has no %q claim", uc)
 	}
+	if err := CheckHumanID(id); err != nil {
+		return policy.Subject{}, err
+	}
 	if uc == "email" && !cfg.TrustUnverifiedEmail {
 		if v := claims["email_verified"]; v != true && v != "true" {
 			return policy.Subject{}, fmt.Errorf("identity: token email %q is not verified (email_verified=%v); set userClaim to a stable IdP subject or enable trustUnverifiedEmail", id, v)

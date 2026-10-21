@@ -59,3 +59,11 @@ Chosen: **option 3**. `halo-server` serves RFC 7643/7644 at `/scim/v2`.
 - Bad: `userName` must match the OIDC user claim exactly in meaning. A mismatch (for example UPN versus mail in Entra ID) leaves users unknown in authoritative mode. The guide shows the attribute mapping.
 - Neutral: groups are capped at 20,000 members (one JSONL line must stay under the replay limit), and the log is not compacted. Both are revisited with the HA backend.
 - Neutral: the gateway directory is authoritative whenever it is configured at the gateway, independent of `--scim-authoritative` on halo-server.
+
+## Amended 2026-10-21 (security review)
+
+- **Case.** Session revocations are keyed by the lowercased user id (live, and on replay of older mixed-case log lines), matching devices, enrollments and directory lookups. An IdP that provisions `Alice@Corp.com` now ends the session of `alice@corp.com`; before, it revoked a different key and the cookie survived.
+- **Gateways refuse, not demote.** A verified caller the directory does not list as active gets 403 in the caller's protocol (`gateway.RejectNotProvisioned`) instead of becoming an unknown caller, which skipped the posture gate and per-user budgets. "Unknown" is kept only for callers with no credential and for an unreachable halo-server past `grace`.
+- **Workloads.** Workload credentials (ADR-0023) are not in SCIM: the gateways skip the lookup for `Kind == workload` and keep the kind. A `userName` starting with `workload:` (any case) is refused, so no SCIM entry can stand for a workload.
+- **Scale.** The store indexes memberships by user, so `Lookup`, user deletion and PATCH member deltas are linear; benchmarked at 20,000 users and 30,000 memberships.
+- **Credentials.** `/api/v1/gateway/directory` accepts `--gateway-directory-token-file` alone when set (see the operations guide); the shared gateway token remains the fallback.

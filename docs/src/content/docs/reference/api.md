@@ -14,7 +14,7 @@ Routes are registered in `internal/server/server.go` (`Handler`). This page list
 | **Admin** | Session whose groups intersect `identity.adminGroups` in policy (recomputed from current policy on every request) | 403 `admin role required` |
 | **Fleet or device token** | `Authorization: Bearer` with the shared fleet token (`--token-file`) or a per-device token | 401, or 429 after repeated failures |
 | **Device token** | Per-device bearer token from enrollment | 401, or 429 |
-| **Gateway token** | `Authorization: Bearer` with `--gateway-token-file` | 401, or 429 after repeated failures; 404 if the kill switch is not configured |
+| **Gateway token** | `Authorization: Bearer` with `--gateway-token-file`, or the endpoint's own `--gateway-{killswitch,posture,budget,directory}-token-file` token when set (then the only one accepted there) | 401, or 429 after repeated failures; 404 if the kill switch is not configured |
 | **SCIM token** | `Authorization: Bearer` with a token whose SHA-256 is in `--scim-token-sha256-file`. A session cookie is never accepted | SCIM error 401, or 429 after repeated failures; 404 when SCIM is off |
 
 State-changing Session and Admin requests (anything but `GET`) are rejected with 403 when an `Origin` header does not match the host. `--dev-insecure-user` replaces the session check with a fixed user; demos only.
