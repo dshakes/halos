@@ -136,7 +136,12 @@ func (s *Server) principal(r *http.Request) (Principal, bool) {
 		}
 		p.Groups = g
 	}
-	return newPrincipal(p.Sub, p.Groups, s.roles(p.Groups)), true
+	g, ok := s.directoryGroups(p.Sub, p.Groups) // SCIM: deactivated users are out; authoritative groups win
+	if !ok {
+		return Principal{}, false
+	}
+	// Roles are recomputed from current policy and directory groups rather than trusted from the cookie.
+	return newPrincipal(p.Sub, g, s.roles(g)), true
 }
 
 type authedHandler func(http.ResponseWriter, *http.Request, Principal)
@@ -385,6 +390,13 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 		fail(http.StatusForbidden, err.Error(), err)
 		return
 	}
+	g, provisioned := s.directoryGroups(p.ID, p.Groups)
+	if !provisioned {
+		fail(http.StatusForbidden, "user is deactivated or not provisioned", nil)
+		return
+	}
+	// Directory groups may differ from the token's: roles follow the groups in force.
+	p = newPrincipal(p.ID, g, rolesFor(id, g))
 	org, _, _ := s.pol.Get()
 	exp := s.cfg.Now().Add(sessionTTL)
 	sess := cookiePayload{Sub: p.ID, Groups: policyGroups(org, p.Groups), Exp: exp.Unix(), Iat: s.cfg.Now().UnixNano()}

@@ -59,6 +59,9 @@ type Config struct {
 	// Posture asks halo-server for device posture (rings with posture warn or
 	// enforce). Empty URL disables: the posture gate is then never applied.
 	Posture PostureConfig `yaml:"posture"`
+	// Directory makes halo-server's SCIM directory authoritative for a
+	// verified caller's groups and active state (ADR-0022). Empty URL disables.
+	Directory DirectoryConfig `yaml:"directory"`
 	// Telemetry exports per-request OTLP metrics (halo.gateway.*) for
 	// experiment analysis. Empty otlpEndpoint disables.
 	Telemetry gwmetrics.Config `yaml:"telemetry"`
@@ -176,6 +179,8 @@ func loadConfig(args []string, getenv func(string) string, usage io.Writer) (Con
 	fs.DurationVar(&cfg.KillSwitch.Interval, "killswitch-interval", cfg.KillSwitch.Interval, "kill list poll interval (default 10s)")
 	fs.StringVar(&cfg.Posture.URL, "posture-url", cfg.Posture.URL, "halo-server /api/v1/gateway/posture URL; empty disables the posture gate")
 	fs.StringVar(&cfg.Posture.TokenFile, "posture-token-file", cfg.Posture.TokenFile, "file holding the halo-server gateway token for the posture URL")
+	fs.StringVar(&cfg.Directory.URL, "directory-url", cfg.Directory.URL, "halo-server /api/v1/gateway/directory URL: SCIM groups and active state are authoritative; empty disables")
+	fs.StringVar(&cfg.Directory.TokenFile, "directory-token-file", cfg.Directory.TokenFile, "file holding the halo-server gateway token for the directory URL")
 	fs.StringVar(&cfg.Telemetry.OTLPEndpoint, "telemetry-otlp-endpoint", cfg.Telemetry.OTLPEndpoint, "OTLP/HTTP collector base URL for halo.gateway.* request metrics; empty disables")
 	fs.StringVar(&cfg.Telemetry.Protocol, "telemetry-protocol", cfg.Telemetry.Protocol, "OTLP protocol: http/protobuf (default) | http/json")
 	fs.DurationVar(&cfg.Telemetry.Interval, "telemetry-interval", cfg.Telemetry.Interval, "OTLP export interval (default 10s, min 1s)")

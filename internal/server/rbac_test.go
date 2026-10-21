@@ -21,6 +21,12 @@ var publicRoutes = []string{
 	"GET /api/v1/gateway/killswitch", "GET /api/v1/gateway/posture",
 	"GET /enroll.sh", "GET /enroll.ps1", "GET /enroll/release.pub", "GET /enroll/killswitch.pub", "POST /api/v1/enroll",
 	"GET /auth/login", "GET /auth/callback", "POST /auth/logout",
+	// SCIM bearer token only (scimAuth); the gateway directory takes the gateway token.
+	"GET /scim/v2/ServiceProviderConfig", "GET /scim/v2/ResourceTypes", "GET /scim/v2/ResourceTypes/{id}",
+	"GET /scim/v2/Schemas", "GET /scim/v2/Schemas/{id}",
+	"GET /scim/v2/Users", "POST /scim/v2/Users", "GET /scim/v2/Users/{id}", "PUT /scim/v2/Users/{id}", "PATCH /scim/v2/Users/{id}", "DELETE /scim/v2/Users/{id}",
+	"GET /scim/v2/Groups", "POST /scim/v2/Groups", "GET /scim/v2/Groups/{id}", "PUT /scim/v2/Groups/{id}", "PATCH /scim/v2/Groups/{id}", "DELETE /scim/v2/Groups/{id}",
+	"/scim/v2/", "GET /api/v1/gateway/directory",
 	"/api/", "/",
 }
 

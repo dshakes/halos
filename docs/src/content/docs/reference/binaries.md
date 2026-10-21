@@ -196,6 +196,9 @@ Flags (env `HALO_PROXY_<FLAG>`, YAML `--config`): `--listen :8088` (proxied mode
 | `--posture-token-file` | `posture.tokenFile` | File holding the gateway token (same as the kill switch's) |
 | | `posture.cacheTTL`, `posture.grace` | YAML only. Per-user verdict cache, default `1m`; how long the last verdict serves while halo-server is unreachable, default `15m` (after it the posture is unknown and requests pass) |
 | | `posture.allowInsecureInCluster` | YAML only, default `false`; as `killSwitch.allowInsecureInCluster` |
+| `--directory-url` | `directory.url` | halo-server `/api/v1/gateway/directory`. When set, the [SCIM directory](/halos/guides/scim-provisioning/) is authoritative: a verified caller's groups are the directory's, and a caller it does not list as active gets default routing. Empty disables |
+| `--directory-token-file` | `directory.tokenFile` | File holding the gateway token |
+| | `directory.cacheTTL`, `directory.grace`, `directory.allowInsecureInCluster` | YAML only. Per-user entry cache, default `1m`; how long the last entry serves while halo-server is unreachable, default `5m` (after it callers are unknown); plain `http://` as `killSwitch.allowInsecureInCluster` |
 | `--telemetry-otlp-endpoint` | `telemetry.otlpEndpoint` | OTLP/HTTP collector base URL for `halo.gateway.*` per-request metrics; use the collector's gateway receiver (`:4319`). Empty disables |
 | `--telemetry-token-file` | `telemetry.tokenFile` | File holding the bearer token for that receiver (the collector's `HALO_OTLP_GATEWAY_TOKEN`), read once at startup. Without it the collector answers 401 and the controller sees no gateway evidence, so it cannot auto-kill |
 | `--telemetry-unit-salt-file` | `telemetry.unitSalt` (inline) | File holding the `halo.unit` hash salt. Use the same salt on every replica so one user stays one unit; empty means a random per-process salt. The flag takes a file because flags leak through `ps` |
@@ -230,6 +233,8 @@ Flags (Go style, single or double dash):
 | `-policy-repo-subdir`, `-policy-repo-base` | (root), `main` | Policy root inside that clone; PR base branch |
 | `-notify-slack-url-file`, `-notify-webhook-url-file`, `-notify-webhook-secret-file` | | Controller notifications; the secret signs generic webhook bodies (`X-Halo-Timestamp` plus `X-Halo-Signature`, [verification](#verifying-the-webhook-signature)) |
 | `-metrics-listen` | off | Address serving the controller's `/metrics`. **Unauthenticated**: keep it internal |
+| `-scim-token-sha256-file` | | Enables [SCIM 2.0 provisioning](/halos/guides/scim-provisioning/) at `/scim/v2`. File with the hex SHA-256 of each accepted SCIM bearer token, one per line (two while rotating; `#` comments allowed). Requires `-data-dir` |
+| `-scim-authoritative` | off | The SCIM directory decides who is active and their groups for the console and device endpoints; users it does not list as active are refused. Requires `-scim-token-sha256-file` |
 
 `POST /api/v1/experiments/{name}/kill` needs a `reason` (HTTP 422 without one). Kill, unkill, enrollment, session and device revocation and experiment-status PRs fail with HTTP 500 if the audit append fails ([security model](/halos/concepts/security-model/#audit-log)).
 
