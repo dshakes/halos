@@ -42,11 +42,11 @@ func main() {
 var deprecatedFlags = map[string]string{"verdicts": "verdicts-file", "controller-interval": "interval"}
 
 type options struct {
-	policyDir, listen, tokenFile, dataDir, verdicts, portalCfg, devUser string
-	devGroups, devRoles                                                 []string
-	devAdmin                                                            bool
-	deviceTTL, postureMaxAge                                            time.Duration
-	trusted                                                             []netip.Prefix
+	policyDir, listen, tokenFile, dataDir, verdicts, portalCfg, devUser, auditCfg string
+	devGroups, devRoles                                                           []string
+	devAdmin                                                                      bool
+	deviceTTL, postureMaxAge                                                      time.Duration
+	trusted                                                                       []netip.Prefix
 
 	// automated experiment loop + kill switch
 	controller                                                     bool
@@ -68,6 +68,7 @@ func parseFlags(args []string) (options, error) {
 	fs.StringVar(&o.verdicts, "verdicts-file", "", "verdicts JSON file written by `halo exp analyze` / the controller")
 	fs.StringVar(&o.verdicts, "verdicts", "", "deprecated: --verdicts-file")
 	fs.StringVar(&o.portalCfg, "portal-config", "", "portal/self-service JSON config (baseURL, registry, launchers, halod checksums, ...)")
+	fs.StringVar(&o.auditCfg, "audit-config", "", "audit log rotation and SIEM export JSON config (ADR-0016; needs --data-dir)")
 	fs.StringVar(&o.devUser, "dev-insecure-user", "", "INSECURE demo mode: disable login and act as this user")
 	fs.StringVar(&devGroups, "dev-insecure-groups", "", "comma-separated groups for --dev-insecure-user")
 	fs.BoolVar(&o.devAdmin, "dev-insecure-admin", false, "make the --dev-insecure-user an admin (same as --dev-insecure-roles admin)")
@@ -90,7 +91,7 @@ func parseFlags(args []string) (options, error) {
 	fs.StringVar(&o.policyRepoDir, "policy-repo-dir", "", "dedicated policy-repo clone the controller opens PRs from (hard-reset to origin before each PR; must not be --policy-dir or the portal clone)")
 	fs.StringVar(&o.policyRepoSubdir, "policy-repo-subdir", "", "policy root inside --policy-repo-dir")
 	fs.StringVar(&o.policyRepoBase, "policy-repo-base", "main", "PR base branch for controller PRs")
-	fs.StringVar(&o.metricsListen, "metrics-listen", "", "address serving controller /metrics (unauthenticated; keep it internal; empty disables)")
+	fs.StringVar(&o.metricsListen, "metrics-listen", "", "address serving /metrics: audit export, and controller with --controller (unauthenticated; keep it internal; empty disables)")
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), "Usage of halo-server:\n")
 		fs.VisitAll(func(f *flag.Flag) {
@@ -123,6 +124,9 @@ func parseFlags(args []string) (options, error) {
 	}
 	if o.postureMaxAge < time.Minute {
 		return o, errors.New("--posture-max-age must be at least 1m")
+	}
+	if o.auditCfg != "" && o.dataDir == "" {
+		return o, errors.New("--audit-config requires --data-dir (segments and export cursors must survive a restart)")
 	}
 	if o.killKeyFile != "" && o.dataDir == "" {
 		return o, errors.New("--killswitch-key-file requires --data-dir (kills must survive a restart)")
@@ -192,6 +196,18 @@ func run(ctx context.Context, args []string) error {
 		}
 		portal.PubKeyPEM = string(b)
 	}
+	var audit server.AuditConfig
+	if o.auditCfg != "" {
+		f, err := os.Open(o.auditCfg)
+		if err != nil {
+			return fmt.Errorf("--audit-config: %w", err)
+		}
+		audit, err = server.ParseAuditConfig(f)
+		_ = f.Close() // read-only
+		if err != nil {
+			return fmt.Errorf("--audit-config %s: %w", o.auditCfg, err)
+		}
+	}
 	writer, err := policyWriter(portal, o.policyDir)
 	if err != nil {
 		return err
@@ -234,8 +250,13 @@ func run(ctx context.Context, args []string) error {
 	srv, err := server.New(server.Config{
 		PolicyDir: o.policyDir, Token: strings.TrimSpace(string(tok)), VerdictsPath: o.verdicts, Store: store,
 		SessionKey: []byte(sessionKey), OIDCClientSecret: clientSecret, Portal: portal, DataDir: o.dataDir, Writer: writer,
+<<<<<<< HEAD
 		DeviceTTL: o.deviceTTL, DevUser: o.devUser, DevGroups: o.devGroups, DevRoles: o.devRoles, DevAdmin: o.devAdmin, TrustedProxies: o.trusted,
 		KillStore: kills, KillKey: killKey, GatewayToken: gwToken, PostureMaxAge: o.postureMaxAge,
+=======
+		DeviceTTL: o.deviceTTL, DevUser: o.devUser, DevGroups: o.devGroups, DevAdmin: o.devAdmin, TrustedProxies: o.trusted,
+		KillStore: kills, KillKey: killKey, GatewayToken: gwToken, PostureMaxAge: o.postureMaxAge, Audit: audit,
+>>>>>>> worktree-agent-a987e2999cf80f433
 	})
 	if err != nil {
 		return err
@@ -244,6 +265,10 @@ func run(ctx context.Context, args []string) error {
 	if c, ok := store.(io.Closer); ok {
 		defer func() { _ = c.Close() }()
 	}
+	actx, stopAudit := context.WithCancel(ctx)
+	auditDone := make(chan struct{})
+	go func() { defer close(auditDone); srv.RunAuditExport(actx) }()
+	defer func() { stopAudit(); <-auditDone }() // runs before srv.Close: forwarders read the log
 	hup := make(chan os.Signal, 1)
 	signal.Notify(hup, syscall.SIGHUP)
 	defer signal.Stop(hup)
@@ -258,6 +283,7 @@ func run(ctx context.Context, args []string) error {
 		}
 	}()
 
+	var writeCtrl func(io.Writer)
 	if o.controller {
 		var ks *controller.KillStore
 		if killKey != nil { // only a served (signed) kill list enforces anything
@@ -276,20 +302,16 @@ func run(ctx context.Context, args []string) error {
 			_ = ctrl.State.Close()
 		}()
 		slog.Info("experiment controller running", "interval", o.interval, "prs", ctrl.Writer != nil, "killswitch_served", killKey != nil)
-		if o.metricsListen != "" {
-			mux := http.NewServeMux()
-			mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, _ *http.Request) {
-				w.Header().Set("Content-Type", "text/plain; version=0.0.4")
-				ctrl.WriteMetrics(w)
-			})
-			ms := &http.Server{Addr: o.metricsListen, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
-			go func() {
-				if err := ms.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-					slog.Error("metrics listener", "err", err)
-				}
-			}()
-			defer func() { _ = ms.Close() }() // stateless scrapes
-		}
+		writeCtrl = ctrl.WriteMetrics
+	}
+	if o.metricsListen != "" {
+		ms := &http.Server{Addr: o.metricsListen, Handler: metricsHandler(srv.WriteMetrics, writeCtrl), ReadHeaderTimeout: 10 * time.Second}
+		go func() {
+			if err := ms.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				slog.Error("metrics listener", "err", err)
+			}
+		}()
+		defer func() { _ = ms.Close() }() // stateless scrapes
 	}
 
 	hs := &http.Server{Addr: o.listen, Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, IdleTimeout: 2 * time.Minute}
@@ -304,6 +326,20 @@ func run(ctx context.Context, args []string) error {
 	sctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	return hs.Shutdown(sctx)
+}
+
+// metricsHandler serves GET /metrics from every writer that is set.
+func metricsHandler(writers ...func(io.Writer)) http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+		for _, write := range writers {
+			if write != nil {
+				write(w)
+			}
+		}
+	})
+	return mux
 }
 
 // controllerWriter returns the controller's PR writer: the portal's writer

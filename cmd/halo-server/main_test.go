@@ -6,6 +6,8 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"encoding/pem"
+	"io"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -34,6 +36,9 @@ func TestParseFlags(t *testing.T) {
 		{"controller without clickhouse", []string{"--policy-dir", "p", "--token-file", "t", "--controller", "--data-dir", "d"}, "--clickhouse-url", nil},
 		{"controller without data dir", []string{"--policy-dir", "p", "--token-file", "t", "--controller", "--clickhouse-url", "http://ch"}, "--data-dir", nil},
 		{"controller interval too short", []string{"--policy-dir", "p", "--token-file", "t", "--controller", "--clickhouse-url", "http://ch", "--data-dir", "d", "--interval", "5s"}, "at least 1m", nil},
+		{"audit config without data dir", []string{"--policy-dir", "p", "--token-file", "t", "--audit-config", "a.json"}, "--audit-config requires --data-dir", nil},
+		{"audit config", []string{"--policy-dir", "p", "--token-file", "t", "--audit-config", "a.json", "--data-dir", "d"}, "",
+			func(o options) bool { return o.auditCfg == "a.json" }},
 		{"killswitch without data dir", []string{"--policy-dir", "p", "--token-file", "t", "--killswitch-key-file", "k", "--gateway-token-file", "g"}, "requires --data-dir", nil},
 		{"deprecated spellings", []string{"--policy-dir", "p", "--token-file", "t", "--verdicts", "v.json", "--controller-interval", "2m"}, "",
 			func(o options) bool { return o.verdicts == "v.json" && o.interval == 2*time.Minute }},
@@ -203,6 +208,11 @@ func TestRun(t *testing.T) {
 		{"bad kill key", append(common, "--data-dir", t.TempDir(), "--killswitch-key-file", tokFile, "--gateway-token-file", gwFile), "--killswitch-key-file"},
 		{"short gateway token", append(common, "--data-dir", t.TempDir(), "--killswitch-key-file", keyFile, "--gateway-token-file", tokFile), "at least 16"},
 		{"serves until cancelled", append(common, "--data-dir", t.TempDir(), "--killswitch-key-file", keyFile, "--gateway-token-file", gwFile), ""},
+		{"missing audit config", append(common, "--data-dir", t.TempDir(), "--audit-config", filepath.Join(dir, "missing")), notExist},
+		{"unknown audit key", append(common, "--data-dir", t.TempDir(), "--audit-config", write("audit.json", `{"rotation":{"maxbytes":1}}`)), "--audit-config"},
+		{"invalid audit sink", append(common, "--data-dir", t.TempDir(), "--audit-config", write("audit2.json", `{"export":{"sinks":[{"name":"s","type":"webhook","url":"http://x"}]}}`)), "https"},
+		{"audit export and metrics without controller", append(common, "--data-dir", t.TempDir(), "--metrics-listen", "127.0.0.1:0", "--audit-config",
+			write("audit3.json", `{"rotation":{"maxBytes":1048576},"export":{"sinks":[{"name":"s","type":"webhook","url":"https://127.0.0.1:1/in"}]}}`)), ""},
 		{"with controller", append(common, "--data-dir", t.TempDir(), "--controller", "--clickhouse-url", "http://127.0.0.1:1", "--metrics-listen", "127.0.0.1:0"), ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -219,5 +229,19 @@ func TestRun(t *testing.T) {
 				t.Fatalf("want %q, got %v", tc.err, err)
 			}
 		})
+	}
+}
+
+func TestMetricsHandler(t *testing.T) {
+	h := metricsHandler(func(w io.Writer) { _, _ = io.WriteString(w, "a 1\n") }, nil, func(w io.Writer) { _, _ = io.WriteString(w, "b 2\n") })
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/metrics", nil))
+	if w.Code != 200 || w.Body.String() != "a 1\nb 2\n" || !strings.HasPrefix(w.Header().Get("Content-Type"), "text/plain") {
+		t.Fatalf("%d %q", w.Code, w.Body)
+	}
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/other", nil))
+	if w.Code != 404 {
+		t.Fatalf("only /metrics is served: %d", w.Code)
 	}
 }

@@ -60,6 +60,10 @@ type Config struct {
 	// /api/v1/gateway/posture, served whenever GatewayToken is set). 0 = DefaultPostureMaxAge.
 	PostureMaxAge time.Duration
 
+	// Audit: log rotation and SIEM export (ADR-0016). Both need DataDir.
+	// Export runs only while RunAuditExport does.
+	Audit AuditConfig
+
 	// DevUser disables authentication and acts as this user. INSECURE: local demos only.
 	// DevRoles are its roles (ADR-0015); DevAdmin adds RoleAdmin.
 	DevUser   string
@@ -82,6 +86,7 @@ type Server struct {
 	loginFails  authLimiter // failed OIDC callbacks; separate so logins cannot lock out devices
 	revoked     *sessionRevocations
 	auditLog    *auditLog
+	forwarders  []*auditForwarder
 	relCache    *releaseCache
 	relFetch    pointerFetch  // ring pointer reader; swapped in tests
 	relChannels channelsFetch // ring release -> experiment channels; swapped in tests
@@ -123,6 +128,12 @@ func New(cfg Config) (*Server, error) {
 			cfg.Web = d
 		}
 	}
+	if err := cfg.Audit.Validate(); err != nil {
+		return nil, err
+	}
+	if cfg.DataDir == "" && cfg.Audit.Rotation != (AuditRotation{}) {
+		return nil, errors.New("server: audit rotation needs a data dir")
+	}
 	reqs, err := openRequestLog(cfg.DataDir)
 	if err != nil {
 		return nil, err
@@ -139,8 +150,14 @@ func New(cfg Config) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	al.rot, al.log = cfg.Audit.Rotation, cfg.Log
+	fwds, err := newAuditForwarders(cfg.Audit.Export, cfg.DataDir, al, cfg.Log)
+	if err != nil {
+		_ = al.close() // already failing
+		return nil, err
+	}
 	s := &Server{cfg: cfg, tokSum: sha256.Sum256([]byte(cfg.Token)), pol: &policyHolder{dir: cfg.PolicyDir, log: cfg.Log}, reqs: reqs, devices: devs, revoked: revoked,
-		auditLog: al, relCache: &releaseCache{byKey: map[string]cachedPointer{}, chans: map[string][]string{}}}
+		auditLog: al, forwarders: fwds, relCache: &releaseCache{byKey: map[string]cachedPointer{}, chans: map[string][]string{}}}
 	s.relFetch, s.relChannels = s.registryFetch, s.registryChannels
 	if s.kills = cfg.KillStore; s.kills == nil {
 		if s.kills, err = controller.OpenKillStore(cfg.DataDir); err != nil {

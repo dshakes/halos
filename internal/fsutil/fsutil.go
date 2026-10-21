@@ -44,6 +44,11 @@ func WriteAtomic(path string, data []byte, perm fs.FileMode) (err error) {
 	if err = os.Rename(tmp.Name(), path); err != nil {
 		return fmt.Errorf("rename %s: %w", path, err)
 	}
+	return SyncDir(dir)
+}
+
+// SyncDir fsyncs dir so a rename or create inside it survives a crash.
+func SyncDir(dir string) error {
 	if runtime.GOOS == "windows" {
 		return nil // directories cannot be fsynced on Windows
 	}

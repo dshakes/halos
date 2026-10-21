@@ -87,6 +87,17 @@ server:
   # Metrics listener (--metrics-listen, controller /metrics, UNAUTHENTICATED: keep internal). Adds a `metrics`
   # container/Service port; NetworkPolicy admits only networkPolicy.metricsFrom. ServiceMonitor scrapes it.
   metrics: {enabled: false, port: 9092}
+  # Audit log rotation and SIEM export (--audit-config, ADR-0016; guide: guides/siem-export). Requires
+  # persistence.enabled (segments and per-sink cursors live in --data-dir). Rendered to audit.json in the
+  # ConfigMap, so NEVER put a secret here: every credential is a ref, {env: VAR} (fill VAR from a Secret
+  # via extraEnv secretKeyRef) or {file: /path} (mount it via extraVolumes/extraVolumeMounts). Add the SIEM
+  # to networkPolicy.egress.server. Export metrics need metrics.enabled.
+  #   rotation: {maxBytes: 67108864, maxAgeSeconds: 86400}
+  #   export:
+  #     sinks:
+  #       - {name: splunk, type: splunk-hec, url: "https://splunk.example:8088/services/collector/event",
+  #          token: {env: HALO_SPLUNK_HEC_TOKEN}, index: halo, format: ocsf}
+  audit: {}
   # Automated experiment loop (--controller): evaluates experiments from ClickHouse, trips the kill switch on
   # rollback, opens PRs, notifies. Requires persistence.enabled (--data-dir: action log dedups PRs across restarts).
   controller:
@@ -326,7 +337,7 @@ networkPolicy:
   metricsFrom:
     - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: monitoring}}
   egress:
-    server: []                     # IdP, git host, OCI registry, GitHub API
+    server: []                     # IdP, git host, OCI registry, GitHub API, audit SIEM sinks (server.audit)
     proxy: []                      # model provider upstreams, IdP JWKS
     shadow: []                    # control/candidate upstreams
     otel: []                       # ClickHouse

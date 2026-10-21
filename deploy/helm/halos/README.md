@@ -84,7 +84,11 @@ OIDC issuer/audience live in the policy repo (halo-server) and `proxy.config.ide
   bearer token + signed list; front it with TLS if it leaves the cluster). `kong.killSwitch.enabled` sets `killswitch_*` with vault refs
   (`HALO_KILLSWITCH_TOKEN`, `HALO_KILLSWITCH_PUBKEY` on the Kong release).
 - Metrics: `server.metrics.enabled` adds `--metrics-listen=:<port>` (9092, unauthenticated), a `metrics` Service port, a ServiceMonitor
-  (with `serviceMonitor.enabled`) and a NetworkPolicy ingress from `networkPolicy.metricsFrom` only.
+  (with `serviceMonitor.enabled`) and a NetworkPolicy ingress from `networkPolicy.metricsFrom` only. It serves `halo_server_audit_*`
+  (rotation errors, SIEM export sent/failed/lag) and, with the controller, `halo_controller_*`.
+- Audit export: `server.audit` becomes `/etc/halos/audit.json`. Credentials never go in values: point a sink's `token`, `hmacSecret` or
+  `headers` at `{env: VAR}` and set `VAR` from a Secret with `server.extraEnv`, or at `{file: /path}` mounted with `server.extraVolumes`.
+  Open the SIEM's address in `networkPolicy.egress.server`.
 - AWS Bedrock (halo-proxy): upstreams are SigV4-signed via the AWS default credential chain; `region` is per upstream in the policy snapshot.
   Use `proxy.serviceAccount.create=true` with `annotations: {eks.amazonaws.com/role-arn: ...}` (IRSA), or create an EKS Pod Identity association
   for the proxy ServiceAccount (no annotation; human runs `aws eks create-pod-identity-association`). `automountServiceAccountToken` stays false;
@@ -112,6 +116,7 @@ OIDC issuer/audience live in the policy repo (halo-server) and `proxy.config.ide
 | `server.portal` | `{baseURL: ...}` | rendered to `--portal-config` JSON (strict fields) |
 | `server.killSwitch.{existingSecret,signingKey,gatewayToken}` | off | see prerequisites |
 | `server.metrics.{enabled,port}` | off, 9092 | `--metrics-listen` |
+| `server.audit.{rotation,export}` | `{}` | rendered to `--audit-config` JSON: audit log rotation and SIEM export ([guide](https://dshakes.github.io/halos/guides/siem-export/)); credentials are `{env}`/`{file}` refs only; needs persistence |
 | `server.controller.{enabled,interval,clickhouse,notify,policyRepo}` | off, `5m` | automated experiment loop (see design notes) |
 | `server.proposals.enabled` | `false` | writable clone for self-service proposals |
 | `server.persistence.*` | 5Gi RWO | `--data-dir`; `existingClaim` supported; disabled = in-memory store |
