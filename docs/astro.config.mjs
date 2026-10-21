@@ -78,6 +78,7 @@ export default defineConfig({
             'concepts/rollouts',
             'concepts/experiments',
             'concepts/toggles',
+            'concepts/org-hierarchy',
             'concepts/evals',
             'concepts/shadow-traffic',
             'concepts/delivery',
@@ -118,15 +119,15 @@ export default defineConfig({
             },
             {
               label: 'Deliver to machines',
-              items: ['guides/dev-containers', 'guides/coder-workspaces', 'guides/laptops-mdm'],
+              items: ['guides/dev-containers', 'guides/coder-workspaces', 'guides/laptops-mdm', 'guides/ci-and-cloud-agents'],
             },
             {
               label: 'Run the gateway',
-              items: ['guides/bedrock-via-kong', 'guides/direct-anthropic', 'guides/provider-smoke'],
+              items: ['guides/bedrock-via-kong', 'guides/direct-anthropic', 'guides/provider-smoke', 'guides/cost-budgets'],
             },
             {
               label: 'Operate',
-              items: ['guides/production-deployment', 'guides/operations', 'guides/new-harness-adapter'],
+              items: ['guides/production-deployment', 'guides/operations', 'guides/siem-export', 'guides/scim-provisioning', 'guides/new-harness-adapter'],
             },
           ],
         },

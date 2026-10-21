@@ -48,7 +48,7 @@ Generated from `schemas/profile.schema.json`; do not edit. Nested fields use dot
 | `extensions.subagents.deny` | array of string |  |  |  |  | Names that must not load. Unions down an extends chain. |
 | `extensions.subagents.deny[]` | string |  |  |  |  |  |
 | `extensions.subagents.pluginOnly` | boolean |  |  |  |  | Allow only extensions delivered by plugins or managed settings; user and project sources are blocked (Claude Code strictPluginOnlyCustomization). |
-| `harnesses` | object |  |  |  |  | Enabled harnesses keyed by adapter name (claude-code, codex, gemini-cli, copilot-cli). |
+| `harnesses` | object |  |  |  |  | Enabled harnesses keyed by adapter name (claude-code, codex, gemini-cli, copilot-cli, cursor-agent, opencode). |
 | `harnesses.*` | object |  |  |  |  | Harness settings. |
 | `harnesses.*.model` | string |  |  |  |  | This harness's default model alias, replacing models.default for it (e.g. codex-default). Must be a gateway.models alias, and in models.allowed when enforce is set. |
 | `harnesses.*.overrides` | object |  |  |  |  | Raw harness-native keys merged last (escape hatch; guardrails still apply). |

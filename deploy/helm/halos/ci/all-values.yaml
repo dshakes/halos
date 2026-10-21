@@ -10,6 +10,18 @@ server:
   policySubdir: policy
   killSwitch: {existingSecret: halos-killswitch}
   metrics: {enabled: true}
+  audit:
+    rotation: {maxBytes: 67108864, maxAgeSeconds: 86400}
+    export:
+      sinks:
+        - {name: splunk, type: splunk-hec, format: ocsf, url: "https://splunk.acme.dev:8088/services/collector/event", token: {env: HALO_SPLUNK_HEC_TOKEN}, index: halo}
+        - {name: datadog, type: webhook, url: "https://http-intake.logs.datadoghq.com/api/v2/logs?ddsource=halos", headers: {DD-API-KEY: {env: DD_API_KEY}}}
+        - {name: syslog, type: syslog, address: "siem.acme.dev:6514", caFile: /etc/siem-ca/ca.pem}
+  extraEnv:
+    - name: HALO_SPLUNK_HEC_TOKEN
+      valueFrom: {secretKeyRef: {name: halos-siem, key: hec-token}}
+    - name: DD_API_KEY
+      valueFrom: {secretKeyRef: {name: halos-siem, key: dd-api-key}}
   controller:
     enabled: true
     clickhouse: {url: "http://clickhouse.data.svc:8123", database: halo, existingSecret: clickhouse-pw}

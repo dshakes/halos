@@ -322,7 +322,7 @@ func (a *app) cmdOnboardVerify() *cobra.Command {
 	var timeout time.Duration
 	c := &cobra.Command{
 		Use:   "verify [harness...]",
-		Short: "Run each installed CLI headless (claude -p, codex exec, gemini -p, copilot -p) and check the reply",
+		Short: "Run each installed CLI headless (claude -p, codex exec, gemini -p, copilot -p, cursor-agent -p, opencode run) and check the reply",
 		Long: "One short model call per CLI, through whatever endpoint its config points at. Skipped when the CLI\n" +
 			"is missing or no credential variable is set; a CLI that is logged in (OAuth, keychain) needs\n" +
 			"--assume-auth because halo cannot see that. Output is redacted.",

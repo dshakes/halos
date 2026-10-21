@@ -206,8 +206,9 @@ func postToggleKill(ctx context.Context, hc *http.Client, server, session, name,
 	return postKill(ctx, hc, server, session, "toggle", name, verb, reason)
 }
 
-// postKill calls halo-server's kill|unkill endpoint for kind "toggle" or "experiment".
-func postKill(ctx context.Context, hc *http.Client, server, session, kind, name, verb, reason string) (map[string]any, error) {
+// sessionServer parses --server and refuses any URL the session cookie would
+// travel to in clear: https, or http only on loopback.
+func sessionServer(server string) (*url.URL, error) {
 	base, err := url.Parse(server)
 	if err != nil || base.Host == "" {
 		return nil, fmt.Errorf("invalid --server %q", server)
@@ -216,6 +217,15 @@ func postKill(ctx context.Context, hc *http.Client, server, session, kind, name,
 	loopbackHTTP := base.Scheme == "http" && (base.Hostname() == "localhost" || (ip != nil && ip.IsLoopback()))
 	if base.Scheme != "https" && !loopbackHTTP {
 		return nil, fmt.Errorf("--server must be https (or http on loopback): the session cookie would travel in clear")
+	}
+	return base, nil
+}
+
+// postKill calls halo-server's kill|unkill endpoint for kind "toggle" or "experiment".
+func postKill(ctx context.Context, hc *http.Client, server, session, kind, name, verb, reason string) (map[string]any, error) {
+	base, err := sessionServer(server)
+	if err != nil {
+		return nil, err
 	}
 	body, err := json.Marshal(map[string]string{"reason": reason})
 	if err != nil {

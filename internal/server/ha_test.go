@@ -2,11 +2,14 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -15,6 +18,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/dshakes/halos/internal/controller"
+	"github.com/dshakes/halos/internal/pgstore"
 	"github.com/dshakes/halos/internal/pgstore/pgtest"
 	"github.com/dshakes/halos/internal/rollout"
 	"github.com/dshakes/halos/internal/storage"
@@ -31,6 +35,10 @@ type memShared struct {
 	audit   []AuditEntry
 	docs    map[string][]byte
 	pingErr error
+	leases  map[string]*sync.Mutex
+	batches map[string]bool
+	buckets map[[3]string]pgstore.BudgetCounter
+	pending map[string]string
 }
 
 func newMemShared() *memShared {
@@ -86,10 +94,128 @@ func (b *memShared) AppendAudit(_ context.Context, e AuditEntry) error {
 	return nil
 }
 
-func (b *memShared) AuditEntries(context.Context) ([]AuditEntry, error) {
+func (b *memShared) EachAudit(_ context.Context, from uint64, fn func(raw []byte, e AuditEntry) bool) error {
+	b.mu.Lock()
+	es := append([]AuditEntry(nil), b.audit...)
+	b.mu.Unlock()
+	for _, e := range es {
+		if e.Seq < from {
+			continue
+		}
+		raw, _ := json.Marshal(e)
+		if !fn(raw, e) {
+			return nil
+		}
+	}
+	return nil
+}
+
+func (b *memShared) AuditHead(context.Context) (uint64, string, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return append([]AuditEntry(nil), b.audit...), nil
+	if n := len(b.audit); n > 0 {
+		return b.audit[n-1].Seq, b.audit[n-1].Hash, nil
+	}
+	return 0, "", nil
+}
+
+func (b *memShared) Docs(_ context.Context, kind string) ([][]byte, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	var names []string
+	for k := range b.docs {
+		if n, ok := strings.CutPrefix(k, kind+"/"); ok {
+			names = append(names, n)
+		}
+	}
+	sort.Strings(names)
+	out := make([][]byte, 0, len(names))
+	for _, n := range names {
+		out = append(out, b.docs[kind+"/"+n])
+	}
+	return out, nil
+}
+
+// Leased: one in-process lease per name; a second caller waits for it.
+func (b *memShared) Leased(ctx context.Context, name string, fn func(context.Context, rollout.Docs)) {
+	b.mu.Lock()
+	if b.leases == nil {
+		b.leases = map[string]*sync.Mutex{}
+	}
+	l := b.leases[name]
+	if l == nil {
+		l = &sync.Mutex{}
+		b.leases[name] = l
+	}
+	b.mu.Unlock()
+	got := make(chan struct{})
+	go func() { l.Lock(); close(got) }()
+	select {
+	case <-ctx.Done():
+		go func() { <-got; l.Unlock() }()
+		return
+	case <-got:
+	}
+	defer l.Unlock()
+	fn(ctx, b)
+	<-ctx.Done()
+}
+
+func (b *memShared) ApplyBudget(_ context.Context, batch string, incs []pgstore.BudgetCounter, _ map[string]int64) (bool, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.batches == nil {
+		b.batches, b.buckets = map[string]bool{}, map[[3]string]pgstore.BudgetCounter{}
+	}
+	if b.batches[batch] {
+		return true, nil
+	}
+	b.batches[batch] = true
+	for _, c := range incs {
+		k := [3]string{c.Budget, c.Key, fmt.Sprint(c.Bucket)}
+		cur := b.buckets[k]
+		cur.Budget, cur.Key, cur.Bucket = c.Budget, c.Key, c.Bucket
+		cur.USD += c.USD
+		cur.Tokens += c.Tokens
+		b.buckets[k] = cur
+	}
+	return false, nil
+}
+
+func (b *memShared) BudgetCounters(_ context.Context, keys [][2]string) ([]pgstore.BudgetCounter, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	var out []pgstore.BudgetCounter
+	for _, c := range b.buckets {
+		if keys == nil || slices.Contains(keys, [2]string{c.Budget, c.Key}) {
+			out = append(out, c)
+		}
+	}
+	return out, nil
+}
+
+func (b *memShared) ClaimPending(_ context.Context, dedupe, id string, holder func(string) (bool, bool)) (bool, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.pending == nil {
+		b.pending = map[string]string{}
+	}
+	if cur, ok := b.pending[dedupe]; ok {
+		if known, pending := holder(cur); pending || !known {
+			return false, nil
+		}
+	}
+	b.pending[dedupe] = id
+	return true, nil
+}
+
+func (b *memShared) ReleasePending(_ context.Context, dedupe, id string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.pending[dedupe] == id {
+		delete(b.pending, dedupe)
+	}
+	return nil
 }
 
 func (b *memShared) GetDoc(_ context.Context, kind, name string) ([]byte, bool, error) {

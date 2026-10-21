@@ -90,6 +90,30 @@ Set the same `--telemetry-unit-salt-file` on every `halo-proxy` replica so one u
 
 The stack in `deploy/observability/` (otel-collector-contrib, ClickHouse, Grafana) uses the schema in `deploy/observability/clickhouse/schema.sql` and the dashboard in `deploy/observability/grafana/dashboard.json`.
 
+## OpenTelemetry GenAI semantic conventions
+
+`halo-proxy` also exports the OpenTelemetry GenAI conventions next to `halo.gateway.*`, for teams that standardise on them. They never replace the `halo.*` series: those stay the stable API the controller reads. Implemented against semantic-conventions **v1.40.0**. Every GenAI convention is still `Development` stability upstream, so attribute names can change. Upstream has since moved the spec to `open-telemetry/semantic-conventions-genai` and reworked the token instruments (`gen_ai.client.inference.*`); Halos keeps the v1.40 names until that settles.
+
+| Signal | Type | Notes |
+| --- | --- | --- |
+| `gen_ai.client.token.usage` | histogram, `{token}` | `gen_ai.token.type` is `input` or `output`; recorded only when the provider reported usage |
+| `gen_ai.client.operation.duration` | histogram, `s` | `error.type` is the HTTP status for responses of 400 and above |
+| `gen_ai.server.time_to_first_token` | histogram, `s` | streams only; request receipt to the first body byte, a close proxy for the first token |
+| span `{operation} {model}` (e.g. `chat claude-sonnet-4-5`) | client span | opt-in; joins the caller's W3C `traceparent` when one is sent |
+
+Every signal carries `gen_ai.operation.name` (`chat`, or `generate_content` on the Gemini wire), `gen_ai.provider.name` (`anthropic`, `openai`, `aws.bedrock`, `gcp.vertex_ai`, `gcp.gemini`, `azure.ai.openai`), `gen_ai.request.model` (the real model the policy routed to), `gen_ai.response.model` (when the response names one) and the cohort (`halo.ring`, `halo.release`, `halo.experiment`, `halo.variant`, `halo.harness`). Spans add `gen_ai.usage.*_tokens`, `http.response.status_code` and `halo.unit`, the same salted hash as the `halo.gateway.*` series. Token counts are read from the response as it streams (OpenAI chat and Responses, Anthropic, Gemini), without buffering or delaying it. Bedrock event streams and compressed bodies report duration only.
+
+```yaml
+telemetry:
+  genai:
+    metrics: true   # default; false drops gen_ai.* and the response-body scan
+    traces: false   # default; true sends one span per model call to <otlpEndpoint>/v1/traces (OTLP/JSON)
+```
+
+Flags: `--telemetry-genai-metrics=false` and `--telemetry-genai-traces` (env `HALO_PROXY_TELEMETRY_GENAI_METRICS` / `_TRACES`). `halo telemetry collector-config` adds a `traces/gateway` pipeline on the authenticated gateway receiver that stamps `halo.source=gateway` and exports to ClickHouse. The metrics reach the exporter's raw histogram table; the `halo_metrics` projection keeps `halo.*` names only. Add an exporter to these pipelines to forward them to your own backend.
+
+**Data handling.** Prompts, completions, headers and raw user or session ids are never exported, and there is no content-capture option: the spec's opt-in content attributes (`gen_ai.input.messages` and friends) are deliberately not implemented. Exporting content would be a data-handling decision for your security team, not a flag, and needs its own review.
+
 ## What is proven
 
 `make obs-e2e` (needs Docker and network) brings up that stack and runs `test/e2e/obs_test.go` with synthetic harness telemetry (`internal/telemetry/synth`, shaped like Claude Code, Codex and Gemini CLI output) plus gateway metrics sent by `halo-proxy`'s real OTLP emitter (`internal/telemetry/gwmetrics`). It asserts, end to end:

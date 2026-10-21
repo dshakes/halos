@@ -17,7 +17,7 @@ HALO_SESSION=<admin halo_session cookie> halo mcp serve --policy-dir ... --serve
 | Flag | Purpose |
 |---|---|
 | `--policy-dir` | Policy repo (default `.`) |
-| `--allow-writes` | Expose experiment status and proposal tools; lets `kill_switch` and `eval_run` run for real |
+| `--allow-writes` | Expose experiment status and proposal tools; lets `kill_switch`, `eval_run` and `eval_harvest` run for real |
 | `--clickhouse`, `--database`, `--user` | Enables `analyze_experiment` and `wait_for` on experiments; the password comes from `HALO_CLICKHOUSE_PASSWORD` |
 | `--server` (or `HALO_SERVER`) | halo-server base URL for `kill_switch`, `kill_switch_status`, `fleet_status`, `audit_tail`. The admin session is read from `HALO_SESSION`, never a flag or a tool argument; plain `http` is accepted on loopback only |
 | `--schema-dir` | JSON Schema directory (default: auto-detect) |
@@ -69,6 +69,7 @@ Write tools exist only with `--allow-writes`:
 | `propose_rollout_advance`, `propose_rollout_rollback` | Move a rollout to its next step or abort it in policy YAML (advance is refused when a gate failed). `open_pr: true` pushes a review branch and opens the PR instead of committing locally |
 | `kill_switch` | Kill or unkill an experiment, toggle or rollout (its backing experiment) through halo-server's signed kill list: the fast, reversible rollback. Registered always; `dry_run: false` needs `--allow-writes`, a `reason`, `--server` and `HALO_SESSION`. Never edits policy |
 | `eval_run` | `halo eval run --output json` with a bounded timeout, scorecard under `<policy>/.halos/scorecards`. Registered always; the real run spends credentials and needs `--allow-writes` |
+| `eval_harvest` | `halo eval harvest`: turn shadow steps where the candidate regressed into redacted step-level eval cases ([ADR-0020](/halos/adr/0020-harvest-shadow-sessions-into-replay-evals/)). Registered always; the preview returns provenance and expected tool names, never request content. `dry_run: false` needs `--allow-writes` and writes 0600 files under the policy dir |
 | `propose_toggle_change` | Change a toggle's default, a rule's rollout percent or its expiry |
 | `init_policy`, `local_install`, `local_proxy`, `onboard_company`, `verify_harness` | Onboarding side effects (`halo onboard local\|install\|proxy\|company --apply`, `halo onboard verify`). Registered always so every step can be previewed; `dry_run: false` needs `--allow-writes`, otherwise the tool returns the preview plus the `halo` command for the human. They write local files or run one CLI with the human's own credentials: no commit, no publish, no enrollment |
 

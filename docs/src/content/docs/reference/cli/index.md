@@ -25,13 +25,16 @@ halo
 
 | Command | Description |
 |---|---|
+| [`halo audit`](/halos/reference/cli/audit/) | Inspect halo-server's hash-chained audit log |
+| [`halo budget`](/halos/reference/cli/budget/) | Gateway cost budgets: spend per user, group, ring and org |
+| [`halo ci`](/halos/reference/cli/ci/) | Governed gateway credentials and config for headless CI / cloud agents |
 | [`halo controller`](/halos/reference/cli/controller/) | Automated experiment loop (evaluate, kill on rollback, PRs, notify) |
 | [`halo doctor`](/halos/reference/cli/doctor/) | Check this machine and the policy repo; print the exact fix for each problem |
 | [`halo eject`](/halos/reference/cli/eject/) | Write simple mode's generated Gateway, Profile and Rings out as files and drop the simple keys from halos.yaml |
 | [`halo enable`](/halos/reference/cli/enable/) | Enable an MCP server or hook for everyone (profile) or a cohort (toggle) |
 | [`halo eval`](/halos/reference/cli/eval/) | Offline replay evals |
 | [`halo exp`](/halos/reference/cli/exp/) | Manage experiments |
-| [`halo explain`](/halos/reference/cli/explain/) | Print the full low-level policy halos.yaml expands to (the hidden layer) |
+| [`halo explain`](/halos/reference/cli/explain/) | Print the full low-level policy halos.yaml expands to, or with --user one user's effective config and which layer set each field |
 | [`halo export`](/halos/reference/cli/export/) | Export a signed release for a delivery channel |
 | [`halo gateway`](/halos/reference/cli/gateway/) | Compile gateway artifacts from the policy repo |
 | [`halo harnesses`](/halos/reference/cli/harnesses/) | Show the harness capability matrix |
@@ -51,6 +54,7 @@ halo
 | [`halo status`](/halos/reference/cli/status/) | One screen: rings, rollouts, live experiments, toggles and policy health |
 | [`halo telemetry`](/halos/reference/cli/telemetry/) | Telemetry pipeline artifacts |
 | [`halo toggle`](/halos/reference/cli/toggle/) | Feature toggles: list, evaluate, kill, find stale |
+| [`halo units`](/halos/reference/cli/units/) | Org hierarchy: business units and teams with delegated owners (ADR-0018) |
 | [`halo upgrade`](/halos/reference/cli/upgrade/) | Watch upstream CLIs and models; open eval-gated upgrade PRs (never merges) |
 | [`halo validate`](/halos/reference/cli/validate/) | Load and validate a policy repo (exit 2 on errors) |
 | [`halo version`](/halos/reference/cli/version/) | Print the halo version |

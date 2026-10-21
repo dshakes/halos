@@ -9,7 +9,7 @@ description: What halos.dev/v1 guarantees, how deprecations work, and which bina
 
 For every release in the `halos.dev/v1` line:
 
-- **Kinds and fields are frozen.** `Halos` (`halos.yaml`), `Gateway`, `Profile`, `Ring`, `Experiment`, `Toggle` and `Rollout` keep every field name, type and meaning listed in the [policy schema](/halos/reference/policy-schema/). No field is renamed, removed, retyped or given a new meaning within v1.
+- **Kinds and fields are frozen.** `Halos` (`halos.yaml`), `Gateway`, `Profile`, `Ring`, `Experiment`, `Toggle`, `Rollout` and `Unit` (an additive kind, [ADR-0018](/halos/adr/0018-org-hierarchy-and-delegated-policy/)) keep every field name, type and meaning listed in the [policy schema](/halos/reference/policy-schema/). No field is renamed, removed, retyped or given a new meaning within v1.
 - **Same policy, same output.** A policy that validates without errors keeps validating, and it renders to the same harness configs and gateway behaviour. Exceptions: a guardrail fix for a security issue, or a harness vendor changing its own config format. Both are listed in the [changelog](https://github.com/dshakes/halos/blob/main/CHANGELOG.md).
 - **Additions are optional.** New fields and kinds can arrive in a minor release. They are optional and default to the old behaviour. Decoding is strict, so a policy that uses a new field needs a `halo` and `halo-server` at least as new as that field (see [version skew](#version-skew)).
 - **Invariants hold.** Rendered configs never contain `bypassPermissions` or `danger-full-access`, unsupported settings warn rather than drop, and releases are immutable and content-addressed.

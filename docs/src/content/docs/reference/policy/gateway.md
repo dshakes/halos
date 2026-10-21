@@ -15,6 +15,21 @@ Generated from `schemas/gateway.schema.json`; do not edit. Nested fields use dot
 | `auth.identityHeader` | string |  |  |  |  | Header the auth gateway sets with the verified user id. |
 | `auth.ttlSeconds` | integer |  |  |  | minimum 0 | Token lifetime in seconds. |
 | `baseURL` | string | yes |  |  | format uri | What clients are pointed at (Kong's public listener). |
+| `budgets` | array of object |  |  |  |  | Spend caps enforced by halo-proxy, with halo-server holding the counters (ADR-0017). |
+| `budgets[]` | object |  |  |  |  | One budget: a limit in USD and/or tokens per scope key over a window. |
+| `budgets[].action` | string |  |  | warn, enforce |  | When exhausted: warn (response header and metric; the request passes) or enforce (HTTP 429 with Retry-After at the window reset). Default warn. |
+| `budgets[].alertAt` | array of number |  |  |  |  | Soft thresholds as fractions of the limit (default [0.8]): a header and a metric when crossed. |
+| `budgets[].alertAt[]` | number |  |  |  |  |  |
+| `budgets[].groups` | array of string |  |  |  |  | Scope group: the groups that each get a counter (required). Other scopes: count only callers in one of these groups. |
+| `budgets[].groups[]` | string |  |  |  |  |  |
+| `budgets[].limitTokens` | integer |  |  |  | minimum 0 | Token cap for the window (input + output + cache reads and writes). |
+| `budgets[].limitUSD` | number |  |  |  | minimum 0 | Spend cap in USD for the window, priced from pricing. |
+| `budgets[].name` | string | yes |  |  | pattern ^[a-z0-9][a-z0-9._-]&#123;0,62}$ | Unique budget name. |
+| `budgets[].period` | string |  |  |  | pattern ^([0-9]+(\.[0-9]+)?(h\|m\|s))+$ | Rolling window length as a Go duration between 1h and 2160h, e.g. 24h. Rolling only. |
+| `budgets[].rings` | array of string |  |  |  |  | Count only callers routed to these rings (default every ring). |
+| `budgets[].rings[]` | string |  |  |  |  |  |
+| `budgets[].scope` | string | yes |  | user, group, ring, org |  | Counter key: user (per verified subject), group (per listed group), ring (per ring) or org (one shared counter). |
+| `budgets[].window` | string | yes |  | day, week, month, rolling |  | day, week (from Monday) or month: calendar windows in UTC. rolling: the last period. |
 | `engine` | string |  |  | halo-proxy, kong, external |  | Data plane enforcing this policy (default halo-proxy). external is a gateway Halos does not run (your own API gateway): clients are rendered with each alias's provider model id. Multi-target routes (weights, failover) run only in halo-proxy; halo-kong and external use each route's first target. |
 | `kind` | string | yes |  | const Gateway |  | Document kind. |
 | `labels` | object |  |  |  |  | Free-form labels. |
@@ -31,6 +46,12 @@ Generated from `schemas/gateway.schema.json`; do not edit. Nested fields use dot
 | `models.*.targets[].weight` | number |  |  |  | minimum 0 | Relative share of traffic within the priority tier. |
 | `models.*.upstream` | string |  |  |  |  | Name of an entry in gateway.upstreams. Required unless engine is external. |
 | `name` | string | yes |  |  | pattern ^[a-z0-9][a-zA-Z0-9._-]*$ | Unique name within its kind. |
+| `pricing` | object |  |  |  |  | USD per million tokens, keyed by provider model id (the model a route target names). Costs gateway usage for budgets; a routed model without a price counts tokens but $0. |
+| `pricing.*` | object |  |  |  |  | Price of one provider model. |
+| `pricing.*.cacheReadPerMTok` | number |  |  |  | minimum 0 | Prompt-cache reads (default: inputPerMTok). |
+| `pricing.*.cacheWritePerMTok` | number |  |  |  | minimum 0 | Prompt-cache writes (default: inputPerMTok). |
+| `pricing.*.inputPerMTok` | number | yes |  |  | minimum 0 | Uncached input tokens. |
+| `pricing.*.outputPerMTok` | number | yes |  |  | minimum 0 | Output tokens, including reasoning or thinking tokens. |
 | `protocols` | object |  |  |  |  | Wire protocol per harness name. |
 | `protocols.*` | string |  |  | anthropic-messages, bedrock-invoke, openai-responses, gemini |  |  |
 | `upstreams` | object |  |  |  |  | Named backends. |

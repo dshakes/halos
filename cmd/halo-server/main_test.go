@@ -6,6 +6,8 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"encoding/pem"
+	"io"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -34,6 +36,9 @@ func TestParseFlags(t *testing.T) {
 		{"controller without clickhouse", []string{"--policy-dir", "p", "--token-file", "t", "--controller", "--data-dir", "d"}, "--clickhouse-url", nil},
 		{"controller without data dir", []string{"--policy-dir", "p", "--token-file", "t", "--controller", "--clickhouse-url", "http://ch"}, "--data-dir", nil},
 		{"controller interval too short", []string{"--policy-dir", "p", "--token-file", "t", "--controller", "--clickhouse-url", "http://ch", "--data-dir", "d", "--interval", "5s"}, "at least 1m", nil},
+		{"audit config without data dir", []string{"--policy-dir", "p", "--token-file", "t", "--audit-config", "a.json"}, "--audit-config requires --data-dir", nil},
+		{"audit config", []string{"--policy-dir", "p", "--token-file", "t", "--audit-config", "a.json", "--data-dir", "d"}, "",
+			func(o options) bool { return o.auditCfg == "a.json" }},
 		{"killswitch without data dir", []string{"--policy-dir", "p", "--token-file", "t", "--killswitch-key-file", "k", "--gateway-token-file", "g"}, "requires --data-dir", nil},
 		{"data dir and database", []string{"--policy-dir", "p", "--token-file", "t", "--data-dir", "d", "--database-url-file", "u"}, "exclusive", nil},
 		{"lease ttl too short", []string{"--policy-dir", "p", "--token-file", "t", "--database-url-file", "u", "--leader-lease-ttl", "1s"}, "at least 3s", nil},
@@ -51,10 +56,14 @@ func TestParseFlags(t *testing.T) {
 			func(o options) bool {
 				return o.controller && o.interval == 5*time.Minute && o.policyRepoBase == "main" && o.killKeyFile == "k" && o.gatewayTokenFile == "g" && o.policyRepoDir == "r"
 			}},
-		{"ok", []string{"--policy-dir", "p", "--token-file", "t", "--trusted-proxy-cidrs", " 10.1.2.3/8 ,", "--dev-insecure-groups", "a, b,", "--dev-insecure-admin", "--device-ttl", "24h"}, "",
+		{"scim authoritative without token hashes", []string{"--policy-dir", "p", "--token-file", "t", "--scim-authoritative"}, "requires --scim-token-sha256-file", nil},
+		{"scim without data dir", []string{"--policy-dir", "p", "--token-file", "t", "--scim-token-sha256-file", "h"}, "requires --data-dir", nil},
+		{"scim ok", []string{"--policy-dir", "p", "--token-file", "t", "--scim-token-sha256-file", "h", "--scim-authoritative", "--data-dir", "d"}, "",
+			func(o options) bool { return o.scimTokenHashFile == "h" && o.scimAuthoritative }},
+		{"ok", []string{"--policy-dir", "p", "--token-file", "t", "--trusted-proxy-cidrs", " 10.1.2.3/8 ,", "--dev-insecure-groups", "a, b,", "--dev-insecure-roles", "viewer,auditor", "--dev-insecure-admin", "--device-ttl", "24h"}, "",
 			func(o options) bool {
 				return o.policyDir == "p" && o.listen == "127.0.0.1:8080" && len(o.trusted) == 1 && o.trusted[0].String() == "10.0.0.0/8" &&
-					strings.Join(o.devGroups, "|") == "a|b" && o.devAdmin && o.deviceTTL == 24*time.Hour
+					strings.Join(o.devGroups, "|") == "a|b" && strings.Join(o.devRoles, "|") == "viewer|auditor" && o.devAdmin && o.deviceTTL == 24*time.Hour
 			}},
 	}
 	for _, tc := range tests {
@@ -70,6 +79,31 @@ func TestParseFlags(t *testing.T) {
 				t.Fatalf("%+v %v", o, err)
 			}
 		})
+	}
+}
+
+func TestReadSCIMHashes(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, body string) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	h1, h2 := strings.Repeat("ab", 32), strings.Repeat("cd", 32)
+	got, err := readSCIMHashes(write("pair", "# current\n"+h1+"\n\n  "+h2+"  \n"))
+	if err != nil || strings.Join(got, ",") != h1+","+h2 {
+		t.Fatalf("rotation pair: %v %v", got, err)
+	}
+	if got, err := readSCIMHashes(""); got != nil || err != nil {
+		t.Fatalf("unset: %v %v", got, err)
+	}
+	if _, err := readSCIMHashes(write("empty", "# nothing\n\n")); err == nil {
+		t.Fatal("a file without hashes was accepted")
+	}
+	if _, err := readSCIMHashes(filepath.Join(dir, "missing")); err == nil {
+		t.Fatal("a missing file was accepted")
 	}
 }
 
@@ -210,6 +244,11 @@ func TestRun(t *testing.T) {
 		{"bad kill key", append(common, "--data-dir", t.TempDir(), "--killswitch-key-file", tokFile, "--gateway-token-file", gwFile), "--killswitch-key-file"},
 		{"short gateway token", append(common, "--data-dir", t.TempDir(), "--killswitch-key-file", keyFile, "--gateway-token-file", tokFile), "at least 16"},
 		{"serves until cancelled", append(common, "--data-dir", t.TempDir(), "--killswitch-key-file", keyFile, "--gateway-token-file", gwFile), ""},
+		{"missing audit config", append(common, "--data-dir", t.TempDir(), "--audit-config", filepath.Join(dir, "missing")), notExist},
+		{"unknown audit key", append(common, "--data-dir", t.TempDir(), "--audit-config", write("audit.json", `{"rotation":{"maxbytes":1}}`)), "--audit-config"},
+		{"invalid audit sink", append(common, "--data-dir", t.TempDir(), "--audit-config", write("audit2.json", `{"export":{"sinks":[{"name":"s","type":"webhook","url":"http://x"}]}}`)), "https"},
+		{"audit export and metrics without controller", append(common, "--data-dir", t.TempDir(), "--metrics-listen", "127.0.0.1:0", "--audit-config",
+			write("audit3.json", `{"rotation":{"maxBytes":1048576},"export":{"sinks":[{"name":"s","type":"webhook","url":"https://127.0.0.1:1/in"}]}}`)), ""},
 		{"with controller", append(common, "--data-dir", t.TempDir(), "--controller", "--clickhouse-url", "http://127.0.0.1:1", "--metrics-listen", "127.0.0.1:0"), ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -226,5 +265,19 @@ func TestRun(t *testing.T) {
 				t.Fatalf("want %q, got %v", tc.err, err)
 			}
 		})
+	}
+}
+
+func TestMetricsHandler(t *testing.T) {
+	h := metricsHandler(func(w io.Writer) { _, _ = io.WriteString(w, "a 1\n") }, nil, func(w io.Writer) { _, _ = io.WriteString(w, "b 2\n") })
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/metrics", nil))
+	if w.Code != 200 || w.Body.String() != "a 1\nb 2\n" || !strings.HasPrefix(w.Header().Get("Content-Type"), "text/plain") {
+		t.Fatalf("%d %q", w.Code, w.Body)
+	}
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/other", nil))
+	if w.Code != 404 {
+		t.Fatalf("only /metrics is served: %d", w.Code)
 	}
 }

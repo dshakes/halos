@@ -1,0 +1,326 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://halos.dev/schemas/unit.schema.json",
+  "title": "Unit",
+  "description": "A business unit or team in the org hierarchy (ADR-0018): delegated owners, a member selector and an overlay applied on top of the ring profile. Enforced security fields may only be tightened.",
+  "type": "object",
+  "properties": {
+    "apiVersion": {
+      "type": "string",
+      "description": "Document version.",
+      "const": "halos.dev/v1"
+    },
+    "kind": {
+      "type": "string",
+      "description": "Document kind.",
+      "const": "Unit"
+    },
+    "name": {
+      "type": "string",
+      "description": "Unique name within its kind.",
+      "pattern": "^[a-z0-9][a-zA-Z0-9._-]*$"
+    },
+    "labels": {
+      "type": "object",
+      "description": "Free-form labels.",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "description": {
+      "type": "string",
+      "description": "What the unit is."
+    },
+    "parent": {
+      "type": "string",
+      "description": "Enclosing unit; empty for a top-level unit."
+    },
+    "owners": {
+      "type": "array",
+      "minItems": 1,
+      "description": "CODEOWNERS owners of the unit directory: @org/team, @user or an email.",
+      "items": {
+        "type": "string",
+        "pattern": "^(@[A-Za-z0-9][A-Za-z0-9_.-]*(/[A-Za-z0-9][A-Za-z0-9_.-]*)?|[^@\\s]+@[^@\\s]+\\.[^@\\s]+)$"
+      }
+    },
+    "members": {
+      "type": "object",
+      "description": "Selects the unit's users from its parent's (any listed group or user matches).",
+      "properties": {
+        "groups": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "IdP groups."
+        },
+        "users": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "User ids."
+        }
+      },
+      "additionalProperties": false
+    },
+    "overlay": {
+      "type": "object",
+      "description": "Profile settings the unit changes on top of the baseline. Lists in permissions.deny, mcp.denied and hooks.items union; mcp.servers are added; other lists replace; env and telemetry.attributes merge per key.",
+      "properties": {
+        "models": {
+          "type": "object",
+          "description": "Model policy.",
+          "properties": {
+            "default": {
+              "type": "string",
+              "description": "Default model alias (a gateway.models key)."
+            },
+            "allowed": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Allowed model aliases."
+            },
+            "enforce": {
+              "type": "boolean",
+              "description": "Reject models outside allowed rather than only hiding them; default must then be in allowed."
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        },
+        "permissions": {
+          "type": "object",
+          "description": "Permission policy.",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "description": "Default permission mode.",
+              "enum": [
+                "default",
+                "acceptEdits",
+                "plan",
+                "auto"
+              ]
+            },
+            "allow": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Allow rules."
+            },
+            "deny": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Deny rules."
+            },
+            "ask": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Ask rules."
+            },
+            "disableBypass": {
+              "type": "boolean",
+              "description": "Disable the harness's bypass-permissions mode."
+            },
+            "sandbox": {
+              "type": "string",
+              "description": "Harness sandbox policy.",
+              "enum": [
+                "off",
+                "workspace-write",
+                "read-only"
+              ]
+            },
+            "sandboxRequired": {
+              "type": "boolean",
+              "description": "Fail closed: the harness refuses to run (Claude: sandbox.failIfUnavailable) instead of running unsandboxed when its sandbox dependencies are missing."
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        },
+        "mcp": {
+          "type": "object",
+          "description": "MCP policy.",
+          "properties": {
+            "managedOnly": {
+              "type": "boolean",
+              "description": "Block every server not listed."
+            },
+            "servers": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "description": "An allowed MCP server.",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "description": "Server name."
+                  },
+                  "url": {
+                    "type": "string",
+                    "description": "https URL (exclusive with command).",
+                    "format": "uri"
+                  },
+                  "command": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "stdio command line (exclusive with url)."
+                  },
+                  "headers": {
+                    "type": "object",
+                    "description": "HTTP headers.",
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "additionalProperties": false
+              },
+              "description": "Allowed MCP servers."
+            },
+            "denied": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Denied server names."
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        },
+        "hooks": {
+          "type": "object",
+          "description": "Hook policy.",
+          "properties": {
+            "managedOnly": {
+              "type": "boolean",
+              "description": "Only managed hooks may run."
+            },
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "description": "A managed hook.",
+                "properties": {
+                  "event": {
+                    "type": "string",
+                    "description": "Hook event.",
+                    "enum": [
+                      "PreToolUse",
+                      "PostToolUse",
+                      "SessionStart",
+                      "Stop",
+                      "UserPromptSubmit"
+                    ]
+                  },
+                  "matcher": {
+                    "type": "string",
+                    "description": "Tool matcher."
+                  },
+                  "command": {
+                    "type": "string",
+                    "description": "Command to run."
+                  }
+                },
+                "required": [
+                  "event",
+                  "command"
+                ],
+                "additionalProperties": false
+              },
+              "description": "Managed hooks."
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        },
+        "telemetry": {
+          "type": "object",
+          "description": "Telemetry policy.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Emit OTEL telemetry. Must be true for profiles used by rings."
+            },
+            "otlpEndpoint": {
+              "type": "string",
+              "description": "OTLP endpoint URL."
+            },
+            "protocol": {
+              "type": "string",
+              "description": "OTLP protocol.",
+              "enum": [
+                "grpc",
+                "http/protobuf"
+              ]
+            },
+            "logPrompts": {
+              "type": "boolean",
+              "description": "Include prompt text in telemetry."
+            },
+            "attributes": {
+              "type": "object",
+              "description": "Extra resource attributes.",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        },
+        "egress": {
+          "type": "object",
+          "description": "Egress policy.",
+          "properties": {
+            "allowedDomains": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Only egress permitted from managed environments; must include the gateway host when non-empty."
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        },
+        "instructions": {
+          "type": "string",
+          "description": "Appended to the inherited instructions (managed CLAUDE.md / AGENTS.md / GEMINI.md)."
+        },
+        "env": {
+          "type": "object",
+          "description": "Extra environment; may add keys, never change an inherited one.",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "apiVersion",
+    "kind",
+    "name",
+    "owners",
+    "members"
+  ],
+  "additionalProperties": false
+}

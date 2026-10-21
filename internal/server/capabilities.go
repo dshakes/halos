@@ -13,14 +13,25 @@ func routeRegistered(m *http.ServeMux, method, path string) bool {
 	return strings.HasPrefix(pat, method+" ")
 }
 
+// Capabilities is GET /api/v1/capabilities.
+type Capabilities struct {
+	KillSwitch bool `json:"killSwitch"`
+	// Roles and Permissions are the caller's (ADR-0015), so the console hides
+	// actions the server would refuse. The server enforces regardless.
+	Roles       []string `json:"roles"`
+	Permissions []string `json:"permissions"`
+}
+
 // capabilities (GET /api/v1/capabilities) tells the console which optional
 // endpoints this build serves, so it never has to probe them with a real POST
 // (an OPTIONS probe cannot tell, the "/api/" catch-all answers 404 for everything).
 func (s *Server) capabilities(m *http.ServeMux) authedHandler {
-	return func(w http.ResponseWriter, _ *http.Request, _ Principal) {
-		writeJSON(w, http.StatusOK, map[string]bool{
+	return func(w http.ResponseWriter, _ *http.Request, p Principal) {
+		writeJSON(w, http.StatusOK, Capabilities{
 			// Registered is not enough: without a signing key nothing reaches gateways.
-			"killSwitch": s.cfg.KillKey != nil && routeRegistered(m, http.MethodPost, "/api/v1/experiments/x/kill"),
+			KillSwitch:  s.cfg.KillKey != nil && routeRegistered(m, http.MethodPost, "/api/v1/experiments/x/kill"),
+			Roles:       p.Roles,
+			Permissions: p.permissions(),
 		})
 	}
 }

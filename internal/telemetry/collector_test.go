@@ -179,8 +179,11 @@ func TestGenerateEvidenceTrust(t *testing.T) {
 			if c.Service.Pipelines["metrics/gateway"].Receivers == nil {
 				t.Error("no gateway pipeline")
 			}
+			if tr := c.Service.Pipelines["traces/gateway"]; len(tr.Receivers) != 1 || tr.Receivers[0] != "otlp/gateway" {
+				t.Error("no traces pipeline for the gateway GenAI spans")
+			}
 			s := string(b)
-			for _, want := range []string{`set(datapoint.attributes["halo.source"], "cli")`, `set(datapoint.attributes["halo.source"], "gateway")`, `delete_key(resource.attributes, "halo.source")`} {
+			for _, want := range []string{`set(datapoint.attributes["halo.source"], "cli")`, `set(datapoint.attributes["halo.source"], "gateway")`, `set(span.attributes["halo.source"], "gateway")`, `delete_key(resource.attributes, "halo.source")`} {
 				if !strings.Contains(s, want) {
 					t.Errorf("config lacks %s", want)
 				}

@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/netip"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -64,9 +65,26 @@ type Config struct {
 	// /api/v1/gateway/posture, served whenever GatewayToken is set). 0 = DefaultPostureMaxAge.
 	PostureMaxAge time.Duration
 
+	// Audit: log rotation and SIEM export (ADR-0016). Both need DataDir.
+	// Export runs only while RunAuditExport does.
+	Audit AuditConfig
+	// SCIM 2.0 provisioning at /scim/v2 (ADR-0022). SCIMTokenSHA256 holds the
+	// hex SHA-256 of each accepted bearer token (two while rotating); empty =
+	// SCIM off. SCIMAuthoritative: the directory, not the login's groups claim
+	// or a device's enrollment groups, decides who is active and their groups.
+	// SCIMStore nil = opened from DataDir.
+	SCIMTokenSHA256   []string
+	SCIMAuthoritative bool
+	SCIMStore         SCIMStore
+	// WorkloadKey signs workload credentials minted by POST
+	// /api/v1/token/exchange (ADR-0023); nil disables the endpoint.
+	WorkloadKey ed25519.PrivateKey
+
 	// DevUser disables authentication and acts as this user. INSECURE: local demos only.
+	// DevRoles are its roles (ADR-0015); DevAdmin adds RoleAdmin.
 	DevUser   string
 	DevGroups []string
+	DevRoles  []string
 	DevAdmin  bool
 }
 
@@ -84,11 +102,15 @@ type Server struct {
 	loginFails  authLimiter // failed OIDC callbacks; separate so logins cannot lock out devices
 	revoked     *sessionRevocations
 	auditLog    *auditLog
+	forwarders  []*auditForwarder
 	relCache    *releaseCache
 	relFetch    pointerFetch  // ring pointer reader; swapped in tests
 	relChannels channelsFetch // ring release -> experiment channels; swapped in tests
 	kills       *controller.KillStore
-	gwSum       [32]byte   // sha256 of GatewayToken
+	gwSum       [32]byte     // sha256 of GatewayToken
+	scim        *scimService // nil = SCIM off
+	budgets     *budgetStore
+	wl          workloadExchange
 	kv          storage.KV // ephemeral state: Backend, else in process
 }
 
@@ -97,9 +119,15 @@ func New(cfg Config) (*Server, error) {
 	if cfg.Token == "" {
 		return nil, errors.New("server: empty report token")
 	}
+	if err := validRoles(cfg.DevRoles); err != nil {
+		return nil, fmt.Errorf("server: dev roles: %w", err)
+	}
+	if cfg.DevAdmin && !slices.Contains(cfg.DevRoles, RoleAdmin) {
+		cfg.DevRoles = append(slices.Clip(cfg.DevRoles), RoleAdmin)
+	}
 	if cfg.DevUser != "" {
 		cfg.Log = orDefault(cfg.Log)
-		cfg.Log.Warn("INSECURE: --dev-insecure-user set; authentication is disabled and every request acts as this user", "user", cfg.DevUser, "admin", cfg.DevAdmin)
+		cfg.Log.Warn("INSECURE: --dev-insecure-user set; authentication is disabled and every request acts as this user", "user", cfg.DevUser, "roles", cfg.DevRoles)
 	} else if len(cfg.SessionKey) < 32 {
 		return nil, errors.New("server: session key must be at least 32 bytes (or set DevUser for a demo)")
 	}
@@ -118,6 +146,17 @@ func New(cfg Config) (*Server, error) {
 	if cfg.Web == nil {
 		if d, ok := web.Dist(); ok {
 			cfg.Web = d
+		}
+	}
+	if err := cfg.Audit.Validate(); err != nil {
+		return nil, err
+	}
+	if cfg.Audit.Rotation != (AuditRotation{}) {
+		switch {
+		case cfg.Backend != nil:
+			return nil, errors.New("server: audit rotation is for the file backend; on Postgres the chain is one table (ADR-0021)")
+		case cfg.DataDir == "":
+			return nil, errors.New("server: audit rotation needs a data dir")
 		}
 	}
 	var logs storage.Opener = storage.Dir(cfg.DataDir)
@@ -143,8 +182,22 @@ func New(cfg Config) (*Server, error) {
 		return nil, err
 	}
 	al.shared = cfg.Backend
+	al.rot, al.log = cfg.Audit.Rotation, cfg.Log
+	fwds, err := newAuditForwarders(cfg.Audit.Export, cfg.DataDir, al, cfg.Log)
+	if err != nil {
+		_ = al.close() // already failing
+		return nil, err
+	}
+	bs, err := openBudgetStore(cfg.DataDir, cfg.Backend)
+	if err != nil {
+		_ = al.close() // already failing
+		return nil, err
+	}
+	if cfg.GatewayToken != "" && cfg.DataDir == "" && cfg.Backend == nil {
+		cfg.Log.Warn("no --data-dir: gateway budget counters are in memory and reset on restart")
+	}
 	s := &Server{cfg: cfg, tokSum: sha256.Sum256([]byte(cfg.Token)), pol: &policyHolder{dir: cfg.PolicyDir, log: cfg.Log}, reqs: reqs, devices: devs, revoked: revoked,
-		auditLog: al, relCache: &releaseCache{byKey: map[string]cachedPointer{}, chans: map[string][]string{}}, kv: kv}
+		auditLog: al, forwarders: fwds, relCache: &releaseCache{byKey: map[string]cachedPointer{}, chans: map[string][]string{}}, budgets: bs, kv: kv}
 	s.oidc.kv, s.enroll.kv = kv, kv
 	s.relFetch, s.relChannels = s.registryFetch, s.registryChannels
 	if s.kills = cfg.KillStore; s.kills == nil {
@@ -160,13 +213,16 @@ func New(cfg Config) (*Server, error) {
 		}
 	}
 	s.gwSum = sha256.Sum256([]byte(cfg.GatewayToken))
+	if s.scim, err = newSCIM(cfg); err != nil {
+		return nil, err
+	}
 	return s, nil
 }
 
 // Close releases the files New opened under Config.DataDir. A Store or
 // KillStore passed in via Config stays the caller's to close.
 func (s *Server) Close() error {
-	errs := []error{s.reqs.close(), s.devices.close(), s.revoked.close(), s.auditLog.close()}
+	errs := []error{s.reqs.close(), s.devices.close(), s.revoked.close(), s.auditLog.close(), s.scim.close(), s.budgets.save(s.cfg.Now(), true)}
 	if s.cfg.KillStore == nil && s.kills != nil {
 		errs = append(errs, s.kills.Close())
 	}
@@ -185,7 +241,13 @@ func (s *Server) ReloadPolicy() { s.pol.Invalidate() }
 
 // Handler returns the full mux with security headers and request logging.
 func (s *Server) Handler() http.Handler {
-	m := http.NewServeMux()
+	return s.logging(secure(s.mux().ServeMux))
+}
+
+// mux registers every route. Cookie-authenticated routes go through s.route,
+// which enforces routePerms; the rest authenticate with a bearer token or are public.
+func (s *Server) mux() *routeMux {
+	m := &routeMux{ServeMux: http.NewServeMux()}
 	// /healthz: liveness — process is alive. Always 200.
 	m.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "ok\n") })
 	// /readyz: readiness — policy loaded and, with a shared Backend, the
@@ -215,55 +277,60 @@ func (s *Server) Handler() http.Handler {
 	m.HandleFunc("POST /api/v1/fleet/report", s.postReport)
 	m.HandleFunc("GET /api/v1/fleet/ring", s.getFleetRing)
 	m.HandleFunc("GET /api/v1/fleet/killswitch", s.getFleetKillswitch)
-	m.HandleFunc("GET /api/v1/devices", s.admin(s.listDevices))
-	m.HandleFunc("GET /api/v1/devices/{id}", s.admin(s.getDevice))
-	m.HandleFunc("GET /api/v1/audit", s.admin(s.getAudit))
-	m.HandleFunc("GET /api/v1/capabilities", s.user(s.capabilities(m)))
-	m.HandleFunc("GET /api/v1/releases", s.admin(s.getReleases))
-	m.HandleFunc("POST /api/v1/experiments/{name}/status", s.admin(s.postExperimentStatus))
-	m.HandleFunc("POST /api/v1/experiments/{name}/kill", s.admin(s.postKill(true)))
-	m.HandleFunc("POST /api/v1/experiments/{name}/unkill", s.admin(s.postKill(false)))
-	m.HandleFunc("POST /api/v1/toggles/{name}/kill", s.admin(s.postToggleKill(true)))
-	m.HandleFunc("POST /api/v1/toggles/{name}/unkill", s.admin(s.postToggleKill(false)))
-	m.HandleFunc("GET /api/v1/toggles", s.admin(s.listToggles))
-	m.HandleFunc("GET /api/v1/toggles/{name}", s.admin(s.getToggle))
-	m.HandleFunc("POST /api/v1/toggles/{name}/propose", s.admin(s.postToggleProposal))
-	m.HandleFunc("GET /api/v1/killswitch", s.admin(s.getKills))
+	s.route(m, "GET /api/v1/devices", s.listDevices)
+	s.route(m, "GET /api/v1/devices/{id}", s.getDevice)
+	s.route(m, "GET /api/v1/audit", s.getAudit)
+	s.route(m, "GET /api/v1/capabilities", s.capabilities(m.ServeMux))
+	s.route(m, "GET /api/v1/releases", s.getReleases)
+	s.route(m, "POST /api/v1/experiments/{name}/status", s.postExperimentStatus)
+	s.route(m, "POST /api/v1/experiments/{name}/kill", s.postKill(true))
+	s.route(m, "POST /api/v1/experiments/{name}/unkill", s.postKill(false))
+	s.route(m, "POST /api/v1/toggles/{name}/kill", s.postToggleKill(true))
+	s.route(m, "POST /api/v1/toggles/{name}/unkill", s.postToggleKill(false))
+	s.route(m, "GET /api/v1/toggles", s.listToggles)
+	s.route(m, "GET /api/v1/toggles/{name}", s.getToggle)
+	s.route(m, "POST /api/v1/toggles/{name}/propose", s.postToggleProposal)
+	s.route(m, "GET /api/v1/killswitch", s.getKills)
 	m.HandleFunc("GET /api/v1/gateway/killswitch", s.getGatewayKillswitch)
 	m.HandleFunc("GET /api/v1/gateway/posture", s.getGatewayPosture)
-	m.HandleFunc("POST /api/v1/devices/{id}/revoke", s.admin(s.revokeDevice))
-	m.HandleFunc("POST /api/v1/users/{id}/revoke-sessions", s.admin(s.revokeSessions))
-	// admin-only operator views
-	m.HandleFunc("GET /api/v1/fleet", s.admin(s.getFleet))
-	m.HandleFunc("GET /api/v1/policy", s.admin(s.getPolicy))
-	m.HandleFunc("GET /api/v1/experiments", s.admin(s.listExperiments))
-	m.HandleFunc("GET /api/v1/experiments/{name}", s.admin(s.getExperiment))
-	m.HandleFunc("GET /api/v1/rollouts", s.admin(s.listRollouts))
-	m.HandleFunc("GET /api/v1/rollouts/{name}", s.admin(s.getRollout))
-	m.HandleFunc("GET /api/v1/harnesses", s.user(s.getHarnesses))
-	m.HandleFunc("GET /api/v1/whoami", s.user(s.whoami)) // developers: self only; admins: any user
+	m.HandleFunc("POST /api/v1/gateway/budget/check", s.postGatewayBudgetCheck) // gateway token
+	m.HandleFunc("POST /api/v1/gateway/budget/usage", s.postGatewayBudgetUsage) // gateway token
+	s.route(m, "GET /api/v1/budgets", s.getBudgets)
+	s.route(m, "POST /api/v1/devices/{id}/revoke", s.revokeDevice)
+	s.route(m, "POST /api/v1/users/{id}/revoke-sessions", s.revokeSessions)
+	s.route(m, "GET /api/v1/fleet", s.getFleet)
+	s.route(m, "GET /api/v1/policy", s.getPolicy)
+	s.route(m, "GET /api/v1/experiments", s.listExperiments)
+	s.route(m, "GET /api/v1/experiments/{name}", s.getExperiment)
+	s.route(m, "GET /api/v1/rollouts", s.listRollouts)
+	s.route(m, "GET /api/v1/rollouts/{name}", s.getRollout)
+	s.route(m, "GET /api/v1/harnesses", s.getHarnesses)
+	s.route(m, "GET /api/v1/whoami", s.whoami) // developers: self only; read permission: any user
 	// developer self-service
-	m.HandleFunc("GET /api/v1/me", s.user(s.me))
-	m.HandleFunc("GET /api/v1/me/devices", s.user(s.myDevices))
-	m.HandleFunc("GET /api/v1/catalog", s.user(s.catalog))
-	m.HandleFunc("POST /api/v1/launch/{launcher}", s.user(s.launch))
-	m.HandleFunc("POST /api/v1/requests", s.user(s.postRequest))
-	m.HandleFunc("GET /api/v1/requests", s.user(s.listRequests))
-	m.HandleFunc("POST /api/v1/requests/{id}/approve", s.admin(s.decide(true)))
-	m.HandleFunc("POST /api/v1/requests/{id}/deny", s.admin(s.decide(false)))
+	s.route(m, "GET /api/v1/me", s.me)
+	s.route(m, "GET /api/v1/me/devices", s.myDevices)
+	s.route(m, "GET /api/v1/catalog", s.catalog)
+	s.route(m, "POST /api/v1/launch/{launcher}", s.launch)
+	s.route(m, "POST /api/v1/requests", s.postRequest)
+	s.route(m, "GET /api/v1/requests", s.listRequests)
+	s.route(m, "POST /api/v1/requests/{id}/approve", s.decide(true))
+	s.route(m, "POST /api/v1/requests/{id}/deny", s.decide(false))
 	// laptop enrollment: scripts and key are public; the token is the credential
 	m.HandleFunc("GET /enroll.sh", s.enrollSh)
 	m.HandleFunc("GET /enroll.ps1", s.enrollPs1)
 	m.HandleFunc("GET /enroll/release.pub", s.releasePub)
 	m.HandleFunc("GET /enroll/killswitch.pub", s.killswitchPub)
 	m.HandleFunc("POST /api/v1/enroll", s.postEnroll)
+	// CI / cloud workloads: the federated OIDC token is the credential (ADR-0023)
+	m.HandleFunc("POST /api/v1/token/exchange", s.postTokenExchange)
 	// OIDC login
 	m.HandleFunc("GET /auth/login", s.login)
 	m.HandleFunc("GET /auth/callback", s.callback)
 	m.HandleFunc("POST /auth/logout", s.logout)
+	s.scimRoutes(m) // /scim/v2 and GET /api/v1/gateway/directory
 	m.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) { apiErr(w, http.StatusNotFound, "not found") })
 	m.HandleFunc("/", s.static)
-	return s.logging(secure(m))
+	return m
 }
 
 // ---- middleware ----
@@ -572,8 +639,8 @@ func (s *Server) whoami(w http.ResponseWriter, r *http.Request, p Principal) {
 		apiErr(w, http.StatusBadRequest, "user required (<=256 chars)")
 		return
 	}
-	if !p.Admin && user != p.ID { // developers may only debug themselves
-		apiErr(w, http.StatusForbidden, "admin role required to inspect other users")
+	if !p.can(permRead) && user != p.ID { // developers may only debug themselves
+		s.deny(w, r, p, "GET /api/v1/whoami?user=<other>", permRead)
 		return
 	}
 	var groups []string
@@ -582,7 +649,7 @@ func (s *Server) whoami(w http.ResponseWriter, r *http.Request, p Principal) {
 			groups = append(groups, g)
 		}
 	}
-	if !p.Admin { // a developer cannot claim groups they do not hold
+	if !p.can(permRead) { // a developer cannot claim groups they do not hold
 		groups = p.Groups
 	}
 	org, _, err := s.pol.Get()

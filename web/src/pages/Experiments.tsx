@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useCapabilities, useExperiments, useKillExperiment, useSetExperimentStatus, type Experiment, type SettableStatus } from "../api";
+import { useCan, useCapabilities, useExperiments, useKillExperiment, useSetExperimentStatus, type Experiment, type SettableStatus } from "../api";
 import { Card, Empty, ErrorBox, Forest, Mono, Pill, statusTone, type Tone } from "../ui";
 import { KillSwitchPanel } from "./KillSwitch";
 
@@ -64,6 +64,7 @@ function Detail({ e }: { e: Experiment }) {
   const v = e.verdict;
   const totalW = e.variants.reduce((a, x) => a + x.weight, 0) || 1;
   const s = e.stopping;
+  const operate = useCan()("operate");
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-3">
@@ -74,7 +75,7 @@ function Detail({ e }: { e: Experiment }) {
         <span className="text-mute">rings: {e.rings.join(", ") || "—"}</span>
       </div>
 
-      <Actions e={e} />
+      {operate && <Actions e={e} />}
 
       <div className="grid gap-5 lg:grid-cols-2">
         <Card title="Variants">

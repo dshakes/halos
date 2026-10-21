@@ -236,6 +236,161 @@
         "kong",
         "external"
       ]
+    },
+    "pricing": {
+      "type": "object",
+      "description": "USD per million tokens, keyed by provider model id (the model a route target names). Costs gateway usage for budgets; a routed model without a price counts tokens but $0.",
+      "additionalProperties": {
+        "type": "object",
+        "description": "Price of one provider model.",
+        "properties": {
+          "inputPerMTok": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Uncached input tokens."
+          },
+          "outputPerMTok": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Output tokens, including reasoning or thinking tokens."
+          },
+          "cacheReadPerMTok": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Prompt-cache reads (default: inputPerMTok)."
+          },
+          "cacheWritePerMTok": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Prompt-cache writes (default: inputPerMTok)."
+          }
+        },
+        "required": [
+          "inputPerMTok",
+          "outputPerMTok"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "budgets": {
+      "type": "array",
+      "description": "Spend caps enforced by halo-proxy, with halo-server holding the counters (ADR-0017).",
+      "items": {
+        "type": "object",
+        "description": "One budget: a limit in USD and/or tokens per scope key over a window.",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Unique budget name.",
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,62}$"
+          },
+          "scope": {
+            "type": "string",
+            "description": "Counter key: user (per verified subject), group (per listed group), ring (per ring) or org (one shared counter).",
+            "enum": [
+              "user",
+              "group",
+              "ring",
+              "org"
+            ]
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "uniqueItems": true,
+            "description": "Scope group: the groups that each get a counter (required). Other scopes: count only callers in one of these groups."
+          },
+          "rings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "uniqueItems": true,
+            "description": "Count only callers routed to these rings (default every ring)."
+          },
+          "window": {
+            "type": "string",
+            "description": "day, week (from Monday) or month: calendar windows in UTC. rolling: the last period.",
+            "enum": [
+              "day",
+              "week",
+              "month",
+              "rolling"
+            ]
+          },
+          "period": {
+            "type": "string",
+            "description": "Rolling window length as a Go duration between 1h and 2160h, e.g. 24h. Rolling only.",
+            "pattern": "^([0-9]+(\\.[0-9]+)?(h|m|s))+$"
+          },
+          "limitUSD": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Spend cap in USD for the window, priced from pricing."
+          },
+          "limitTokens": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Token cap for the window (input + output + cache reads and writes)."
+          },
+          "action": {
+            "type": "string",
+            "description": "When exhausted: warn (response header and metric; the request passes) or enforce (HTTP 429 with Retry-After at the window reset). Default warn.",
+            "enum": [
+              "warn",
+              "enforce"
+            ]
+          },
+          "alertAt": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "exclusiveMaximum": 1
+            },
+            "description": "Soft thresholds as fractions of the limit (default [0.8]): a header and a metric when crossed."
+          }
+        },
+        "required": [
+          "name",
+          "scope",
+          "window"
+        ],
+        "anyOf": [
+          {
+            "required": [
+              "limitUSD"
+            ]
+          },
+          {
+            "required": [
+              "limitTokens"
+            ]
+          }
+        ],
+        "if": {
+          "properties": {
+            "window": {
+              "const": "rolling"
+            }
+          }
+        },
+        "then": {
+          "required": [
+            "period"
+          ]
+        },
+        "else": {
+          "not": {
+            "required": [
+              "period"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
     }
   },
   "required": [

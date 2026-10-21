@@ -275,6 +275,6 @@ func (a *app) cmdEval() *cobra.Command {
 	run.Flags().StringVar(&network, "network", "none", "docker network for trials (default none: no egress)")
 	run.Flags().StringVar(&memory, "memory", "4g", "docker memory limit per trial")
 	run.Flags().StringVar(&cpus, "cpus", "2", "docker CPU limit per trial")
-	c.AddCommand(run, a.cmdEvalOnline())
+	c.AddCommand(run, a.cmdEvalOnline(), a.cmdEvalHarvest(), a.cmdEvalSteps())
 	return c
 }

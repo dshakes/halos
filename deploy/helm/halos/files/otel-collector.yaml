@@ -80,6 +80,11 @@ processors:
         statements:
           - set(datapoint.attributes["halo.source"], "gateway")
           - delete_key(resource.attributes, "halo.source")
+    trace_statements:
+      - context: span
+        statements:
+          - set(span.attributes["halo.source"], "gateway")
+          - delete_key(resource.attributes, "halo.source")
 receivers:
   otlp:
     protocols:
@@ -140,3 +145,12 @@ service:
         - batch
       receivers:
         - otlp
+    traces/gateway:
+      exporters:
+        - clickhouse
+      processors:
+        - memory_limiter
+        - transform/source-gateway
+        - batch
+      receivers:
+        - otlp/gateway

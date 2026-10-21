@@ -1,5 +1,5 @@
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
-import { ApiError, useMe, useRequests } from "./api";
+import { ApiError, useCan, useMe, useRequests } from "./api";
 import { Audit } from "./pages/Audit";
 import { Approvals } from "./pages/Approvals";
 import { Debugger } from "./pages/Debugger";
@@ -45,31 +45,36 @@ export function App() {
   const [page = "", arg] = useHash().replace(/^#\/?/, "").split("/");
   const [dark, toggle] = useTheme();
   const me = useMe();
-  const admin = me.data?.admin === true;
-  const reqs = useRequests(admin);
+  const can = useCan();
+  const read = can("read"), approve = can("approve"), audit = can("audit");
+  const reqs = useRequests(approve);
   if (me.error instanceof ApiError && me.error.status === 401) return <Login />;
   if (me.error) return <div className="p-8"><ErrorBox error={me.error} /></div>;
   if (!me.data) return null;
 
   const pending = (reqs.data ?? []).filter((r) => r.status === "pending").length;
   const signOut = () => { void fetch("/auth/logout", { method: "POST" }).then(() => window.location.reload()); };
-  const nav: [string, string][] = admin
-    ? [["", "Overview"], ["kiosk", "Kiosk"], ["fleet", "Fleet"], ["releases", "Releases"], ["experiments", "Experiments"], ["toggles", "Toggles"], ["policy", "Policy"], ["debug", "Assignment"], ["approvals", "Approvals"], ["audit", "Audit log"]]
-    : [["", "Home"], ["debug", "Why this setup?"]];
+  const nav: [string, string][] = [
+    ...(read
+      ? [["", "Overview"], ["kiosk", "Kiosk"], ["fleet", "Fleet"], ["releases", "Releases"], ["experiments", "Experiments"], ["toggles", "Toggles"], ["policy", "Policy"], ["debug", "Assignment"]]
+      : [["", "Home"], ["debug", "Why this setup?"]]) as [string, string][],
+    ...(approve ? [["approvals", "Approvals"] as [string, string]] : []),
+    ...(audit ? [["audit", "Audit log"] as [string, string]] : []),
+  ];
 
   let view: ReactNode;
   switch (page) {
     case "kiosk": view = <Kiosk />; break;
-    case "debug": view = <Debugger self={admin ? undefined : me.data.id} />; break;
-    case "fleet": view = admin ? <Fleet /> : <Kiosk />; break;
-    case "releases": view = admin ? <Releases /> : <Kiosk />; break;
-    case "audit": view = admin ? <Audit /> : <Kiosk />; break;
-    case "devices": view = admin && arg ? <Device id={decodeURIComponent(arg)} /> : <Kiosk />; break;
-    case "experiments": view = admin ? <Experiments name={arg ? decodeURIComponent(arg) : undefined} /> : <Kiosk />; break;
-    case "toggles": view = admin ? <Toggles name={arg ? decodeURIComponent(arg) : undefined} /> : <Kiosk />; break;
-    case "policy": view = admin ? <Policy /> : <Kiosk />; break;
-    case "approvals": view = admin ? <Approvals /> : <Kiosk />; break;
-    default: view = admin ? <Overview /> : <Kiosk />;
+    case "debug": view = <Debugger self={read ? undefined : me.data.id} />; break;
+    case "fleet": view = read ? <Fleet /> : <Kiosk />; break;
+    case "releases": view = read ? <Releases /> : <Kiosk />; break;
+    case "audit": view = audit ? <Audit /> : <Kiosk />; break;
+    case "devices": view = read && arg ? <Device id={decodeURIComponent(arg)} /> : <Kiosk />; break;
+    case "experiments": view = read ? <Experiments name={arg ? decodeURIComponent(arg) : undefined} /> : <Kiosk />; break;
+    case "toggles": view = read ? <Toggles name={arg ? decodeURIComponent(arg) : undefined} /> : <Kiosk />; break;
+    case "policy": view = read ? <Policy /> : <Kiosk />; break;
+    case "approvals": view = approve ? <Approvals /> : <Kiosk />; break;
+    default: view = read ? <Overview /> : <Kiosk />;
   }
   return (
     // Phone widths stack the shell: a top bar with a scrollable nav, the page beneath. From md up the nav is a sidebar.
@@ -92,7 +97,7 @@ export function App() {
         </nav>
         <div className="mt-auto hidden space-y-2 md:block">
           {me.data.devInsecure && <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-600 dark:text-amber-300">Insecure demo mode: login disabled</div>}
-          <div className="truncate px-1 text-mute" title={me.data.id}>{me.data.id}{admin && " · admin"}</div>
+          <div className="truncate px-1 text-mute" title={me.data.id}>{me.data.id}{me.data.roles.length > 0 && ` · ${me.data.roles.join(", ")}`}</div>
           <button onClick={toggle} className="w-full rounded-md border border-line px-2.5 py-1.5 text-left text-mute hover:text-fg">{dark ? "Light" : "Dark"} theme</button>
           {!me.data.devInsecure && <button onClick={signOut} className="w-full rounded-md border border-line px-2.5 py-1.5 text-left text-mute hover:text-fg">Sign out</button>}
         </div>

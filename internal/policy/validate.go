@@ -38,7 +38,7 @@ var (
 	awsRegion = regexp.MustCompile(`^[a-z]{2}(-[a-z]+)+-[0-9]+$`)
 	gcpRegion = regexp.MustCompile(`^([a-z]+-[a-z]+[0-9]+|global)$`)
 
-	knownHarnesses   = []string{"claude-code", "codex", "gemini-cli", "copilot-cli"}
+	knownHarnesses   = []string{"claude-code", "codex", "gemini-cli", "copilot-cli", "cursor-agent", "opencode"}
 	permissionModes  = []string{"default", "acceptEdits", "plan", "auto"}
 	sandboxModes     = []string{"off", "workspace-write", "read-only"}
 	gateModes        = []string{GateOff, GateWarn, GateEnforce}
@@ -61,6 +61,8 @@ func (o *Org) Validate() []Issue {
 	v.rings()
 	v.experiments()
 	v.rollouts()
+	v.units()
+	v.workloads()
 	for _, g := range builtinGuardrails {
 		v.issues = append(v.issues, g(o)...)
 	}
@@ -91,6 +93,7 @@ func (o *Org) clone() (*Org, error) {
 type validator struct {
 	org    *Org
 	issues []Issue
+	once   map[string]bool // onceErr keys already reported
 }
 
 func (v *validator) errf(path, format string, a ...any) {
@@ -156,6 +159,7 @@ func (v *validator) gateway() {
 	for _, alias := range sortedKeys(g.Models) {
 		v.route("gateway.models."+alias, g.Models[alias])
 	}
+	v.budgets(g)
 }
 
 // upstreamKind checks the per-kind fields: where a provider's credential lives
@@ -247,60 +251,66 @@ func (v *validator) profiles() {
 			v.errf(path+".extends", "%v", err)
 			continue
 		}
-		for _, h := range sortedKeys(p.Harnesses) {
-			if !slices.Contains(knownHarnesses, h) {
-				v.errf(path+".harnesses."+h, "unknown harness %q, want one of %v", h, knownHarnesses)
-			}
+		v.profileSpec(path, p)
+	}
+}
+
+// profileSpec checks one resolved profile (a declared profile, or a unit's
+// effective profile), reporting under path.
+func (v *validator) profileSpec(path string, p *Profile) {
+	for _, h := range sortedKeys(p.Harnesses) {
+		if !slices.Contains(knownHarnesses, h) {
+			v.errf(path+".harnesses."+h, "unknown harness %q, want one of %v", h, knownHarnesses)
 		}
-		if p.Models.Enforce && !slices.Contains(p.Models.Allowed, p.Models.Default) {
-			v.errf(path+".models.default", "default %q must be in models.allowed when enforce is set", p.Models.Default)
+	}
+	if p.Models.Enforce && !slices.Contains(p.Models.Allowed, p.Models.Default) {
+		v.errf(path+".models.default", "default %q must be in models.allowed when enforce is set", p.Models.Default)
+	}
+	for _, h := range sortedKeys(p.Harnesses) {
+		m := p.Harnesses[h].Model
+		if m == "" {
+			continue
 		}
-		for _, h := range sortedKeys(p.Harnesses) {
-			m := p.Harnesses[h].Model
-			if m == "" {
-				continue
-			}
-			if p.Models.Enforce && !slices.Contains(p.Models.Allowed, m) {
-				v.errf(path+".harnesses."+h+".model", "model %q must be in models.allowed when enforce is set", m)
-			}
-			if g := v.org.Gateway; g != nil {
-				if _, ok := g.Models[m]; !ok {
-					v.errf(path+".harnesses."+h+".model", "model %q is not a gateway.models alias", m)
-				}
-			}
+		if p.Models.Enforce && !slices.Contains(p.Models.Allowed, m) {
+			v.errf(path+".harnesses."+h+".model", "model %q must be in models.allowed when enforce is set", m)
 		}
 		if g := v.org.Gateway; g != nil {
-			for _, m := range append([]string{p.Models.Default}, p.Models.Allowed...) {
-				if _, ok := g.Models[m]; !ok && m != "" {
-					v.errf(path+".models", "model %q is not a gateway.models alias", m)
-				}
+			if _, ok := g.Models[m]; !ok {
+				v.errf(path+".harnesses."+h+".model", "model %q is not a gateway.models alias", m)
 			}
 		}
-		// bypassPermissions is a valid harness mode but forbidden by the
-		// no-bypass guardrail, which reports it with a clearer message.
-		if m := p.Permissions.Mode; m != "" && m != "bypassPermissions" {
-			v.oneOf(path+".permissions.mode", "mode", m, permissionModes)
-		}
-		if s := p.Permissions.Sandbox; s != "" {
-			v.oneOf(path+".permissions.sandbox", "sandbox", s, sandboxModes)
-		}
-		if p.Permissions.SandboxRequired && p.Permissions.Sandbox == "off" {
-			v.errf(path+".permissions.sandboxRequired", `sandboxRequired contradicts permissions.sandbox "off"`)
-		}
-		for i, h := range p.Hooks.Hooks {
-			v.oneOf(fmt.Sprintf("%s.hooks.items[%d].event", path, i), "event", h.Event, hookEvents)
-			if h.Command == "" {
-				v.errf(fmt.Sprintf("%s.hooks.items[%d].command", path, i), "command is required")
-			}
-		}
-		if pr := p.Telemetry.Protocol; pr != "" {
-			v.oneOf(path+".telemetry.protocol", "protocol", pr, otlpProtocols)
-		}
-		if l := p.Login; l != "" {
-			v.oneOf(path+".login", "login", l, loginModes)
-		}
-		v.extensions(path+".extensions", p.Extensions)
 	}
+	if g := v.org.Gateway; g != nil {
+		for _, m := range append([]string{p.Models.Default}, p.Models.Allowed...) {
+			if _, ok := g.Models[m]; !ok && m != "" {
+				v.errf(path+".models", "model %q is not a gateway.models alias", m)
+			}
+		}
+	}
+	// bypassPermissions is a valid harness mode but forbidden by the
+	// no-bypass guardrail, which reports it with a clearer message.
+	if m := p.Permissions.Mode; m != "" && m != "bypassPermissions" {
+		v.oneOf(path+".permissions.mode", "mode", m, permissionModes)
+	}
+	if s := p.Permissions.Sandbox; s != "" {
+		v.oneOf(path+".permissions.sandbox", "sandbox", s, sandboxModes)
+	}
+	if p.Permissions.SandboxRequired && p.Permissions.Sandbox == "off" {
+		v.errf(path+".permissions.sandboxRequired", `sandboxRequired contradicts permissions.sandbox "off"`)
+	}
+	for i, h := range p.Hooks.Hooks {
+		v.oneOf(fmt.Sprintf("%s.hooks.items[%d].event", path, i), "event", h.Event, hookEvents)
+		if h.Command == "" {
+			v.errf(fmt.Sprintf("%s.hooks.items[%d].command", path, i), "command is required")
+		}
+	}
+	if pr := p.Telemetry.Protocol; pr != "" {
+		v.oneOf(path+".telemetry.protocol", "protocol", pr, otlpProtocols)
+	}
+	if l := p.Login; l != "" {
+		v.oneOf(path+".login", "login", l, loginModes)
+	}
+	v.extensions(path+".extensions", p.Extensions)
 }
 
 var (

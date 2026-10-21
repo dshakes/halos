@@ -5,5 +5,7 @@ import (
 	_ "github.com/dshakes/halos/internal/harness/claudecode"
 	_ "github.com/dshakes/halos/internal/harness/codex"
 	_ "github.com/dshakes/halos/internal/harness/copilot"
+	_ "github.com/dshakes/halos/internal/harness/cursor"
 	_ "github.com/dshakes/halos/internal/harness/gemini"
+	_ "github.com/dshakes/halos/internal/harness/opencode"
 )

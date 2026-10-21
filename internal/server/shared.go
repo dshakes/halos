@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"sort"
+	"sync"
+	"time"
 
 	"github.com/dshakes/halos/internal/pgstore"
 	"github.com/dshakes/halos/internal/rollout"
@@ -15,24 +18,45 @@ import (
 // one fleet (ADR-0021). Config.Backend nil means the single-replica default:
 // JSONL files under DataDir and in-process ephemeral state.
 type Backend interface {
-	storage.Opener // device, request, session-revocation logs
-	storage.KV     // enrollment tokens, login states, server-side sessions, approval claims
+	storage.Opener // device, request, session-revocation, SCIM logs
+	storage.KV     // enrollment tokens, login states, server-side sessions, claims, workload jti
 	// AppendAudit chains e after the current head under a lock held across
 	// replicas, filling Seq, Prev and Hash.
 	AppendAudit(ctx context.Context, e AuditEntry) error
-	// AuditEntries returns the whole chain, oldest first.
-	AuditEntries(ctx context.Context) ([]AuditEntry, error)
+	// EachAudit streams entries with seq >= from, oldest first, with their
+	// stored bytes, until fn returns false. A row that does not decode is
+	// passed zero-valued, so verification breaks there.
+	EachAudit(ctx context.Context, from uint64, fn func(raw []byte, e AuditEntry) bool) error
+	// AuditHead is the newest entry's seq and hash.
+	AuditHead(ctx context.Context) (uint64, string, error)
 	// RolloutStates is where the controller's rollout state lives.
 	RolloutStates() rollout.StateStore
+	// Docs lists every document of kind (verdicts: one per experiment).
+	Docs(ctx context.Context, kind string) ([][]byte, error)
+	// Leased runs fn on exactly one replica at a time (lease name) until ctx
+	// ends; docs writes through the view fn gets are fenced by that lease.
+	Leased(ctx context.Context, name string, fn func(ctx context.Context, docs rollout.Docs))
+	// ApplyBudget adds usage unless batch was applied before (atomic, any
+	// replica); keep prunes buckets older than each budget's window.
+	ApplyBudget(ctx context.Context, batch string, incs []pgstore.BudgetCounter, keep map[string]int64) (duplicate bool, err error)
+	// BudgetCounters reads the given (budget, key) counters; nil = all.
+	BudgetCounters(ctx context.Context, keys [][2]string) ([]pgstore.BudgetCounter, error)
+	// ClaimPending makes requestID the one pending access request for dedupe
+	// (atomic across replicas; see pgstore.DB.ClaimPending). ReleasePending drops it.
+	ClaimPending(ctx context.Context, dedupe, requestID string, holder func(id string) (known, pending bool)) (bool, error)
+	ReleasePending(ctx context.Context, dedupe, requestID string) error
 	// Ping fails when the backend is unreachable (/readyz).
 	Ping(ctx context.Context) error
 }
 
 // PGBackend is the Postgres Backend.
-type PGBackend struct{ *pgstore.DB }
+type PGBackend struct {
+	*pgstore.DB
+	LeaseTTL time.Duration // Leased lease length; 0 = 15s
+}
 
 // NewPGBackend wraps an open, migrated database.
-func NewPGBackend(db *pgstore.DB) *PGBackend { return &PGBackend{db} }
+func NewPGBackend(db *pgstore.DB) *PGBackend { return &PGBackend{DB: db} }
 
 // AppendAudit implements Backend.
 func (b *PGBackend) AppendAudit(ctx context.Context, e AuditEntry) error {
@@ -58,22 +82,22 @@ func (b *PGBackend) ImportAuditEntry(ctx context.Context, e AuditEntry) error {
 	})
 }
 
-// AuditEntries implements Backend. A row that does not decode is returned
-// zero-valued, so VerifyAuditChain reports the break there.
-func (b *PGBackend) AuditEntries(ctx context.Context) ([]AuditEntry, error) {
-	rows, err := b.DB.AuditEntries(ctx)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]AuditEntry, len(rows))
-	for i, r := range rows {
-		_ = json.Unmarshal(r, &out[i]) // garbage: zero entry, the chain breaks there
-	}
-	return out, nil
+// EachAudit implements Backend.
+func (b *PGBackend) EachAudit(ctx context.Context, from uint64, fn func(raw []byte, e AuditEntry) bool) error {
+	return b.DB.EachAudit(ctx, from, func(_ uint64, raw []byte) bool {
+		var e AuditEntry
+		_ = json.Unmarshal(raw, &e) // garbage: zero entry, the chain breaks there
+		return fn(raw, e)
+	})
 }
 
 // RolloutStates implements Backend.
 func (b *PGBackend) RolloutStates() rollout.StateStore { return rollout.DocStore{DB: b.DB} }
+
+// Leased implements Backend with a leader lease per name.
+func (b *PGBackend) Leased(ctx context.Context, name string, fn func(ctx context.Context, docs rollout.Docs)) {
+	b.DB.Leased(ctx, name, b.LeaseTTL, func(lctx context.Context, view *pgstore.Fenced) { fn(lctx, view) })
+}
 
 // pgReports is the fleet report Store on Postgres.
 type pgReports struct{ db *pgstore.DB }
@@ -129,4 +153,65 @@ func decodeHosts(rows [][]byte) []Host {
 		}
 	}
 	return out
+}
+
+// kvOf is b's KV, or nil (a nil Backend must not become a non-nil interface).
+func kvOf(b Backend) storage.KV {
+	if b == nil {
+		return nil
+	}
+	return b
+}
+
+// clusterMutex is a mutex that, with a shared KV, also holds a cluster-wide
+// lock (an expiring KV entry), so a read-modify-write runs on one replica at
+// a time. If the lock cannot be taken within clusterLockWait the holder is
+// assumed dead or the store down: the caller proceeds under the local mutex
+// only and it is logged (writes are still journaled, so replicas converge;
+// only a uniqueness check could race). Zero value: a plain mutex.
+type clusterMutex struct {
+	local sync.Mutex
+	kv    storage.KV
+	name  string
+	log   *slog.Logger
+	held  bool
+}
+
+const (
+	clusterLockTTL  = 30 * time.Second
+	clusterLockWait = 10 * time.Second
+)
+
+func (m *clusterMutex) Lock() {
+	m.local.Lock()
+	if m.kv == nil {
+		return
+	}
+	deadline := time.Now().Add(clusterLockWait)
+	for {
+		ctx, cancel := storage.Ctx()
+		ok, err := m.kv.Add(ctx, "lock", m.name, nil, time.Now().Add(clusterLockTTL))
+		cancel()
+		if ok && err == nil {
+			m.held = true
+			return
+		}
+		if time.Now().After(deadline) {
+			orDefault(m.log).Warn("cluster lock not acquired; proceeding under the local lock", "lock", m.name, "err", err)
+			return
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+}
+
+func (m *clusterMutex) Unlock() {
+	if m.held {
+		ctx, cancel := storage.Ctx()
+		if err := m.kv.Delete(ctx, "lock", m.name); err != nil {
+			orDefault(m.log).Warn("cluster lock release failed; it expires on its own", "lock", m.name, "err", err)
+		}
+		cancel()
+		m.held = false
+	}
+	m.local.Unlock()
 }

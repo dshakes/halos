@@ -13,12 +13,23 @@ Generated from `schemas/halos.schema.json`; do not edit. Nested fields use dotte
 | `gateway` | string |  |  |  | format uri | Simple mode: the gateway base URL clients are pointed at. |
 | `gatewayEngine` | string |  |  | halo-proxy, kong, external |  | Simple mode: what serves gateway: halo-proxy (default), kong, or external (your own API gateway; clients are sent provider model ids). |
 | `identity` | object |  |  |  |  | The org's OIDC provider (any compliant IdP: Okta, Entra ID, Google, Keycloak, Ping, Auth0...). Used by the portal, halo-proxy / halo-kong and enrollment. |
-| `identity.adminGroups` | array of string |  |  |  |  | Groups that may approve requests and manage experiments in the portal. |
+| `identity.adminGroups` | array of string |  |  |  |  | Groups holding halo-server's admin role. Same as roles.admin; kept for existing policy repos. |
 | `identity.adminGroups[]` | string |  |  |  |  |  |
 | `identity.audience` | string |  |  |  |  | Audience expected in gateway bearer tokens; defaults to clientID. |
 | `identity.clientID` | string |  |  |  |  | OAuth client id used by the portal. |
 | `identity.groupsClaim` | string |  |  |  |  | JWT claim holding the user's groups (default "groups"). |
 | `identity.issuer` | string |  |  |  | format uri | OIDC issuer URL; discovery is fetched from &lt;issuer>/.well-known/openid-configuration. |
+| `identity.roles` | object |  |  |  |  | halo-server roles (ADR-0015): IdP groups per role. A user holds every role any of their groups maps to. |
+| `identity.roles.admin` | array of string |  |  |  |  | Everything, including devices, sessions and toggle proposals. Same as adminGroups. |
+| `identity.roles.admin[]` | string |  |  |  | minLength 1 |  |
+| `identity.roles.approver` | array of string |  |  |  |  | Viewer plus approving and denying access requests. |
+| `identity.roles.approver[]` | string |  |  |  | minLength 1 |  |
+| `identity.roles.auditor` | array of string |  |  |  |  | Read and export the audit log; nothing else. |
+| `identity.roles.auditor[]` | string |  |  |  | minLength 1 |  |
+| `identity.roles.operator` | array of string |  |  |  |  | Viewer plus kill switch and experiment status (pause, resume, conclude). |
+| `identity.roles.operator[]` | string |  |  |  | minLength 1 |  |
+| `identity.roles.viewer` | array of string |  |  |  |  | Read fleet, releases, rollouts, experiments, toggles and policy. |
+| `identity.roles.viewer[]` | string |  |  |  | minLength 1 |  |
 | `identity.userClaim` | string |  |  |  |  | JWT claim holding the user id (default "email"). |
 | `kind` | string |  |  | const Halos |  | Document kind. |
 | `models` | object |  |  |  |  | Simple mode: model alias -> provider model id, or a list of ids in failover order. An id may be prefixed &lt;provider>/ (required with provider multi). The default alias is required. |
@@ -47,6 +58,24 @@ Generated from `schemas/halos.schema.json`; do not edit. Nested fields use dotte
 | `telemetry` | string |  |  |  | format uri | Simple mode: OTLP/HTTP endpoint. Telemetry is always on. |
 | `tools` | object |  |  |  |  | Simple mode: harnesses to enable, each pinned to an exact CLI version: a bare version, or &#123;version, model} where model is a models alias the tool starts on instead of default. |
 | `tools.*` |  |  |  |  |  |  |
+| `workloads` | object |  |  |  |  | Workload identity federation for headless CI / cloud agents (ADR-0023): halo-server exchanges a token from a trusted OIDC issuer for a short-lived gateway credential when a rule matches its claims. |
+| `workloads.audience` | string | yes |  |  | minLength 1 | aud the CI token must carry (e.g. halos); an issuer may override it. |
+| `workloads.experiments` | boolean |  |  |  |  | Enroll workloads in experiments and shadows like humans (default false: control routing). |
+| `workloads.issuers` | array of object | yes |  |  | minItems 1 | Trusted OIDC issuers, e.g. GitHub Actions https://token.actions.githubusercontent.com, GitLab https://gitlab.com, Buildkite https://agent.buildkite.com, CircleCI https://oidc.circleci.com/org/&lt;org-id>, Google https://accounts.google.com. |
+| `workloads.issuers[]` | object |  |  |  |  |  |
+| `workloads.issuers[].audience` | string |  |  |  | minLength 1 | Overrides workloads.audience for this issuer (CircleCI's default aud is the organization id). |
+| `workloads.issuers[].name` | string | yes |  |  | minLength 1 | Name rules refer to. |
+| `workloads.issuers[].url` | string | yes |  |  | format uri | Exact iss claim; discovery is &lt;url>/.well-known/openid-configuration. https (http only for loopback). |
+| `workloads.rules` | array of object | yes |  |  |  | Tried in order; the first rule of the token's issuer whose every match entry holds mints the credential. |
+| `workloads.rules[]` | object |  |  |  |  |  |
+| `workloads.rules[].groups` | array of string |  |  |  |  | Groups the workload gets (ring membership, budgets) like a human's IdP groups. |
+| `workloads.rules[].groups[]` | string |  |  |  | minLength 1 |  |
+| `workloads.rules[].issuer` | string | yes |  |  | minLength 1 | An issuers[].name. |
+| `workloads.rules[].match` | object | yes |  |  |  | Claim name -> exact value or glob (* never crosses /). At least one pattern must not start with a wildcard. |
+| `workloads.rules[].match.*` | string |  |  |  | minLength 1 |  |
+| `workloads.rules[].maxTTLSeconds` | integer |  |  |  | minimum 1; maximum 3600 | Credential lifetime (default 900). |
+| `workloads.rules[].name` | string | yes |  |  | minLength 1 |  |
+| `workloads.rules[].subject` | string | yes |  |  | pattern ^workload:.+ | Workload subject id; &#123;claim} expands to that claim's value, e.g. workload:gh:&#123;repository}. |
 
 ## Constraints
 

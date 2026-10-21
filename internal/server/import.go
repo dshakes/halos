@@ -136,16 +136,14 @@ func ImportDataDir(ctx context.Context, dir string, b *PGBackend) (ImportReport,
 			return rep, fmt.Errorf("import: verify: unexpected %d rows in %s", n, k)
 		}
 	}
-	got, err := b.AuditEntries(ctx)
+	vr, err := VerifyAuditBackend(ctx, b)
 	if err != nil {
 		return rep, err
 	}
-	if err := VerifyAuditChain(got); err != nil {
-		return rep, fmt.Errorf("import: verify: imported audit chain: %w", err)
+	if vr.Error != "" {
+		return rep, fmt.Errorf("import: verify: imported audit chain: %s", vr.Error)
 	}
-	if len(got) > 0 {
-		rep.Head = got[len(got)-1].Hash
-	}
+	rep.Head = vr.Head
 	if len(entries) > 0 && rep.Head != entries[len(entries)-1].Hash {
 		return rep, errors.New("import: verify: imported audit head differs from the source head")
 	}

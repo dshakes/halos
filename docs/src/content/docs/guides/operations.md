@@ -47,8 +47,9 @@ Set these on the gateway: it is the only component in the developer's request pa
 | Kill-switch propagation | 100% of gateways on the current list within 2 poll intervals (default 10 s) | No metric; `halo-proxy` logs each list change. `GET /api/v1/killswitch` on the server shows the list `version` |
 | Pointer freshness | Every ring refreshed in the last 48 h (pointers expire after 7 days) | The refresh CI job; `halod` warns from 24 h before expiry |
 | Controller health | Ticks every `--interval`, no sustained errors | `halo_controller_ticks_total`, `halo_controller_errors_total` (`server.metrics.enabled`) |
+| Audit export freshness | Every audit entry in the SIEM within 15 minutes | `halo_server_audit_forward_lag_entries`, `halo_server_audit_forward_last_success_timestamp_seconds` (`server.metrics.enabled`, `server.audit.export`) |
 
-`halo-server` itself exposes no request metrics (only the controller counters). Measure its availability from your ingress controller or a blackbox probe of `GET /readyz` (returns 503 until policy is loaded and during drain).
+`halo-server` itself exposes no request metrics (only the controller and audit export series). Measure its availability from your ingress controller or a blackbox probe of `GET /readyz` (returns 503 until policy is loaded and during drain).
 
 ## Alerts
 
@@ -94,6 +95,38 @@ groups:
         labels: {severity: ticket}
         annotations:
           summary: "shadow mirror dropping jobs: halo-shadow down, queue full or token mismatch (client traffic unaffected)"
+      - alert: HaloBudgetNearLimit
+        expr: sum(increase(halo_proxy_budget_checks_total{outcome="alert"}[15m])) by (budget) > 0
+        labels: {severity: ticket}
+        annotations:
+          summary: "budget {{ $labels.budget }}: callers past an alertAt threshold (halo budget status shows which counters)"
+      - alert: HaloBudgetExhausted
+        expr: sum(increase(halo_proxy_budget_checks_total{outcome=~"exceeded|refused"}[15m])) by (budget, outcome) > 0
+        labels: {severity: ticket}
+        annotations:
+          summary: "budget {{ $labels.budget }} used up ({{ $labels.outcome }}): refused means developers are getting 429s"
+      - alert: HaloBudgetVerdictUnknown
+        expr: sum(rate(halo_proxy_budget_checks_total{outcome="unknown"}[5m])) > 0
+        for: 10m
+        labels: {severity: page}
+        annotations:
+          summary: "no budget verdicts from halo-server past grace: budgets are not enforced (failMode open) or callers get 503 (failMode closed)"
+      - alert: HaloBudgetReportsFailing
+        expr: |
+          sum(rate(halo_proxy_budget_reports_total{outcome="failed"}[10m])) > 0
+            or sum(rate(halo_proxy_budget_dropped_total[10m])) > 0
+        for: 10m
+        labels: {severity: ticket}
+        annotations:
+          summary: "halo-proxy cannot report usage to halo-server (or is dropping it): budget counters lag or under-count"
+      - alert: HaloBudgetUsageUnmetered
+        expr: |
+          sum(rate(halo_proxy_budget_responses_total{outcome=~"no_usage|unpriced"}[30m]))
+            / sum(rate(halo_proxy_budget_responses_total[30m])) > 0.05
+        for: 30m
+        labels: {severity: ticket}
+        annotations:
+          summary: ">5% of metered responses had no usage object or no price in gateway.pricing: USD budgets under-count"
       - alert: HaloProxyBelowTwoReplicas
         expr: |
           sum(kube_deployment_status_replicas_available{deployment=~".*-proxy"}) < 2
@@ -144,6 +177,17 @@ groups:
         labels: {severity: ticket}
         annotations:
           summary: "HA: controller lease changed hands repeatedly in 30m; renewals are timing out (database latency or lease TTL too short)"
+      - alert: HaloAuditExportStalled
+        expr: halo_server_audit_forward_lag_entries > 0 and time() - halo_server_audit_forward_last_success_timestamp_seconds > 900
+        for: 5m
+        labels: {severity: page}
+        annotations:
+          summary: "{{ $labels.sink }}: audit entries waiting >15m; the SIEM is down, rejecting credentials, or the hash chain broke (see the server log)"
+      - alert: HaloAuditRotationFailing
+        expr: increase(halo_server_audit_rotate_errors_total[1h]) > 0
+        labels: {severity: ticket}
+        annotations:
+          summary: "audit log rotation failing; audit.jsonl keeps growing (nothing is lost)"
       - alert: HaloShadowBudgetNearlyExhausted
         expr: halo_shadow_spend_usd / halo_shadow_budget_usd > 0.9
         labels: {severity: ticket}
@@ -161,11 +205,13 @@ Two things no exporter covers, so wire them from CI: the daily `halo release ref
 |---|---|---|---|
 | Device store | `<data-dir>/devices.jsonl` | `internal/server/devices.go:77` | Every enrolled machine must re-enroll (holds token SHA-256s, not tokens) |
 | Access requests | `<data-dir>/requests.jsonl` | `internal/server/requests.go:75` | Pending requests and the decision trail |
-| Audit log | `<data-dir>/audit.jsonl` | `internal/server/audit.go:82` | Hash-chained; a gap is detectable (`GET /api/v1/audit` reports `verified`) but not recoverable |
+| Audit log | `<data-dir>/audit.jsonl` and rotated `<data-dir>/audit-<seq>.jsonl` | `internal/server/audit.go` | Hash-chained across segments; a gap is detectable (`halo audit verify`, `GET /api/v1/audit` reports `verified`) but not recoverable here. With [SIEM export](/halos/guides/siem-export/) the SIEM holds a second copy |
+| Audit export cursors | `<data-dir>/audit-forward/<sink>.json` | `internal/server/audit_export.go` | Each sink re-sends from the oldest entry still on disk (duplicates, never gaps) |
 | Session revocations | `<data-dir>/session-revocations.jsonl` | `internal/server/sessions.go:40` | Revoked user sessions become valid again until they expire |
 | Kill list | `<data-dir>/killswitch.jsonl` | `internal/controller/killstore.go:65` | Active kills are forgotten: gateways and `halod` get an **empty** list at the next poll and the killed change comes back. Treat this file as the one you cannot lose |
 | Controller action log | `<data-dir>/controller-state.jsonl` | `internal/controller/state.go:68` | The controller may open duplicate PRs for verdicts it already acted on |
 | Rollout state | `<data-dir>/rollouts/<name>.json` | `internal/rollout/state.go:151` | Rollout step and gate history |
+| Budget counters | `<data-dir>/budgets.json` | `internal/server/budgets.go:79` | Spend in the current windows resets to zero: enforce budgets let callers spend their limit again ([ADR-0017](/halos/adr/0017-gateway-cost-budgets/)) |
 | Fleet reports | `<data-dir>/reports.jsonl` | `internal/server/store.go:88` | Rebuilds itself as `halod` reports; optional |
 | Verdicts | `--verdicts-file` | | Recomputable from ClickHouse |
 | Shadow pairs | `halo-shadow -out` (default `pairs.jsonl`) | `cmd/halo-shadow/main.go:62` | Evidence only. Contains prompts; encrypt with `-pair-key-file` and back the key up separately or the file is unreadable |
@@ -174,7 +220,7 @@ Two things no exporter covers, so wire them from CI: the daily `halo release ref
 | Signer state file | `~/.local/state/halos/pointers.json` on the signer | | Replay check has nothing to compare against; see [lost signer state](#lost-signer-state-file) |
 | Policy repo | git | | Source of truth for everything above except device identity |
 
-All `--data-dir` files are append-only JSONL, last line per id wins, never compacted. Files are opened with `O_APPEND` and written one line at a time, so a snapshot taken while the server runs is consistent at line granularity: at worst the last line is torn, and replay skips it (`internal/fsutil/jsonl.go:26-47`). The chart keeps the PVC on `helm uninstall` (`helm.sh/resource-policy: keep`).
+All `--data-dir` files are append-only JSONL, last line per id wins, never compacted (the audit log is split into segments by [rotation](#audit-log-rotation), never rewritten). Files are opened with `O_APPEND` and written one line at a time, so a snapshot taken while the server runs is consistent at line granularity: at worst the last line is torn, and replay skips it (`internal/fsutil/jsonl.go:26-47`). The chart keeps the PVC on `helm uninstall` (`helm.sh/resource-policy: keep`).
 
 With the Postgres backend none of the `--data-dir` rows above exist on the pods: the same data lives in the database (table per row: `halo_journal` streams `devices`, `requests`, `session-revocations`, `killswitch`, `controller-state`; `halo_audit`; `halo_docs` for rollout state; `halo_reports`; `halo_shadow_pairs`), and the database is the one thing to back up. Keys are unchanged.
 
@@ -203,13 +249,23 @@ Take the data backup at least daily and immediately before an upgrade. Keep the 
 4. Scale back to 1 and check: `GET /readyz` returns 200 (policy loaded), `GET /api/v1/killswitch` lists the kills you expect, `GET /api/v1/audit?limit=1` returns `verified: true`, and the console shows the device count you had.
 5. Gateways need nothing: on their next poll (10 s) they fetch the restored list and compare its `version` (`internal/gateway/killswitch.go:209`).
 
+With SIEM export on, restore the `audit-forward/` cursors **with** the audit log from the same snapshot. If the restored log is older than what a sink already received, that sink halts (`halo_server_audit_forward_failed_total` rises, the server log says the cursor is ahead of the log): the SIEM holds entries the restored log does not. Keep the SIEM copy as the record of those, then delete `<data-dir>/audit-forward/<sink>.json` while the server is stopped; the sink re-sends what is on disk and continues.
+
 Postgres backend:
 
 1. Scale `halo-server` and `halo-shadow` to 0. Replicas cache state in memory and tail the tables by id; restoring underneath running replicas would leave them on a view the database no longer has.
-2. Restore into an empty database: point-in-time recovery to just before the incident, or `pg_restore --clean --if-exists --dbname "$HALOS_DATABASE_URL" halos-<date>.dump`. Do not restore single tables: the audit chain head (`halo_audit_head`) and `halo_audit` must come from the same snapshot.
-3. Start one replica and check: `/readyz` 200, `GET /api/v1/audit?limit=1` returns `verified: true`, `GET /api/v1/killswitch` lists the kills you expect, `halo_leader{lease="controller"} 1` on its metrics port. Then scale out.
+2. Restore into an empty database: point-in-time recovery to just before the incident, or `pg_restore --clean --if-exists --dbname "$HALOS_DATABASE_URL" halos-<date>.dump`. Do not restore single tables: the audit chain head (`halo_audit_head`) and `halo_audit` must come from the same snapshot, and the export cursors (`halo_docs` kind `audit-cursor`) with them. A sink whose cursor is ahead of the restored chain halts exactly as above; delete its cursor row (`DELETE FROM halo_docs WHERE kind = 'audit-cursor' AND name = '<sink>'`) once the SIEM copy is kept.
+3. Start one replica and check: `/readyz` 200, `halo audit verify --database-url-file F` (or `GET /api/v1/audit?limit=1`) reports the chain verified, `GET /api/v1/killswitch` lists the kills you expect, `halo_leader{lease="controller"} 1` on its metrics port. Then scale out.
 
 If `killswitch.jsonl` (or the `killswitch` stream) is gone for good, re-issue the kills you know about (`POST /api/v1/experiments/{name}/kill`, `halo toggle kill`) before gateways poll an empty list; the audit log tells you which ones were active.
+
+### Audit log rotation
+
+Without `--audit-config` rotation, `audit.jsonl` grows forever and every `GET /api/v1/audit` re-verifies all of it. Set `server.audit.rotation` (`maxBytes`, `maxAgeSeconds`; for example 64 MiB or 1 day). On the append that would cross a bound, `audit.jsonl` is renamed to `audit-<seq of its first entry, 20 digits>.jsonl` and a new one starts; its first entry's `prev` is the last hash of the segment before, so the chain is one chain across files.
+
+- Rotated segments are immutable. `GET /api/v1/audit` and the export read them by streaming; the API caches the verification of rotated segments by name, size and mtime, so a request re-reads only the active one. `halo audit verify --data-dir <dir>` re-reads every segment, from a backup or a live data dir (read-only), and exits 2 on a break.
+- The server never deletes a segment. To free the volume, copy old segments to WORM/object storage first, confirm the SIEM sinks are past them (`halo_server_audit_forward_lag_entries` near 0), then remove them. From then on `verified` is `false` on the server (the chain no longer starts at seq 1); run `halo audit verify` against the archive plus the data dir to check the whole history.
+- A failed rotation (for example a stray file with the segment's name, or on Windows a reader holding the file open) is logged and counted in `halo_server_audit_rotate_errors_total`; the entry goes to the active segment and the next append retries. Audit appends still fail closed only when the write or fsync fails.
 
 ## Runbook
 
@@ -222,7 +278,17 @@ halo toggle kill <toggle> --server https://halos.example.com --reason "..."   # 
 curl -X POST -H "Authorization: Bearer $ADMIN" https://halos.example.com/api/v1/experiments/<name>/kill
 ```
 
-Then open the pause PR so the policy repo agrees with reality; the kill holds until someone unkills, even if the PR is slow. Full walkthrough: [kill a bad change](/halos/tutorials/kill-a-bad-change/). Requires `server.killSwitch.existingSecret`; without it kill returns 501 and the only lever is merging the pause PR.
+Killing needs the `operator` or `admin` role ([console roles](/halos/guides/production-deployment/#console-roles)). Then open the pause PR so the policy repo agrees with reality; the kill holds until someone unkills, even if the PR is slow. Full walkthrough: [kill a bad change](/halos/tutorials/kill-a-bad-change/). Requires `server.killSwitch.existingSecret`; without it kill returns 501 and the only lever is merging the pause PR.
+
+### A user gets 403
+
+The console hides what a user's roles do not allow, so a 403 usually means a script or a stale tab. Each one is in the audit log with the route and the permission it needed:
+
+```bash
+curl -s --cookie "halo_session=$SESSION" 'https://halos.example.com/api/v1/audit?action=authz.deny&limit=50' | jq '.entries[] | {time, actor, target, details}'
+```
+
+`details.need` is the missing permission (`read`, `operate`, `approve`, `audit`, `admin`) and `details.roles` what the user held. Grant it by adding their IdP group to the right role under `identity.roles` in a policy PR; they pick it up at their next login. `need: unmapped` means a route has no entry in the server's permission table, which is a bug: report it.
 
 ### Roll a ring back to a previous release
 

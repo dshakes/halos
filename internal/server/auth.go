@@ -33,11 +33,20 @@ const (
 	sessionTTL    = 12 * time.Hour
 )
 
-// Principal is the authenticated portal user.
+// Principal is the authenticated portal user. Roles are recomputed from current
+// policy on every request, never trusted from the cookie.
 type Principal struct {
 	ID     string   `json:"id"`
 	Groups []string `json:"groups"`
-	Admin  bool     `json:"admin"`
+	Roles  []string `json:"roles"`
+	Admin  bool     `json:"admin"` // holds RoleAdmin; kept for API clients that predate roles
+}
+
+func newPrincipal(id string, groups, roles []string) Principal {
+	if roles == nil {
+		roles = []string{}
+	}
+	return Principal{ID: id, Groups: groups, Roles: roles, Admin: slices.Contains(roles, RoleAdmin)}
 }
 
 func (p Principal) subject() policy.Subject { return policy.Subject{ID: p.ID, Groups: p.Groups} }
@@ -102,17 +111,17 @@ func (s *Server) setCookie(w http.ResponseWriter, name, val, path string, ttl ti
 
 // ---- principal resolution and role gates ----
 
-func (s *Server) isAdmin(groups []string) bool {
+func (s *Server) roles(groups []string) []string {
 	org, _, _ := s.pol.Get()
 	if org == nil {
-		return false
+		return nil
 	}
-	return slices.ContainsFunc(org.Identity.AdminGroups, func(g string) bool { return slices.Contains(groups, g) })
+	return rolesFor(org.Identity, groups)
 }
 
 func (s *Server) principal(r *http.Request) (Principal, bool) {
 	if s.cfg.DevUser != "" { // --dev-insecure-user: no authentication at all
-		return Principal{ID: s.cfg.DevUser, Groups: s.cfg.DevGroups, Admin: s.cfg.DevAdmin}, true
+		return newPrincipal(s.cfg.DevUser, s.cfg.DevGroups, s.cfg.DevRoles), true
 	}
 	c, err := r.Cookie(sessionCookie)
 	if err != nil {
@@ -129,8 +138,12 @@ func (s *Server) principal(r *http.Request) (Principal, bool) {
 		}
 		p.Groups = g
 	}
-	// Admin is recomputed from current policy rather than trusted from the cookie.
-	return Principal{ID: p.Sub, Groups: p.Groups, Admin: s.isAdmin(p.Groups)}, true
+	g, ok := s.directoryGroups(p.Sub, p.Groups) // SCIM: deactivated users are out; authoritative groups win
+	if !ok {
+		return Principal{}, false
+	}
+	// Roles are recomputed from current policy and directory groups rather than trusted from the cookie.
+	return newPrincipal(p.Sub, g, s.roles(g)), true
 }
 
 type authedHandler func(http.ResponseWriter, *http.Request, Principal)
@@ -162,16 +175,6 @@ func (s *Server) user(next authedHandler) http.HandlerFunc {
 		}
 		next(w, r, p)
 	}
-}
-
-func (s *Server) admin(next authedHandler) http.HandlerFunc {
-	return s.user(func(w http.ResponseWriter, r *http.Request, p Principal) {
-		if !p.Admin {
-			apiErr(w, http.StatusForbidden, "admin role required")
-			return
-		}
-		next(w, r, p)
-	})
 }
 
 // ---- OIDC (authorization code + PKCE) ----
@@ -228,7 +231,7 @@ func (o *oidcState) session(id string) ([]string, bool) {
 	return groups, true
 }
 
-// policyGroups keeps only the groups current policy refers to (admin groups,
+// policyGroups keeps only the groups current policy refers to (role groups,
 // ring membership groups and toggle rule groups: enrolled devices target
 // toggles with the groups recorded here); IdPs often send hundreds, which would
 // overflow the cookie. A group newly referenced by policy applies at the next login.
@@ -238,7 +241,7 @@ func policyGroups(org *policy.Org, groups []string) []string {
 	}
 	var out []string
 	for _, g := range groups {
-		keep := slices.Contains(org.Identity.AdminGroups, g) ||
+		keep := slices.Contains(roleGroups(org.Identity), g) ||
 			slices.ContainsFunc(org.Rings, func(r *policy.Ring) bool { return slices.Contains(r.Membership.Groups, g) }) ||
 			slices.ContainsFunc(org.Toggles, func(t *policy.Toggle) bool {
 				return slices.ContainsFunc(t.Rules, func(r policy.ToggleRule) bool { return slices.Contains(r.Groups, g) })
@@ -307,7 +310,7 @@ func principalFromClaims(claims map[string]any, id policy.Identity) (Principal, 
 	if err != nil {
 		return Principal{}, err
 	}
-	return Principal{ID: sub.ID, Groups: sub.Groups, Admin: slices.ContainsFunc(id.AdminGroups, func(g string) bool { return slices.Contains(sub.Groups, g) })}, nil
+	return newPrincipal(sub.ID, sub.Groups, rolesFor(id, sub.Groups)), nil
 }
 
 func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
@@ -378,6 +381,13 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 		fail(http.StatusForbidden, err.Error(), err)
 		return
 	}
+	g, provisioned := s.directoryGroups(p.ID, p.Groups)
+	if !provisioned {
+		fail(http.StatusForbidden, "user is deactivated or not provisioned", nil)
+		return
+	}
+	// Directory groups may differ from the token's: roles follow the groups in force.
+	p = newPrincipal(p.ID, g, rolesFor(id, g))
 	org, _, _ := s.pol.Get()
 	exp := s.cfg.Now().Add(sessionTTL)
 	sess := cookiePayload{Sub: p.ID, Groups: policyGroups(org, p.Groups), Exp: exp.Unix(), Iat: s.cfg.Now().UnixNano()}
@@ -391,8 +401,8 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 		sess.SID, sess.Groups = sid, nil
 	}
 	s.setCookie(w, sessionCookie, s.seal(sess), "/", sessionTTL)
-	s.cfg.Log.Info("login", "user", p.ID, "admin", p.Admin)
-	s.Audit(r.Context(), p.ID, "login", "", map[string]string{"admin": strconv.FormatBool(p.Admin)})
+	s.cfg.Log.Info("login", "user", p.ID, "roles", p.Roles)
+	s.Audit(r.Context(), p.ID, "login", "", map[string]string{"admin": strconv.FormatBool(p.Admin), "roles": strings.Join(p.Roles, ",")})
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 

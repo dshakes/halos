@@ -2,12 +2,14 @@ package pgstore
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
-
+	"os"
 	"sync/atomic"
 	"time"
 )
@@ -235,4 +237,22 @@ func (e *Elector) Run(ctx context.Context, lead func(ctx context.Context, token 
 		case <-t.C:
 		}
 	}
+}
+
+// HolderID is a replica-unique lease holder id: the host (pod) name and a
+// random suffix, so two processes on one host never share a lease.
+func HolderID() string {
+	host, _ := os.Hostname() // best effort: the suffix makes it unique
+	var b [4]byte
+	_, _ = rand.Read(b[:]) // crypto/rand does not fail on supported platforms
+	return host + "-" + hex.EncodeToString(b[:])
+}
+
+// Leased runs fn on exactly one replica at a time: every replica calls it
+// with the same name, the one holding lease name runs fn with a context that
+// ends when the lease is lost, and the document writes of the view fn gets are
+// fenced by that lease. Leased returns when ctx ends. ttl 0 = the default (15s).
+func (d *DB) Leased(ctx context.Context, name string, ttl time.Duration, fn func(ctx context.Context, view *Fenced)) {
+	e := &Elector{Store: d, Name: name, Holder: HolderID(), TTL: ttl}
+	e.Run(ctx, func(lctx context.Context, token int64) { fn(lctx, d.Fenced(Fence{Name: name, Token: token})) })
 }

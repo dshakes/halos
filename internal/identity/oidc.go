@@ -19,6 +19,10 @@ import (
 // forge tokens (key confusion).
 var AllowedAlgs = []string{"RS256", "ES256", "EdDSA"}
 
+// ErrDiscovery: the issuer's discovery document could not be fetched, so no
+// token was judged (an outage, not a bad credential).
+var ErrDiscovery = errors.New("identity: oidc discovery")
+
 // OIDCJWT verifies a bearer JWT issued by the org's IdP: discovery + JWKS
 // (cached, refetched on unknown kid so key rotation works), then iss / aud /
 // exp / nbf and the alg allowlist.
@@ -62,7 +66,7 @@ func (o *OIDCJWT) idVerifier() (*oidc.IDTokenVerifier, error) {
 	// so it must outlive the first request. The client carries the timeout.
 	p, err := oidc.NewProvider(oidc.ClientContext(context.Background(), o.client), o.Issuer)
 	if err != nil {
-		return nil, fmt.Errorf("identity: oidc discovery for %s: %w", o.Issuer, err)
+		return nil, fmt.Errorf("%w for %s: %w", ErrDiscovery, o.Issuer, err)
 	}
 	o.verifier = p.Verifier(&oidc.Config{ClientID: o.Audience, SupportedSigningAlgs: AllowedAlgs})
 	return o.verifier, nil
@@ -73,21 +77,31 @@ func (o *OIDCJWT) Verify(r *http.Request) (policy.Subject, error) {
 	if tok == "" {
 		return policy.Subject{}, ErrNoCredentials
 	}
-	v, err := o.idVerifier()
+	claims, err := o.Claims(r.Context(), tok)
 	if err != nil {
 		return policy.Subject{}, err
 	}
-	// Request ctx bounds the JWKS fetch on unknown kid via the client timeout only;
-	// verification itself is local.
-	idt, err := v.Verify(oidc.ClientContext(r.Context(), o.client), tok)
+	return SubjectFromClaims(claims, Options{UserClaim: o.UserClaim, GroupsClaim: o.GroupsClaim, TrustUnverifiedEmail: o.TrustUnverifiedEmail})
+}
+
+// Claims verifies tok (signature via JWKS, alg allowlist, iss, aud, exp, nbf)
+// and returns its claims.
+func (o *OIDCJWT) Claims(ctx context.Context, tok string) (map[string]any, error) {
+	v, err := o.idVerifier()
 	if err != nil {
-		return policy.Subject{}, fmt.Errorf("identity: jwt rejected: %w", err)
+		return nil, err
+	}
+	// ctx bounds the JWKS fetch on unknown kid (with the client timeout);
+	// verification itself is local.
+	idt, err := v.Verify(oidc.ClientContext(ctx, o.client), tok)
+	if err != nil {
+		return nil, fmt.Errorf("identity: jwt rejected: %w", err)
 	}
 	var claims map[string]any
 	if err := idt.Claims(&claims); err != nil {
-		return policy.Subject{}, fmt.Errorf("identity: jwt claims: %w", err)
+		return nil, fmt.Errorf("identity: jwt claims: %w", err)
 	}
-	return SubjectFromClaims(claims, Options{UserClaim: o.UserClaim, GroupsClaim: o.GroupsClaim, TrustUnverifiedEmail: o.TrustUnverifiedEmail})
+	return claims, nil
 }
 
 // SubjectFromClaims derives the caller from verified token claims using

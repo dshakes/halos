@@ -1,0 +1,68 @@
+# yaml-language-server: $schema=../../schemas/halos.schema.json
+# Headless CI and cloud agents (ADR-0023). Simple mode plus a workloads
+# section: CI jobs trade their own OIDC token for a short-lived gateway
+# credential at halo-server, so no provider API key lives in CI. See
+# .github/ (composite action + workflow) and .gitlab/halo-ci.yml: copy them
+# into the application repositories whose jobs run agents.
+apiVersion: halos.dev/v1
+kind: Halos
+org: acme
+tools:
+  claude-code: 2.1.280
+  codex: {version: 0.99.0, model: codex}
+provider: anthropic
+models:
+  default: claude-sonnet-4-5
+  codex: openai/gpt-5-codex
+gateway: https://ai.acme.example
+identity: {issuer: https://login.acme.example, audience: halos, adminGroups: [ai-platform]}
+safety: standard
+rollout: standard
+# Claim names are each provider's documented OIDC claims.
+workloads:
+  audience: halos
+  issuers:
+    # https://docs.github.com/en/actions/reference/security/oidc
+    - name: github
+      url: https://token.actions.githubusercontent.com
+    # https://docs.gitlab.com/ci/secrets/id_token_authentication/
+    - name: gitlab
+      url: https://gitlab.com
+    # https://buildkite.com/docs/agent/v3/cli-oidc
+    - name: buildkite
+      url: https://agent.buildkite.com
+  rules:
+    # Claude Code on main, from a protected environment, in any acme repository.
+    - name: github-main
+      issuer: github
+      match:
+        repository_owner: acme
+        repository: acme/*
+        ref: refs/heads/main
+        environment: ai-agents
+      subject: workload:gh:{repository}
+      groups: [ci-agents]
+      maxTTLSeconds: 1800
+    # A reusable workflow the platform team pins, callable from any acme repo.
+    - name: github-shared-workflow
+      issuer: github
+      match:
+        repository_owner: acme
+        job_workflow_ref: acme/ai-platform/.github/workflows/agent.yml@refs/heads/main
+      subject: workload:gh:{repository}
+      groups: [ci-agents]
+    - name: gitlab-protected
+      issuer: gitlab
+      match:
+        namespace_path: acme
+        ref_protected: "true"
+      subject: workload:gl:{project_path}
+      groups: [ci-agents]
+    - name: buildkite-main
+      issuer: buildkite
+      match:
+        organization_slug: acme
+        pipeline_slug: monorepo
+        build_branch: main
+      subject: workload:bk:{pipeline_slug}
+      groups: [ci-agents]

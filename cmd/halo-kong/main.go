@@ -81,6 +81,9 @@ type Config struct {
 	UserClaim         string   `json:"user_claim"`
 	GroupsClaimName   string   `json:"groups_claim"`
 	TrustedProxyCIDRs []string `json:"trusted_proxy_cidrs"` // required for trusted_header
+	// WorkloadPubkey: PEM public key(s) of halo-server --workload-key-file, or
+	// {vault://env/NAME}; accepts CI / cloud workload credentials (ADR-0023).
+	WorkloadPubkey string `json:"workload_pubkey"`
 
 	// AllowUnverified opts out of the secure default. By default, when identity
 	// is verified by JWT (an issuer is configured), a model call whose caller
@@ -112,6 +115,14 @@ type Config struct {
 	PostureToken string `json:"posture_token"` // {vault://env/NAME} or literal (the halo-server gateway token)
 	// PostureAllowInsecure permits plain http to a non-loopback host.
 	PostureAllowInsecure bool `json:"posture_allow_insecure_in_cluster"`
+
+	// Directory: halo-server's SCIM directory (ADR-0022), authoritative when
+	// set: a verified caller's groups are the directory's, and a caller it does
+	// not list as active gets default routing. Empty URL disables.
+	DirectoryURL   string `json:"directory_url"`   // https://halo-server/api/v1/gateway/directory
+	DirectoryToken string `json:"directory_token"` // {vault://env/NAME} or literal (the halo-server gateway token)
+	// DirectoryAllowInsecure permits plain http to a non-loopback host.
+	DirectoryAllowInsecure bool `json:"directory_allow_insecure_in_cluster"`
 }
 
 var (
@@ -236,6 +247,34 @@ func (c Config) postureClient(kong kongAPI) *gateway.PostureClient {
 	return pc
 }
 
+var (
+	directoryMu      sync.Mutex
+	directoryClients = map[string]*gateway.DirectoryClient{} // by url, token, insecure
+)
+
+// directoryClient returns the process-wide client for this config (its cache
+// is shared by every route); nil when unconfigured. An invalid config is
+// logged and fails closed: every caller is then unknown (default routing).
+func (c Config) directoryClient(kong kongAPI) (dc *gateway.DirectoryClient, invalid bool) {
+	if c.DirectoryURL == "" {
+		return nil, false
+	}
+	tok := secret(c.DirectoryToken)
+	key := c.DirectoryURL + "\x00" + tok + "\x00" + strconv.FormatBool(c.DirectoryAllowInsecure)
+	directoryMu.Lock()
+	defer directoryMu.Unlock()
+	if dc, ok := directoryClients[key]; ok {
+		return dc, false
+	}
+	dc, err := gateway.NewDirectoryClient(c.DirectoryURL, tok, 0, 0, nil, c.DirectoryAllowInsecure)
+	if err != nil {
+		_ = kong.Err("halo-kong: directory config invalid; every caller is treated as unknown: ", err.Error())
+		return nil, true
+	}
+	directoryClients[key] = dc
+	return dc, false
+}
+
 // gate applies the ring's posture and version gates; outcomes is what failed
 // or was unknown (for the x-halo-gate upstream header), rej the 403 to answer.
 func (c Config) gate(kong kongAPI, org *policy.Org, ring string, sub *policy.Subject, h http.Header, proto string) (outcomes []string, rej *gateway.Rejection) {
@@ -272,7 +311,7 @@ func (c Config) identityOptions(org *policy.Org) identity.Options {
 		Mode: c.IdentityMode, Issuer: c.Issuer, Audience: c.Audience,
 		UserClaim: c.UserClaim, GroupsClaim: c.GroupsClaimName,
 		IdentityHeader: gateway.IdentityHeaderFor(org, c.IdentityHeader), GroupsHeader: c.GroupsHeader,
-		TrustedProxyCIDRs: c.TrustedProxyCIDRs,
+		TrustedProxyCIDRs: c.TrustedProxyCIDRs, WorkloadKeys: secret(c.WorkloadPubkey),
 	}
 }
 
@@ -408,6 +447,11 @@ func (c Config) access(kong kongAPI) {
 		return
 	}
 
+	if dc, invalid := c.directoryClient(kong); dc != nil {
+		sub = dc.Resolve(context.Background(), sub) // directory groups, or an unknown caller
+	} else if invalid {
+		sub = nil
+	}
 	ks, ksBad := c.killPoller(kong)
 	res := gateway.PrepareVerified(ks.Apply(org), sub, h, path, body) // killed experiments: control, no shadow
 	if res.Reject != nil {

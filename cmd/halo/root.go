@@ -109,7 +109,7 @@ func newRoot(out, errw io.Writer) *cobra.Command {
 		a.cmdRollback(), a.cmdKeys(), a.cmdWhoami(), a.cmdHarnesses(), a.cmdExport(),
 		a.cmdExp(), a.cmdController(), a.cmdGateway(), a.cmdTelemetry(), a.cmdEval(), a.cmdUpgrade(), a.cmdMCP(), a.cmdToggle(), a.cmdRollout(), a.cmdVersion(), a.cmdDocs(),
 		a.cmdModel(), a.cmdEnable(), a.cmdKill(), a.cmdStatus(), a.cmdExplain(), a.cmdEject(), a.cmdMigrate(),
-		a.cmdDoctor(), a.cmdOnboard(), a.cmdQuickstart())
+		a.cmdDoctor(), a.cmdOnboard(), a.cmdQuickstart(), a.cmdUnits(), a.cmdAudit(), a.cmdBudget(), a.cmdCI())
 	addPolicyDirFlags(root)
 	return root
 }

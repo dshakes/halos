@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -176,7 +178,17 @@ func (s *Server) postRequest(w http.ResponseWriter, r *http.Request, p Principal
 			return
 		}
 	}
+	// Across replicas the scan above can race: the database's uniqueness claim decides.
+	if ok, err := s.claimPending(l, req); err != nil {
+		s.cfg.Log.Error("claim request", "err", err)
+		apiErr(w, http.StatusServiceUnavailable, "state store unavailable")
+		return
+	} else if !ok {
+		apiErr(w, http.StatusConflict, "you already have a pending request for this")
+		return
+	}
 	if err := l.save(req); err != nil {
+		s.releasePending(req)
 		s.cfg.Log.Error("persist request", "err", err)
 		apiErr(w, http.StatusInternalServerError, "store failed")
 		return
@@ -187,9 +199,43 @@ func (s *Server) postRequest(w http.ResponseWriter, r *http.Request, p Principal
 	writeJSON(w, http.StatusCreated, req)
 }
 
+// pendingKey names the (user, kind, item) a pending request is unique on.
+func pendingKey(r *Request) string {
+	h := sha256.Sum256([]byte(strings.ToLower(r.User) + "\x00" + r.Kind + "\x00" + r.Item))
+	return hex.EncodeToString(h[:])
+}
+
+// claimPending takes the shared uniqueness claim for req (caller holds l.mu,
+// caught up); true without a Backend, where the scan under l.mu is enough.
+func (s *Server) claimPending(l *requestLog, req *Request) (bool, error) {
+	if s.cfg.Backend == nil {
+		return true, nil
+	}
+	ctx, cancel := storage.Ctx()
+	defer cancel()
+	return s.cfg.Backend.ClaimPending(ctx, pendingKey(req), req.ID, func(id string) (bool, bool) {
+		x := l.byID[id]
+		return x != nil, x != nil && (x.Status == StatusPending || x.Status == StatusApproving)
+	})
+}
+
+// releasePending drops req's claim once it is decided (or was never stored).
+// A failed release is harmless: the next request for the item finds the
+// holder decided and takes the claim over.
+func (s *Server) releasePending(req *Request) {
+	if s.cfg.Backend == nil {
+		return
+	}
+	ctx, cancel := storage.Ctx()
+	defer cancel()
+	if err := s.cfg.Backend.ReleasePending(ctx, pendingKey(req), req.ID); err != nil {
+		s.cfg.Log.Warn("release request claim", "id", req.ID, "err", err)
+	}
+}
+
 // listRequests: developers see their own; admins see everyone's.
 func (s *Server) listRequests(w http.ResponseWriter, _ *http.Request, p Principal) {
-	writeJSON(w, http.StatusOK, s.reqs.list(func(r *Request) bool { return p.Admin || r.User == p.ID }))
+	writeJSON(w, http.StatusOK, s.reqs.list(func(r *Request) bool { return p.can(permApprove) || r.User == p.ID }))
 }
 
 func (s *Server) decide(approve bool) authedHandler {
@@ -245,6 +291,8 @@ func (s *Server) decide(approve bool) authedHandler {
 			s.Audit(r.Context(), p.ID, action, req.ID, map[string]string{"user": req.User, "kind": req.Kind, "item": req.Item, "prUrl": pr})
 			if err := l.save(req); err != nil {
 				s.cfg.Log.Error("persist decision", "id", req.ID, "err", err)
+			} else {
+				s.releasePending(req)
 			}
 			return *req
 		}

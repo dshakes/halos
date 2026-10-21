@@ -76,6 +76,9 @@ type Manifest struct {
 	// Toggles are the client-axis feature toggles: targeting rules plus the
 	// per-harness fragments halod merges for the toggles that are on for it.
 	Toggles []ToggleEntry `json:"toggles,omitempty"`
+	// Units are the org units (ADR-0018): member selectors plus each unit's
+	// rendered files, which halod applies in place of the release's own.
+	Units []UnitEntry `json:"units,omitempty"`
 }
 
 // Experiment is one client-axis experiment in a ring release manifest: just
@@ -138,6 +141,10 @@ func Build(org ProfileResolver, profileName, ringName string, opts Options) (*Re
 	}
 	blobs := map[string][]byte{}
 	toggles := newToggleBuild(org0, &m)
+	units, err := newUnitBuild(org0, prof, &m)
+	if err != nil {
+		return nil, fmt.Errorf("release: profile %q: %w", profileName, err)
+	}
 	names := make([]string, 0, len(prof.Harnesses))
 	for n := range prof.Harnesses {
 		names = append(names, n)
@@ -171,6 +178,9 @@ func Build(org ProfileResolver, profileName, ringName string, opts Options) (*Re
 					return nil, fmt.Errorf("release: profile %q: %w", profileName, err)
 				}
 			}
+			if err := units.add(ad, os, files, warns, opts, blobs); err != nil {
+				return nil, fmt.Errorf("release: profile %q: %w", profileName, err)
+			}
 			entries := make([]FileEntry, 0, len(files))
 			for _, f := range files {
 				sum := sha256.Sum256(f.Data)
@@ -184,6 +194,7 @@ func Build(org ProfileResolver, profileName, ringName string, opts Options) (*Re
 		m.Harnesses[name] = he
 	}
 	toggles.finish()
+	units.finish()
 	sort.Strings(m.Warnings)
 	return pack(m, blobs)
 }

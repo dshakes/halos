@@ -33,7 +33,7 @@ None.
 | [`halo onboard install`](/halos/reference/cli/onboard-install/) | Render a ring's managed config for this OS and show exactly what lands where; --apply writes it |
 | [`halo onboard local`](/halos/reference/cli/onboard-local/) | My machine: create (or keep) halos.yaml, validate it and plan the managed-config install |
 | [`halo onboard proxy`](/halos/reference/cli/onboard-proxy/) | Write a single-developer halo-proxy config (loopback, keys from your env) into .halos/local |
-| [`halo onboard verify`](/halos/reference/cli/onboard-verify/) | Run each installed CLI headless (claude -p, codex exec, gemini -p, copilot -p) and check the reply |
+| [`halo onboard verify`](/halos/reference/cli/onboard-verify/) | Run each installed CLI headless (claude -p, codex exec, gemini -p, copilot -p, cursor-agent -p, opencode run) and check the reply |
 
 ## Parent
 

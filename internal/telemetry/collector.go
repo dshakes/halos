@@ -29,6 +29,11 @@
 // requires per-device bearer tokens (Options.CLITokenFile, one per line,
 // hot-reloaded); either way its request size is capped.
 //
+// halo-proxy also exports OpenTelemetry GenAI semantic-convention metrics
+// (gen_ai.client.*) and, opt-in, per-call spans on otlp/gateway. They ride the
+// same authenticated receiver; metrics land in the exporter's raw tables only
+// (halo_metrics projects halo.* names), spans go through traces/gateway.
+//
 // Optionally (Options.EvalReceiver) a third receiver, `otlp/eval` (OTLP/HTTP,
 // 4320), takes `halo eval online` quality readings behind its own token
 // (${env:HALO_OTLP_EVAL_TOKEN}, never the gateway token): it keeps only
@@ -152,6 +157,19 @@ func sourceStamp(src string) map[string]any {
 	}
 }
 
+// withSpanStamp adds the same halo.source stamp for spans (the one transform
+// processor serves both signals; each pipeline applies only its own statements).
+func withSpanStamp(cfg map[string]any, src string) map[string]any {
+	cfg["trace_statements"] = []any{map[string]any{
+		"context": "span",
+		"statements": []string{
+			fmt.Sprintf(`set(span.attributes["halo.source"], %q)`, src),
+			`delete_key(resource.attributes, "halo.source")`,
+		},
+	}}
+	return cfg
+}
+
 // Generate renders the collector configuration as YAML. Output is
 // deterministic (map keys sorted by the YAML encoder).
 func Generate(o Options) ([]byte, error) {
@@ -199,7 +217,7 @@ func Generate(o Options) ([]byte, error) {
 				"metrics":    map[string]any{"metric": []string{`IsMatch(name, "^halo\\.gateway\\.")`}},
 			},
 			"transform/source-cli":     sourceStamp(SourceCLI),
-			"transform/source-gateway": sourceStamp(SourceGateway),
+			"transform/source-gateway": withSpanStamp(sourceStamp(SourceGateway), SourceGateway),
 			"transform/halo": map[string]any{
 				"error_mode": "ignore",
 				"metric_statements": []any{map[string]any{
@@ -241,6 +259,12 @@ func Generate(o Options) ([]byte, error) {
 					"receivers":  []string{"otlp"},
 					"processors": []string{"memory_limiter", "filter/drop-gateway", "transform/halo", "batch"},
 					"exporters":  []string{"prometheus"},
+				},
+				// halo-proxy's opt-in GenAI spans (telemetry.genai.traces): same trusted receiver, no transform.
+				"traces/gateway": map[string]any{
+					"receivers":  []string{"otlp/gateway"},
+					"processors": []string{"memory_limiter", "transform/source-gateway", "batch"},
+					"exporters":  []string{"clickhouse"},
 				},
 				"logs": map[string]any{
 					"receivers":  []string{"otlp"},

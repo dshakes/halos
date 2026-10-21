@@ -73,6 +73,18 @@ With the Postgres backend (`--database-url-file`, [ADR-0021](/halos/adr/0021-ha-
 | `halo_db_errors_total` | counter | Failed Postgres statements (a cancelled request is not counted) |
 | `halo_db_open_connections` | gauge | Open connections in the pool (at most 16) |
 
+## Audit export metrics
+
+`halo-server --metrics-listen` serves these with or without `--controller`. The `sink` label is the sink's `name` in `--audit-config` ([SIEM export](/halos/guides/siem-export/)).
+
+| Metric | Type | Meaning |
+|---|---|---|
+| `halo_server_audit_forward_sent_total{sink}` | counter | Audit entries the sink accepted (a resent batch counts again) |
+| `halo_server_audit_forward_failed_total{sink}` | counter | Failed delivery attempts: sink errors, a broken hash chain, a cursor that cannot be saved |
+| `halo_server_audit_forward_lag_entries{sink}` | gauge | Entries appended but not yet delivered to the sink |
+| `halo_server_audit_forward_last_success_timestamp_seconds{sink}` | gauge | Unix time of the last delivered batch (0 since start: none yet) |
+| `halo_server_audit_rotate_errors_total` | counter | Failed audit log rotations; entries keep going to the active segment |
+
 ## Metrics listeners
 
 These processes expose Prometheus text on a **separate, unauthenticated** address. None of them share a public listener.
@@ -81,7 +93,7 @@ These processes expose Prometheus text on a **separate, unauthenticated** addres
 |---|---|---|---|
 | `halo-proxy` | `--admin-listen` (also `/healthz`) | `127.0.0.1:9090` | `halo_proxy_requests_total{ring,variant,status}`, `halo_proxy_upstream_ttfb_seconds`, `halo_proxy_request_duration_seconds`, `halo_proxy_auth_failures_total`, `halo_proxy_shadow_dropped_total`, `halo_proxy_shadow_failed_total` |
 | `halo-shadow` | `-metrics-listen` (env `HALO_SHADOW_METRICS_LISTEN`) | off | `halo_shadow_mirrored_total`, `halo_shadow_dropped_total`, `halo_shadow_errors_total`, `halo_shadow_spend_usd`, `halo_shadow_budget_usd` |
-| `halo-server` (controller, Postgres backend) | `--metrics-listen` | off | `halo_controller_*`, `halo_leader*`, `halo_db_*` above |
+| `halo-server` | `--metrics-listen` | off | `halo_server_audit_*`; with `--controller`, `halo_controller_*`; with `--database-url-file`, `halo_leader*` and `halo_db_*` above |
 
 ## Verification status
 

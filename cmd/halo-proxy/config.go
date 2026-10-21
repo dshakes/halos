@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -58,6 +59,12 @@ type Config struct {
 	// Posture asks halo-server for device posture (rings with posture warn or
 	// enforce). Empty URL disables: the posture gate is then never applied.
 	Posture PostureConfig `yaml:"posture"`
+	// Directory makes halo-server's SCIM directory authoritative for a
+	// verified caller's groups and active state (ADR-0022). Empty URL disables.
+	Directory DirectoryConfig `yaml:"directory"`
+	// Budgets reports usage to and checks verdicts from halo-server's budget
+	// counters for the policy's gateway.budgets. Empty URL disables both.
+	Budgets BudgetConfig `yaml:"budgets"`
 	// Telemetry exports per-request OTLP metrics (halo.gateway.*) for
 	// experiment analysis. Empty otlpEndpoint disables.
 	Telemetry gwmetrics.Config `yaml:"telemetry"`
@@ -82,6 +89,11 @@ type IdentityConfig struct {
 	// AllowAnonymous lets callers that fail verification (e.g. opaque API keys
 	// meant for the next hop) through with default routing instead of 401.
 	AllowAnonymous bool `yaml:"allowAnonymous"`
+	// WorkloadPubkeyFile holds the PEM public key(s) of halo-server
+	// --workload-key-file; set it to accept CI / cloud workload credentials
+	// (ADR-0023). Not used in mode none.
+	WorkloadPubkeyFile string `yaml:"workloadPubkeyFile"`
+	workloadKeys       string // WorkloadPubkeyFile's content, read once by loadConfig
 }
 
 type ShadowConfig struct {
@@ -94,7 +106,7 @@ func (c Config) identityOptions() identity.Options {
 	i := c.Identity
 	return identity.Options{Mode: i.Mode, Issuer: i.Issuer, Audience: i.Audience, UserClaim: i.UserClaim,
 		GroupsClaim: i.GroupsClaim, IdentityHeader: i.IdentityHeader, GroupsHeader: i.GroupsHeader,
-		TrustedProxyCIDRs: i.TrustedProxyCIDRs}
+		TrustedProxyCIDRs: i.TrustedProxyCIDRs, WorkloadKeys: i.workloadKeys}
 }
 
 func defaults() Config {
@@ -167,6 +179,7 @@ func loadConfig(args []string, getenv func(string) string, usage io.Writer) (Con
 		return nil
 	})
 	fs.BoolVar(&cfg.Identity.AllowAnonymous, "allow-anonymous", cfg.Identity.AllowAnonymous, "unverified callers get default routing instead of 401")
+	fs.StringVar(&cfg.Identity.WorkloadPubkeyFile, "workload-pubkey-file", cfg.Identity.WorkloadPubkeyFile, "PEM public key(s) of halo-server --workload-key-file: accept CI/cloud workload credentials")
 	fs.StringVar(&cfg.Shadow.URL, "halo-shadow-url", cfg.Shadow.URL, "halo-shadow /mirror endpoint; empty disables mirroring")
 	fs.StringVar(&cfg.Shadow.Token, "halo-shadow-token", cfg.Shadow.Token, "halo-shadow token (prefer env HALO_PROXY_HALO_SHADOW_TOKEN)")
 	fs.StringVar(&cfg.KillSwitch.URL, "killswitch-url", cfg.KillSwitch.URL, "halo-server /api/v1/gateway/killswitch URL; empty disables")
@@ -175,9 +188,22 @@ func loadConfig(args []string, getenv func(string) string, usage io.Writer) (Con
 	fs.DurationVar(&cfg.KillSwitch.Interval, "killswitch-interval", cfg.KillSwitch.Interval, "kill list poll interval (default 10s)")
 	fs.StringVar(&cfg.Posture.URL, "posture-url", cfg.Posture.URL, "halo-server /api/v1/gateway/posture URL; empty disables the posture gate")
 	fs.StringVar(&cfg.Posture.TokenFile, "posture-token-file", cfg.Posture.TokenFile, "file holding the halo-server gateway token for the posture URL")
+	fs.StringVar(&cfg.Directory.URL, "directory-url", cfg.Directory.URL, "halo-server /api/v1/gateway/directory URL: SCIM groups and active state are authoritative; empty disables")
+	fs.StringVar(&cfg.Directory.TokenFile, "directory-token-file", cfg.Directory.TokenFile, "file holding the halo-server gateway token for the directory URL")
+	fs.StringVar(&cfg.Budgets.URL, "budget-url", cfg.Budgets.URL, "halo-server /api/v1/gateway/budget URL; empty disables budget metering and enforcement")
+	fs.StringVar(&cfg.Budgets.TokenFile, "budget-token-file", cfg.Budgets.TokenFile, "file holding the halo-server gateway token for the budget URL")
+	fs.StringVar(&cfg.Budgets.FailMode, "budget-fail-mode", cfg.Budgets.FailMode, "unknown budget verdict under an enforce budget: open (pass, default) | closed (503)")
 	fs.StringVar(&cfg.Telemetry.OTLPEndpoint, "telemetry-otlp-endpoint", cfg.Telemetry.OTLPEndpoint, "OTLP/HTTP collector base URL for halo.gateway.* request metrics; empty disables")
 	fs.StringVar(&cfg.Telemetry.Protocol, "telemetry-protocol", cfg.Telemetry.Protocol, "OTLP protocol: http/protobuf (default) | http/json")
 	fs.DurationVar(&cfg.Telemetry.Interval, "telemetry-interval", cfg.Telemetry.Interval, "OTLP export interval (default 10s, min 1s)")
+	fs.Func("telemetry-genai-metrics", "export OpenTelemetry GenAI semantic-convention metrics (gen_ai.client.*) with the OTLP export: true (default) | false", func(s string) error {
+		v, err := strconv.ParseBool(s)
+		if err == nil {
+			cfg.Telemetry.GenAI.Metrics = &v
+		}
+		return err
+	})
+	fs.BoolVar(&cfg.Telemetry.GenAI.Traces, "telemetry-genai-traces", cfg.Telemetry.GenAI.Traces, "export one GenAI span per model call to <otlp endpoint>/v1/traces (off by default; never carries prompts or completions)")
 	var saltFile string
 	fs.StringVar(&saltFile, "telemetry-unit-salt-file", "", "file holding the halo.unit hash salt, shared by all replicas (no inline flag: flags leak via ps)")
 	fs.StringVar(&cfg.Telemetry.TokenFile, "telemetry-token-file", cfg.Telemetry.TokenFile, "file holding the bearer token for the collector's gateway receiver (otlp/gateway, :4319)")
@@ -208,6 +234,16 @@ func loadConfig(args []string, getenv func(string) string, usage io.Writer) (Con
 		if cfg.Telemetry.UnitSalt = strings.TrimSpace(string(b)); cfg.Telemetry.UnitSalt == "" {
 			return cfg, fmt.Errorf("halo-proxy: telemetry unit salt file %s is empty", saltFile)
 		}
+	}
+	if f := cfg.Identity.WorkloadPubkeyFile; f != "" {
+		b, err := os.ReadFile(f) //nolint:gosec // operator-supplied path is the point
+		if err != nil {
+			return cfg, fmt.Errorf("halo-proxy: identity.workloadPubkeyFile: %w", err)
+		}
+		if _, err := identity.ParseWorkloadKeys(string(b)); err != nil {
+			return cfg, fmt.Errorf("halo-proxy: identity.workloadPubkeyFile %s: %w", f, err)
+		}
+		cfg.Identity.workloadKeys = string(b)
 	}
 	return cfg, cfg.validate()
 }

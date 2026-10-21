@@ -570,10 +570,13 @@ func TestGitPolicyWriter(t *testing.T) {
 
 func TestRequestableHarnessesDerivedFromMeta(t *testing.T) {
 	got := requestableHarnesses()
-	for _, want := range []string{"claude-code", "codex", "gemini-cli", "copilot-cli"} {
+	for _, want := range []string{"claude-code", "codex", "gemini-cli", "copilot-cli", "opencode"} {
 		if !slices.Contains(got, want) {
 			t.Errorf("requestableHarnesses() = %v, missing %q", got, want)
 		}
+	}
+	if slices.Contains(got, "cursor-agent") {
+		t.Errorf("requestableHarnesses() = %v: cursor-agent has no verified installer (its installer cannot pin a version)", got)
 	}
 	for _, n := range got {
 		if m, ok := harness.MetaOf(n); !ok || m.Installer == "" {

@@ -27,6 +27,8 @@ type Root struct {
 	Identity Identity `yaml:"identity,omitempty" json:"identity,omitempty"`
 	// SelfService configures the developer portal (kiosk).
 	SelfService SelfService `yaml:"selfService,omitempty" json:"selfService,omitempty"`
+	// Workloads federates CI / cloud agents' OIDC tokens (ADR-0023).
+	Workloads *Workloads `yaml:"workloads,omitempty" json:"workloads,omitempty"`
 	// Simple mode fields (tools, provider, models, ...): see simple.go.
 	Simple `yaml:",inline"`
 }
@@ -83,7 +85,7 @@ func Load(dir string) (*Org, error) {
 		return nil, err
 	}
 
-	org := &Org{Name: root.Org, Identity: root.Identity, SelfService: root.SelfService, Profiles: map[string]*Profile{}}
+	org := &Org{Name: root.Org, Identity: root.Identity, SelfService: root.SelfService, Workloads: root.Workloads, Profiles: map[string]*Profile{}}
 	if root.APIVersion == APIVersionV1Alpha1 {
 		org.Deprecations = append(org.Deprecations, deprecation(dir, rootPath))
 	}
@@ -122,7 +124,7 @@ func Load(dir string) (*Org, error) {
 	sort.Strings(files) // deterministic order
 
 	for _, f := range files {
-		deprecated, err := loadFile(org, f)
+		deprecated, err := loadFile(org, dir, f)
 		if err != nil {
 			return nil, err
 		}
@@ -152,7 +154,11 @@ func strictDecode(b []byte, out any) error {
 // document's kind; pass 2 decodes strictly into the matching type. Line
 // numbers in pass-2 errors are relative to the file since it is one stream.
 // deprecated reports whether any document used APIVersionV1Alpha1.
-func loadFile(org *Org, path string) (deprecated bool, err error) {
+func loadFile(org *Org, dir, path string) (deprecated bool, err error) {
+	rel := path
+	if r, err := filepath.Rel(dir, path); err == nil {
+		rel = filepath.ToSlash(r)
+	}
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return false, fmt.Errorf("policy: read %s: %w", path, err)
@@ -192,6 +198,8 @@ func loadFile(org *Org, path string) (deprecated bool, err error) {
 			target = new(Toggle)
 		case KindRollout:
 			target = new(Rollout)
+		case KindUnit:
+			target = &Unit{Dir: filepath.ToSlash(filepath.Dir(rel))}
 		default:
 			return false, fmt.Errorf("policy: %s: document %d: unknown kind %q", path, i+1, k)
 		}
@@ -201,6 +209,9 @@ func loadFile(org *Org, path string) (deprecated bool, err error) {
 		dep, err := org.add(target)
 		if err != nil {
 			return false, fmt.Errorf("policy: %s: document %d (%s): %w", path, i+1, k, err)
+		}
+		if k != "" {
+			org.Sources = append(org.Sources, Source{Path: rel, Kind: k})
 		}
 		deprecated = deprecated || dep
 	}
@@ -267,6 +278,14 @@ func (o *Org) add(v any) (deprecated bool, err error) {
 			return false, fmt.Errorf("duplicate toggle %q", t.Name)
 		}
 		o.Toggles = append(o.Toggles, t)
+	case *Unit:
+		if err := check(&t.Meta); err != nil {
+			return false, err
+		}
+		if slices.ContainsFunc(o.Units, func(e *Unit) bool { return e.Name == t.Name }) {
+			return false, fmt.Errorf("duplicate unit %q", t.Name)
+		}
+		o.Units = append(o.Units, t)
 	case *Rollout:
 		if err := check(&t.Meta); err != nil {
 			return false, err

@@ -101,6 +101,23 @@ Prefer External Secrets or your secret manager over shell history for real value
 The chart then drops the PVCs and the Recreate strategy, renders a PodDisruptionBudget (`maxUnavailable: 1`), a startup probe, and a readiness probe that fails while Postgres is unreachable. Check after install: every replica Ready, exactly one reports `halo_leader{lease="controller"} 1`, `GET /api/v1/audit?limit=1` returns `verified: true`.
 
 Not covered: the verdicts file (`server.verdictsPath`) stays a local file written by the leader; put it on shared storage or rely on `halo exp analyze` for verdicts on an HA install.
+## Console roles
+
+Who may do what in the console and API is policy, not chart configuration: map IdP groups to `halo-server` roles in the policy repo's `halos.yaml`, so every change to it is a reviewed PR ([ADR-0015](/halos/adr/0015-rbac-roles-for-halo-server/)).
+
+```yaml
+identity:
+  issuer: https://acme.okta.com/oauth2/default
+  clientID: halos-portal
+  adminGroups: [ai-platform]          # admin, as before; same as roles.admin
+  roles:
+    viewer: [eng-leads]               # read fleet, releases, rollouts, experiments, toggles, policy
+    operator: [ai-oncall]             # viewer + kill/unkill, experiment status PRs
+    approver: [ai-platform-approvers] # viewer + approve/deny access requests
+    auditor: [security-audit]         # audit log read and export only
+```
+
+For segregation of duties, keep `operator`, `approver` and `auditor` in different groups and keep `admin` small. Auditors get no fleet view unless their group is also a viewer. A user holds every role any of their groups maps to; removing a group from a role applies on the next request, adding one at the user's next login. An unknown role name fails `halo validate`. Every refused request is audit-logged as `authz.deny`; [Operations](/halos/guides/operations/#a-user-gets-403) shows how to read them. Nothing changes in the Helm values.
 
 ## Controller
 
@@ -124,9 +141,9 @@ The kill switch drops a misbehaving experiment back to control within one gatewa
 4. Set `proxy.killSwitch.enabled: true`. `url` defaults to the in-cluster `halo-server` Service at `/api/v1/gateway/killswitch` and `interval` to 10s. `halo-proxy` refuses plain `http://` to a non-loopback host unless `proxy.killSwitch.allowInsecureInCluster` is true (chart default `true`, because the in-cluster `halo-server` Service has no TLS listener; the list is signed but the bearer token travels in the clear). To enforce TLS, set an `https://` `proxy.killSwitch.url` (TLS terminated in front of `halo-server`) and `allowInsecureInCluster: false`.
 5. The proxy-to-server NetworkPolicy rule is added automatically when `proxy.killSwitch.enabled` is set.
 
-Admins can kill and unkill from the console's Experiments page or via `POST /api/v1/experiments/{name}/kill|unkill`; both are audit-logged. For Kong, `kong.killSwitch.enabled` (or `halo gateway deck --killswitch-url ...`) sets `killswitch_*` with vault references, so `HALO_KILLSWITCH_TOKEN` and `HALO_KILLSWITCH_PUBKEY` must be in Kong's environment and listed in `KONG_NGINX_MAIN_ENV`. `halo-kong` enforces the same URL rule through `killswitch_allow_insecure_in_cluster` (`kong.killSwitch.allowInsecureInCluster`). An invalid kill-switch config does not block traffic: it is logged at ERROR once a minute and the plugin adds `x-halo-killswitch: misconfigured` to the upstream request, so alert on that header.
+Operators and admins can kill and unkill from the console's Experiments page or via `POST /api/v1/experiments/{name}/kill|unkill`; both are audit-logged. For Kong, `kong.killSwitch.enabled` (or `halo gateway deck --killswitch-url ...`) sets `killswitch_*` with vault references, so `HALO_KILLSWITCH_TOKEN` and `HALO_KILLSWITCH_PUBKEY` must be in Kong's environment and listed in `KONG_NGINX_MAIN_ENV`. `halo-kong` enforces the same URL rule through `killswitch_allow_insecure_in_cluster` (`kong.killSwitch.allowInsecureInCluster`). An invalid kill-switch config does not block traffic: it is logged at ERROR once a minute and the plugin adds `x-halo-killswitch: misconfigured` to the upstream request, so alert on that header.
 
-**Check:** `GET /api/v1/killswitch` (admin) lists active kills, and a gateway that cannot verify or fetch the list keeps serving (nothing is killed until its first successful poll).
+**Check:** `GET /api/v1/killswitch` (viewer and up) lists active kills, and a gateway that cannot verify or fetch the list keeps serving (nothing is killed until its first successful poll).
 
 ## Direct AWS Bedrock
 
@@ -228,4 +245,5 @@ Every file `halo-server` writes, what losing each one costs, and the restore pro
 - [ ] `allowShellInstall` is not set on any `halod`
 - [ ] `halo-proxy` is unreachable except through your ingress or gateway; if you use `trusted_header`, the CIDR pin is set
 - [ ] `--dev-insecure-*` flags are not present anywhere
+- [ ] `identity.roles` separates operators, approvers and auditors; `adminGroups` / `roles.admin` hold only the platform owners
 - [ ] Read the [threat model](/halos/reference/threat-model/) and the **UNVERIFIED** items in the [README](https://github.com/dshakes/halos#status)

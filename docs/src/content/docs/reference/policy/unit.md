@@ -1,0 +1,74 @@
+---
+title: "Unit"
+description: "A business unit or team in the org hierarchy (ADR-0018): delegated owners, a member selector and an overlay applied on top of the ring profile. Enforced security fields may only be tightened."
+---
+
+A business unit or team in the org hierarchy (ADR-0018): delegated owners, a member selector and an overlay applied on top of the ring profile. Enforced security fields may only be tightened.
+
+Generated from `schemas/unit.schema.json`; do not edit. Nested fields use dotted paths, `[]` marks array items and `.*` map values.
+
+| Field | Type | Required | Default | Allowed values | Constraints | Description |
+|---|---|---|---|---|---|---|
+| `apiVersion` | string | yes |  | const halos.dev/v1 |  | Document version. |
+| `description` | string |  |  |  |  | What the unit is. |
+| `kind` | string | yes |  | const Unit |  | Document kind. |
+| `labels` | object |  |  |  |  | Free-form labels. |
+| `labels.*` | string |  |  |  |  |  |
+| `members` | object | yes |  |  |  | Selects the unit's users from its parent's (any listed group or user matches). |
+| `members.groups` | array of string |  |  |  |  | IdP groups. |
+| `members.groups[]` | string |  |  |  |  |  |
+| `members.users` | array of string |  |  |  |  | User ids. |
+| `members.users[]` | string |  |  |  |  |  |
+| `name` | string | yes |  |  | pattern ^[a-z0-9][a-zA-Z0-9._-]*$ | Unique name within its kind. |
+| `overlay` | object |  |  |  |  | Profile settings the unit changes on top of the baseline. Lists in permissions.deny, mcp.denied and hooks.items union; mcp.servers are added; other lists replace; env and telemetry.attributes merge per key. |
+| `overlay.egress` | object |  |  |  |  | Egress policy. |
+| `overlay.egress.allowedDomains` | array of string |  |  |  |  | Only egress permitted from managed environments; must include the gateway host when non-empty. |
+| `overlay.egress.allowedDomains[]` | string |  |  |  |  |  |
+| `overlay.env` | object |  |  |  |  | Extra environment; may add keys, never change an inherited one. |
+| `overlay.env.*` | string |  |  |  |  |  |
+| `overlay.hooks` | object |  |  |  |  | Hook policy. |
+| `overlay.hooks.items` | array of object |  |  |  |  | Managed hooks. |
+| `overlay.hooks.items[]` | object |  |  |  |  | A managed hook. |
+| `overlay.hooks.items[].command` | string | yes |  |  |  | Command to run. |
+| `overlay.hooks.items[].event` | string | yes |  | PreToolUse, PostToolUse, SessionStart, Stop, UserPromptSubmit |  | Hook event. |
+| `overlay.hooks.items[].matcher` | string |  |  |  |  | Tool matcher. |
+| `overlay.hooks.managedOnly` | boolean |  |  |  |  | Only managed hooks may run. |
+| `overlay.instructions` | string |  |  |  |  | Appended to the inherited instructions (managed CLAUDE.md / AGENTS.md / GEMINI.md). |
+| `overlay.mcp` | object |  |  |  |  | MCP policy. |
+| `overlay.mcp.denied` | array of string |  |  |  |  | Denied server names. |
+| `overlay.mcp.denied[]` | string |  |  |  |  |  |
+| `overlay.mcp.managedOnly` | boolean |  |  |  |  | Block every server not listed. |
+| `overlay.mcp.servers` | array of object |  |  |  |  | Allowed MCP servers. |
+| `overlay.mcp.servers[]` | object |  |  |  |  | An allowed MCP server. |
+| `overlay.mcp.servers[].command` | array of string |  |  |  |  | stdio command line (exclusive with url). |
+| `overlay.mcp.servers[].command[]` | string |  |  |  |  |  |
+| `overlay.mcp.servers[].headers` | object |  |  |  |  | HTTP headers. |
+| `overlay.mcp.servers[].headers.*` | string |  |  |  |  |  |
+| `overlay.mcp.servers[].name` | string | yes |  |  |  | Server name. |
+| `overlay.mcp.servers[].url` | string |  |  |  | format uri | https URL (exclusive with command). |
+| `overlay.models` | object |  |  |  |  | Model policy. |
+| `overlay.models.allowed` | array of string |  |  |  |  | Allowed model aliases. |
+| `overlay.models.allowed[]` | string |  |  |  |  |  |
+| `overlay.models.default` | string |  |  |  |  | Default model alias (a gateway.models key). |
+| `overlay.models.enforce` | boolean |  |  |  |  | Reject models outside allowed rather than only hiding them; default must then be in allowed. |
+| `overlay.permissions` | object |  |  |  |  | Permission policy. |
+| `overlay.permissions.allow` | array of string |  |  |  |  | Allow rules. |
+| `overlay.permissions.allow[]` | string |  |  |  |  |  |
+| `overlay.permissions.ask` | array of string |  |  |  |  | Ask rules. |
+| `overlay.permissions.ask[]` | string |  |  |  |  |  |
+| `overlay.permissions.deny` | array of string |  |  |  |  | Deny rules. |
+| `overlay.permissions.deny[]` | string |  |  |  |  |  |
+| `overlay.permissions.disableBypass` | boolean |  |  |  |  | Disable the harness's bypass-permissions mode. |
+| `overlay.permissions.mode` | string |  |  | default, acceptEdits, plan, auto |  | Default permission mode. |
+| `overlay.permissions.sandbox` | string |  |  | off, workspace-write, read-only |  | Harness sandbox policy. |
+| `overlay.permissions.sandboxRequired` | boolean |  |  |  |  | Fail closed: the harness refuses to run (Claude: sandbox.failIfUnavailable) instead of running unsandboxed when its sandbox dependencies are missing. |
+| `overlay.telemetry` | object |  |  |  |  | Telemetry policy. |
+| `overlay.telemetry.attributes` | object |  |  |  |  | Extra resource attributes. |
+| `overlay.telemetry.attributes.*` | string |  |  |  |  |  |
+| `overlay.telemetry.enabled` | boolean |  |  |  |  | Emit OTEL telemetry. Must be true for profiles used by rings. |
+| `overlay.telemetry.logPrompts` | boolean |  |  |  |  | Include prompt text in telemetry. |
+| `overlay.telemetry.otlpEndpoint` | string |  |  |  |  | OTLP endpoint URL. |
+| `overlay.telemetry.protocol` | string |  |  | grpc, http/protobuf |  | OTLP protocol. |
+| `owners` | array of string | yes |  |  | minItems 1 | CODEOWNERS owners of the unit directory: @org/team, @user or an email. |
+| `owners[]` | string |  |  |  | pattern ^(@[A-Za-z0-9][A-Za-z0-9_.-]*(/[A-Za-z0-9][A-Za-z0-9_.-]*)?\|[^@\s]+@[^@\s]+\.[^@\s]+)$ |  |
+| `parent` | string |  |  |  |  | Enclosing unit; empty for a top-level unit. |

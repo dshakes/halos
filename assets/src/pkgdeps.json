@@ -24,6 +24,7 @@
         "internal/release",
         "internal/rollout",
         "internal/server",
+        "internal/shadow",
         "internal/telemetry",
         "internal/toggle",
         "internal/upgrade",
@@ -43,6 +44,7 @@
     {
       "path": "cmd/halo-proxy",
       "imports": [
+        "internal/budget",
         "internal/bundle",
         "internal/gateway",
         "internal/gateway/upstreamauth",
@@ -94,6 +96,12 @@
       "imports": []
     },
     {
+      "path": "internal/budget",
+      "imports": [
+        "internal/policy"
+      ]
+    },
+    {
       "path": "internal/bundle",
       "imports": [
         "internal/policy",
@@ -133,6 +141,7 @@
       "path": "internal/eval",
       "imports": [
         "internal/gateway",
+        "internal/policy",
         "internal/shadow",
         "internal/stats"
       ]
@@ -145,6 +154,7 @@
       "path": "internal/gateway",
       "imports": [
         "internal/assign",
+        "internal/budget",
         "internal/harness",
         "internal/harness/all",
         "internal/policy",
@@ -180,7 +190,9 @@
         "internal/harness/claudecode",
         "internal/harness/codex",
         "internal/harness/copilot",
-        "internal/harness/gemini"
+        "internal/harness/cursor",
+        "internal/harness/gemini",
+        "internal/harness/opencode"
       ]
     },
     {
@@ -208,6 +220,14 @@
       ]
     },
     {
+      "path": "internal/harness/cursor",
+      "imports": [
+        "internal/harness",
+        "internal/harness/hutil",
+        "internal/policy"
+      ]
+    },
+    {
       "path": "internal/harness/gemini",
       "imports": [
         "internal/harness",
@@ -225,6 +245,14 @@
     {
       "path": "internal/harness/hutil/hutiltest",
       "imports": [
+        "internal/policy"
+      ]
+    },
+    {
+      "path": "internal/harness/opencode",
+      "imports": [
+        "internal/harness",
+        "internal/harness/hutil",
         "internal/policy"
       ]
     },
@@ -259,6 +287,7 @@
         "internal/promote",
         "internal/release",
         "internal/rollout",
+        "internal/shadow",
         "internal/toggle",
         "internal/upgrade",
         "internal/yamledit"
@@ -325,6 +354,7 @@
     {
       "path": "internal/server",
       "imports": [
+        "internal/budget",
         "internal/bundle",
         "internal/controller",
         "internal/fsutil",

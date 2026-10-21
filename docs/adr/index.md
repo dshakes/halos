@@ -23,6 +23,14 @@ Decisions that shape Halos. New ADRs use [MADR](https://adr.github.io/madr/): co
 | [0012](/halos/adr/0012-policy-api-v1/) | halos.dev/v1 is the stable policy API |
 | [0013](/halos/adr/0013-external-gateway-engine/) | Halos manages clients behind a gateway it does not run |
 | [0014](/halos/adr/0014-step-level-multi-turn-shadow/) | Step-level shadowing of multi-turn agent sessions (amends 0004) |
+| [0015](/halos/adr/0015-rbac-roles-for-halo-server/) | RBAC roles for halo-server |
+| [0016](/halos/adr/0016-audit-export-to-siem/) | Audit export to SIEM, with rotation across a continuous hash chain |
+| [0017](/halos/adr/0017-gateway-cost-budgets/) | Cost budgets and quotas enforced at the gateway |
+| [0018](/halos/adr/0018-org-hierarchy-and-delegated-policy/) | Org hierarchy: units with delegated owners that can only tighten the baseline |
+| [0019](/halos/adr/0019-harness-coverage-beyond-the-big-four/) | Harness coverage beyond the big four: OpenCode and Cursor CLI |
+| [0020](/halos/adr/0020-harvest-shadow-sessions-into-replay-evals/) | Harvesting shadow sessions into replay evals (builds on 0014) |
 | [0021](/halos/adr/0021-ha-control-plane-on-postgres/) | HA control plane on Postgres: shared state, leader lease, fencing |
+| [0022](/halos/adr/0022-scim-provisioning/) | SCIM 2.0 provisioning: immediate deprovisioning, authoritative directory groups |
+| [0023](/halos/adr/0023-workload-identity-federation/) | Workload identity federation for headless CI and cloud agents |
 
 The canonical files live in `docs/adr/` in the repository; the docs build copies them into the site.

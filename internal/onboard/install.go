@@ -318,10 +318,12 @@ const (
 
 // verifyArgs is each CLI's documented headless invocation.
 var verifyArgs = map[string][]string{
-	"claude-code": {"-p", VerifyPrompt},
-	"codex":       {"exec", "--skip-git-repo-check", VerifyPrompt},
-	"gemini-cli":  {"-p", VerifyPrompt},
-	"copilot-cli": {"-p", VerifyPrompt},
+	"claude-code":  {"-p", VerifyPrompt},
+	"codex":        {"exec", "--skip-git-repo-check", VerifyPrompt},
+	"gemini-cli":   {"-p", VerifyPrompt},
+	"copilot-cli":  {"-p", VerifyPrompt},
+	"cursor-agent": {"-p", VerifyPrompt},
+	"opencode":     {"run", VerifyPrompt},
 }
 
 // Verify results.

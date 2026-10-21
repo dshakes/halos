@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -126,6 +127,7 @@ type profileSummary struct {
 // Me is GET /api/v1/me.
 type Me struct {
 	Principal
+	Permissions []string        `json:"permissions"` // the console hides what these do not allow
 	Ring        string          `json:"ring"`
 	Release     string          `json:"release,omitempty"`
 	Variants    []AssignmentRow `json:"variants"`
@@ -223,7 +225,7 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request, p Principal) {
 	if p.Groups == nil {
 		p.Groups = []string{}
 	}
-	m := Me{Principal: p, Variants: assignments(org, p.subject(), ring), SelfService: org.SelfService.Enabled, Launchers: []string{}, Requestable: []string{}, OptInRings: []string{}, SupportURL: s.cfg.Portal.SupportURL, DevInsecure: s.cfg.DevUser != ""}
+	m := Me{Principal: p, Permissions: p.permissions(), Variants: assignments(org, p.subject(), ring), SelfService: org.SelfService.Enabled, Launchers: []string{}, Requestable: []string{}, OptInRings: []string{}, SupportURL: s.cfg.Portal.SupportURL, DevInsecure: s.cfg.DevUser != ""}
 	if ring != nil {
 		m.Ring, m.Release = ring.Name, ring.Release
 		if prof, err := org.ResolveProfile(ring.Profile); err == nil {
@@ -233,7 +235,7 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request, p Principal) {
 	if org.SelfService.Enabled {
 		var setup []LauncherSetup
 		m.Launchers, setup = s.launchers(org, r)
-		if p.Admin {
+		if p.can(permAdmin) {
 			m.LauncherSetup = setup
 		}
 		m.Requestable = append(m.Requestable, org.SelfService.Requestable...)
@@ -510,16 +512,29 @@ func (s *Server) launch(w http.ResponseWriter, r *http.Request, p Principal) {
 // ---- enrollment tokens: random, stored only as SHA-256, single-use, short TTL ----
 
 // enrollments keeps issued tokens by SHA-256 until they expire or are used.
+// The KV is in process, or shared across replicas (ADR-0021).
 type enrollments struct{ kv storage.KV }
 
-const kvEnroll = "enroll"
+const (
+	kvEnroll     = "enroll"
+	kvEnrollDrop = "enroll-drop" // lower(user) -> unix nanos: tokens issued up to then are void
+	// enrollDropTTL outlives any enrollment token (policy enrollmentTTLSeconds
+	// defaults to 15 minutes; a year covers any sane setting).
+	enrollDropTTL = 366 * 24 * time.Hour
+)
+
+// enrollToken is the stored value: who it was issued to, and when.
+type enrollToken struct {
+	User   Principal `json:"user"`
+	Issued int64     `json:"issued"` // unix nanos
+}
 
 func hashTok(tok string) [32]byte { return sha256.Sum256([]byte(tok)) }
 
 func (e *enrollments) issue(p Principal, ttl time.Duration, now time.Time) (string, time.Time, error) {
 	tok := randB64(32) // 32 random bytes
 	exp := now.Add(ttl)
-	b, err := json.Marshal(p)
+	b, err := json.Marshal(enrollToken{User: p, Issued: now.UnixNano()})
 	if err != nil {
 		return "", time.Time{}, err
 	}
@@ -533,17 +548,37 @@ func (e *enrollments) issue(p Principal, ttl time.Duration, now time.Time) (stri
 }
 
 // consume burns the token (even if expired) and returns the principal it was
-// issued to. Of concurrent consumes, on any replica, at most one succeeds.
+// issued to. Of concurrent consumes, on any replica, at most one succeeds. A
+// token issued before its user was deprovisioned (dropUser) is refused; so is
+// any token when the store cannot be read.
 func (e *enrollments) consume(tok string) (Principal, bool) {
 	ctx, cancel := storage.Ctx()
 	defer cancel()
 	h := hashTok(tok)
 	b, ok, err := e.kv.Take(ctx, kvEnroll, hex.EncodeToString(h[:]))
-	var p Principal
-	if err != nil || !ok || json.Unmarshal(b, &p) != nil {
+	var t enrollToken
+	if err != nil || !ok || json.Unmarshal(b, &t) != nil {
 		return Principal{}, false
 	}
-	return p, true
+	drop, dropped, err := e.kv.Get(ctx, kvEnrollDrop, strings.ToLower(t.User.ID))
+	if err != nil {
+		return Principal{}, false
+	}
+	if dropped {
+		if at, err := strconv.ParseInt(string(drop), 10, 64); err != nil || t.Issued <= at {
+			return Principal{}, false
+		}
+	}
+	return t.User, true
+}
+
+// dropUser voids every unconsumed enrollment token of user (case-insensitive)
+// issued up to now, on every replica: tokens are keyed by hash, so the void is
+// a per-user epoch that consume checks.
+func (e *enrollments) dropUser(user string, now time.Time) error {
+	ctx, cancel := storage.Ctx()
+	defer cancel()
+	return e.kv.Put(ctx, kvEnrollDrop, strings.ToLower(user), []byte(strconv.FormatInt(now.UnixNano(), 10)), now.Add(enrollDropTTL))
 }
 
 func (s *Server) postEnroll(w http.ResponseWriter, r *http.Request) {
