@@ -53,6 +53,7 @@ type options struct {
 	interval                                                       time.Duration
 	chURL, chDB, chUser, chPasswordFile                            string
 	killKeyFile, gatewayTokenFile                                  string
+	gatewayCapTokenFiles                                           [4]string // killswitch, posture, budget, directory (gatewayCapFlags order)
 	workloadKeyFile                                                string
 	slackURLFile, webhookURLFile, webhookSecretFile                string
 	policyRepoDir, policyRepoSubdir, policyRepoBase, metricsListen string
@@ -88,7 +89,10 @@ func parseFlags(args []string) (options, error) {
 	fs.StringVar(&o.chUser, "clickhouse-user", "", "ClickHouse user")
 	fs.StringVar(&o.chPasswordFile, "clickhouse-password-file", "", "file holding the ClickHouse password")
 	fs.StringVar(&o.killKeyFile, "killswitch-key-file", "", "ed25519 PKCS#8 PEM private key signing the gateway kill list (halo keys generate --name killswitch)")
-	fs.StringVar(&o.gatewayTokenFile, "gateway-token-file", "", "file holding the bearer token gateways use for /api/v1/gateway/killswitch, /posture and /budget/*")
+	fs.StringVar(&o.gatewayTokenFile, "gateway-token-file", "", "file holding the shared bearer token gateways use for /api/v1/gateway/killswitch, /posture, /budget/* and /directory (each overridable below)")
+	for i, name := range gatewayCapFlags {
+		fs.StringVar(&o.gatewayCapTokenFiles[i], "gateway-"+name+"-token-file", "", "file holding the only bearer token /api/v1/gateway/"+name+" accepts (recommended; overrides --gateway-token-file for it)")
+	}
 	fs.StringVar(&o.workloadKeyFile, "workload-key-file", "", "ed25519 PKCS#8 PEM private key signing CI/cloud workload credentials from POST /api/v1/token/exchange (halo keys generate --name workload); empty disables the endpoint")
 	fs.DurationVar(&o.postureMaxAge, "posture-max-age", server.DefaultPostureMaxAge, "a device whose last halod report is older is non-compliant for the gateway posture gate")
 	fs.StringVar(&o.slackURLFile, "notify-slack-url-file", "", "file holding a Slack incoming-webhook URL")
@@ -127,8 +131,8 @@ func parseFlags(args []string) (options, error) {
 	if o.policyDir == "" || o.tokenFile == "" {
 		return o, errors.New("--policy-dir and --token-file are required")
 	}
-	if o.killKeyFile != "" && o.gatewayTokenFile == "" { // a gateway token alone serves the posture and budget endpoints
-		return o, errors.New("--killswitch-key-file and --gateway-token-file must be set together")
+	if o.killKeyFile != "" && o.gatewayTokenFile == "" && o.gatewayCapTokenFiles[0] == "" { // a gateway token alone serves the posture and budget endpoints
+		return o, errors.New("--killswitch-key-file needs --gateway-token-file or --gateway-killswitch-token-file")
 	}
 	if o.postureMaxAge < time.Minute {
 		return o, errors.New("--posture-max-age must be at least 1m")
@@ -168,6 +172,43 @@ func policyWriter(portal server.Portal, policyDir string) (server.PolicyWriter, 
 		return nil, fmt.Errorf("portal policyRepoDir: %w", err)
 	}
 	return &server.GitPolicyWriter{RepoDir: portal.PolicyRepoDir, ServedDir: policyDir, Subdir: portal.PolicySubdir, Base: portal.PolicyBase, Opener: promote.GHOpener{}}, nil
+}
+
+// gatewayCapFlags names the per-capability --gateway-<name>-token-file flags,
+// in options.gatewayCapTokenFiles order.
+var gatewayCapFlags = [4]string{"killswitch", "posture", "budget", "directory"}
+
+// readGatewayTokens reads the shared gateway token and the per-capability
+// ones. Each must be at least 16 characters, and a per-capability token must
+// differ from the shared one (otherwise it separates nothing).
+func readGatewayTokens(o options) (shared string, caps [4]string, err error) {
+	read := func(flag, path string) (string, error) {
+		if path == "" {
+			return "", nil
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return "", fmt.Errorf("--%s: %w", flag, err)
+		}
+		t := strings.TrimSpace(string(b))
+		if len(t) < 16 {
+			return "", fmt.Errorf("--%s: token must be at least 16 characters", flag)
+		}
+		return t, nil
+	}
+	if shared, err = read("gateway-token-file", o.gatewayTokenFile); err != nil {
+		return "", caps, err
+	}
+	for i, name := range gatewayCapFlags {
+		flag := "gateway-" + name + "-token-file"
+		if caps[i], err = read(flag, o.gatewayCapTokenFiles[i]); err != nil {
+			return "", caps, err
+		}
+		if caps[i] != "" && caps[i] == shared {
+			return "", caps, fmt.Errorf("--%s: must differ from the --gateway-token-file token", flag)
+		}
+	}
+	return shared, caps, nil
 }
 
 // readSCIMHashes reads one hex SHA-256 per line; blank lines and # comments
@@ -282,12 +323,9 @@ func run(ctx context.Context, args []string) error {
 		}
 		workloadKey = sig.Key
 	}
-	gwToken, err := readTrim(o.gatewayTokenFile)
+	gwToken, gwCaps, err := readGatewayTokens(o)
 	if err != nil {
-		return fmt.Errorf("--gateway-token-file: %w", err)
-	}
-	if o.gatewayTokenFile != "" && len(gwToken) < 16 {
-		return errors.New("--gateway-token-file: token must be at least 16 characters")
+		return err
 	}
 	scimHashes, err := readSCIMHashes(o.scimTokenHashFile)
 	if err != nil {
@@ -304,6 +342,7 @@ func run(ctx context.Context, args []string) error {
 		SessionKey: []byte(sessionKey), OIDCClientSecret: clientSecret, Portal: portal, DataDir: o.dataDir, Writer: writer,
 		DeviceTTL: o.deviceTTL, DevUser: o.devUser, DevGroups: o.devGroups, DevRoles: o.devRoles, DevAdmin: o.devAdmin, TrustedProxies: o.trusted,
 		KillStore: kills, KillKey: killKey, GatewayToken: gwToken, PostureMaxAge: o.postureMaxAge, Audit: audit,
+		GatewayKillswitchToken: gwCaps[0], GatewayPostureToken: gwCaps[1], GatewayBudgetToken: gwCaps[2], GatewayDirectoryToken: gwCaps[3],
 		SCIMTokenSHA256: scimHashes, SCIMAuthoritative: o.scimAuthoritative,
 		WorkloadKey: workloadKey,
 	})

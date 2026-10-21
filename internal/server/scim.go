@@ -224,11 +224,11 @@ func (s *Server) scimAuth(w http.ResponseWriter, r *http.Request) bool {
 // token). Gateways with a directory configured route only active users with
 // these groups; a verified caller listed inactive here is refused (403).
 func (s *Server) getGatewayDirectory(w http.ResponseWriter, r *http.Request) {
-	if s.cfg.GatewayToken == "" || s.scim == nil {
+	if !s.gatewayEnabled(capDirectory) || s.scim == nil {
 		apiErr(w, http.StatusNotFound, "SCIM directory not configured")
 		return
 	}
-	if !s.gatewayAuth(w, r) {
+	if !s.gatewayAuth(w, r, capDirectory) {
 		return
 	}
 	sub := r.URL.Query().Get("subject")

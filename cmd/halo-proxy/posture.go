@@ -13,7 +13,7 @@ import (
 // PostureConfig points at halo-server's per-subject device posture verdicts.
 type PostureConfig struct {
 	URL       string `yaml:"url"`       // https://halo-server/api/v1/gateway/posture; empty disables
-	TokenFile string `yaml:"tokenFile"` // halo-server --gateway-token-file value
+	TokenFile string `yaml:"tokenFile"` // halo-server --gateway-posture-token-file value (else --gateway-token-file)
 	// CacheTTL is how long a verdict is reused per subject (default 1m).
 	CacheTTL time.Duration `yaml:"cacheTTL"`
 	// Grace is how long the last verdict keeps serving while halo-server is
