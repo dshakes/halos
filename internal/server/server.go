@@ -59,6 +59,10 @@ type Config struct {
 	// /api/v1/gateway/posture, served whenever GatewayToken is set). 0 = DefaultPostureMaxAge.
 	PostureMaxAge time.Duration
 
+	// WorkloadKey signs workload credentials minted by POST
+	// /api/v1/token/exchange (ADR-0023); nil disables the endpoint.
+	WorkloadKey ed25519.PrivateKey
+
 	// DevUser disables authentication and acts as this user. INSECURE: local demos only.
 	DevUser   string
 	DevGroups []string
@@ -84,6 +88,7 @@ type Server struct {
 	relChannels channelsFetch // ring release -> experiment channels; swapped in tests
 	kills       *controller.KillStore
 	gwSum       [32]byte // sha256 of GatewayToken
+	wl          workloadExchange
 }
 
 // New validates cfg and returns a Server. It does not require the policy dir to load yet.
@@ -225,6 +230,8 @@ func (s *Server) Handler() http.Handler {
 	m.HandleFunc("GET /enroll/release.pub", s.releasePub)
 	m.HandleFunc("GET /enroll/killswitch.pub", s.killswitchPub)
 	m.HandleFunc("POST /api/v1/enroll", s.postEnroll)
+	// CI / cloud workloads: the federated OIDC token is the credential (ADR-0023)
+	m.HandleFunc("POST /api/v1/token/exchange", s.postTokenExchange)
 	// OIDC login
 	m.HandleFunc("GET /auth/login", s.login)
 	m.HandleFunc("GET /auth/callback", s.callback)

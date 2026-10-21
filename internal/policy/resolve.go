@@ -10,6 +10,8 @@ import (
 type Subject struct {
 	ID     string
 	Groups []string
+	// Kind is "" for a human and SubjectWorkload for a CI / cloud workload.
+	Kind string
 }
 
 // ringSalt keeps ring hashing independent from experiment hashing.

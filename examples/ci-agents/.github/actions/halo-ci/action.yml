@@ -1,0 +1,76 @@
+# Reusable composite action: governed Halos credentials for a headless agent.
+#
+#   permissions:
+#     id-token: write   # lets the job request its GitHub OIDC token
+#     contents: read
+#   steps:
+#     - uses: actions/checkout@v4
+#     - uses: acme/ai-platform/.github/actions/halo-ci@main   # this file, vendored
+#       with:
+#         server: https://halo.acme.example
+#         harness: claude-code
+#     - run: claude -p "Fix the failing test" --allowedTools "Read,Edit,Bash(go test:*)"
+#
+# The job never holds a provider API key: the GitHub OIDC token is exchanged at
+# halo-server for a short-lived gateway credential (ADR-0023), masked in the log,
+# and exported through $GITHUB_ENV to every later step.
+name: Halos CI credentials
+description: Exchange the job's OIDC token for a short-lived Halos gateway credential and install the ring's managed harness config.
+inputs:
+  server:
+    description: halo-server base URL (https).
+    required: true
+  audience:
+    description: Audience requested for the GitHub OIDC token; must equal the policy's workloads.audience.
+    default: halos
+  harness:
+    description: Harness whose managed config to install (claude-code, codex, gemini-cli). Empty skips config.
+    default: claude-code
+  policy-dir:
+    description: Checked-out policy repo to render the ring's release from. Empty skips config.
+    default: ""
+  halo-version:
+    description: halo release tag to install.
+    default: v0.2.1
+outputs:
+  ring:
+    description: Ring the workload resolved to.
+    value: ${{ steps.token.outputs.ring }}
+runs:
+  using: composite
+  steps:
+    - name: Install halo
+      shell: bash
+      env:
+        HALO_VERSION: ${{ inputs.halo-version }}
+      run: |
+        set -euo pipefail
+        curl -fsSLo "$RUNNER_TEMP/install.sh" "https://raw.githubusercontent.com/dshakes/halos/${HALO_VERSION}/install/install.sh"
+        sh "$RUNNER_TEMP/install.sh" --version "$HALO_VERSION" --prefix "$RUNNER_TEMP/halo"
+        echo "$RUNNER_TEMP/halo/bin" >> "$GITHUB_PATH"
+    - name: Exchange the job's OIDC token
+      id: token
+      shell: bash
+      env:
+        HALO_SERVER: ${{ inputs.server }}
+        HALO_AUDIENCE: ${{ inputs.audience }}
+      run: |
+        set -euo pipefail
+        # Masks the credential, then appends ANTHROPIC_BASE_URL/ANTHROPIC_AUTH_TOKEN,
+        # OPENAI_BASE_URL/OPENAI_API_KEY, GOOGLE_GEMINI_BASE_URL/GEMINI_API_KEY,
+        # HALO_GATEWAY_TOKEN and HALO_RING to $GITHUB_ENV.
+        "$RUNNER_TEMP/halo/bin/halo" ci token --format github --audience "$HALO_AUDIENCE"
+        # $GITHUB_ENV takes effect in later steps; read the ring back for the output.
+        echo "ring=$(grep '^HALO_RING=' "$GITHUB_ENV" | tail -1 | cut -d= -f2-)" >> "$GITHUB_OUTPUT"
+    - name: Install the ring's managed config
+      if: inputs.policy-dir != '' && inputs.harness != ''
+      shell: bash
+      env:
+        HALO_RING: ${{ steps.token.outputs.ring }}
+        HARNESS: ${{ inputs.harness }}
+        POLICY_DIR: ${{ inputs.policy-dir }}
+      run: |
+        set -euo pipefail
+        # Writes e.g. /etc/claude-code/managed-settings.json: managed settings
+        # outrank anything a pull request adds under .claude/. Never a bypass mode.
+        sudo "$RUNNER_TEMP/halo/bin/halo" ci config --policy-dir "$POLICY_DIR" --harness "$HARNESS" --ring "$HALO_RING" --os linux --out /

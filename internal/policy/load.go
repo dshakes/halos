@@ -27,6 +27,8 @@ type Root struct {
 	Identity Identity `yaml:"identity,omitempty" json:"identity,omitempty"`
 	// SelfService configures the developer portal (kiosk).
 	SelfService SelfService `yaml:"selfService,omitempty" json:"selfService,omitempty"`
+	// Workloads federates CI / cloud agents' OIDC tokens (ADR-0023).
+	Workloads *Workloads `yaml:"workloads,omitempty" json:"workloads,omitempty"`
 	// Simple mode fields (tools, provider, models, ...): see simple.go.
 	Simple `yaml:",inline"`
 }
@@ -83,7 +85,7 @@ func Load(dir string) (*Org, error) {
 		return nil, err
 	}
 
-	org := &Org{Name: root.Org, Identity: root.Identity, SelfService: root.SelfService, Profiles: map[string]*Profile{}}
+	org := &Org{Name: root.Org, Identity: root.Identity, SelfService: root.SelfService, Workloads: root.Workloads, Profiles: map[string]*Profile{}}
 	if root.APIVersion == APIVersionV1Alpha1 {
 		org.Deprecations = append(org.Deprecations, deprecation(dir, rootPath))
 	}

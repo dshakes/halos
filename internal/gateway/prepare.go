@@ -155,7 +155,7 @@ func PrepareVerified(org *policy.Org, sub *policy.Subject, h http.Header, path s
 	}
 	req := NewRequestInfo(h, path, body)
 	if sub != nil {
-		req.UserID, req.Groups = sub.ID, sub.Groups
+		req.UserID, req.Groups, req.Workload = sub.ID, sub.Groups, sub.Kind == policy.SubjectWorkload
 	}
 	res.Protocol = req.Protocol
 	res.Decision = Decide(org, req)

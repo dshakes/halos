@@ -53,6 +53,7 @@ type options struct {
 	interval                                                       time.Duration
 	chURL, chDB, chUser, chPasswordFile                            string
 	killKeyFile, gatewayTokenFile                                  string
+	workloadKeyFile                                                string
 	slackURLFile, webhookURLFile, webhookSecretFile                string
 	policyRepoDir, policyRepoSubdir, policyRepoBase, metricsListen string
 }
@@ -82,6 +83,7 @@ func parseFlags(args []string) (options, error) {
 	fs.StringVar(&o.chPasswordFile, "clickhouse-password-file", "", "file holding the ClickHouse password")
 	fs.StringVar(&o.killKeyFile, "killswitch-key-file", "", "ed25519 PKCS#8 PEM private key signing the gateway kill list (halo keys generate --name killswitch)")
 	fs.StringVar(&o.gatewayTokenFile, "gateway-token-file", "", "file holding the bearer token gateways use for GET /api/v1/gateway/killswitch and /api/v1/gateway/posture")
+	fs.StringVar(&o.workloadKeyFile, "workload-key-file", "", "ed25519 PKCS#8 PEM private key signing CI/cloud workload credentials from POST /api/v1/token/exchange (halo keys generate --name workload); empty disables the endpoint")
 	fs.DurationVar(&o.postureMaxAge, "posture-max-age", server.DefaultPostureMaxAge, "a device whose last halod report is older is non-compliant for the gateway posture gate")
 	fs.StringVar(&o.slackURLFile, "notify-slack-url-file", "", "file holding a Slack incoming-webhook URL")
 	fs.StringVar(&o.webhookURLFile, "notify-webhook-url-file", "", "file holding a generic webhook URL (JSON event, signed with X-Halo-Signature)")
@@ -217,6 +219,18 @@ func run(ctx context.Context, args []string) error {
 		}
 		killKey = sig.Key
 	}
+	var workloadKey ed25519.PrivateKey
+	if o.workloadKeyFile != "" {
+		b, err := os.ReadFile(o.workloadKeyFile)
+		if err != nil {
+			return fmt.Errorf("--workload-key-file: %w", err)
+		}
+		sig, err := bundle.ParseEd25519Signer(b)
+		if err != nil {
+			return fmt.Errorf("--workload-key-file: %w", err)
+		}
+		workloadKey = sig.Key
+	}
 	gwToken, err := readTrim(o.gatewayTokenFile)
 	if err != nil {
 		return fmt.Errorf("--gateway-token-file: %w", err)
@@ -235,6 +249,7 @@ func run(ctx context.Context, args []string) error {
 		SessionKey: []byte(sessionKey), OIDCClientSecret: clientSecret, Portal: portal, DataDir: o.dataDir, Writer: writer,
 		DeviceTTL: o.deviceTTL, DevUser: o.devUser, DevGroups: o.devGroups, DevAdmin: o.devAdmin, TrustedProxies: o.trusted,
 		KillStore: kills, KillKey: killKey, GatewayToken: gwToken, PostureMaxAge: o.postureMaxAge,
+		WorkloadKey: workloadKey,
 	})
 	if err != nil {
 		return err

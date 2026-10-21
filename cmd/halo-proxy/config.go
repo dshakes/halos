@@ -82,6 +82,11 @@ type IdentityConfig struct {
 	// AllowAnonymous lets callers that fail verification (e.g. opaque API keys
 	// meant for the next hop) through with default routing instead of 401.
 	AllowAnonymous bool `yaml:"allowAnonymous"`
+	// WorkloadPubkeyFile holds the PEM public key(s) of halo-server
+	// --workload-key-file; set it to accept CI / cloud workload credentials
+	// (ADR-0023). Not used in mode none.
+	WorkloadPubkeyFile string `yaml:"workloadPubkeyFile"`
+	workloadKeys       string // WorkloadPubkeyFile's content, read once by loadConfig
 }
 
 type ShadowConfig struct {
@@ -94,7 +99,7 @@ func (c Config) identityOptions() identity.Options {
 	i := c.Identity
 	return identity.Options{Mode: i.Mode, Issuer: i.Issuer, Audience: i.Audience, UserClaim: i.UserClaim,
 		GroupsClaim: i.GroupsClaim, IdentityHeader: i.IdentityHeader, GroupsHeader: i.GroupsHeader,
-		TrustedProxyCIDRs: i.TrustedProxyCIDRs}
+		TrustedProxyCIDRs: i.TrustedProxyCIDRs, WorkloadKeys: i.workloadKeys}
 }
 
 func defaults() Config {
@@ -167,6 +172,7 @@ func loadConfig(args []string, getenv func(string) string, usage io.Writer) (Con
 		return nil
 	})
 	fs.BoolVar(&cfg.Identity.AllowAnonymous, "allow-anonymous", cfg.Identity.AllowAnonymous, "unverified callers get default routing instead of 401")
+	fs.StringVar(&cfg.Identity.WorkloadPubkeyFile, "workload-pubkey-file", cfg.Identity.WorkloadPubkeyFile, "PEM public key(s) of halo-server --workload-key-file: accept CI/cloud workload credentials")
 	fs.StringVar(&cfg.Shadow.URL, "halo-shadow-url", cfg.Shadow.URL, "halo-shadow /mirror endpoint; empty disables mirroring")
 	fs.StringVar(&cfg.Shadow.Token, "halo-shadow-token", cfg.Shadow.Token, "halo-shadow token (prefer env HALO_PROXY_HALO_SHADOW_TOKEN)")
 	fs.StringVar(&cfg.KillSwitch.URL, "killswitch-url", cfg.KillSwitch.URL, "halo-server /api/v1/gateway/killswitch URL; empty disables")
@@ -208,6 +214,16 @@ func loadConfig(args []string, getenv func(string) string, usage io.Writer) (Con
 		if cfg.Telemetry.UnitSalt = strings.TrimSpace(string(b)); cfg.Telemetry.UnitSalt == "" {
 			return cfg, fmt.Errorf("halo-proxy: telemetry unit salt file %s is empty", saltFile)
 		}
+	}
+	if f := cfg.Identity.WorkloadPubkeyFile; f != "" {
+		b, err := os.ReadFile(f) //nolint:gosec // operator-supplied path is the point
+		if err != nil {
+			return cfg, fmt.Errorf("halo-proxy: identity.workloadPubkeyFile: %w", err)
+		}
+		if _, err := identity.ParseWorkloadKeys(string(b)); err != nil {
+			return cfg, fmt.Errorf("halo-proxy: identity.workloadPubkeyFile %s: %w", f, err)
+		}
+		cfg.Identity.workloadKeys = string(b)
 	}
 	return cfg, cfg.validate()
 }

@@ -25,6 +25,7 @@ halo
 
 | Command | Description |
 |---|---|
+| [`halo ci`](/halos/reference/cli/ci/) | Governed gateway credentials and config for headless CI / cloud agents |
 | [`halo controller`](/halos/reference/cli/controller/) | Automated experiment loop (evaluate, kill on rollback, PRs, notify) |
 | [`halo doctor`](/halos/reference/cli/doctor/) | Check this machine and the policy repo; print the exact fix for each problem |
 | [`halo eject`](/halos/reference/cli/eject/) | Write simple mode's generated Gateway, Profile and Rings out as files and drop the simple keys from halos.yaml |

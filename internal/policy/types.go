@@ -44,6 +44,10 @@ type Org struct {
 	// Rollouts are omitted when empty, like Toggles.
 	Rollouts []*Rollout `json:",omitempty"`
 
+	// Workloads federates CI / cloud workload identities (ADR-0023); omitted
+	// when unset, like Toggles.
+	Workloads *Workloads `json:",omitempty"`
+
 	// Deprecations are load-time warnings (one per file still on a deprecated
 	// apiVersion) that Validate reports. Not part of the snapshot.
 	Deprecations []Issue `json:"-"`
