@@ -26,6 +26,16 @@ var ErrNoCredentials = errors.New("identity: no credentials")
 // than once; adapters answer 400 rather than guess which value is real.
 var ErrAmbiguous = errors.New("identity: identity header sent more than once")
 
+// CheckHumanID refuses a human identity that carries the workload subject
+// prefix (any case): only a verified workload credential may produce one, so a
+// human can never take a workload's rules, budgets or audit trail.
+func CheckHumanID(id string) error {
+	if strings.HasPrefix(strings.ToLower(id), policy.WorkloadSubjectPrefix) {
+		return fmt.Errorf("identity: human subject %q must not start with %q (reserved for workloads)", id, policy.WorkloadSubjectPrefix)
+	}
+	return nil
+}
+
 // ClientCredentialHeaders are the headers a caller can use to present a
 // credential to the gateway. None is ever a gateway-to-provider credential.
 var ClientCredentialHeaders = []string{"Authorization", "X-Api-Key", "Api-Key", "X-Goog-Api-Key", "Proxy-Authorization"}
@@ -91,6 +101,9 @@ func (t *TrustedHeader) Verify(r *http.Request) (policy.Subject, error) {
 	id := strings.TrimSpace(r.Header.Get(t.IdentityHeader))
 	if id == "" {
 		return policy.Subject{}, ErrNoCredentials
+	}
+	if err := CheckHumanID(id); err != nil {
+		return policy.Subject{}, err
 	}
 	var groups []string
 	if t.GroupsHeader != "" {

@@ -17,6 +17,8 @@ import (
 	"unicode"
 
 	"github.com/dshakes/halos/internal/gateway"
+	"github.com/dshakes/halos/internal/identity"
+	"github.com/dshakes/halos/internal/policy"
 )
 
 // SCIM 2.0 service provider (RFC 7643/7644) at /scim/v2, ADR-0022. The IdP
@@ -504,6 +506,9 @@ func validUser(u SCIMUser) error {
 		if err := checkText(c[0], c[1], i == 0); err != nil {
 			return err
 		}
+	}
+	if identity.CheckHumanID(u.UserName) != nil {
+		return badValue("userName must not start with %q (reserved for workload identities)", policy.WorkloadSubjectPrefix)
 	}
 	return nil
 }

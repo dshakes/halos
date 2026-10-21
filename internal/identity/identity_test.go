@@ -137,6 +137,8 @@ func TestSubjectFromClaims(t *testing.T) {
 		{"other claim needs no verification", map[string]any{"sub": "00u1"}, Options{UserClaim: "sub"}, "00u1", ""},
 		{"missing claim", map[string]any{"email_verified": true}, Options{}, "", `no "email" claim`},
 		{"blank claim", map[string]any{"sub": "  "}, Options{UserClaim: "sub"}, "", `no "sub" claim`},
+		{"workload prefix", map[string]any{"sub": "workload:ci/deploy"}, Options{UserClaim: "sub"}, "", "reserved for workloads"},
+		{"workload prefix any case", map[string]any{"email": "Workload:x@y", "email_verified": true}, Options{}, "", "reserved for workloads"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -216,6 +218,7 @@ func TestTrustedHeader(t *testing.T) {
 		{"outside cidr", "203.0.113.9:1", "alice", true},
 		{"garbage remote", "nope", "alice", true},
 		{"no header", "10.1.2.3:1", "", true},
+		{"workload prefix", "10.1.2.3:1", "workload:ci/deploy", true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
