@@ -17,6 +17,7 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ### Changed
 - `halo eval online` intervals, the judge-score delta included, now resample sessions instead of pairs: steps of one session are correlated, and per-pair intervals were falsely narrow on multi-turn data. With one pair per session the result is identical to before.
+- `halo.eval.judge.score` analysis samples use unit = hashed session instead of pair id. Pairs from one session are correlated, so per-pair units made `halo exp analyze` intervals too narrow.
 - The judge now sees the head and the **tail** of long requests. It previously saw only the first 24 KiB, which on long agent sessions cut the latest tool results the graded step answers.
 
 ## [0.2.1] - 2026-10-11

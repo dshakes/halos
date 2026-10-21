@@ -174,8 +174,8 @@ func TestParseProtocols(t *testing.T) {
 		}
 	}
 	// Codex reference: the next request's new model items are production's action.
-	p0 := `{"model":"gpt","input":[{"type":"message","role":"user","content":"fix"}]}`
-	p1 := `{"model":"gpt","input":[{"type":"message","role":"user","content":"fix"},{"type":"function_call","name":"shell","arguments":"{\"command\":[\"ls\"]}"},{"type":"function_call_output","output":"a.go"}]}`
+	p0 := `{"model":"gpt","tools":[{"type":"function","name":"shell","parameters":{"required":["command"]}}],"input":[{"type":"message","role":"user","content":"fix"}]}`
+	p1 := `{"model":"gpt","tools":[{"type":"function","name":"shell","parameters":{"required":["command"]}}],"input":[{"type":"message","role":"user","content":"fix"},{"type":"function_call","name":"shell","arguments":"{\"command\":[\"ls\"]}"},{"type":"function_call_output","output":"a.go"}]}`
 	resp := `{"output":[{"type":"function_call","name":"shell","arguments":"{\"command\": [\"ls\"]}"}]}`
 	r := AnalyzeAgent([]shadow.Pair{
 		{ID: "a", SessionID: "c", Protocol: gateway.ProtoResponses, Request: json.RawMessage(p0), Control: okSide(json.RawMessage(resp)), Candidate: okSide(json.RawMessage(resp))},
@@ -211,7 +211,7 @@ func TestOnlineAgentExport(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := rs[0].Agent
-	if a == nil || a.Steps != 9 || a.Sessions != 3 || a.Referenced != 6 || len(a.PerSession) != 3 {
+	if a == nil || a.Steps != 9 || a.Sessions != 3 || a.Referenced != 6 || len(rs[0].AgentSteps) != 9 || len(rs[0].AgentPairIDs) != 9 {
 		t.Fatalf("agent %+v", a)
 	}
 	if a.Candidate.Fidelity.Mean != 5.0/6 || a.Control.Fidelity.Mean != 1 {
@@ -233,6 +233,88 @@ func TestOnlineAgentExport(t *testing.T) {
 	}
 	if strings.Contains(string(body), "raw-session") {
 		t.Fatal("raw session id exported")
+	}
+	// A rerun with the history skips graded pairs for the judge but still
+	// reads every step; nothing is exported twice.
+	o.Skip, o.AgentSkip = map[string]bool{}, map[string]bool{}
+	for _, id := range rs[0].PairIDs {
+		o.Skip[id] = true
+	}
+	for _, id := range rs[0].AgentPairIDs {
+		o.AgentSkip[id] = true
+	}
+	again, err := RunOnline(context.Background(), src, o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(again) != 0 {
+		t.Fatalf("rerun produced %d results, want none (nothing new)", len(again))
+	}
+	// A step without a recovered reference waits AgentQuiet for its next step.
+	o.Skip, o.AgentSkip = nil, nil
+	o.Now = func() time.Time { return time.Unix(0, 0).Add(time.Minute) }
+	for i := range src {
+		src[i].Time = time.Unix(0, 0)
+	}
+	fresh, err := RunOnline(context.Background(), src, o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len(fresh[0].AgentSteps); n != 6 {
+		t.Fatalf("fresh run exported %d steps, want the 6 referenced ones", n)
+	}
+}
+
+func TestAgentEdgeCases(t *testing.T) {
+	anth := func(id, sess string, req json.RawMessage, ctl, cand json.RawMessage) shadow.Pair {
+		return shadow.Pair{ID: id, SessionID: sess, Protocol: gateway.ProtoAnthropic, Request: req, Control: okSide(ctl), Candidate: okSide(cand)}
+	}
+	trunc := json.RawMessage(`{"content":[{"type":"text","text":"I will now"}],"stop_reason":"max_tokens"}`)
+	aux := json.RawMessage(`{"model":"sonnet","messages":[{"role":"user","content":"summarise this conversation"}]}`)
+	r := AnalyzeAgent([]shadow.Pair{
+		anth("a", "s", ccRequest(0), ccResp(bashTest), ccResp(bashTest)),
+		anth("b", "s", ccRequest(0), ccResp(bashTest), ccResp(bashTest)), // retry: same bytes
+		anth("c", "s", ccRequest(1), ccResp(editFix), trunc),             // truncated: excluded
+		anth("d", "s", aux, ccResp(done), ccResp(done)),                  // compaction: auxiliary
+	}, 1)
+	if r.Steps != 1 || r.Retries != 1 || r.Truncated != 1 || r.Auxiliary != 1 {
+		t.Fatalf("steps %d retries %d truncated %d aux %d, want 1 1 1 1", r.Steps, r.Retries, r.Truncated, r.Auxiliary)
+	}
+	// The truncated step still supplies step 0's reference.
+	if r.Referenced != 1 {
+		t.Fatalf("referenced %d, want 1", r.Referenced)
+	}
+
+	// Gemini MALFORMED_FUNCTION_CALL is an invalid call, not a stop.
+	g, ok := parseResponse(gateway.ProtoGemini, []byte(`{"candidates":[{"content":{"role":"model"},"finishReason":"MALFORMED_FUNCTION_CALL"}]}`))
+	if !ok || !g.Malformed || g.Stopped() {
+		t.Fatalf("malformed gemini: %+v", g)
+	}
+	if _, sch := (toolSpec{}).validity(g); !sch {
+		t.Fatal("malformed call not counted invalid")
+	}
+	if SameTools(g, Action{}) || !SameTools(g, g) {
+		t.Fatal("malformed agreement")
+	}
+
+	// Hosted tools: remote MCP and versioned web search are offered by type.
+	c, _ := parseRequest(gateway.ProtoResponses, []byte(`{"tools":[{"type":"mcp","server_label":"gh"},{"type":"web_search_preview"}],"input":"x"}`))
+	a, _ := parseResponse(gateway.ProtoResponses, []byte(`{"output":[{"type":"mcp_call","name":"create_issue","arguments":"{}"},{"type":"web_search_call","action":{"query":"q"}}]}`))
+	if inv, sch := c.tools.validity(a); inv || sch {
+		t.Fatalf("hosted calls flagged invalid=%v schema=%v: %+v", inv, sch, a)
+	}
+	if inv, _ := c.tools.validity(Action{Calls: []Call{{Name: "file_search"}}}); !inv {
+		t.Fatal("un-offered hosted tool accepted")
+	}
+
+	// Codex parallel calls: [fc A, out A, fc B, out B] is one step calling A and B.
+	par, ok := parseRequest(gateway.ProtoResponses, []byte(`{"parallel_tool_calls":true,"tools":[{"type":"function","name":"shell","parameters":{}}],"input":[
+		{"type":"message","role":"user","content":"x"},{"type":"reasoning"},
+		{"type":"function_call","name":"shell","arguments":"{\"command\":[\"ls\"]}"},{"type":"function_call_output","output":"a"},
+		{"type":"function_call","name":"shell","arguments":"{\"command\":[\"pwd\"]}"},{"type":"function_call_output","output":"b"},
+		{"type":"reasoning"},{"type":"function_call","name":"shell","arguments":"{\"command\":[\"cat\"]}"},{"type":"function_call_output","output":"c"}]}`))
+	if !ok || par.steps() != 2 || len(par.entries[1].action.Calls) != 2 {
+		t.Fatalf("parallel grouping: steps %d, first step %+v", par.steps(), par.entries)
 	}
 }
 

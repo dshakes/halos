@@ -165,7 +165,7 @@ func upstreamURL(g *policy.Gateway, name string) (policy.Upstream, bool) {
 // shadowTargets returns the candidates for a shadow experiment, or nil when
 // this request is not sampled. Sampling is keyed on the session so a whole
 // session is either mirrored or not; first-turn requests are eligible, and
-// with turns: all every step of the session is (ADR-0013).
+// with turns: all every step of the session is (ADR-0014).
 func shadowTargets(org *policy.Org, e *policy.Experiment, ring string, req RequestInfo) []ShadowTarget {
 	eligible := req.FirstTurn || (e.Turns == policy.ShadowTurnsAll && req.AnyTurn)
 	if e.Status != "running" || !slices.Contains(e.Rings, ring) || !eligible || req.SessionID == "" {

@@ -2,17 +2,19 @@ package eval
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/dshakes/halos/internal/gateway"
 	"github.com/dshakes/halos/internal/shadow"
 	"github.com/dshakes/halos/internal/stats"
 )
 
-// Step-level (teacher-forced) evaluation of agentic shadow pairs, ADR-0013.
+// Step-level (teacher-forced) evaluation of agentic shadow pairs, ADR-0014.
 //
 // A shadow pair at step N holds the real conversation prefix: the developer's
 // prompt, the actions production took and the real tool results (terminal
@@ -35,10 +37,17 @@ type Call struct {
 // the model ended its turn (answered or gave up).
 type Action struct {
 	Calls []Call `json:"calls,omitempty"`
+	// Malformed: the model tried to call a tool and produced something the
+	// API rejected (Gemini MALFORMED_FUNCTION_CALL, Converse malformed_tool_use).
+	// An invalid call, not a stop.
+	Malformed bool `json:"malformed,omitempty"`
+	// Truncated: the output token cap cut the step; it says nothing about the
+	// model's decision, so the step is excluded.
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 // Stopped: the step ended the agent's turn.
-func (a Action) Stopped() bool { return len(a.Calls) == 0 }
+func (a Action) Stopped() bool { return len(a.Calls) == 0 && !a.Malformed }
 
 func (a Action) names() []string {
 	n := make([]string, len(a.Calls))
@@ -49,11 +58,20 @@ func (a Action) names() []string {
 	return n
 }
 
-// SameTools: both stopped, or both called the same multiset of tools.
-func SameTools(a, b Action) bool { return slices.Equal(a.names(), b.names()) }
+// SameTools: both stopped, or both called the same multiset of tools. A
+// malformed step matches only another malformed step.
+func SameTools(a, b Action) bool {
+	if a.Malformed || b.Malformed {
+		return a.Malformed && b.Malformed
+	}
+	return slices.Equal(a.names(), b.names())
+}
 
 // SameCalls: SameTools with identical arguments (order-insensitive).
 func SameCalls(a, b Action) bool {
+	if a.Malformed || b.Malformed {
+		return a.Malformed && b.Malformed
+	}
 	key := func(x Action) []string {
 		k := make([]string, len(x.Calls))
 		for i, c := range x.Calls {
@@ -80,6 +98,19 @@ type entry struct {
 type conv struct {
 	entries []entry
 	tools   toolSpec
+}
+
+// prefixOf: c's history starts with every turn of p's.
+func (c conv) prefixOf(p conv) bool {
+	if len(c.entries) < len(p.entries) {
+		return false
+	}
+	for i, e := range p.entries {
+		if c.entries[i].model != e.model || c.entries[i].fp != e.fp {
+			return false
+		}
+	}
+	return true
 }
 
 // steps is how many model turns precede the request (0 = first turn).
@@ -200,11 +231,25 @@ func (it respItem) call() (Call, bool) {
 	case "custom_tool_call":
 		return Call{Name: it.Name, Input: argCanon(it.Input)}, true
 	case "mcp_call":
-		return Call{Name: it.Name, Input: argCanon(it.Arguments)}, true
+		// Remote MCP tools are offered as one {"type":"mcp"} entry; the prefix
+		// keeps distinct MCP tools distinct and lets validity match the entry.
+		return Call{Name: hostedMCP + it.Name, Input: argCanon(it.Arguments)}, true
 	case "local_shell_call", "computer_call", "web_search_call", "file_search_call":
 		return Call{Name: strings.TrimSuffix(it.Type, "_call"), Input: argCanon(it.Action)}, true
 	}
 	return Call{}, false
+}
+
+// hostedMCP prefixes calls to remote MCP tools the API runs itself.
+const hostedMCP = "mcp:"
+
+// hostedCalls maps a hosted call name to the tool types that offer it
+// (versioned types such as web_search_preview_2025_03_11 match by prefix).
+var hostedCalls = map[string][]string{
+	"web_search":  {"web_search"},
+	"file_search": {"file_search"},
+	"computer":    {"computer"},
+	"local_shell": {"local_shell"},
 }
 
 func itemsAction(items []respItem) Action {
@@ -223,6 +268,7 @@ func parseRequest(protocol string, body []byte) (conv, bool) {
 		Messages []json.RawMessage `json:"messages"`
 		Contents []json.RawMessage `json:"contents"`
 		Input    json.RawMessage   `json:"input"`
+		Parallel bool              `json:"parallel_tool_calls"`
 		Tools    []struct {
 			Type        string `json:"type"`
 			Name        string `json:"name"`
@@ -336,31 +382,49 @@ func parseRequest(protocol string, body []byte) (conv, bool) {
 		if json.Unmarshal(r.Input, &raws) != nil {
 			return conv{}, false
 		}
-		// Consecutive model-produced items are one step.
+		// Consecutive model-produced items are one step. With parallel tool
+		// calls, Codex stores each call's output right after it ([fc A, out A,
+		// fc B, out B]): an output followed directly by another call (no
+		// reasoning or message between, which a new model turn starts with)
+		// stays inside the step. ponytail: a non-reasoning model that calls
+		// sequentially looks the same; such steps merge (depth undercounts).
+		items := make([]respItem, len(raws))
+		for i, raw := range raws {
+			if json.Unmarshal(raw, &items[i]) != nil {
+				return conv{}, false
+			}
+		}
 		var group []respItem
 		var fp strings.Builder
+		var held []string // outputs inside an open parallel step
 		flush := func() {
 			if group != nil {
 				c.entries = append(c.entries, entry{model: true, action: itemsAction(group), fp: fp.String()})
 				group = nil
 				fp.Reset()
 			}
-		}
-		for _, raw := range raws {
-			var it respItem
-			if json.Unmarshal(raw, &it) != nil {
-				return conv{}, false
+			for _, h := range held {
+				c.entries = append(c.entries, entry{fp: h})
 			}
+			held = nil
+		}
+		for i, it := range items {
 			if it.model() {
 				if group == nil {
 					group = []respItem{}
 				}
 				group = append(group, it)
-				fp.WriteString(canon(raw))
+				fp.WriteString(canon(raws[i]))
 				continue
 			}
+			if r.Parallel && group != nil && strings.HasSuffix(it.Type, "_output") && i+1 < len(items) {
+				if _, isCall := items[i+1].call(); isCall {
+					held = append(held, canon(raws[i]))
+					continue
+				}
+			}
 			flush()
-			c.entries = append(c.entries, entry{fp: canon(raw)})
+			c.entries = append(c.entries, entry{fp: canon(raws[i])})
 		}
 		flush()
 	default:
@@ -373,11 +437,18 @@ func parseRequest(protocol string, body []byte) (conv, bool) {
 func parseResponse(protocol string, body []byte) (Action, bool) {
 	var r struct {
 		Content    []block         `json:"content"`
+		StopReason string          `json:"stop_reason"` // Anthropic
+		Stop       string          `json:"stopReason"`  // Bedrock Converse
 		Output     json.RawMessage `json:"output"`
+		Status     string          `json:"status"` // Responses
+		Incomplete *struct {
+			Reason string `json:"reason"`
+		} `json:"incomplete_details"`
 		Candidates []struct {
 			Content struct {
 				Parts []block `json:"parts"`
 			} `json:"content"`
+			FinishReason string `json:"finishReason"`
 		} `json:"candidates"`
 	}
 	if json.Unmarshal(body, &r) != nil {
@@ -386,7 +457,9 @@ func parseResponse(protocol string, body []byte) (Action, bool) {
 	switch protocol {
 	case gateway.ProtoAnthropic, gateway.ProtoBedrock:
 		if r.Content != nil {
-			return blocksAction(r.Content), true
+			a := blocksAction(r.Content)
+			a.Truncated = r.StopReason == "max_tokens"
+			return a, true
 		}
 		var cv struct {
 			Message *struct {
@@ -394,27 +467,56 @@ func parseResponse(protocol string, body []byte) (Action, bool) {
 			} `json:"message"`
 		}
 		if json.Unmarshal(r.Output, &cv) == nil && cv.Message != nil { // Bedrock Converse
-			return blocksAction(cv.Message.Content), true
+			a := blocksAction(cv.Message.Content)
+			a.Truncated = r.Stop == "max_tokens"
+			a.Malformed = strings.HasPrefix(r.Stop, "malformed_")
+			return a, true
 		}
 	case gateway.ProtoResponses:
 		var items []respItem
 		if json.Unmarshal(r.Output, &items) == nil && items != nil {
-			return itemsAction(items), true
+			a := itemsAction(items)
+			a.Truncated = r.Status == "incomplete" && r.Incomplete != nil && r.Incomplete.Reason == "max_output_tokens"
+			return a, true
 		}
 	case gateway.ProtoGemini:
 		if len(r.Candidates) > 0 {
-			return blocksAction(r.Candidates[0].Content.Parts), true
+			c := r.Candidates[0]
+			a := blocksAction(c.Content.Parts)
+			a.Truncated = c.FinishReason == "MAX_TOKENS"
+			a.Malformed = c.FinishReason == "MALFORMED_FUNCTION_CALL" || c.FinishReason == "UNEXPECTED_TOOL_CALL"
+			return a, true
 		}
 	}
 	return Action{}, false
 }
 
-// validity checks an action against the tools the request offered.
+// offers reports whether a hosted call (web search, MCP...) was offered.
+func (t toolSpec) offers(call string) bool {
+	if strings.HasPrefix(call, hostedMCP) {
+		_, ok := t["mcp"]
+		return ok
+	}
+	for _, typ := range hostedCalls[call] {
+		for k := range t {
+			if strings.HasPrefix(k, typ) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// validity checks an action against the tools the request offered. A
+// malformed step is an invalid call.
 func (t toolSpec) validity(a Action) (invalidTool, schemaError bool) {
+	schemaError = a.Malformed
 	for _, c := range a.Calls {
 		req, ok := t[c.Name]
 		if !ok {
-			invalidTool = true
+			if !t.offers(c.Name) {
+				invalidTool = true
+			}
 			continue
 		}
 		if req == nil {
@@ -470,12 +572,21 @@ type DepthBucket struct {
 	ToolAgreement float64 `json:"toolAgreement"`
 }
 
-// AgentResult is the step-level reading of one shadow experiment.
+// AgentResult is the step-level reading of one shadow experiment. Rates are
+// step-weighted (every step counts once); the exported analysis samples are
+// per session (see StepSample), a different estimand that weights sessions
+// equally.
 type AgentResult struct {
 	Steps    int `json:"steps"`    // pairs whose both actions parsed
 	Sessions int `json:"sessions"` // distinct sessions among them
 	// MultiTurn: steps past the first turn (turns: all).
 	MultiTurn int `json:"multiTurn"`
+	// Excluded, not steps: Auxiliary requests that offer no tools (compaction
+	// summaries, next-speaker checks: both arms just answer), Truncated steps
+	// (an arm hit its output cap), Retries (byte-identical resends of a step).
+	Auxiliary int `json:"auxiliary"`
+	Truncated int `json:"truncated"`
+	Retries   int `json:"retries"`
 	// ToolAgreement / ArgAgreement: candidate vs control replay, same prefix.
 	ToolAgreement Rate     `json:"toolAgreement"`
 	ArgAgreement  Rate     `json:"argAgreement"`
@@ -492,18 +603,22 @@ type AgentResult struct {
 	Diverged        float64       `json:"diverged"`
 	FirstDivergence float64       `json:"firstDivergence"`
 	ByDepth         []DepthBucket `json:"byDepth"`
-	// PerSession are the analysis samples the exporter sends (unit = session):
-	// steps of a session are correlated, so the session is the unit.
-	PerSession []SessionAgent `json:"-"`
+	// PerStep are the analysis samples the exporter may send, one per step.
+	PerStep []StepSample `json:"-"`
 }
 
-// SessionAgent is one session's per-arm reading. Fidelity is nil when none
-// of the session's steps had a recovered production action.
-type SessionAgent struct {
-	Session                     string
-	ControlFidelity             *float64
-	CandidateFidelity           *float64
-	ControlInvalid, CandInvalid float64 // share of steps with an invalid tool or arguments
+// StepSample is one step's per-arm reading. It is exported once (tracked by
+// pair id in the history) under unit = hashed session, so the per-unit mean
+// the analysis takes is a per-session mean over its steps, and a rerun never
+// re-weights a session.
+type StepSample struct {
+	PairID, Session string
+	Time            time.Time
+	// HasRef: production's action was recovered; the fidelity fields are set
+	// only then.
+	HasRef                      bool
+	ControlFidelity, CandFid    float64
+	ControlInvalid, CandInvalid float64 // 1 when the arm's call was invalid
 }
 
 type agentStep struct {
@@ -521,9 +636,9 @@ func cluster(p shadow.Pair) string {
 }
 
 // reference finds production's action at p's step: a later step of the same
-// session whose history extends p's by a model turn, with the same last
-// pre-step turn (subagent and compacted conversations share the session id
-// but not the prefix, and are skipped).
+// session whose history starts with all of p's turns followed by a model turn
+// (subagent and compacted conversations share the session id but not the
+// prefix, and are skipped).
 func reference(p agentStep, session []agentStep) *Action {
 	n := len(p.conv.entries)
 	if n == 0 {
@@ -533,7 +648,7 @@ func reference(p agentStep, session []agentStep) *Action {
 	for i := range session {
 		q := &session[i]
 		e := q.conv.entries
-		if len(e) <= n || !e[n].model || e[n-1].fp != p.conv.entries[n-1].fp || e[n-1].model != p.conv.entries[n-1].model {
+		if len(e) <= n || !e[n].model || !q.conv.prefixOf(p.conv) {
 			continue
 		}
 		if best == nil || len(e) < len(best.conv.entries) {
@@ -577,7 +692,9 @@ var depthBuckets = []struct {
 // AnalyzeAgent computes the step-level reading over pairs whose both sides
 // answered. It returns nil when no pair's actions could be parsed.
 func AnalyzeAgent(pairs []shadow.Pair, seed uint64) *AgentResult {
-	var steps []agentStep
+	r := &AgentResult{}
+	var sources []agentStep // every parsed step: reference candidates
+	seen := map[string]bool{}
 	for _, p := range pairs {
 		if !usable(p.Control) || !usable(p.Candidate) {
 			continue
@@ -586,47 +703,66 @@ func AnalyzeAgent(pairs []shadow.Pair, seed uint64) *AgentResult {
 		if !ok {
 			continue
 		}
+		if len(c.tools) == 0 {
+			r.Auxiliary++
+			continue
+		}
 		ca, ok1 := parseResponse(p.Protocol, p.Control.Response)
 		ta, ok2 := parseResponse(p.Protocol, p.Candidate.Response)
 		if !ok1 || !ok2 {
 			continue
 		}
-		steps = append(steps, agentStep{pair: p, conv: c, ctl: ca, cand: ta})
+		h := sha256.Sum256(p.Request)
+		if key := cluster(p) + "\x00" + string(h[:]); seen[key] {
+			r.Retries++
+			continue
+		} else {
+			seen[key] = true
+		}
+		sources = append(sources, agentStep{pair: p, conv: c, ctl: ca, cand: ta})
+	}
+	// Deterministic order: session, then depth, then id.
+	sort.SliceStable(sources, func(i, j int) bool {
+		ci, cj := cluster(sources[i].pair), cluster(sources[j].pair)
+		if ci != cj {
+			return ci < cj
+		}
+		if a, b := sources[i].conv.steps(), sources[j].conv.steps(); a != b {
+			return a < b
+		}
+		return sources[i].pair.ID < sources[j].pair.ID
+	})
+	bySession := map[string][]agentStep{}
+	for _, s := range sources {
+		bySession[cluster(s.pair)] = append(bySession[cluster(s.pair)], s)
+	}
+	var steps []agentStep
+	for _, s := range sources {
+		if s.ctl.Truncated || s.cand.Truncated {
+			r.Truncated++
+			continue
+		}
+		s.ref = reference(s, bySession[cluster(s.pair)])
+		steps = append(steps, s)
 	}
 	if len(steps) == 0 {
 		return nil
 	}
-	// Deterministic order: session, then depth.
-	sort.SliceStable(steps, func(i, j int) bool {
-		ci, cj := cluster(steps[i].pair), cluster(steps[j].pair)
-		if ci != cj {
-			return ci < cj
-		}
-		if a, b := steps[i].conv.steps(), steps[j].conv.steps(); a != b {
-			return a < b
-		}
-		return steps[i].pair.ID < steps[j].pair.ID
-	})
-	bySession := map[string][]agentStep{}
-	for _, s := range steps {
-		bySession[cluster(s.pair)] = append(bySession[cluster(s.pair)], s)
-	}
-	for i := range steps {
-		steps[i].ref = reference(steps[i], bySession[cluster(steps[i].pair)])
-	}
-
-	r := &AgentResult{Steps: len(steps), Sessions: len(bySession)}
+	sessions := map[string]bool{}
+	r.Steps = len(steps)
 	var tool, arg []float64
 	var cls []string
 	var refCl []string
 	var ctlFid, candFid []float64
-	var ctlArm, candArm [6]float64 // calls, invalid, schema, premature, continued
+	// Per arm: [0] steps calling a tool, [1] invalid tool, [2] schema error,
+	// [3] premature stops, [5] invalid call (tool or schema); ctlArm[4]
+	// counts referenced steps where production kept working.
+	var ctlArm, candArm [6]float64
 	firstDiv := map[string]int{}
-	type acc struct{ n, refs, cf, tf, ci, ti float64 }
-	per := map[string]*acc{}
 	depth := make([][2]float64, len(depthBuckets))
 	for _, s := range steps {
 		id := cluster(s.pair)
+		sessions[id] = true
 		d := s.conv.steps()
 		if d > 0 {
 			r.MultiTurn++
@@ -645,23 +781,18 @@ func AnalyzeAgent(pairs []shadow.Pair, seed uint64) *AgentResult {
 				depth[i][1] += b2f(agree)
 			}
 		}
-		ps := per[id]
-		if ps == nil {
-			ps = &acc{}
-			per[id] = ps
-		}
-		ps.n++
+		ss := StepSample{PairID: s.pair.ID, Session: id, Time: s.pair.Time}
 		for i, arm := range []struct {
 			a   Action
 			acc *[6]float64
 		}{{s.ctl, &ctlArm}, {s.cand, &candArm}} {
 			inv, sch := s.conv.tools.validity(arm.a)
-			if bad := b2f(inv || sch); i == 0 {
-				ps.ci += bad
+			if i == 0 {
+				ss.ControlInvalid = b2f(inv || sch)
 			} else {
-				ps.ti += bad
+				ss.CandInvalid = b2f(inv || sch)
 			}
-			arm.acc[0] += b2f(!arm.a.Stopped())
+			arm.acc[0] += b2f(len(arm.a.Calls) > 0)
 			arm.acc[1] += b2f(inv)
 			arm.acc[2] += b2f(sch)
 			arm.acc[5] += b2f(inv || sch)
@@ -674,12 +805,14 @@ func AnalyzeAgent(pairs []shadow.Pair, seed uint64) *AgentResult {
 			refCl = append(refCl, id)
 			cf, tf := b2f(SameTools(s.ctl, *s.ref)), b2f(SameTools(s.cand, *s.ref))
 			ctlFid, candFid = append(ctlFid, cf), append(candFid, tf)
-			ps.refs, ps.cf, ps.tf = ps.refs+1, ps.cf+cf, ps.tf+tf
+			ss.HasRef, ss.ControlFidelity, ss.CandFid = true, cf, tf
 			if !s.ref.Stopped() {
 				ctlArm[4]++
 			}
 		}
+		r.PerStep = append(r.PerStep, ss)
 	}
+	r.Sessions = len(sessions)
 	r.ToolAgreement, r.ArgAgreement = rate(tool, cls, seed), rate(arg, cls, seed)
 	n := float64(len(steps))
 	arm := func(a [6]float64, fid []float64) AgentArm {
@@ -696,24 +829,10 @@ func AnalyzeAgent(pairs []shadow.Pair, seed uint64) *AgentResult {
 		}
 	}
 	if len(firstDiv) > 0 {
-		r.Diverged = float64(len(firstDiv)) / float64(len(bySession))
+		r.Diverged = float64(len(firstDiv)) / float64(len(sessions))
 		for _, d := range firstDiv {
 			r.FirstDivergence += float64(d) / float64(len(firstDiv))
 		}
-	}
-	ids := make([]string, 0, len(per))
-	for id := range per {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	for _, id := range ids {
-		a := per[id]
-		sa := SessionAgent{Session: id, ControlInvalid: a.ci / a.n, CandInvalid: a.ti / a.n}
-		if a.refs > 0 {
-			cf, tf := a.cf/a.refs, a.tf/a.refs
-			sa.ControlFidelity, sa.CandidateFidelity = &cf, &tf
-		}
-		r.PerSession = append(r.PerSession, sa)
 	}
 	for i, bk := range depthBuckets {
 		if depth[i][0] > 0 {

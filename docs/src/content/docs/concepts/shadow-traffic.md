@@ -84,6 +84,12 @@ metrics:
 
 A breach opens a pause or rollback PR. Shadow evidence never promotes: it measures decisions, not outcomes.
 
+**What is not a step.** Requests that offer no tools, such as compaction summaries, are not steps. Neither are steps where an arm hit its output cap, or byte-identical retries. Each of these is counted separately in the result. A malformed call (Gemini `MALFORMED_FUNCTION_CALL`, Converse `malformed_tool_use`) counts as an invalid call, not a stop.
+
+**Two numbers, two estimands.** The printed rates weight every step equally. The exported samples are per session, and `halo exp analyze` compares per-session means, which weights sessions equally. Each step's samples are exported once: the history file records them. A step whose next step has not arrived yet waits an hour before it is exported without fidelity.
+
+**Trust.** Production's action is read from the history the developer's CLI sends with the next step, so it is client-supplied. A developer in the rings could fabricate it for their own sessions. That moves one sample per fabricated session, and eval evidence only opens PRs that a human merges ([ADR-0014](/halos/adr/0014-step-level-multi-turn-shadow/#trust-model-of-the-reference)).
+
 ## Running halo-shadow
 
 ```bash

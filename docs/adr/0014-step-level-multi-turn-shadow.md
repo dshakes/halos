@@ -45,9 +45,36 @@ A shadow experiment sets `turns: all`. The default `first` keeps ADR-0004 behavi
   - **Premature-stop rate**: the arm ended its turn where production kept working.
   - **Divergence**: share of sessions, and mean first step.
   - Agreement **by depth**, for steps 0, 1-4, 5-19 and 20+.
-- **Statistics.** Steps of one session are correlated, so every interval is a **session-clustered bootstrap** (`stats.ClusterBootstrapMean`, `stats.PairedClusterBootstrap`). This includes the judge-score delta, which previously assumed independent pairs. With one pair per session the cluster bootstrap is identical to the old pair bootstrap, a property the tests check, so first-turn readings are unchanged. Exported analysis samples (`halo.eval.agent.fidelity`, `halo.eval.agent.invalid_call_rate`) are one per **session** and arm. Their `halo.unit` is a hash of the session id, so `halo exp analyze`'s per-unit tests stay valid and raw session ids never leave the eval host.
+- **Statistics.** Steps of one session are correlated, so every interval is a **session-clustered bootstrap** (`stats.ClusterBootstrapMean`, `stats.PairedClusterBootstrap`). This includes the judge-score delta, which previously assumed independent pairs. With one pair per session the cluster bootstrap reproduces the old pair bootstrap exactly, a property the tests check. Exported analysis samples (`halo.eval.agent.fidelity`, `halo.eval.agent.invalid_call_rate`) are one per **session** and arm. Their `halo.unit` is a hash of the session id, so `halo exp analyze`'s per-unit tests stay valid and raw session ids never leave the eval host.
 - **Judge.** The judge sees the head of the request (system prompt and task) and its **tail** (the latest tool results). Before this change it saw only the first 24 KiB, which on a long session cut exactly the state being answered.
 - **Promotion.** Unchanged. Step-level evidence measures decisions, not outcomes. It can pause or roll back an experiment through the registered `halo.eval.agent.*` guardrails, and it never promotes. Promotion still needs gateway canary evidence (invariant 5; `TestShadowEvidenceNeverPromotes`).
+
+### Measurement rules (from review)
+
+- **Excluded steps.** These are not counted as steps:
+  - requests that offer **no tools**, such as compaction summaries and Gemini CLI's next-speaker checks, where both arms just answer and would inflate agreement;
+  - steps where either arm hit its **output cap** (`max_tokens`, `MAX_TOKENS`, `incomplete: max_output_tokens`), because a cut step says nothing about the decision;
+  - **byte-identical retries** of a step.
+
+  Each is counted separately. A truncated step still supplies the reference for the step before it.
+- **Malformed calls.** Gemini `MALFORMED_FUNCTION_CALL` / `UNEXPECTED_TOOL_CALL` and Converse `malformed_*` count as **invalid calls**, not stops.
+- **Hosted tools.** Calls to tools the API itself runs (remote MCP, web or file search, computer use, local shell) are valid when their tool **type** is offered, including versioned types such as `web_search_preview`.
+- **Codex parallel calls.** Codex stores each parallel call's output right after it: `[call A, output A, call B, output B]`. An output followed directly by another call, with no reasoning item or message between them, stays inside the step. A non-reasoning model calling sequentially looks identical; its steps merge and depth undercounts.
+- **References.** A later step is used as the reference only when its history begins with **every** turn of this step's request, plus one model turn.
+- **Two estimands.** The printed rates are **step-weighted**. The exported analysis samples are one point per step and arm under unit = hashed session, so `halo exp analyze` compares **per-session means** and weights sessions equally. That is the right unit for a test whose samples must be independent.
+- **Export exactly once.** The history file records which steps' agent samples were exported (`agentPairIds`), and a rerun never re-exports or re-weights a session. A step with no recovered reference waits `AgentQuiet` (default 1 h) for its next step before it is exported without fidelity. Judge-graded pairs are skipped by the judge only; the step-level reading always sees every step, since references need the whole session.
+- **Judge unit.** `halo.eval.judge.score` now uses unit = hashed session as well. Pairs from one session were previously separate units, which made analysis intervals too narrow on multi-turn data.
+- **Cluster bootstrap claim.** The bootstrap reproduces the old pair bootstrap only when every session contributes one pair. With several pairs per session, including several first-turn pairs, the intervals correctly widen.
+
+### Trust model of the reference
+
+The production action is read from **client-supplied history**: the next request a developer's CLI sends. Any authenticated developer in the experiment's rings could send a session with fabricated assistant turns and move that session's fidelity reading. Mitigations:
+
+- each session is one analysis unit, so a forger moves one sample per session they fabricate;
+- eval evidence opens pause or rollback **PRs only**, which a human merges, and never trips the kill switch (only gateway evidence does);
+- shadow evidence never promotes.
+
+A signed reference is the upgrade path: the gateway would hash the primary response's action and attach it to the next step's mirror job. It is not built, and this ADR records the gap.
 
 ### Consequences
 
@@ -69,4 +96,7 @@ A shadow experiment sets `turns: all`. The default `first` keeps ADR-0004 behavi
 | Session-clustered bootstrap for every interval, judge delta included | `internal/stats/bootstrap.go`; `internal/eval/online.go` | `stats_test.go` `TestClusterBootstrapMean` | Done |
 | Per-session analysis samples, hashed unit; registered guardrail metrics | `online.go` `Export`, `SessionUnit`; `internal/policy/metrics.go`; `internal/promote/source.go` `evalMean` | `TestOnlineAgentExport` | Done |
 | Judge sees the tail of long requests | `online.go` `clip` | `TestClipKeepsTail` | Done |
+| Exclusions (no tools, truncated, retries); malformed = invalid; hosted tools; Codex parallel calls | `agentic.go` `AnalyzeAgent`, `parseResponse`, `toolSpec.offers`, `parseRequest` | `TestAgentEdgeCases` | Done |
+| Agent samples exported once per step (history), quiet window; judge unit = session | `online.go` `RunOnline`, `HistoryIDs`, `Export` | `TestOnlineAgentExport`, `TestOnlineHistoryAndOTLP` | Done |
+| Signed production reference | not built (see trust model) | | Gap, documented |
 | Never promote on shadow evidence | `internal/promote/promote.go` | `promote_test.go` `TestShadowEvidenceNeverPromotes` | Done (unchanged) |

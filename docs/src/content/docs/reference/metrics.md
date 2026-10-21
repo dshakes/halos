@@ -16,7 +16,7 @@ The collector (generate its config with `halo telemetry collector-config`) maps 
 | `halo.latency.p95_ms` | ms | gateway, else CLI | 95th percentile, same basis |
 | `halo.session.duration_s` | s | none yet | Not derived |
 | `halo.tool.error_rate` | ratio | CLI | Failed / total tool calls |
-| `halo.eval.judge.score` | ratio | eval (`halo eval online` on `halo-shadow` pairs) | Mean judge score of one shadow pair's response for that arm (unit = pair) |
+| `halo.eval.judge.score` | ratio | eval (`halo eval online` on `halo-shadow` pairs) | Mean judge score of one session's graded shadow pairs for that arm (unit = hashed session) |
 | `halo.eval.agent.fidelity` | ratio | eval (`halo eval online`, shadow `turns: all`) | Mean step fidelity (next action matches production's) over one session's referenced steps for that arm (unit = hashed session); higher is better ([ADR-0014](/halos/adr/0014-step-level-multi-turn-shadow/)) |
 | `halo.eval.agent.invalid_call_rate` | ratio | eval (`halo eval online`) | Share of one session's steps where the arm called a tool the request did not offer or omitted a required argument (unit = hashed session); lower is better |
 

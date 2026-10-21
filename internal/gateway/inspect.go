@@ -141,14 +141,14 @@ func inspect(protocol, path string, body []byte) (model string, firstTurn, parse
 	}
 	switch protocol {
 	case ProtoAnthropic, ProtoBedrock:
-		return model, firstTurnOf(b.Messages), true
+		return model, firstTurnOf(b.Messages), len(b.Messages) > 0
 	case ProtoGemini:
 		for i := range b.Contents {
 			if b.Contents[i].Role == "model" || b.Contents[i].Role == "function" { // gemini's assistant/tool turns
 				b.Contents[i].Role = "assistant"
 			}
 		}
-		return model, firstTurnOf(b.Contents), true
+		return model, firstTurnOf(b.Contents), len(b.Contents) > 0
 	case ProtoResponses:
 		if b.PreviousRespID != "" {
 			// History lives server-side: a replay would not carry the prefix.
@@ -162,7 +162,7 @@ func inspect(protocol, path string, body []byte) (model string, firstTurn, parse
 		if json.Unmarshal(b.Input, &items) != nil {
 			return model, false, false
 		}
-		return model, firstTurnOf(items), true
+		return model, firstTurnOf(items), len(items) > 0
 	}
 	return model, false, false
 }

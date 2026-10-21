@@ -73,19 +73,30 @@ type OnlineOptions struct {
 	Seed   uint64
 	// Experiment limits grading to one experiment ("" = all).
 	Experiment string
-	// Skip holds pair ids already graded (from the history file).
+	// Skip holds pair ids already graded (from the history file). It limits
+	// the judge only: the step-level reading needs every step of a session.
 	Skip map[string]bool
-	Now  func() time.Time
+	// AgentSkip holds step pair ids whose agent samples were already exported.
+	AgentSkip map[string]bool
+	// AgentQuiet: a step with no recovered production action is exported only
+	// once it is this old (its next step may still arrive). Default
+	// DefaultAgentQuiet.
+	AgentQuiet time.Duration
+	Now        func() time.Time
 	// ControlNames maps experiment -> its control variant name (from policy).
 	// halo-shadow does not label the control side, and analysis matches arms by
 	// the experiment's variant names; default "control".
 	ControlNames map[string]string
 }
 
-// PairScore is one pair's judge scores; each is one analysis sample
-// (unit = pair) of halo.eval.judge.score for its arm.
+// DefaultAgentQuiet is OnlineOptions.AgentQuiet's default.
+const DefaultAgentQuiet = time.Hour
+
+// PairScore is one pair's judge scores; each is one analysis sample of
+// halo.eval.judge.score for its arm, under unit = hashed session (pairs of
+// one session are correlated; the analysis takes the per-session mean).
 type PairScore struct {
-	ID                 string
+	ID, Session        string
 	Control, Candidate float64
 }
 
@@ -112,10 +123,15 @@ type OnlineResult struct {
 	// included (they are the point): the refusal, latency and cost regressions
 	// ADR-0004 says shadow catches beside quality.
 	Ops OpsResult `json:"ops"`
-	// Agent is the step-level reading (ADR-0013): next-action agreement,
+	// Agent is the step-level reading (ADR-0014): next-action agreement,
 	// fidelity to production's action, tool-call validity. Nil when no pair's
 	// actions parsed.
 	Agent *AgentResult `json:"agent,omitempty"`
+	// AgentPairIDs are the steps whose agent samples this run exports (each
+	// step exactly once across runs: the history records them).
+	AgentPairIDs []string `json:"agentPairIds,omitempty"`
+	// AgentSteps are those samples (not kept in history).
+	AgentSteps []StepSample `json:"-"`
 }
 
 // OpsResult is one experiment's per-arm operational reading.
@@ -188,39 +204,73 @@ func RunOnline(ctx context.Context, src PairSource, o OnlineOptions) ([]OnlineRe
 	if err != nil {
 		return nil, fmt.Errorf("online eval: %w", err)
 	}
-	byExp := map[string][]shadow.Pair{} // judged: both sides usable
-	all := map[string][]shadow.Pair{}   // operational: every eligible pair
+	now := time.Now
+	if o.Now != nil {
+		now = o.Now
+	}
+	quiet := o.AgentQuiet
+	if quiet <= 0 {
+		quiet = DefaultAgentQuiet
+	}
+	byExp := map[string][]shadow.Pair{}     // judged: both sides usable, not yet graded
+	usableAll := map[string][]shadow.Pair{} // step-level: every usable pair, graded or not
+	all := map[string][]shadow.Pair{}       // operational: every eligible pair not yet graded
 	for _, p := range pairs {
-		if (o.Experiment != "" && p.Experiment != o.Experiment) || o.Skip[p.ID] {
+		if o.Experiment != "" && p.Experiment != o.Experiment {
+			continue
+		}
+		ok := usable(p.Control) && usable(p.Candidate)
+		if ok {
+			usableAll[p.Experiment] = append(usableAll[p.Experiment], p)
+		}
+		if o.Skip[p.ID] {
 			continue
 		}
 		all[p.Experiment] = append(all[p.Experiment], p)
-		if usable(p.Control) && usable(p.Candidate) {
+		if ok {
 			byExp[p.Experiment] = append(byExp[p.Experiment], p)
 		}
 	}
-	exps := make([]string, 0, len(byExp))
-	for e := range byExp {
+	exps := make([]string, 0, len(usableAll))
+	for e := range usableAll {
 		exps = append(exps, e)
 	}
 	sort.Strings(exps)
 	var out []OnlineResult
 	for _, e := range exps {
+		agent := AnalyzeAgent(usableAll[e], o.Seed) // no judge cost
+		var steps []StepSample
+		var stepIDs []string
+		if agent != nil {
+			for _, st := range agent.PerStep {
+				if o.AgentSkip[st.PairID] || (!st.HasRef && now().Sub(st.Time) < quiet) {
+					continue
+				}
+				steps, stepIDs = append(steps, st), append(stepIDs, st.PairID)
+			}
+		}
 		ps := byExp[e]
+		if len(ps) == 0 && len(steps) == 0 {
+			continue // nothing new to grade or export
+		}
 		var ctl, cand []shadow.Side
 		for _, p := range all[e] {
 			ctl, cand = append(ctl, p.Control), append(cand, p.Candidate)
 		}
-		ops := OpsResult{Pairs: len(ctl), Control: armStats(ctl), Candidate: armStats(cand)}
-		agent := AnalyzeAgent(byExp[e], o.Seed) // every usable pair: no judge cost
+		var ops OpsResult
+		if len(ctl) > 0 {
+			ops = OpsResult{Pairs: len(ctl), Control: armStats(ctl), Candidate: armStats(cand)}
+		}
 		sort.Slice(ps, func(i, j int) bool { return ps[i].ID < ps[j].ID })
 		rng := rand.New(rand.NewPCG(o.Seed, o.Seed^0x9e3779b97f4a7c15)) //nolint:gosec // reproducible sampling, not security
 		rng.Shuffle(len(ps), func(i, j int) { ps[i], ps[j] = ps[j], ps[i] })
 		if o.Sample > 0 && len(ps) > o.Sample {
 			ps = ps[:o.Sample]
 		}
+		first := usableAll[e][0]
 		r := OnlineResult{Experiment: e, Rubric: o.Rubric.Ref(), JudgeModel: o.Judge.Model, Pairs: len(byExp[e]), Ops: ops,
-			ControlVariant: or(ps[0].Control.Target.Variant, or(o.ControlNames[e], "control")), CandidateVariant: or(ps[0].Candidate.Target.Variant, "candidate"), Agent: agent}
+			ControlVariant: or(first.Control.Target.Variant, or(o.ControlNames[e], "control")), CandidateVariant: or(first.Candidate.Target.Variant, "candidate"),
+			Agent: agent, AgentPairIDs: stepIDs, AgentSteps: steps}
 		var cs, ts []float64
 		var sessions []string
 		wins := 0.0
@@ -237,7 +287,7 @@ func RunOnline(ctx context.Context, src PairSource, o OnlineOptions) ([]OnlineRe
 			}
 			cs, ts = append(cs, cv.Score), append(ts, tv.Score)
 			sessions = append(sessions, cluster(p))
-			r.Scores = append(r.Scores, PairScore{ID: p.ID, Control: cv.Score, Candidate: tv.Score})
+			r.Scores = append(r.Scores, PairScore{ID: p.ID, Session: cluster(p), Control: cv.Score, Candidate: tv.Score})
 			switch {
 			case tv.Score > cv.Score:
 				wins++
@@ -308,13 +358,20 @@ func AppendHistory(path string, entries ...HistoryEntry) error {
 // GradedPairs returns the pair ids already recorded in the history file
 // (missing file = none).
 func GradedPairs(path string) (map[string]bool, error) {
-	out := map[string]bool{}
+	graded, _, err := HistoryIDs(path)
+	return graded, err
+}
+
+// HistoryIDs returns the pair ids already judged and the step ids whose agent
+// samples were already exported (missing file = none).
+func HistoryIDs(path string) (graded, agent map[string]bool, err error) {
+	graded, agent = map[string]bool{}, map[string]bool{}
 	b, err := os.ReadFile(path) //nolint:gosec // operator-chosen history file
 	if errors.Is(err, os.ErrNotExist) {
-		return out, nil
+		return graded, agent, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("history: %w", err)
+		return nil, nil, fmt.Errorf("history: %w", err)
 	}
 	for n, l := range bytes.Split(b, []byte("\n")) {
 		if len(bytes.TrimSpace(l)) == 0 {
@@ -322,15 +379,18 @@ func GradedPairs(path string) (map[string]bool, error) {
 		}
 		var e HistoryEntry
 		if err := json.Unmarshal(l, &e); err != nil {
-			return nil, fmt.Errorf("history %s line %d: %w", path, n+1, err)
+			return nil, nil, fmt.Errorf("history %s line %d: %w", path, n+1, err)
 		}
 		if e.Online != nil {
 			for _, id := range e.Online.PairIDs {
-				out[id] = true
+				graded[id] = true
+			}
+			for _, id := range e.Online.AgentPairIDs {
+				agent[id] = true
 			}
 		}
 	}
-	return out, nil
+	return graded, agent, nil
 }
 
 // OTLPExporter posts halo.eval.* metrics to an OTel collector over OTLP/HTTP
@@ -401,28 +461,30 @@ func (x *OTLPExporter) Export(ctx context.Context, rs []OnlineResult, start, now
 			attrs := kvs(append(base, "halo.variant", arm.v)...)
 			erate, lat, otok = append(erate, gauge(arm.s.ErrorRate, attrs)), append(lat, gauge(arm.s.LatencyMS, attrs)), append(otok, gauge(arm.s.OutputTokens, attrs))
 		}
-		// One judge.score point per pair and arm, unit = pair: what analyze
-		// samples (promote reads halo.source=eval rows per (variant, unit)).
+		// One judge.score point per pair and arm, unit = hashed session:
+		// promote takes the per-unit mean over halo.source=eval rows, so a
+		// session's correlated steps form one analysis sample.
 		for _, ps := range r.Scores {
+			u := SessionUnit(or(ps.Session, "pair:"+ps.ID))
 			score = append(score,
-				gauge(ps.Control, kvs(append(base, "halo.variant", r.ControlVariant, "halo.unit", ps.ID)...)),
-				gauge(ps.Candidate, kvs(append(base, "halo.variant", r.CandidateVariant, "halo.unit", ps.ID)...)))
+				gauge(ps.Control, kvs(append(base, "halo.variant", r.ControlVariant, "halo.unit", u)...)),
+				gauge(ps.Candidate, kvs(append(base, "halo.variant", r.CandidateVariant, "halo.unit", u)...)))
 		}
-		if a := r.Agent; a != nil {
-			for _, ss := range a.PerSession {
-				u := SessionUnit(ss.Session)
-				for _, arm := range []struct {
-					v   string
-					f   *float64
-					bad float64
-				}{{r.ControlVariant, ss.ControlFidelity, ss.ControlInvalid}, {r.CandidateVariant, ss.CandidateFidelity, ss.CandInvalid}} {
-					attrs := kvs(append(base, "halo.variant", arm.v, "halo.unit", u)...)
-					inval = append(inval, gauge(arm.bad, attrs))
-					if arm.f != nil {
-						fid = append(fid, gauge(*arm.f, attrs))
-					}
+		// Agent samples: one point per new step and arm, unit = hashed session.
+		for _, st := range r.AgentSteps {
+			u := SessionUnit(st.Session)
+			for _, arm := range []struct {
+				v      string
+				f, bad float64
+			}{{r.ControlVariant, st.ControlFidelity, st.ControlInvalid}, {r.CandidateVariant, st.CandFid, st.CandInvalid}} {
+				attrs := kvs(append(base, "halo.variant", arm.v, "halo.unit", u)...)
+				inval = append(inval, gauge(arm.bad, attrs))
+				if st.HasRef {
+					fid = append(fid, gauge(arm.f, attrs))
 				}
 			}
+		}
+		if a := r.Agent; a != nil {
 			agree = append(agree, gauge(a.ToolAgreement.Mean, kvs(append(base, "halo.variant", r.CandidateVariant)...)))
 			stop = append(stop, gauge(a.Control.PrematureStopRate, kvs(append(base, "halo.variant", r.ControlVariant)...)),
 				gauge(a.Candidate.PrematureStopRate, kvs(append(base, "halo.variant", r.CandidateVariant)...)))

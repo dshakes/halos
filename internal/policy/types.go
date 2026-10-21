@@ -397,7 +397,7 @@ type Experiment struct {
 	SampleRate float64 `yaml:"sampleRate,omitempty" json:"sampleRate,omitempty"`
 	// Shadow only: which turns of a sampled session are mirrored. "first"
 	// (default) mirrors the opening request; "all" mirrors every step of the
-	// session, each replayed on the real prefix (ADR-0013).
+	// session, each replayed on the real prefix (ADR-0014).
 	Turns    string   `yaml:"turns,omitempty" json:"turns,omitempty"`
 	Metrics  Metrics  `yaml:"metrics" json:"metrics"`
 	Stopping Stopping `yaml:"stopping" json:"stopping"`

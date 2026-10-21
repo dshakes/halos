@@ -118,9 +118,9 @@ func (a *app) cmdEvalOnline() *cobra.Command {
 				}
 				keys = append(keys, k)
 			}
-			skip := map[string]bool{}
+			skip, agentSkip := map[string]bool{}, map[string]bool{}
 			if history != "" {
-				if skip, err = eval.GradedPairs(history); err != nil {
+				if skip, agentSkip, err = eval.HistoryIDs(history); err != nil {
 					return err
 				}
 			}
@@ -140,7 +140,7 @@ func (a *app) cmdEvalOnline() *cobra.Command {
 			}
 			start := time.Now()
 			rs, err := eval.RunOnline(cmd.Context(), eval.FilePairs{Path: pairs, Keys: keys}, eval.OnlineOptions{
-				Judge: j, Rubric: r, Sample: sample, Seed: seed, Experiment: experiment, Skip: skip, ControlNames: controls,
+				Judge: j, Rubric: r, Sample: sample, Seed: seed, Experiment: experiment, Skip: skip, AgentSkip: agentSkip, ControlNames: controls,
 			})
 			if err != nil {
 				return err

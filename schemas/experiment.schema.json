@@ -131,7 +131,7 @@
         "all"
       ],
       "default": "first",
-      "description": "Shadow only: which turns of a sampled session are mirrored. first mirrors the opening request; all mirrors every step, each replayed on the real conversation prefix (ADR-0013)."
+      "description": "Shadow only: which turns of a sampled session are mirrored. first mirrors the opening request; all mirrors every step, each replayed on the real conversation prefix (ADR-0014)."
     },
     "metrics": {
       "type": "object",
