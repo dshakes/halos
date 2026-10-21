@@ -35,6 +35,10 @@ type RequestInfo struct {
 	// Workload: the verified caller is a CI / cloud workload (ADR-0023). It
 	// gets no experiment or shadow unless policy workloads.experiments is true.
 	Workload bool
+	// Agent: the verified caller is a delegated agent acting for UserID
+	// (ADR-0024). It gets no experiment or shadow unless policy
+	// agents.experiments is true (and, for a workload root, workloads.experiments).
+	Agent bool
 }
 
 // ShadowTarget is one candidate a request should be mirrored to.
@@ -95,7 +99,7 @@ func Decide(org *policy.Org, req RequestInfo) Decision {
 	// and attributes the request to it only when no traffic-axis experiment
 	// did, so it can never displace a traffic experiment's routing.
 	var clientExp, clientVar string
-	if known && d.Ring != RingUnknown && (!req.Workload || org.Workloads.AllowsExperiments()) {
+	if known && d.Ring != RingUnknown && (!req.Workload || org.Workloads.AllowsExperiments()) && (!req.Agent || org.Agents.AllowsExperiments()) {
 		for _, e := range byName(org.Experiments) {
 			switch e.Type {
 			case policy.ExperimentAB, policy.ExperimentCanary:

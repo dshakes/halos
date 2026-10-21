@@ -31,6 +31,8 @@ var publicRoutes = []string{
 	"POST /api/v1/gateway/budget/check", "POST /api/v1/gateway/budget/usage",
 	// Authenticated by the CI provider's OIDC token, verified against policy workloads (ADR-0023).
 	"POST /api/v1/token/exchange",
+	// Bearer: a Halos workload or delegated agent credential signed by this server (ADR-0024).
+	"POST /api/v1/agents/egress",
 	"/api/", "/",
 }
 

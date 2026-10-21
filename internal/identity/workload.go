@@ -191,8 +191,9 @@ func ParseWorkloadKeys(pemData string) ([]ed25519.PublicKey, error) {
 	return keys, nil
 }
 
-// WorkloadJWT accepts halo-server workload credentials and hands every other
-// caller to Next (the human verifier).
+// WorkloadJWT accepts halo-server workload and delegated agent credentials
+// and hands every other caller to Next (the human verifier). A token whose
+// typ claims to be either is verified as such or refused: never a fall-through.
 type WorkloadJWT struct {
 	Keys []ed25519.PublicKey
 	Next Verifier
@@ -201,12 +202,23 @@ type WorkloadJWT struct {
 
 func (w *WorkloadJWT) Verify(r *http.Request) (policy.Subject, error) {
 	tok := BearerToken(r.Header)
-	if tok == "" || !IsWorkloadToken(tok) {
+	typ := ""
+	if tok != "" {
+		typ = TokenType(tok)
+	}
+	if typ != WorkloadTokenType && typ != DelegatedTokenType {
 		return w.Next.Verify(r)
 	}
 	now := time.Now
 	if w.Now != nil {
 		now = w.Now
+	}
+	if typ == DelegatedTokenType { // an agent acting for a root principal (ADR-0024)
+		c, err := VerifyDelegatedToken(w.Keys, tok, now())
+		if err != nil {
+			return policy.Subject{}, err
+		}
+		return c.AsSubject(), nil
 	}
 	c, err := VerifyWorkloadToken(w.Keys, tok, now())
 	if err != nil {

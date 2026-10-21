@@ -5,7 +5,8 @@
 // exported as DELTA temporality over OTLP/HTTP (JSON or protobuf):
 //
 //	halo.gateway.requests   sum        {halo.ring, halo.release, halo.experiment, halo.variant, halo.harness, model, status_class, halo.unit,
-//	                                    halo.gateway.provider, halo.gateway.target, halo.gateway.failover}
+//	                                    halo.gateway.provider, halo.gateway.target, halo.gateway.failover,
+//	                                    halo.actor.agent, halo.actor.depth}
 //	halo.gateway.latency_ms histogram  same attributes; total request time incl. streaming
 //
 // Privacy: no prompt content, headers, user ids or session ids are ever
@@ -14,7 +15,9 @@
 // from client-controlled values (session headers): one user rotating session ids
 // must stay one unit, or they would dominate the per-unit statistics. Requests
 // without a verified subject are counted with an empty halo.unit, which
-// internal/promote excludes from per-unit samples. Stdlib only apart from
+// internal/promote excludes from per-unit samples. halo.actor.agent is the
+// verified current agent of a delegated credential (ADR-0024): an
+// agents.actors name, so policy-bounded. Stdlib only apart from
 // protowire (already in the module graph).
 package gwmetrics
 
@@ -99,8 +102,13 @@ type Request struct {
 	Provider, Target string
 	Failover         bool
 	Subject          string
-	Status           int
-	Latency          time.Duration
+	// Actor is the verified current agent and ActorDepth the chain length when
+	// an agent acts for Subject (ADR-0024); "" / 0 otherwise. Chain is the
+	// whole chain, root-side first, for spans only.
+	Actor, Chain string
+	ActorDepth   int
+	Status       int
+	Latency      time.Duration
 	// GenAI, when set, also records the call as GenAI semantic-convention
 	// metrics (and a span when enabled); Start and TraceParent only feed the span.
 	GenAI       *GenAI
@@ -126,6 +134,7 @@ const maxSeries = 20_000
 type key struct {
 	ring, release, experiment, variant, harness, model, class, unit string
 	provider, target, failover                                      string
+	actor, actorDepth                                               string
 }
 
 type agg struct {
@@ -214,6 +223,9 @@ func (e *Emitter) Record(r Request) {
 		class: statusClass(r.Status), unit: e.Unit(r.Subject), provider: r.Provider, target: r.Target}
 	if r.Provider != "" {
 		k.failover = strconv.FormatBool(r.Failover)
+	}
+	if r.Actor != "" {
+		k.actor, k.actorDepth = r.Actor, strconv.Itoa(r.ActorDepth)
 	}
 	ms := float64(r.Latency) / float64(time.Millisecond)
 	e.mu.Lock()
@@ -332,6 +344,7 @@ func (k key) attrs() [][2]string {
 		{"halo.variant", k.variant}, {"halo.harness", k.harness}, {"model", k.model},
 		{"status_class", k.class}, {"halo.unit", k.unit},
 		{"halo.gateway.provider", k.provider}, {"halo.gateway.target", k.target}, {"halo.gateway.failover", k.failover},
+		{"halo.actor.agent", k.actor}, {"halo.actor.depth", k.actorDepth},
 	} {
 		if kv[1] != "" {
 			out = append(out, kv)
@@ -349,7 +362,7 @@ func sortedKeys(series map[key]*agg) []key {
 		return cmp.Or(cmp.Compare(a.ring, b.ring), cmp.Compare(a.release, b.release), cmp.Compare(a.experiment, b.experiment),
 			cmp.Compare(a.variant, b.variant), cmp.Compare(a.harness, b.harness), cmp.Compare(a.model, b.model),
 			cmp.Compare(a.class, b.class), cmp.Compare(a.unit, b.unit), cmp.Compare(a.provider, b.provider),
-			cmp.Compare(a.target, b.target), cmp.Compare(a.failover, b.failover))
+			cmp.Compare(a.target, b.target), cmp.Compare(a.failover, b.failover), cmp.Compare(a.actor, b.actor), cmp.Compare(a.actorDepth, b.actorDepth))
 	})
 	return ks
 }

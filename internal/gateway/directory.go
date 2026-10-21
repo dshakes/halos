@@ -127,15 +127,18 @@ func CheckDirectoryFailMode(m string) error {
 // (fail open), or ErrDirectoryUnavailable under FailClosed: never nil, which
 // would let an outage turn a deactivated user into an anonymous caller that
 // skips the posture gate and per-user budgets. Workload subjects (ADR-0023)
-// are not in SCIM: they are returned unchanged without a lookup. Kind always
-// comes from the verified credential, never from the directory.
+// are not in SCIM: they are returned unchanged without a lookup. Kind and
+// Delegation always come from the verified credential, never from the
+// directory: a delegated agent (ADR-0024) is looked up as its root principal,
+// so an agent acting for a deprovisioned user is refused like the user, and
+// keeps its chain (and the agent policy) on every path, fail open included.
 // ponytail: concurrent misses for one subject each call halo-server, as PostureClient.Check does.
 func (c *DirectoryClient) Resolve(ctx context.Context, sub *policy.Subject) (*policy.Subject, error) {
 	if sub == nil || sub.ID == "" {
 		return nil, nil
 	}
 	if sub.Kind == policy.SubjectWorkload {
-		return &policy.Subject{ID: sub.ID, Groups: append([]string(nil), sub.Groups...), Kind: sub.Kind}, nil
+		return &policy.Subject{ID: sub.ID, Groups: append([]string(nil), sub.Groups...), Kind: sub.Kind, Delegation: sub.Delegation}, nil
 	}
 	now := c.now()
 	c.mu.Lock()
@@ -161,13 +164,13 @@ func (c *DirectoryClient) Resolve(ctx context.Context, sub *policy.Subject) (*po
 			if c.Log != nil {
 				c.Log.Warn("directory lookup failed; caller keeps their identity with no groups", "err", err)
 			}
-			return &policy.Subject{ID: sub.ID, Kind: sub.Kind}, nil
+			return &policy.Subject{ID: sub.ID, Kind: sub.Kind, Delegation: sub.Delegation}, nil
 		}
 	}
 	if !e.Active {
 		return nil, ErrNotProvisioned
 	}
-	return &policy.Subject{ID: sub.ID, Groups: append([]string(nil), e.Groups...), Kind: sub.Kind}, nil
+	return &policy.Subject{ID: sub.ID, Groups: append([]string(nil), e.Groups...), Kind: sub.Kind, Delegation: sub.Delegation}, nil
 }
 
 func (c *DirectoryClient) store(subject string, e DirectoryEntry, now time.Time) {

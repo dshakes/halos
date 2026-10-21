@@ -341,3 +341,22 @@ func TestSharedAuditRotationRefused(t *testing.T) {
 		t.Fatalf("rotation on the shared backend: %v", err)
 	}
 }
+
+// TestSharedDelegationRoot: an agent delegation (ADR-0024) from a session
+// whose user was logged out everywhere on replica a is refused on replica b.
+func TestSharedDelegationRoot(t *testing.T) {
+	sharedBackends(t, func(t *testing.T, nb func() Backend) {
+		b := nb()
+		a, c := replicaEnv(t, b, nil), replicaEnv(t, b, nil)
+		sess := c.s.seal(cookiePayload{Sub: dev.ID, Iat: time.Now().Add(-time.Minute).UnixNano(), Exp: time.Now().Add(time.Hour).Unix()})
+		if _, err := c.s.verifyParent(sess, tokenTypeSession, time.Now()); err != nil {
+			t.Fatalf("live session refused: %v", err)
+		}
+		if w := a.as(admin, "POST", "/api/v1/users/"+dev.ID+"/revoke-sessions", ""); w.Code != 204 {
+			t.Fatalf("revoke on a: %d", w.Code)
+		}
+		if _, err := c.s.verifyParent(sess, tokenTypeSession, time.Now()); err == nil {
+			t.Fatal("a session revoked on a still delegates on c")
+		}
+	})
+}

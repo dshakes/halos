@@ -354,6 +354,8 @@ func (s *Server) mux() *routeMux {
 	m.HandleFunc("POST /api/v1/enroll", s.postEnroll)
 	// CI / cloud workloads: the federated OIDC token is the credential (ADR-0023)
 	m.HandleFunc("POST /api/v1/token/exchange", s.postTokenExchange)
+	// Remote (A2A) agent egress decisions: a Halos workload or agent credential is the credential (ADR-0024)
+	m.HandleFunc("POST /api/v1/agents/egress", s.postAgentEgress)
 	// OIDC login
 	m.HandleFunc("GET /auth/login", s.login)
 	m.HandleFunc("GET /auth/callback", s.callback)

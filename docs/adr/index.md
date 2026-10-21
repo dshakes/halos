@@ -32,5 +32,6 @@ Decisions that shape Halos. New ADRs use [MADR](https://adr.github.io/madr/): co
 | [0021](/halos/adr/0021-ha-control-plane-on-postgres/) | HA control plane on Postgres: shared state, leader lease, fencing |
 | [0022](/halos/adr/0022-scim-provisioning/) | SCIM 2.0 provisioning: immediate deprovisioning, authoritative directory groups |
 | [0023](/halos/adr/0023-workload-identity-federation/) | Workload identity federation for headless CI and cloud agents |
+| [0024](/halos/adr/0024-agent-identity-and-delegation/) | Agent identity and delegation: RFC 8693 act chains, root-principal routing, remote A2A agent allowlist |
 
 The canonical files live in `docs/adr/` in the repository; the docs build copies them into the site.

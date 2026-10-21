@@ -77,6 +77,9 @@ func TestSnapshotRefusesSecurityErrors(t *testing.T) {
 		func(o *policy.Org) {
 			o.Delegation = &policy.Delegation{EnvKeys: []string{"ANTHROPIC_BASE_URL"}}
 		},
+		func(o *policy.Org) { // an unpinned, plain-http remote agent and an unbounded delegation depth
+			o.Agents = &policy.Agents{MaxDepth: 50, Remote: []policy.RemoteAgent{{Name: "x", CardURL: "http://x.example/card", Rings: []string{"ga"}}}}
+		},
 	} {
 		bad := testOrg()
 		bad.Name = "bad"
