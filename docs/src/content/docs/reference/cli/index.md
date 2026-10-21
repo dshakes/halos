@@ -25,6 +25,7 @@ halo
 
 | Command | Description |
 |---|---|
+| [`halo agents`](/halos/reference/cli/agents/) | Delegated and remote (A2A) agents (ADR-0024) |
 | [`halo audit`](/halos/reference/cli/audit/) | Inspect halo-server's hash-chained audit log |
 | [`halo budget`](/halos/reference/cli/budget/) | Gateway cost budgets: spend per user, group, ring and org |
 | [`halo ci`](/halos/reference/cli/ci/) | Governed gateway credentials and config for headless CI / cloud agents |

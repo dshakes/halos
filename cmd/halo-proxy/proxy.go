@@ -233,7 +233,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	sw := &statusWriter{ResponseWriter: w}
 	rc := &routeCtx{start: start, ttfb: -1}
-	ring, variant, experiment, upstream, model := "none", "", "", "", ""
+	ring, variant, experiment, upstream, model, actor := "none", "", "", "", "", ""
 	var rewriteErr error
 	var gates []string        // failed or unknown gate checks, for the request log
 	var gw *gwmetrics.Request // set once the request is a cohort-decided model call
@@ -271,6 +271,9 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if variant != "" {
 			attrs = append(attrs, "experiment", experiment, "variant", variant)
 		}
+		if actor != "" {
+			attrs = append(attrs, "actor", actor) // verified delegation chain (ADR-0024)
+		}
 		if upstream != "" {
 			attrs = append(attrs, "upstream", upstream)
 		}
@@ -304,6 +307,9 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	sub, ok := p.authenticate(sw, r, org)
 	if !ok {
 		return
+	}
+	if sub != nil && sub.Delegation.Depth() > 0 {
+		actor = sub.Delegation.Chain()
 	}
 	if p.dir != nil { // SCIM directory is authoritative: its groups; a deprovisioned caller is refused, never anonymous
 		if sub, err = p.dir.Resolve(r.Context(), sub); err != nil {
@@ -354,7 +360,10 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			rc.genai = true
 		}
 		if sub != nil {
-			gw.Subject = sub.ID
+			gw.Subject = sub.ID // the root principal; a delegated agent is attributed below, never as the unit
+			if dl := sub.Delegation; dl.Depth() > 0 {
+				gw.Actor, gw.Chain, gw.ActorDepth = dl.Current().Agent, dl.Chain(), dl.Depth()
+			}
 		}
 	}
 	if res.Reject != nil {

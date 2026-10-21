@@ -11,6 +11,8 @@ Headers owned by the gateway (from `internal/gateway/decision.go`):
 | `x-halo-release` | Release digest of the ring, if the ring's `release` is set | `halo-proxy` / `halo-kong` |
 | `x-halo-experiment` | Active A/B or canary experiment the request is in, if any. Never set for a [killed](#killed-experiments) experiment | `halo-proxy` / `halo-kong` |
 | `x-halo-variant` | Variant name within that experiment. Never set for a killed experiment | `halo-proxy` / `halo-kong` |
+| `x-halo-actor` | The verified agent chain of a [delegated credential](/halos/guides/agent-identity/), root side first (`planner>reviewer`). Absent for every other caller | `halo-proxy` / `halo-kong` |
+| `x-halo-actor-depth` | Length of that chain | `halo-proxy` / `halo-kong` |
 | `x-halo-killswitch` | The literal `misconfigured`, set only when `halo-kong`'s kill-switch config is invalid (bad key, missing token, cleartext URL without `killswitch_allow_insecure_in_cluster`). While present, kills are **not** being enforced by that plugin; alert on it. Traffic is not blocked | `halo-kong` |
 
 ## Rules

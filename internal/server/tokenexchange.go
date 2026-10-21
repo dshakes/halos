@@ -105,9 +105,13 @@ type TokenExchangeResponse struct {
 	ExpiresIn       int      `json:"expires_in"`
 	Subject         string   `json:"subject"`
 	Groups          []string `json:"groups,omitempty"`
-	Rule            string   `json:"rule"`
+	Rule            string   `json:"rule,omitempty"`
 	Ring            string   `json:"ring,omitempty"`
 	GatewayURL      string   `json:"gateway_url,omitempty"`
+	// Actors (delegated credentials, ADR-0024) is the act chain, root-side
+	// first; Models the credential's model scope (absent = not narrowed).
+	Actors []string `json:"actors,omitempty"`
+	Models []string `json:"models,omitempty"`
 }
 
 // oauthErr is the RFC 6749 section 5.2 error shape token endpoints answer.
@@ -135,10 +139,6 @@ func (s *Server) postTokenExchange(w http.ResponseWriter, r *http.Request) {
 		oauthErr(w, http.StatusServiceUnavailable, "temporarily_unavailable", msg)
 		return
 	}
-	if org.Workloads == nil {
-		oauthErr(w, http.StatusNotFound, "unsupported_grant_type", "policy declares no workloads")
-		return
-	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxExchangeBody)
 	if err := r.ParseForm(); err != nil {
 		oauthErr(w, http.StatusBadRequest, "invalid_request", "body must be application/x-www-form-urlencoded under 16KB")
@@ -152,9 +152,6 @@ func (s *Server) postTokenExchange(w http.ResponseWriter, r *http.Request) {
 	case f.Get("subject_token") == "":
 		oauthErr(w, http.StatusBadRequest, "invalid_request", "subject_token is required")
 		return
-	case f.Get("subject_token_type") != tokenTypeJWT && f.Get("subject_token_type") != tokenTypeIDToken:
-		oauthErr(w, http.StatusBadRequest, "invalid_request", "subject_token_type must be "+tokenTypeJWT+" or "+tokenTypeIDToken)
-		return
 	case f.Get("requested_token_type") != "" && f.Get("requested_token_type") != tokenTypeJWT && f.Get("requested_token_type") != tokenTypeAccess:
 		oauthErr(w, http.StatusBadRequest, "invalid_request", "requested_token_type must be "+tokenTypeJWT)
 		return
@@ -162,7 +159,19 @@ func (s *Server) postTokenExchange(w http.ResponseWriter, r *http.Request) {
 		oauthErr(w, http.StatusBadRequest, "invalid_target", "audience must be "+identity.WorkloadAudience)
 		return
 	case f.Has("actor_token"):
-		oauthErr(w, http.StatusBadRequest, "invalid_request", "delegation (actor_token) is not supported")
+		oauthErr(w, http.StatusBadRequest, "invalid_request", "actor_token is not supported: name the agent with actor_id (ADR-0024)")
+		return
+	}
+	if isDelegation(f) { // a Halos credential for an agent credential (ADR-0024)
+		s.delegate(w, r, org, f, ip)
+		return
+	}
+	if org.Workloads == nil {
+		oauthErr(w, http.StatusNotFound, "unsupported_grant_type", "policy declares no workloads")
+		return
+	}
+	if t := f.Get("subject_token_type"); t != tokenTypeJWT && t != tokenTypeIDToken {
+		oauthErr(w, http.StatusBadRequest, "invalid_request", "subject_token_type must be "+tokenTypeJWT+" or "+tokenTypeIDToken)
 		return
 	}
 	s.exchange(w, r, org, f.Get("subject_token"), ip)
