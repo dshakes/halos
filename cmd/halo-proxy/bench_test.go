@@ -12,6 +12,7 @@ import (
 	"github.com/dshakes/halos/internal/gateway"
 	"github.com/dshakes/halos/internal/gateway/upstreamauth"
 	"github.com/dshakes/halos/internal/policy"
+	"github.com/dshakes/halos/internal/telemetry/gwmetrics"
 )
 
 const benchBody = `{"model":"sonnet","messages":[{"role":"user","content":"hi"}],"max_tokens":8,"stream":false}`
@@ -99,6 +100,15 @@ func BenchmarkForward(b *testing.B) {
 		b.Run(name+"/proxy", func(b *testing.B) {
 			e, tok := benchEnv(b)
 			benchLoop(b, e.proxy.URL+"/v1/messages", tok, body)
+		})
+		// Same path with OTLP export and the GenAI usage tap on, to price the extra body scan.
+		b.Run(name+"/proxy+genai", func(b *testing.B) {
+			col := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+			b.Cleanup(col.Close)
+			e := testEnv(b, benchUpstream(b), func(c *Config, _ *policy.Org) {
+				c.Telemetry = gwmetrics.Config{OTLPEndpoint: col.URL, Protocol: gwmetrics.ProtoJSON}
+			})
+			benchLoop(b, e.proxy.URL+"/v1/messages", e.token(b, "alice@acme.com", "ai-platform"), body)
 		})
 	}
 }

@@ -239,15 +239,20 @@ telemetry:
   tokenFile: /run/secrets/halo-otlp-token    # same value as the collector's HALO_OTLP_GATEWAY_TOKEN
   protocol: http/protobuf                    # or http/json
   interval: 10s                              # minimum 1s
+  genai:
+    metrics: true                            # gen_ai.client.* semconv metrics (default on); false also skips the response-body scan
+    traces: false                            # opt-in: one `chat {model}` span per call to <otlpEndpoint>/v1/traces
 ```
 
 Flags (env `HALO_PROXY_<FLAG>`): `--telemetry-otlp-endpoint`, `--telemetry-token-file`, `--telemetry-protocol`,
-`--telemetry-interval`, `--telemetry-unit-salt-file`. `halo-proxy` exports `halo.gateway.*` per-request metrics;
+`--telemetry-interval`, `--telemetry-unit-salt-file`, `--telemetry-genai-metrics`, `--telemetry-genai-traces`. `halo-proxy` exports `halo.gateway.*` per-request metrics;
 the `halo.unit` attribute is `HMAC-SHA256(salt, verified subject)`, never a client id. Use the **same salt file on
 every replica** so one user stays one unit (no salt means a random per-process one; there is no inline flag, flags
 leak via `ps`). The collector accepts these only on its authenticated gateway receiver (`:4319`, bearer token);
 without `tokenFile` the collector answers 401. Only this gateway-sourced evidence may trip the controller's kill
-switch. Generate the collector with `halo telemetry collector-config` ([evidence plane](https://dshakes.github.io/halos/concepts/evidence-plane/#evidence-trust)).
+switch. The same export carries OpenTelemetry GenAI semantic-convention metrics and, opt-in, spans (semconv v1.40.0; names,
+attributes and the no-content rule: [evidence plane](https://dshakes.github.io/halos/concepts/evidence-plane/#opentelemetry-genai-semantic-conventions)).
+Generate the collector with `halo telemetry collector-config` ([evidence plane](https://dshakes.github.io/halos/concepts/evidence-plane/#evidence-trust)).
 
 ## Provider-agnostic routing (halo-proxy only)
 
