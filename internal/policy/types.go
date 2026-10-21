@@ -52,6 +52,10 @@ type Org struct {
 	// documents. Not part of the snapshot.
 	Sources []Source `json:"-"`
 
+	// Workloads federates CI / cloud workload identities (ADR-0023); omitted
+	// when unset, like Toggles.
+	Workloads *Workloads `json:",omitempty"`
+
 	// Deprecations are load-time warnings (one per file still on a deprecated
 	// apiVersion) that Validate reports. Not part of the snapshot.
 	Deprecations []Issue `json:"-"`

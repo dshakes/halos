@@ -29,6 +29,8 @@ var publicRoutes = []string{
 	"/scim/v2/", "GET /api/v1/gateway/directory",
 	// Gateway token (gatewayAuth): halo-proxy reports usage and asks for verdicts.
 	"POST /api/v1/gateway/budget/check", "POST /api/v1/gateway/budget/usage",
+	// Authenticated by the CI provider's OIDC token, verified against policy workloads (ADR-0023).
+	"POST /api/v1/token/exchange",
 	"/api/", "/",
 }
 

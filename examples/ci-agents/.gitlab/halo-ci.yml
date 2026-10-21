@@ -1,0 +1,22 @@
+# Include from .gitlab-ci.yml (include: local: .gitlab/halo-ci.yml). Codex in a GitLab job through the
+# Halos gateway. GitLab mints the OIDC token into HALO_ID_TOKEN (id_tokens);
+# halo-server exchanges it for a short-lived gateway credential (ADR-0023).
+ai-review:
+  image: node:22
+  rules:
+    - if: $CI_COMMIT_REF_PROTECTED == "true" # match ref_protected: "true" in the policy rule
+  id_tokens:
+    HALO_ID_TOKEN:
+      aud: halos # = policy workloads.audience
+  variables:
+    HALO_SERVER: https://halo.acme.example
+    HALO_VERSION: v0.2.1
+  script:
+    - curl -fsSLo /tmp/install.sh "https://raw.githubusercontent.com/dshakes/halos/${HALO_VERSION}/install/install.sh"
+    - sh /tmp/install.sh --version "$HALO_VERSION" --prefix /usr/local
+    # eval keeps the credential out of the job log (GitLab cannot mask runtime values).
+    - eval "$(halo ci token --format env)"
+    # policy/ is a checkout of the policy repo (submodule or a read-only clone).
+    - halo ci config --policy-dir policy --harness codex --ring "$HALO_RING" --os linux --out /
+    - npm install -g @openai/codex
+    - codex exec "Review this merge request for security issues"

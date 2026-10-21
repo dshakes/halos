@@ -71,6 +71,9 @@ type Config struct {
 	SCIMTokenSHA256   []string
 	SCIMAuthoritative bool
 	SCIMStore         SCIMStore
+	// WorkloadKey signs workload credentials minted by POST
+	// /api/v1/token/exchange (ADR-0023); nil disables the endpoint.
+	WorkloadKey ed25519.PrivateKey
 
 	// DevUser disables authentication and acts as this user. INSECURE: local demos only.
 	// DevRoles are its roles (ADR-0015); DevAdmin adds RoleAdmin.
@@ -102,6 +105,7 @@ type Server struct {
 	gwSum       [32]byte     // sha256 of GatewayToken
 	scim        *scimService // nil = SCIM off
 	budgets     *budgetStore
+	wl          workloadExchange
 }
 
 // New validates cfg and returns a Server. It does not require the policy dir to load yet.
@@ -280,6 +284,8 @@ func (s *Server) mux() *routeMux {
 	m.HandleFunc("GET /enroll/release.pub", s.releasePub)
 	m.HandleFunc("GET /enroll/killswitch.pub", s.killswitchPub)
 	m.HandleFunc("POST /api/v1/enroll", s.postEnroll)
+	// CI / cloud workloads: the federated OIDC token is the credential (ADR-0023)
+	m.HandleFunc("POST /api/v1/token/exchange", s.postTokenExchange)
 	// OIDC login
 	m.HandleFunc("GET /auth/login", s.login)
 	m.HandleFunc("GET /auth/callback", s.callback)

@@ -1,0 +1,36 @@
+# .github/workflows/ai-fix.yml: Claude Code fixes a failing test on main
+# through the Halos gateway, with no provider API key in the repository.
+name: ai-fix
+on:
+  workflow_dispatch:
+permissions:
+  id-token: write # request the GitHub OIDC token halo-server exchanges
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    environment: ai-agents # a policy rule can require this claim
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: acme/halos-policy
+          path: .halos-policy
+          token: ${{ secrets.POLICY_READ_TOKEN }}
+      - uses: ./.github/actions/halo-ci # examples/ci-agents/.github/actions/halo-ci
+        with:
+          server: https://halo.acme.example
+          harness: claude-code
+          policy-dir: .halos-policy
+      - run: npm install -g @anthropic-ai/claude-code
+      # Headless: nothing can prompt. Tools the ring's profile does not allow are
+      # denied; grant this job's tools explicitly, within the profile's deny rules.
+      - run: claude -p "Make go test ./... pass" --allowedTools "Read,Edit,Bash(go test:*)"
+      # anthropics/claude-code-action instead: it forwards ANTHROPIC_BASE_URL from
+      # the job env; pass the Halos credential as its key (the gateway accepts it
+      # as x-api-key exactly like a bearer token).
+      # - uses: anthropics/claude-code-action@v1
+      #   with:
+      #     anthropic_api_key: ${{ env.HALO_GATEWAY_TOKEN }}
+      #     prompt: Make go test ./... pass
+      #     claude_args: --allowedTools "Read,Edit,Bash(go test:*)"

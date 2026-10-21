@@ -27,6 +27,10 @@ type Options struct {
 	// TrustUnverifiedEmail: accept userClaim "email" without email_verified=true.
 	// Default false; only for IdPs that never issue unverified emails.
 	TrustUnverifiedEmail bool
+	// WorkloadKeys is PEM (one or more ed25519 PUBLIC KEY blocks) of
+	// halo-server's workload signing key(s). When set, workload credentials
+	// (ADR-0023) are accepted besides the mode's own callers. Ignored in mode none.
+	WorkloadKeys string
 }
 
 // Effective fills gaps from the org and picks the mode: jwt when an issuer is
@@ -66,6 +70,18 @@ func (o Options) HeaderNames(org *policy.Org) []string {
 
 // New builds the Verifier for o (already Effective). ModeNone returns nil, nil.
 func New(o Options) (Verifier, error) {
+	v, err := newMode(o)
+	if err != nil || v == nil || o.WorkloadKeys == "" {
+		return v, err
+	}
+	keys, err := ParseWorkloadKeys(o.WorkloadKeys)
+	if err != nil {
+		return nil, err
+	}
+	return &WorkloadJWT{Keys: keys, Next: v}, nil
+}
+
+func newMode(o Options) (Verifier, error) {
 	switch o.Mode {
 	case ModeJWT:
 		v, err := NewOIDCJWT(o.Issuer, o.Audience, o.UserClaim, o.GroupsClaim, nil)

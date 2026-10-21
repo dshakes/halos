@@ -81,6 +81,9 @@ type Config struct {
 	UserClaim         string   `json:"user_claim"`
 	GroupsClaimName   string   `json:"groups_claim"`
 	TrustedProxyCIDRs []string `json:"trusted_proxy_cidrs"` // required for trusted_header
+	// WorkloadPubkey: PEM public key(s) of halo-server --workload-key-file, or
+	// {vault://env/NAME}; accepts CI / cloud workload credentials (ADR-0023).
+	WorkloadPubkey string `json:"workload_pubkey"`
 
 	// AllowUnverified opts out of the secure default. By default, when identity
 	// is verified by JWT (an issuer is configured), a model call whose caller
@@ -308,7 +311,7 @@ func (c Config) identityOptions(org *policy.Org) identity.Options {
 		Mode: c.IdentityMode, Issuer: c.Issuer, Audience: c.Audience,
 		UserClaim: c.UserClaim, GroupsClaim: c.GroupsClaimName,
 		IdentityHeader: gateway.IdentityHeaderFor(org, c.IdentityHeader), GroupsHeader: c.GroupsHeader,
-		TrustedProxyCIDRs: c.TrustedProxyCIDRs,
+		TrustedProxyCIDRs: c.TrustedProxyCIDRs, WorkloadKeys: secret(c.WorkloadPubkey),
 	}
 }
 

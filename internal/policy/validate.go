@@ -62,6 +62,7 @@ func (o *Org) Validate() []Issue {
 	v.experiments()
 	v.rollouts()
 	v.units()
+	v.workloads()
 	for _, g := range builtinGuardrails {
 		v.issues = append(v.issues, g(o)...)
 	}

@@ -119,7 +119,7 @@ export default defineConfig({
             },
             {
               label: 'Deliver to machines',
-              items: ['guides/dev-containers', 'guides/coder-workspaces', 'guides/laptops-mdm'],
+              items: ['guides/dev-containers', 'guides/coder-workspaces', 'guides/laptops-mdm', 'guides/ci-and-cloud-agents'],
             },
             {
               label: 'Run the gateway',
