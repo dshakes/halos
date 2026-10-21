@@ -335,6 +335,8 @@ func TestValidate(t *testing.T) {
 		{"shadow on client axis", func(o *Org) { e := shadow(o); e.Axis = AxisClient }, ".axis", "traffic axis", SeverityError},
 		{"shadow rate zero", func(o *Org) { shadow(o).SampleRate = 0 }, "sampleRate", "(0,1]", SeverityError},
 		{"shadow rate above one", func(o *Org) { shadow(o).SampleRate = 1.5 }, "sampleRate", "(0,1]", SeverityError},
+		{"shadow turns unknown", func(o *Org) { shadow(o).Turns = "some" }, "turns", "first", SeverityError},
+		{"turns on a non-shadow experiment", func(o *Org) { o.Experiments[0].Turns = "all" }, "turns", "only shadow", SeverityError},
 		{"unknown metric", func(o *Org) { o.Experiments[0].Metrics.Primary.Metric = "halo.bogus" }, "metrics.primary.metric", "unknown metric", SeverityError},
 		{"bad direction", func(o *Org) { o.Experiments[0].Metrics.Primary.Direction = "up" }, "direction", "invalid", SeverityError},
 		{"guardrail negative regression", func(o *Org) {

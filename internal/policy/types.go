@@ -371,6 +371,12 @@ const (
 	ExperimentShadow ExperimentType = "shadow"
 )
 
+// Shadow turn scopes (Experiment.Turns).
+const (
+	ShadowTurnsFirst = "first"
+	ShadowTurnsAll   = "all"
+)
+
 // Axis is where an experiment's variants differ.
 type Axis string
 
@@ -388,9 +394,13 @@ type Experiment struct {
 	Rings    []string  `yaml:"rings" json:"rings"`
 	Variants []Variant `yaml:"variants" json:"variants"`
 	// Shadow only: fraction of eligible requests mirrored (0-1).
-	SampleRate float64  `yaml:"sampleRate,omitempty" json:"sampleRate,omitempty"`
-	Metrics    Metrics  `yaml:"metrics" json:"metrics"`
-	Stopping   Stopping `yaml:"stopping" json:"stopping"`
+	SampleRate float64 `yaml:"sampleRate,omitempty" json:"sampleRate,omitempty"`
+	// Shadow only: which turns of a sampled session are mirrored. "first"
+	// (default) mirrors the opening request; "all" mirrors every step of the
+	// session, each replayed on the real prefix (ADR-0013).
+	Turns    string   `yaml:"turns,omitempty" json:"turns,omitempty"`
+	Metrics  Metrics  `yaml:"metrics" json:"metrics"`
+	Stopping Stopping `yaml:"stopping" json:"stopping"`
 	// Salt keeps assignment independent across experiments; defaults to Name.
 	Salt string `yaml:"salt,omitempty" json:"salt,omitempty"`
 }

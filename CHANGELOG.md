@@ -4,6 +4,21 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added
+- **Multi-turn agent shadowing** ([ADR-0014](https://dshakes.github.io/halos/adr/0014-step-level-multi-turn-shadow/), amends ADR-0004). A shadow experiment with `turns: all` mirrors every step of a sampled session, not only the first turn. Each step replays the real prefix (developer prompt, production's actions, real tool results and terminal output) to both arms, and nothing either arm returns is executed. `halo eval online` reads each step without a judge across Anthropic, Bedrock (invoke and Converse), OpenAI Responses and Gemini:
+  - tool and argument agreement with the control;
+  - **fidelity** to the action production actually took, recovered from the session's next mirrored step and prefix-checked so subagent and compacted conversations are skipped (the control's fidelity is the measured noise floor);
+  - invalid tool calls (a tool the request did not offer, or a missing required argument);
+  - premature stops;
+  - divergence rate and first divergent step;
+  - agreement by depth.
+- `halo.eval.agent.fidelity` and `halo.eval.agent.invalid_call_rate` are registered metrics, one sample per hashed session and arm, usable as shadow-experiment guardrails in `halo exp analyze` and the controller. Shadow evidence still never promotes.
+- `stats.ClusterBootstrapMean` / `PairedClusterBootstrap`.
+
+### Changed
+- `halo eval online` intervals, the judge-score delta included, now resample sessions instead of pairs: steps of one session are correlated, and per-pair intervals were falsely narrow on multi-turn data. With one pair per session the result is identical to before.
+- The judge now sees the head and the **tail** of long requests. It previously saw only the first 24 KiB, which on long agent sessions cut the latest tool results the graded step answers.
+
 ## [0.2.1] - 2026-10-11
 
 ### Fixed

@@ -29,6 +29,9 @@ type RequestInfo struct {
 	Harness    string
 	Protocol   string
 	FirstTurn  bool
+	// AnyTurn: a parsed, replayable model call at any step of a session
+	// (eligible for shadow experiments with turns: all).
+	AnyTurn bool
 }
 
 // ShadowTarget is one candidate a request should be mirrored to.
@@ -161,9 +164,11 @@ func upstreamURL(g *policy.Gateway, name string) (policy.Upstream, bool) {
 
 // shadowTargets returns the candidates for a shadow experiment, or nil when
 // this request is not sampled. Sampling is keyed on the session so a whole
-// session is either mirrored or not; only first-turn requests are eligible.
+// session is either mirrored or not; first-turn requests are eligible, and
+// with turns: all every step of the session is (ADR-0013).
 func shadowTargets(org *policy.Org, e *policy.Experiment, ring string, req RequestInfo) []ShadowTarget {
-	if e.Status != "running" || !slices.Contains(e.Rings, ring) || !req.FirstTurn || req.SessionID == "" {
+	eligible := req.FirstTurn || (e.Turns == policy.ShadowTurnsAll && req.AnyTurn)
+	if e.Status != "running" || !slices.Contains(e.Rings, ring) || !eligible || req.SessionID == "" {
 		return nil
 	}
 	salt := e.Salt

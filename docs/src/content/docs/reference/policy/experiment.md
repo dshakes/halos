@@ -36,6 +36,7 @@ Generated from `schemas/experiment.schema.json`; do not edit. Nested fields use 
 | `stopping.maxSpendUSD` | number |  |  |  | minimum 0 | Maximum spend. |
 | `stopping.method` | string | yes |  | msprt, fixed |  | Stopping rule. |
 | `stopping.minSamples` | integer |  |  |  | minimum 0 | Minimum samples before a decision. |
+| `turns` | string |  | first | first, all |  | Shadow only: which turns of a sampled session are mirrored. first mirrors the opening request; all mirrors every step, each replayed on the real conversation prefix (ADR-0013). |
 | `type` | string | yes |  | ab, canary, shadow |  | How users are exposed. |
 | `variants` | array of object | yes |  |  | minItems 1 | Experiment arms. |
 | `variants[]` | object |  |  |  |  | An experiment arm. |

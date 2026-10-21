@@ -152,7 +152,7 @@ Commands: `halo rollout plan | status | simulate | advance | rollback` ([docs](h
 
 - **A/B** a CLI version or settings change. Each arm is its own signed release channel, and `halod` picks the arm with the same hash the gateway uses.
 - **Canary** a model at the gateway, sticky per user and session, so agents never switch model mid-task.
-- **Shadow** first-turn requests to a candidate model and grade the pairs with an LLM judge. Nothing from the candidate is served.
+- **Shadow** real agent sessions to a candidate model, every step or just the first, and compare its next action with the control and with what production actually did (tool agreement, fidelity vs a measured noise floor, invalid calls, premature stops), plus an LLM judge. Nothing from the candidate is served or executed.
 - **Toggles** turn one capability (an MCP server, a hook, a model route) on for a ring, an IdP group or a percentage of users. The payload ships inside the signed release. A kill needs no new release and takes effect at the next poll: about 10 s at gateways, 60 s on devices.
 
 <img src="assets/toggles.gif" alt="halo toggle eval shows which toggles are on for a developer and why; halo gateway routes shows each model alias and the upstream it routes to" width="880">

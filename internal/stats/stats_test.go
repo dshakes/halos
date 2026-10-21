@@ -311,3 +311,40 @@ func TestSeqGuardrailZeroVariance(t *testing.T) {
 		}
 	}
 }
+
+func TestClusterBootstrapMean(t *testing.T) {
+	// One observation per cluster: identical to BootstrapMean for the same seed.
+	x := []float64{0.1, 0.4, -0.2, 0.3, 0.0, 0.5}
+	ids := []string{"a", "b", "c", "d", "e", "f"}
+	plain, err := BootstrapMean(x, 2000, 7, 0.05)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cl, err := ClusterBootstrapMean(x, ids, 2000, 7, 0.05)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plain != cl {
+		t.Fatalf("singleton clusters: got %+v, want %+v", cl, plain)
+	}
+	// Perfectly correlated steps within sessions: the effective sample is the
+	// number of sessions, so the cluster CI must be wider than the naive one.
+	var y []float64
+	var c []string
+	for s, v := range []float64{1, 0, 1, 0, 1, 1, 0, 0} {
+		for range 10 {
+			y, c = append(y, v), append(c, string(rune('a'+s)))
+		}
+	}
+	naive, _ := BootstrapMean(y, 4000, 1, 0.05)
+	clus, _ := ClusterBootstrapMean(y, c, 4000, 1, 0.05)
+	if clus.CIHi-clus.CILo <= 1.5*(naive.CIHi-naive.CILo) {
+		t.Fatalf("cluster CI %.3f..%.3f not wider than naive %.3f..%.3f", clus.CILo, clus.CIHi, naive.CILo, naive.CIHi)
+	}
+	if _, err := ClusterBootstrapMean([]float64{1}, nil, 10, 1, 0.05); err == nil {
+		t.Fatal("want length mismatch error")
+	}
+	if _, err := PairedClusterBootstrap([]float64{1, 2}, []float64{2, 2}, []string{"a", "a"}, 100, 1, 0.05); err != nil {
+		t.Fatal(err)
+	}
+}

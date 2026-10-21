@@ -570,7 +570,7 @@ def architecture():
             [
                 ("halo-proxy", ["OIDC · model routes · failover"], "accent"),
                 ("Kong + halo-kong", ["drop-in gateway plugin"]),
-                ("halo-shadow", ["async first-turn mirror"]),
+                ("halo-shadow", ["async per-step mirror"]),
             ],
         ),
         (
@@ -776,7 +776,7 @@ def experiments():
     )
     d.text(x + 188, 182, "→ judge", "xs xa", "middle")
     d.text(x + 16, 196, "candidate never answers the user;", "s", maxw=w - 32, size=12)
-    d.text(x + 16, 212, "first turn copied async", "s")
+    d.text(x + 16, 212, "sampled steps copied async", "s")
     # assignment strip
     d.card(24, 252, 832, 34, rx=10)
     d.text(40, 273, "assignment", "k ka")
@@ -1146,7 +1146,7 @@ def docs_diagrams():
         "Request path through halo-proxy",
         "Claude Code sends a request with a bearer JWT; halo-proxy verifies "
         "the token against the issuer JWKS, assigns ring, experiment and variant, enforces the model "
-        "allowlist, strips client x-halo headers, forwards with x-halo stamps, streams the response and mirrors the first turn to "
+        "allowlist, strips client x-halo headers, forwards with x-halo stamps, streams the response and mirrors sampled steps to "
         "halo-shadow asynchronously.",
         [
             ("Claude Code", "client"),
@@ -1164,7 +1164,7 @@ def docs_diagrams():
             ("self", 1, "strip every x-halo-* · stamp gateway-owned ones"),
             (1, 3, "forward with x-halo-ring/release/experiment/variant", "call"),
             (3, 0, "streamed response, no buffering", "reply"),
-            (1, 4, "async: experiment, variant, first-turn body", "async"),
+            (1, 4, "async: experiment, variant, step body", "async"),
         ],
         number=True,
     )
@@ -1943,7 +1943,7 @@ def docs_diagrams():
         [
             (0, 1, "request (the user waits on this)", "call"),
             (1, 0, "response", "reply"),
-            (0, 2, "async copy if first turn and sampled", "async"),
+            (0, 2, "async copy if session sampled", "async"),
             (2, 3, "replay, non-streaming", "call"),
             (3, 2, "candidate response", "reply"),
             ("self", 2, "store pair"),
@@ -2448,7 +2448,7 @@ def deep_dive():
                 None,
             ),
             (
-                "Mirror the first turn",
+                "Mirror sampled steps",
                 "shadow.Jobs -> bounded async queue",
                 "halo-shadow",
                 "label",

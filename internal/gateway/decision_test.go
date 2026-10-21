@@ -176,9 +176,42 @@ func TestShadowEligibility(t *testing.T) {
 			}
 		})
 	}
+	// turns: all (ADR-0013): any parsed step of a sampled session is eligible.
+	later := RequestInfo{UserID: "alice", ModelAlias: "sonnet", SessionID: "s1", AnyTurn: true}
+	if len(Decide(org, later).Shadow) != 0 {
+		t.Fatal("later turn mirrored with turns: first")
+	}
+	org.Experiments[1].Turns = policy.ShadowTurnsAll
+	if len(Decide(org, later).Shadow) == 0 {
+		t.Fatal("later turn not mirrored with turns: all")
+	}
+	later.AnyTurn = false // unparsed body, count_tokens, previous_response_id
+	if len(Decide(org, later).Shadow) != 0 {
+		t.Fatal("unparsed request mirrored")
+	}
 	org.Experiments[1].Status = "paused"
 	if len(Decide(org, RequestInfo{UserID: "alice", ModelAlias: "sonnet", SessionID: "s1", FirstTurn: true}).Shadow) != 0 {
 		t.Fatal("paused experiment mirrored")
+	}
+}
+
+func TestNewRequestInfoAnyTurn(t *testing.T) {
+	h := http.Header{"X-Claude-Code-Session-Id": {"s1"}}
+	tests := []struct {
+		name, path, body string
+		first, any       bool
+	}{
+		{"first", "/v1/messages", `{"model":"sonnet","messages":[{"role":"user","content":"hi"}]}`, true, true},
+		{"tool step", "/v1/messages", `{"model":"sonnet","messages":[{"role":"user","content":"fix it"},{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"go test"}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"FAIL"}]}]}`, false, true},
+		{"count tokens", "/v1/messages/count_tokens", `{"model":"sonnet","messages":[{"role":"user","content":"hi"}]}`, false, false},
+		{"bad json", "/v1/messages", `{`, false, false},
+		{"responses chained", "/v1/responses", `{"model":"gpt","previous_response_id":"r1","input":[{"role":"user","content":"x"}]}`, false, false},
+	}
+	for _, tc := range tests {
+		r := NewRequestInfo(h, tc.path, []byte(tc.body))
+		if r.FirstTurn != tc.first || r.AnyTurn != tc.any {
+			t.Errorf("%s: first=%v any=%v, want %v %v", tc.name, r.FirstTurn, r.AnyTurn, tc.first, tc.any)
+		}
 	}
 }
 

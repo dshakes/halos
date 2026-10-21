@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 460" width="760" height="460" role="img" aria-labelledby="t d" font-family="ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif">
 <title id="t">Request path through halo-proxy</title>
-<desc id="d">Claude Code sends a request with a bearer JWT; halo-proxy verifies the token against the issuer JWKS, assigns ring, experiment and variant, enforces the model allowlist, strips client x-halo headers, forwards with x-halo stamps, streams the response and mirrors the first turn to halo-shadow asynchronously.</desc>
+<desc id="d">Claude Code sends a request with a bearer JWT; halo-proxy verifies the token against the issuer JWKS, assigns ring, experiment and variant, enforces the model allowlist, strips client x-halo headers, forwards with x-halo stamps, streams the response and mirrors sampled steps to halo-shadow asynchronously.</desc>
 <style>
 .cv{fill:#0c0c10;stroke:#1e1e24;stroke-width:1.5}
 .card{fill:#121217;stroke:#2a2a31;stroke-width:1.5}
@@ -105,8 +105,8 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <text class="s" x="231.7" y="366" style="font-size:11.5px">streamed response, no buffering</text>
 <path class="la dash" d="M241.6 410L660.8 410"/>
 <path class="la hd" d="M655.3 413.4L660.8 410L655.3 406.6"/>
-<rect class="pl" x="321.7" y="389" width="259.1" height="17" rx="4"/>
-<circle class="bdg" cx="333.6600000000001" cy="398" r="8"/>
-<text class="bn" x="333.6600000000001" y="401.4" text-anchor="middle">5</text>
-<text class="s" x="347.7" y="402" style="font-size:11.5px">async: experiment, variant, first-turn body</text>
+<rect class="pl" x="335.3" y="389" width="231.8" height="17" rx="4"/>
+<circle class="bdg" cx="347.28750000000014" cy="398" r="8"/>
+<text class="bn" x="347.28750000000014" y="401.4" text-anchor="middle">5</text>
+<text class="s" x="361.3" y="402" style="font-size:11.5px">async: experiment, variant, step body</text>
 </svg>

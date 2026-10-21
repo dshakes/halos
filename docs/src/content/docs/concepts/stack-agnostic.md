@@ -3,7 +3,7 @@ title: Stack-agnostic traffic plane
 description: halo-proxy deploy modes, the kill switch, the gateway and provider integrations, direct Bedrock with SigV4, and what has and has not been run.
 ---
 
-The traffic plane does five things for every model call: verify the caller, assign a ring and variant, rewrite the model alias, stamp `x-halo-*` headers, and mirror sampled first turns. `halo-proxy` does all five as one static Go binary that works with any gateway (or none), any OIDC identity provider, and any provider that speaks `anthropic-messages`, `openai-responses` or Bedrock invoke/converse paths, and it can sign Bedrock requests itself. The `halo-kong` plugin runs the same decision code inside Kong.
+The traffic plane does five things for every model call: verify the caller, assign a ring and variant, rewrite the model alias, stamp `x-halo-*` headers, and mirror sampled sessions. `halo-proxy` does all five as one static Go binary that works with any gateway (or none), any OIDC identity provider, and any provider that speaks `anthropic-messages`, `openai-responses` or Bedrock invoke/converse paths, and it can sign Bedrock requests itself. The `halo-kong` plugin runs the same decision code inside Kong.
 
 ## Deploy modes
 

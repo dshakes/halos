@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -110,6 +112,10 @@ type OnlineResult struct {
 	// included (they are the point): the refusal, latency and cost regressions
 	// ADR-0004 says shadow catches beside quality.
 	Ops OpsResult `json:"ops"`
+	// Agent is the step-level reading (ADR-0013): next-action agreement,
+	// fidelity to production's action, tool-call validity. Nil when no pair's
+	// actions parsed.
+	Agent *AgentResult `json:"agent,omitempty"`
 }
 
 // OpsResult is one experiment's per-arm operational reading.
@@ -145,11 +151,17 @@ func armStats(sides []shadow.Side) ArmStats {
 // judgeSideCap bounds each request/response handed to the judge.
 const judgeSideCap = 24 << 10
 
+// clip keeps the head (system prompt, task) and the tail (the latest turns:
+// the tool results and terminal output the graded step answers) of a long
+// body. Agent requests grow every step; cutting the tail would grade a step
+// without the state it responded to.
 func clip(b []byte) string {
-	if len(b) > judgeSideCap {
-		return string(b[:judgeSideCap]) + "\n[... truncated ...]"
+	if len(b) <= judgeSideCap {
+		return string(b)
 	}
-	return string(b)
+	head := judgeSideCap / 3
+	tail := judgeSideCap - head
+	return string(b[:head]) + "\n[... " + strconv.Itoa(len(b)-judgeSideCap) + " bytes elided ...]\n" + string(b[len(b)-tail:])
 }
 
 // pairInput: both the client request and the model response are untrusted.
@@ -200,6 +212,7 @@ func RunOnline(ctx context.Context, src PairSource, o OnlineOptions) ([]OnlineRe
 			ctl, cand = append(ctl, p.Control), append(cand, p.Candidate)
 		}
 		ops := OpsResult{Pairs: len(ctl), Control: armStats(ctl), Candidate: armStats(cand)}
+		agent := AnalyzeAgent(byExp[e], o.Seed) // every usable pair: no judge cost
 		sort.Slice(ps, func(i, j int) bool { return ps[i].ID < ps[j].ID })
 		rng := rand.New(rand.NewPCG(o.Seed, o.Seed^0x9e3779b97f4a7c15)) //nolint:gosec // reproducible sampling, not security
 		rng.Shuffle(len(ps), func(i, j int) { ps[i], ps[j] = ps[j], ps[i] })
@@ -207,8 +220,9 @@ func RunOnline(ctx context.Context, src PairSource, o OnlineOptions) ([]OnlineRe
 			ps = ps[:o.Sample]
 		}
 		r := OnlineResult{Experiment: e, Rubric: o.Rubric.Ref(), JudgeModel: o.Judge.Model, Pairs: len(byExp[e]), Ops: ops,
-			ControlVariant: or(ps[0].Control.Target.Variant, or(o.ControlNames[e], "control")), CandidateVariant: or(ps[0].Candidate.Target.Variant, "candidate")}
+			ControlVariant: or(ps[0].Control.Target.Variant, or(o.ControlNames[e], "control")), CandidateVariant: or(ps[0].Candidate.Target.Variant, "candidate"), Agent: agent}
 		var cs, ts []float64
+		var sessions []string
 		wins := 0.0
 		for _, p := range ps {
 			if err := ctx.Err(); err != nil {
@@ -222,6 +236,7 @@ func RunOnline(ctx context.Context, src PairSource, o OnlineOptions) ([]OnlineRe
 				continue
 			}
 			cs, ts = append(cs, cv.Score), append(ts, tv.Score)
+			sessions = append(sessions, cluster(p))
 			r.Scores = append(r.Scores, PairScore{ID: p.ID, Control: cv.Score, Candidate: tv.Score})
 			switch {
 			case tv.Score > cv.Score:
@@ -237,7 +252,9 @@ func RunOnline(ctx context.Context, src PairSource, o OnlineOptions) ([]OnlineRe
 				r.Candidate += ts[i] / float64(r.Graded)
 			}
 			r.WinRate = wins / float64(r.Graded)
-			b, err := stats.PairedBootstrap(cs, ts, bootstrapIters, o.Seed, bootstrapAlpha)
+			// Steps of one session are correlated: resample sessions, not pairs
+			// (identical to the pair bootstrap when every session has one pair).
+			b, err := stats.PairedClusterBootstrap(cs, ts, sessions, bootstrapIters, o.Seed, bootstrapAlpha)
 			if err != nil {
 				return nil, fmt.Errorf("online eval %s: %w", e, err)
 			}
@@ -340,7 +357,21 @@ const (
 	MetricShadowErrorRate    = "halo.eval.shadow.error_rate"    // gauge, 0..1
 	MetricShadowLatency      = "halo.eval.shadow.latency_ms"    // gauge, mean
 	MetricShadowOutputTokens = "halo.eval.shadow.output_tokens" // gauge, mean
+	// Step-level agent readings (ADR-0014). Fidelity and invalid-call rate are
+	// analysis samples per session and arm (halo.unit = hashed session id);
+	// agreement is a per-experiment gauge.
+	MetricAgentFidelity      = "halo.eval.agent.fidelity"          // gauge per session and arm, 0..1
+	MetricAgentInvalidCall   = "halo.eval.agent.invalid_call_rate" // gauge per session and arm, 0..1
+	MetricAgentToolAgreement = "halo.eval.agent.tool_agreement"    // gauge, candidate vs control replay
+	MetricAgentPrematureStop = "halo.eval.agent.premature_stop"    // gauge per arm, 0..1
 )
+
+// SessionUnit is the analysis unit for a session: a hash, so raw harness
+// session ids never leave the eval host.
+func SessionUnit(session string) string {
+	h := sha256.Sum256([]byte(session))
+	return "s:" + hex.EncodeToString(h[:8])
+}
 
 // Export sends one data point per metric per result, stamped at now.
 func (x *OTLPExporter) Export(ctx context.Context, rs []OnlineResult, start, now time.Time) error {
@@ -360,7 +391,7 @@ func (x *OTLPExporter) Export(ctx context.Context, rs []OnlineResult, start, now
 	count := func(v int, attrs []m) m {
 		return m{"attributes": attrs, "startTimeUnixNano": st, "timeUnixNano": et, "asInt": strconv.Itoa(v)}
 	}
-	var score, delta, win, graded, errs, erate, lat, otok []m
+	var score, delta, win, graded, errs, erate, lat, otok, fid, inval, agree, stop []m
 	for _, r := range rs {
 		base := []string{"halo.experiment", r.Experiment, "halo.eval.rubric", r.Rubric, "halo.eval.judge", r.JudgeModel}
 		for _, arm := range []struct {
@@ -376,6 +407,25 @@ func (x *OTLPExporter) Export(ctx context.Context, rs []OnlineResult, start, now
 			score = append(score,
 				gauge(ps.Control, kvs(append(base, "halo.variant", r.ControlVariant, "halo.unit", ps.ID)...)),
 				gauge(ps.Candidate, kvs(append(base, "halo.variant", r.CandidateVariant, "halo.unit", ps.ID)...)))
+		}
+		if a := r.Agent; a != nil {
+			for _, ss := range a.PerSession {
+				u := SessionUnit(ss.Session)
+				for _, arm := range []struct {
+					v   string
+					f   *float64
+					bad float64
+				}{{r.ControlVariant, ss.ControlFidelity, ss.ControlInvalid}, {r.CandidateVariant, ss.CandidateFidelity, ss.CandInvalid}} {
+					attrs := kvs(append(base, "halo.variant", arm.v, "halo.unit", u)...)
+					inval = append(inval, gauge(arm.bad, attrs))
+					if arm.f != nil {
+						fid = append(fid, gauge(*arm.f, attrs))
+					}
+				}
+			}
+			agree = append(agree, gauge(a.ToolAgreement.Mean, kvs(append(base, "halo.variant", r.CandidateVariant)...)))
+			stop = append(stop, gauge(a.Control.PrematureStopRate, kvs(append(base, "halo.variant", r.ControlVariant)...)),
+				gauge(a.Candidate.PrematureStopRate, kvs(append(base, "halo.variant", r.CandidateVariant)...)))
 		}
 		delta = append(delta, gauge(r.Delta.Mean, kvs(append(base, "halo.variant", r.CandidateVariant)...)))
 		win = append(win, gauge(r.WinRate, kvs(append(base, "halo.variant", r.CandidateVariant)...)))
@@ -396,6 +446,10 @@ func (x *OTLPExporter) Export(ctx context.Context, rs []OnlineResult, start, now
 			{"name": MetricShadowErrorRate, "unit": "1", "gauge": m{"dataPoints": erate}},
 			{"name": MetricShadowLatency, "unit": "ms", "gauge": m{"dataPoints": lat}},
 			{"name": MetricShadowOutputTokens, "unit": "{token}", "gauge": m{"dataPoints": otok}},
+			{"name": MetricAgentFidelity, "unit": "1", "gauge": m{"dataPoints": fid}},
+			{"name": MetricAgentInvalidCall, "unit": "1", "gauge": m{"dataPoints": inval}},
+			{"name": MetricAgentToolAgreement, "unit": "1", "gauge": m{"dataPoints": agree}},
+			{"name": MetricAgentPrematureStop, "unit": "1", "gauge": m{"dataPoints": stop}},
 		}}},
 	}}}
 	b, err := json.Marshal(body)
@@ -446,6 +500,24 @@ func OnlineTable(rs []OnlineResult) string {
 		c, d := r.Ops.Control, r.Ops.Candidate
 		fmt.Fprintf(&b, "%-24s  %5d  %-20s  %-20s  %s\n", r.Experiment, r.Ops.Pairs,
 			fmt.Sprintf("%.1f%% / %.1f%%", 100*c.ErrorRate, 100*d.ErrorRate), fmt.Sprintf("%.0f / %.0f", c.LatencyMS, d.LatencyMS), fmt.Sprintf("%.0f / %.0f", c.OutputTokens, d.OutputTokens))
+	}
+	var agents []OnlineResult
+	for _, r := range rs {
+		if r.Agent != nil {
+			agents = append(agents, r)
+		}
+	}
+	if len(agents) == 0 {
+		return b.String()
+	}
+	// Step-level readings (ADR-0014): next action on the real prefix.
+	pct := func(x Rate) string { return fmt.Sprintf("%.0f%% (%.0f..%.0f)", 100*x.Mean, 100*x.CILo, 100*x.CIHi) }
+	fmt.Fprintf(&b, "\n%-24s  %5s  %5s  %-17s  %-17s  %-17s  %-23s  %s\n", "EXPERIMENT", "STEPS", "SESS", "TOOL AGREE", "FIDELITY ctl", "FIDELITY cand", "INVALID / STOP ctl/cand", "FIRST DIVERGENCE")
+	for _, r := range agents {
+		a := r.Agent
+		fmt.Fprintf(&b, "%-24s  %5d  %5d  %-17s  %-17s  %-17s  %-23s  %s\n", r.Experiment, a.Steps, a.Sessions, pct(a.ToolAgreement), pct(a.Control.Fidelity), pct(a.Candidate.Fidelity),
+			fmt.Sprintf("%.1f/%.1f%% %.0f/%.0f%%", 100*a.Control.InvalidCallRate, 100*a.Candidate.InvalidCallRate, 100*a.Control.PrematureStopRate, 100*a.Candidate.PrematureStopRate),
+			fmt.Sprintf("%.0f%% of sessions, step %.1f", 100*a.Diverged, a.FirstDivergence))
 	}
 	return b.String()
 }

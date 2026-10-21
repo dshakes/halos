@@ -163,7 +163,7 @@ Halos ships six binaries from `cmd/`. Two more surfaces run inside one of them o
 
 ## halo-shadow
 
-**Purpose:** receives mirrored first-turn requests, replays each against control and candidate, and stores the pairs for the LLM judge.
+**Purpose:** receives mirrored requests (first turns, or every step of a sampled session with `turns: all`), replays each against control and candidate, and stores the pairs for the LLM judge.
 
 - **Inputs:** `POST` mirror jobs from halo-proxy or halo-kong, carrying a shared bearer token, and the compiled policy snapshot.
 - **Outputs:** `pairs.jsonl`, mode `0600`, optionally AES-256-GCM encrypted (`--pair-key-file`), and counters.

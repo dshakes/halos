@@ -391,6 +391,11 @@ func (v *validator) experiments() {
 			if e.SampleRate <= 0 || e.SampleRate > 1 {
 				v.errf(path+".sampleRate", "%v must be in (0,1]", e.SampleRate)
 			}
+			if e.Turns != "" {
+				v.oneOf(path+".turns", "turns", e.Turns, []string{ShadowTurnsFirst, ShadowTurnsAll})
+			}
+		} else if e.Turns != "" {
+			v.errf(path+".turns", "only shadow experiments mirror turns")
 		}
 		v.variants(path, e)
 		v.metric(path+".metrics.primary", e.Metrics.Primary)

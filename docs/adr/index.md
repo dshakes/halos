@@ -12,7 +12,7 @@ Decisions that shape Halos. New ADRs use [MADR](https://adr.github.io/madr/): co
 | [0001](/halos/adr/0001-environment-as-policy/) | Environment as policy is the primary delivery path |
 | [0002](/halos/adr/0002-rings-point-at-immutable-releases/) | Rings point at immutable releases |
 | [0003](/halos/adr/0003-experiments-on-traffic-plane-first/) | Experiments run on the traffic plane first |
-| [0004](/halos/adr/0004-shadow-single-turn-only/) | Shadow traffic is single-turn only |
+| [0004](/halos/adr/0004-shadow-single-turn-only/) | Shadow traffic is single-turn only (amended by 0014) |
 | [0005](/halos/adr/0005-signed-oci-bundles/) | Releases are signed OCI bundles |
 | [0006](/halos/adr/0006-go-and-kong-go-pdk/) | Go, with the Kong Go PDK |
 | [0007](/halos/adr/0007-guardrails-in-go-not-opa/) | Guardrails in Go, Rego pluggable later |
@@ -22,5 +22,6 @@ Decisions that shape Halos. New ADRs use [MADR](https://adr.github.io/madr/): co
 | [0011](/halos/adr/0011-gateway-enforced-posture-and-version/) | Gateway-enforced device posture and CLI version |
 | [0012](/halos/adr/0012-policy-api-v1/) | halos.dev/v1 is the stable policy API |
 | [0013](/halos/adr/0013-external-gateway-engine/) | Halos manages clients behind a gateway it does not run |
+| [0014](/halos/adr/0014-step-level-multi-turn-shadow/) | Step-level shadowing of multi-turn agent sessions (amends 0004) |
 
 The canonical files live in `docs/adr/` in the repository; the docs build copies them into the site.

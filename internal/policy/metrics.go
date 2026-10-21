@@ -75,6 +75,12 @@ var MetricRegistry = []MetricDef{
 	{Name: "halo.eval.judge.score", Unit: "ratio", Description: "LLM-judge rubric score (0..1, higher is better) of a model response, graded by `halo eval online` on halo-shadow pairs.",
 		Sources: map[string]string{"shadow": "halo eval online -> halo.eval.judge.score{halo.unit=<pair id>}, halo.source=eval"},
 		Source:  []SignalSource{SourceOnlineEval}, PerUnit: "mean judge score of one shadow pair's response for that arm (unit = pair)", Better: "increase"},
+	{Name: "halo.eval.agent.fidelity", Unit: "ratio", Description: "Share of agent steps where the arm's next action (tools called) matches the action production took on the same real prefix; the control's value is the re-sampling noise floor (ADR-0014).",
+		Sources: map[string]string{"shadow": "halo eval online -> halo.eval.agent.fidelity{halo.unit=<hashed session>}, halo.source=eval (shadow experiments with turns: all)"},
+		Source:  []SignalSource{SourceOnlineEval}, PerUnit: "mean step fidelity over one session's referenced steps for that arm (unit = session)", Better: "increase"},
+	{Name: "halo.eval.agent.invalid_call_rate", Unit: "ratio", Description: "Share of agent steps where the arm called a tool the request did not offer or omitted a required argument (ADR-0014).",
+		Sources: map[string]string{"shadow": "halo eval online -> halo.eval.agent.invalid_call_rate{halo.unit=<hashed session>}, halo.source=eval"},
+		Source:  []SignalSource{SourceOnlineEval}, PerUnit: "share of one session's steps with an invalid call for that arm (unit = session)", Better: "decrease"},
 }
 
 // ShadowOnly reports whether the metric is only measured on shadow pairs.

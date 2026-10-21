@@ -17,7 +17,7 @@ Release archives are checksummed, carry an SBOM, and `checksums.txt` is cosign-s
 | `halod` | Developer machine or dev container (as root) | `run`, `once`, `status`: pull the ring's signed pointer, verify, apply, install pinned CLIs, report drift |
 | `halo-proxy` | Anywhere on the request path | Stack-agnostic traffic plane: verify OIDC JWT, assign cohort, rewrite model, mirror, stamp headers |
 | `halo-kong` | Kong (Go PDK plugin server) | The same behavior as an in-process Kong plugin |
-| `halo-shadow` | Next to the gateway | Async single-turn mirror and pair store |
+| `halo-shadow` | Next to the gateway | Async mirror (first turn or every step) and pair store |
 | `halo-server` | Your cluster | Fleet inventory, experiments API, self-service portal, enrollment, device tokens |
 
 ## From source

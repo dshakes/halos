@@ -107,7 +107,7 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <text class="s" x="348" y="299.5">drop-in gateway plugin</text>
 <rect class="card" x="332" y="316" width="216" height="46" rx="12" filter="url(#sh)"/>
 <text class="t" x="348" y="335.5">halo-shadow</text>
-<text class="s" x="348" y="353.5">async first-turn mirror</text>
+<text class="s" x="348" y="353.5">async per-step mirror</text>
 <rect class="zone" x="616" y="168" width="240" height="368" rx="16"/>
 <text class="k ka" x="632" y="192">EVIDENCE PLANE</text>
 <text class="xs" x="840" y="192" text-anchor="end">decides</text>
