@@ -301,11 +301,14 @@ func (v *validator) profileSpec(path string, p *Profile) {
 		if h.Command == "" {
 			v.errf(fmt.Sprintf("%s.hooks.items[%d].command", path, i), "command is required")
 		}
-		if l := p.Login; l != "" {
-			v.oneOf(path+".login", "login", l, loginModes)
-		}
-		v.extensions(path+".extensions", p.Extensions)
 	}
+	if pr := p.Telemetry.Protocol; pr != "" {
+		v.oneOf(path+".telemetry.protocol", "protocol", pr, otlpProtocols)
+	}
+	if l := p.Login; l != "" {
+		v.oneOf(path+".login", "login", l, loginModes)
+	}
+	v.extensions(path+".extensions", p.Extensions)
 }
 
 var (
@@ -389,9 +392,6 @@ func (v *validator) marketplace(path string, m Marketplace) {
 		}
 	default:
 		v.oneOf(path+".source", "source", m.Source, []string{MarketplaceGitHub, MarketplaceGit, MarketplaceURL, MarketplaceHostPattern})
-	}
-	if pr := p.Telemetry.Protocol; pr != "" {
-		v.oneOf(path+".telemetry.protocol", "protocol", pr, otlpProtocols)
 	}
 }
 

@@ -303,6 +303,12 @@ func TestValidate(t *testing.T) {
 		{"bad versionGate", func(o *Org) { o.Rings[0].VersionGate = "on" }, "versionGate", "invalid", SeverityError},
 		{"bad hook event", func(o *Org) { o.Profiles["base"].Hooks.Hooks = []Hook{{Event: "Nope", Command: "c"}} }, "hooks.items[0].event", "invalid", SeverityError},
 		{"bad telemetry protocol", func(o *Org) { o.Profiles["base"].Telemetry.Protocol = "smtp" }, "telemetry.protocol", "invalid", SeverityError},
+		// Regression: profile checks after the hook loop run for hook-less profiles too.
+		{"bad login without hooks", func(o *Org) { o.Profiles["base"].Hooks.Hooks = nil; o.Profiles["base"].Login = "sso" }, "login", "invalid", SeverityError},
+		{"bad extensions without hooks", func(o *Org) {
+			o.Profiles["base"].Hooks.Hooks = nil
+			o.Profiles["base"].Extensions.OutputStyle = "a\nb"
+		}, "extensions.outputStyle", "newline", SeverityError},
 		{"extends cycle", func(o *Org) { o.Profiles["base"].Extends = "next" }, "extends", "cycle", SeverityError},
 		{"duplicate experiment", func(o *Org) { o.Experiments = append(o.Experiments, o.Experiments[0]) }, "experiments[e]", "duplicate experiment", SeverityError},
 		{"experiment bad type", func(o *Org) { o.Experiments[0].Type = "x" }, ".type", "invalid", SeverityError},
