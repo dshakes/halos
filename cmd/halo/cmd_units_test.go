@@ -21,6 +21,7 @@ func TestUnitsCodeowners(t *testing.T) {
 		"* @acme/ai-platform\n",
 		"/examples/acme-corp/units/payments/ @acme/payments-platform\n",
 		"/examples/acme-corp/units/payments/checkout/ @acme/checkout-team @acme/payments-platform\n",
+		"/examples/acme-corp/units/payments/unit.yaml @acme/ai-platform\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("codeowners lacks %q:\n%s", want, out)
@@ -28,8 +29,12 @@ func TestUnitsCodeowners(t *testing.T) {
 	}
 	// outside any git repository the paths are relative to the policy dir
 	dir := copyDir(t, example)
-	if code, out, errs = halo(t, "units", "codeowners", "--policy-dir", dir); code != 0 || !strings.Contains(out, "\n/units/payments/checkout/ ") || strings.Contains(out, "\n* ") {
+	if code, out, errs = halo(t, "units", "codeowners", "--policy-dir", dir, "--owner", "@acme/ai-platform"); code != 0 || !strings.Contains(out, "\n/units/payments/checkout/ ") || !strings.Contains(out, "\n/units/payments/unit.yaml @acme/ai-platform\n") {
 		t.Fatalf("%d %s\n%s", code, errs, out)
+	}
+	// top-level unit files need root owners
+	if code, _, errs = halo(t, "units", "codeowners", "--policy-dir", dir); code == 0 || !strings.Contains(errs, "--owner") {
+		t.Fatalf("no --owner: %d %s", code, errs)
 	}
 }
 

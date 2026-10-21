@@ -174,6 +174,25 @@
       },
       "additionalProperties": false
     },
+    "delegation": {
+      "type": "object",
+      "description": "What units (ADR-0018) may add on top of the baseline; anything else a unit adds is a loosening that validate rejects. MCP servers a unit adds must be exact selfService.catalog entries.",
+      "properties": {
+        "allowHooks": {
+          "type": "boolean",
+          "description": "Let units add hooks.items (shell commands every member's harness runs). Default false."
+        },
+        "envKeys": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Env names units may add. Provider, base-URL, proxy and runtime-injection names (*_BASE_URL, *_API_KEY, ANTHROPIC_*, OPENAI_*, GEMINI_*, CLAUDE_CODE_USE_*, HTTP(S)_PROXY, ALL_PROXY, NO_PROXY, NODE_*, LD_*, DYLD_*, PYTHON*) are refused even here."
+        }
+      },
+      "additionalProperties": false
+    },
     "workloads": {
       "type": "object",
       "description": "Workload identity federation for headless CI / cloud agents (ADR-0023): halo-server exchanges a token from a trusted OIDC issuer for a short-lived gateway credential when a rule matches its claims.",
@@ -204,6 +223,11 @@
                 "type": "string",
                 "minLength": 1,
                 "description": "Overrides workloads.audience for this issuer (CircleCI's default aud is the organization id)."
+              },
+              "tenantClaim": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The claim naming the tenant (org, group, account) a token was minted for; every rule of this issuer must match it exactly. Required for issuers Halos does not know; for GitHub, GitLab.com, Buildkite, CircleCI, Google and Entra ID it may only pick one of their tenant claims."
               }
             },
             "required": [
@@ -231,7 +255,7 @@
               "match": {
                 "type": "object",
                 "minProperties": 1,
-                "description": "Claim name -> exact value or glob (* never crosses /). At least one pattern must not start with a wildcard.",
+                "description": "Claim name -> exact value or glob (* never crosses /). One of the issuer's tenant claims must be matched exactly, or as literal/* (GitHub: repository_owner_id, repository_owner, repository or repository_id; GitLab.com: namespace_id, namespace_path, project_id or project_path; Buildkite: organization_id or organization_slug; CircleCI: oidc.circleci.com/org-id; Google: email or sub; Entra ID: tid; other issuers: their tenantClaim).",
                 "additionalProperties": {
                   "type": "string",
                   "minLength": 1

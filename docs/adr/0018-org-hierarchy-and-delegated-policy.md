@@ -7,6 +7,8 @@ date: 2026-10-21
 
 # ADR-0018: Org hierarchy and delegated policy
 
+> **Amended 2026-10-21.** A unit's own owners approve its file, so additions that run code or reroute traffic on members' machines are loosenings too: `hooks.items` (unless `halos.yaml` sets `delegation.allowHooks`), new `env` keys (unless listed in `delegation.envKeys`; provider, base-URL, proxy and runtime-injection keys never), and MCP servers that are not an exact `selfService.catalog` entry; overlays carry no extensions. A top-level unit may select `members.groups` only, and `halo units codeowners` gives a top-level unit's file to the root owners alone (`--owner` is then required). See [Org hierarchy](/halos/concepts/org-hierarchy/#enforced-fields).
+
 ## Context and problem statement
 
 The policy model is one flat org: rings point at profiles, and profiles share settings through a single `extends` chain. A large org with many business units ends up with one of two problems. Either every BU-specific change goes through the central platform team, or BUs get write access to the shared profiles and can weaken the security baseline by accident. Neither scales to hundreds of teams. How do business units and teams own their own settings without being able to loosen what the org enforces?

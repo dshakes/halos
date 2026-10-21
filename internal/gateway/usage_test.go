@@ -2,6 +2,8 @@ package gateway
 
 import (
 	"bytes"
+	"compress/gzip"
+	"compress/zlib"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
@@ -105,8 +107,8 @@ func TestUsageTap(t *testing.T) {
 				}
 				calls := 0
 				var got budget.Usage
-				var ok bool
-				tap := UsageTap(tt.proto, tt.ctype, io.NopCloser(src), func(u budget.Usage, found bool) { calls++; got, ok = u, found })
+				var ok, complete bool
+				tap := UsageTap(tt.proto, tt.ctype, "", io.NopCloser(src), func(r UsageResult) { calls++; got, ok, complete = r.Usage, r.Found, r.Complete })
 				out, err := io.ReadAll(tap)
 				if err != nil {
 					t.Fatal(err)
@@ -115,39 +117,183 @@ func TestUsageTap(t *testing.T) {
 				if string(out) != tt.body {
 					t.Fatal("tap changed the body")
 				}
-				if calls != 1 || ok != tt.ok || got != tt.want {
-					t.Fatalf("chunked=%v: calls=%d ok=%v usage=%+v, want ok=%v %+v", chunked, calls, ok, got, tt.ok, tt.want)
+				// read to EOF: complete exactly when usage was found
+				if calls != 1 || ok != tt.ok || complete != tt.ok || got != tt.want {
+					t.Fatalf("chunked=%v: calls=%d ok=%v complete=%v usage=%+v, want ok=%v %+v", chunked, calls, ok, complete, got, tt.ok, tt.want)
 				}
 			}
 		})
 	}
 }
 
-// A client that goes away mid-stream still charges what was already reported.
+// A client that goes away mid-stream keeps what was already reported, but
+// the result is not Complete: the caller must estimate, not trust it.
 func TestUsageTapCloseBeforeEOF(t *testing.T) {
 	body := "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":500,\"output_tokens\":1}}}\n\ndata: {\"type\":\"content_block_delta\"}\n\n"
-	var got budget.Usage
-	var ok bool
-	tap := UsageTap(ProtoAnthropic, "text/event-stream", io.NopCloser(strings.NewReader(body)), func(u budget.Usage, found bool) { got, ok = u, found })
+	var got UsageResult
+	tap := UsageTap(ProtoAnthropic, "text/event-stream", "", io.NopCloser(strings.NewReader(body)), func(r UsageResult) { got = r })
 	buf := make([]byte, 90)
 	if _, err := io.ReadFull(tap, buf); err != nil {
 		t.Fatal(err)
 	}
 	_ = tap.Close()
 	_ = tap.Close()
-	if !ok || got.Input != 500 {
-		t.Fatalf("partial stream: ok=%v %+v", ok, got)
+	if !got.Found || got.Complete || got.Usage.Input != 500 || got.Bytes != 90 {
+		t.Fatalf("partial stream: %+v", got)
 	}
 
-	// An upstream read error ends the body too.
+	// An upstream read error ends the body too, incomplete.
 	calls := 0
-	tap = UsageTap(ProtoAnthropic, "application/json", io.NopCloser(iotest.ErrReader(errors.New("reset"))), func(budget.Usage, bool) { calls++ })
+	tap = UsageTap(ProtoAnthropic, "application/json", "", io.NopCloser(iotest.ErrReader(errors.New("reset"))), func(r UsageResult) { calls++; got = r })
 	if _, err := io.ReadAll(tap); err == nil {
 		t.Fatal("want read error")
 	}
 	_ = tap.Close()
-	if calls != 1 {
-		t.Fatalf("done called %d times", calls)
+	if calls != 1 || got.Complete {
+		t.Fatalf("done called %d times, %+v", calls, got)
+	}
+}
+
+// Every way a metered stream can end without its final usage is incomplete:
+// a client hanging up after OpenAI's output_text.done (usage only arrives in
+// response.completed), an upstream cut, an Anthropic stream closed after
+// message_start.
+func TestUsageTapIncomplete(t *testing.T) {
+	responses := "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"usage\":null}}\n\n" +
+		"event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"" + strings.Repeat("y", 3000) + "\"}\n\n" +
+		"event: response.output_text.done\ndata: {\"type\":\"response.output_text.done\"}\n\n"
+	completed := "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":10,\"output_tokens\":900}}}\n\n"
+	for _, tc := range []struct {
+		name     string
+		src      io.Reader
+		closeAt  int // bytes read before Close; -1 = read to the end
+		found    bool
+		complete bool
+	}{
+		{"responses closed at output_text.done", strings.NewReader(responses + completed), len(responses), false, false},
+		{"responses read to the end", strings.NewReader(responses + completed), -1, true, true},
+		{"upstream cut", io.MultiReader(strings.NewReader(responses), iotest.ErrReader(io.ErrUnexpectedEOF)), -1, false, false},
+		{"clean EOF, no usage", strings.NewReader(responses), -1, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var got UsageResult
+			tap := UsageTap(ProtoResponses, "text/event-stream", "", io.NopCloser(tc.src), func(r UsageResult) { got = r })
+			if tc.closeAt >= 0 {
+				if _, err := io.ReadFull(tap, make([]byte, tc.closeAt)); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				_, _ = io.ReadAll(tap)
+			}
+			_ = tap.Close()
+			if got.Found != tc.found || got.Complete != tc.complete || got.Bytes < int64(len(responses)) {
+				t.Fatalf("%+v", got)
+			}
+		})
+	}
+}
+
+// gzip and deflate bodies are decompressed for the scan only; an encoding
+// the stdlib cannot decode (br) is never Complete, so it is estimated.
+func TestUsageTapContentEncoding(t *testing.T) {
+	body := "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":70,\"output_tokens\":1}}}\n\n" +
+		"data: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":30}}\n\n"
+	gz := func(b []byte) []byte {
+		var w bytes.Buffer
+		z := gzip.NewWriter(&w)
+		_, _ = z.Write(b)
+		_ = z.Close()
+		return w.Bytes()
+	}
+	zl := func(b []byte) []byte {
+		var w bytes.Buffer
+		z := zlib.NewWriter(&w)
+		_, _ = z.Write(b)
+		_ = z.Close()
+		return w.Bytes()
+	}
+	full := budget.Usage{Input: 70, Output: 30}
+	for _, tc := range []struct {
+		name, enc string
+		wire      []byte
+		closeAt   int // -1 = read to the end
+		want      budget.Usage
+		complete  bool
+	}{
+		{"gzip", "gzip", gz([]byte(body)), -1, full, true},
+		{"x-gzip upper case", "X-GZIP", gz([]byte(body)), -1, full, true},
+		{"deflate", "deflate", zl([]byte(body)), -1, full, true},
+		{"gzip closed early", "gzip", gz([]byte(body)), 10, budget.Usage{}, false},
+		{"gzip truncated by upstream", "gzip", gz([]byte(body))[:40], -1, budget.Usage{}, false},
+		{"not actually gzip", "gzip", []byte(body), -1, budget.Usage{}, false},
+		{"br", "br", []byte("\x1b\x00\x00"), -1, budget.Usage{}, false},
+		{"identity", "identity", []byte(body), -1, full, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, chunked := range []bool{false, true} {
+				var src io.Reader = bytes.NewReader(tc.wire)
+				if chunked {
+					src = iotest.OneByteReader(src)
+				}
+				calls := 0
+				var got UsageResult
+				tap := UsageTap(ProtoAnthropic, "text/event-stream", tc.enc, io.NopCloser(src), func(r UsageResult) { calls++; got = r })
+				var out []byte
+				if tc.closeAt >= 0 {
+					out = make([]byte, tc.closeAt)
+					if _, err := io.ReadFull(tap, out); err != nil {
+						t.Fatal(err)
+					}
+				} else {
+					out, _ = io.ReadAll(tap)
+					if !bytes.Equal(out, tc.wire) {
+						t.Fatal("tap changed the body")
+					}
+				}
+				_ = tap.Close()
+				if calls != 1 || got.Complete != tc.complete || (tc.complete && got.Usage != tc.want) {
+					t.Fatalf("chunked=%v: calls=%d %+v", chunked, calls, got)
+				}
+			}
+		})
+	}
+}
+
+func TestEstimateUsage(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		r        UsageResult
+		reqBytes int
+		max      int64
+		want     budget.Usage
+	}{
+		{"nothing seen: request and response bytes / 3", UsageResult{Bytes: 3000}, 900, 0, budget.Usage{Input: 300, Output: 1000}},
+		{"capped at max tokens", UsageResult{Bytes: 3000}, 900, 64, budget.Usage{Input: 300, Output: 64}},
+		{"message_start input wins over request bytes", UsageResult{Usage: budget.Usage{Input: 500, CacheRead: 40, Output: 1}, Found: true, Bytes: 30}, 900, 0,
+			budget.Usage{Input: 500, CacheRead: 40, Output: 10}},
+		{"reported output beats the byte guess and the cap", UsageResult{Usage: budget.Usage{Input: 5, Output: 200}, Found: true, Bytes: 30}, 9, 100,
+			budget.Usage{Input: 5, Output: 200}},
+		{"never zero", UsageResult{}, 0, 0, budget.Usage{Input: 1}},
+	} {
+		if got := EstimateUsage(tc.r, tc.reqBytes, tc.max); got != tc.want {
+			t.Errorf("%s: %+v, want %+v", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestMaxOutputTokens(t *testing.T) {
+	for body, want := range map[string]int64{
+		`{"model":"m","max_tokens":32000,"messages":[]}`:           32000,
+		`{"model":"m","max_output_tokens":4096,"input":"x"}`:       4096,
+		`{"contents":[],"generationConfig":{"maxOutputTokens":8}}`: 8,
+		`{"messages":[],"inferenceConfig":{"maxTokens":512}}`:      512,
+		`{"model":"m","input":"x"}`:                                0,
+		`{"max_tokens":-5}`:                                        0,
+		`not json`:                                                 0,
+	} {
+		if got := MaxOutputTokens([]byte(body)); got != want {
+			t.Errorf("%s: %d, want %d", body, got, want)
+		}
 	}
 }
 

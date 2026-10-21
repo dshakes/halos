@@ -96,7 +96,7 @@ func TestValidateWorkloads(t *testing.T) {
 		want string // substring of an error path+message; "" = no workloads error
 	}{
 		{"valid", func(*Workloads) {}, ""},
-		{"loopback http issuer ok", func(w *Workloads) { w.Issuers[0].URL = "http://127.0.0.1:8080" }, ""},
+		{"loopback http issuer ok", func(w *Workloads) { w.Issuers[0].URL, w.Issuers[0].TenantClaim = "http://127.0.0.1:8080", "repository" }, ""},
 		{"no audience", func(w *Workloads) { w.Audience = "" }, "workloads.audience"},
 		{"http issuer", func(w *Workloads) { w.Issuers[0].URL = "http://token.actions.githubusercontent.com" }, "workloads.issuers[0].url"},
 		{"duplicate issuer", func(w *Workloads) { w.Issuers = append(w.Issuers, w.Issuers[0]) }, "workloads.issuers[1]"},
@@ -109,6 +109,51 @@ func TestValidateWorkloads(t *testing.T) {
 		{"unbalanced subject", func(w *Workloads) { w.Rules[0].Subject = "workload:{repository" }, "workloads.rules[0].subject"},
 		{"ttl over an hour", func(w *Workloads) { w.Rules[0].MaxTTLSeconds = 3601 }, "workloads.rules[0].maxTTLSeconds"},
 		{"duplicate rule", func(w *Workloads) { w.Rules = append(w.Rules, w.Rules[0]) }, "workloads.rules[1].name"},
+		// Tenant pinning: a public issuer signs for every tenant, with any aud.
+		{"ref alone pins no tenant", func(w *Workloads) { w.Rules[0].Match = map[string]string{"ref": "refs/heads/main"} }, "workloads.rules[0].match: pins no tenant"},
+		{"owner prefix glob admits acme-evil", func(w *Workloads) { w.Rules[0].Match = map[string]string{"repository_owner": "acme*"} }, "workloads.rules[0].match: pins no tenant"},
+		{"repository */app", func(w *Workloads) { w.Rules[0].Match = map[string]string{"repository": "*/app"} }, "workloads.rules[0].match: pins no tenant"},
+		{"repository acme-*/app", func(w *Workloads) { w.Rules[0].Match = map[string]string{"repository": "acme-*/app"} }, "workloads.rules[0].match: pins no tenant"},
+		{"non-tenant claim pinned exactly", func(w *Workloads) {
+			w.Rules[0].Match = map[string]string{"job_workflow_ref": "acme/x/.github/workflows/a.yml@refs/heads/main"}
+		}, "workloads.rules[0].match: pins no tenant"},
+		{"owner exact", func(w *Workloads) { w.Rules[0].Match = map[string]string{"repository_owner": "acme"} }, ""},
+		{"owner id exact", func(w *Workloads) { w.Rules[0].Match = map[string]string{"repository_owner_id": "42", "ref": "*"} }, ""},
+		{"github enterprise issuer is still github", func(w *Workloads) {
+			w.Issuers[0].URL = "https://token.actions.githubusercontent.com/acme-ent"
+			w.Rules[0].Match = map[string]string{"ref": "refs/heads/main"}
+		}, "workloads.rules[0].match: pins no tenant"},
+		{"tenantClaim narrows a known issuer", func(w *Workloads) { w.Issuers[0].TenantClaim = "repository_owner_id" }, "workloads.rules[0].match: pins no tenant"},
+		{"tenantClaim on a known issuer must be a tenant claim", func(w *Workloads) { w.Issuers[0].TenantClaim = "ref" }, "workloads.issuers[0].tenantClaim"},
+		{"unknown issuer needs tenantClaim", func(w *Workloads) { w.Issuers[0].URL = "https://ci.acme.example" }, "workloads.issuers[0].tenantClaim: required"},
+		{"lookalike host is unknown", func(w *Workloads) { w.Issuers[0].URL = "https://token.actions.githubusercontent.com.evil.example" }, "workloads.issuers[0].tenantClaim: required"},
+		{"unknown issuer: rule must pin its tenantClaim", func(w *Workloads) {
+			w.Issuers[0].URL, w.Issuers[0].TenantClaim = "https://ci.acme.example", "org"
+		}, "workloads.rules[0].match: pins no tenant"},
+		{"unknown issuer pinned", func(w *Workloads) {
+			w.Issuers[0].URL, w.Issuers[0].TenantClaim = "https://ci.acme.example", "org"
+			w.Rules[0].Match["org"] = "acme"
+		}, ""},
+		{"gitlab group/*", func(w *Workloads) {
+			w.Issuers[0].URL = "https://gitlab.com"
+			w.Rules[0].Match = map[string]string{"namespace_path": "acme/*"}
+		}, ""},
+		{"gitlab ref only", func(w *Workloads) {
+			w.Issuers[0].URL = "https://gitlab.com"
+			w.Rules[0].Match = map[string]string{"ref_protected": "true"}
+		}, "workloads.rules[0].match: pins no tenant"},
+		{"buildkite pipeline only", func(w *Workloads) {
+			w.Issuers[0].URL = "https://agent.buildkite.com"
+			w.Rules[0].Match = map[string]string{"pipeline_slug": "monorepo"}
+		}, "workloads.rules[0].match: pins no tenant"},
+		{"circleci org id", func(w *Workloads) {
+			w.Issuers[0].URL = "https://oidc.circleci.com/org/6f6d0c1a"
+			w.Rules[0].Match = map[string]string{"oidc.circleci.com/org-id": "6f6d0c1a"}
+		}, ""},
+		{"google any service account", func(w *Workloads) {
+			w.Issuers[0].URL = "https://accounts.google.com"
+			w.Rules[0].Match = map[string]string{"email": "*@acme-prod.iam.gserviceaccount.com"}
+		}, "workloads.rules[0].match: pins no tenant"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			w := ghWorkloads()
@@ -124,6 +169,43 @@ func TestValidateWorkloads(t *testing.T) {
 			all := strings.Join(got, "\n")
 			if tc.want == "" && len(got) > 0 || tc.want != "" && !strings.Contains(all, tc.want) {
 				t.Fatalf("want %q, got:\n%s", tc.want, all)
+			}
+		})
+	}
+}
+
+// GitHub rules that pin only renamable names, or that any workflow (including
+// pull_request_target on the base branch) can satisfy, validate with a warning.
+func TestValidateWorkloadsGitHubWarnings(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		match map[string]string
+		want  []string // substrings of the warnings, in order
+	}{
+		{"name only, no environment", map[string]string{"repository": "acme/app"}, []string{"renamed", "pull_request_target"}},
+		{"owner id and environment", map[string]string{"repository_owner_id": "42", "environment": "prod"}, nil},
+		{"repo id and pinned workflow", map[string]string{"repository_id": "7", "job_workflow_ref": "acme/p/.github/workflows/a.yml@refs/heads/main"}, nil},
+		{"owner name and environment", map[string]string{"repository_owner": "acme", "environment": "prod"}, []string{"renamed"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := ghWorkloads()
+			w.Rules[0].Match = tc.match
+			v := &validator{org: &Org{Workloads: w}}
+			v.workloads()
+			var got []string
+			for _, i := range v.issues {
+				if i.Severity == SeverityError {
+					t.Fatalf("unexpected error %s", i)
+				}
+				got = append(got, i.Message)
+			}
+			if len(got) != len(tc.want) {
+				t.Fatalf("warnings %q, want %q", got, tc.want)
+			}
+			for i, w := range tc.want {
+				if !strings.Contains(got[i], w) {
+					t.Errorf("warning %q lacks %q", got[i], w)
+				}
 			}
 		})
 	}

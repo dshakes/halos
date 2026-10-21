@@ -138,7 +138,8 @@ The same data is at `GET /api/v1/budgets` (admin; `?budget=` and `?key=` filter)
 
 ## How accurate it is
 
-- **Metering.** Usage comes from the provider's own usage object in each response: SSE events for streams, event-stream frames for Bedrock, the end of the body otherwise. A response without one (for example a stream cut before the first usage event) is not charged, and is counted in `halo_proxy_budget_responses_total{outcome="no_usage"}`.
+- **Metering.** Usage comes from the provider's own usage object in each response: SSE events for streams, event-stream frames for Bedrock, the end of the body otherwise. If the upstream compresses the response anyway, gzip and deflate are decompressed for the usage scan only; the client still gets the upstream's bytes.
+- **Estimates.** A successful model call is never free. When a response ends before its final usage is read (the client hangs up, for example after OpenAI's `response.output_text.done` and before `response.completed`; the upstream cuts the stream; there is no usage object; or the encoding is one the proxy cannot decode, such as `br`), it is charged a pessimistic estimate and counted in `halo_proxy_budget_responses_total{outcome="estimated"}`: input as reported so far (Anthropic's `message_start`), else request bytes / 3; output the larger of response bytes / 3 and the output reported so far, capped at the request's `max_tokens` (`max_output_tokens`, `maxOutputTokens`). Response bytes include the stream framing, so an interrupted stream usually costs its full `max_tokens`. A rising `estimated` count is either clients cancelling often or a wire change worth a look.
 - **Overshoot.** Enforcement is eventually consistent. A replica adds its own usage to its cached verdict at once, so a caller on one replica is stopped at the next request after crossing the limit. Usage served by other replicas arrives within `flushInterval` and is seen after `cacheTTL`. Shared counters (group, ring, org) see other callers' usage only on refresh. The request that crosses a limit always completes, because it is charged when it finishes.
 - **Rolling windows** move in steps of period/48 (30 minutes for 24h).
 - **Durability.** `halo-server` writes counters to `<data-dir>/budgets.json` at most every 10 s and on shutdown. Back it up with the rest of the data dir. A crash loses at most 10 s of usage, and a SIGKILLed proxy loses its unreported usage. Both under-count.
@@ -148,7 +149,7 @@ The same data is at `GET /api/v1/budgets` (admin; `?budget=` and `?key=` filter)
 | Metric | Labels |
 |---|---|
 | `halo_proxy_budget_checks_total` | `budget`, `outcome` = `ok`, `alert`, `exceeded` (warn), `refused` (enforce), `unknown` |
-| `halo_proxy_budget_responses_total` | `outcome` = `metered`, `unpriced`, `no_usage` |
+| `halo_proxy_budget_responses_total` | `outcome` = `metered`, `unpriced`, `estimated` |
 | `halo_proxy_budget_spend_usd_total` | |
 | `halo_proxy_budget_tokens_total` | `kind` = `input`, `output`, `cache_read`, `cache_write` |
 | `halo_proxy_budget_reports_total` | `outcome` = `ok`, `failed` |

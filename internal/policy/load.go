@@ -29,6 +29,8 @@ type Root struct {
 	SelfService SelfService `yaml:"selfService,omitempty" json:"selfService,omitempty"`
 	// Workloads federates CI / cloud agents' OIDC tokens (ADR-0023).
 	Workloads *Workloads `yaml:"workloads,omitempty" json:"workloads,omitempty"`
+	// Delegation is what units may add beyond the baseline (ADR-0018).
+	Delegation *Delegation `yaml:"delegation,omitempty" json:"delegation,omitempty"`
 	// Simple mode fields (tools, provider, models, ...): see simple.go.
 	Simple `yaml:",inline"`
 }
@@ -85,7 +87,7 @@ func Load(dir string) (*Org, error) {
 		return nil, err
 	}
 
-	org := &Org{Name: root.Org, Identity: root.Identity, SelfService: root.SelfService, Workloads: root.Workloads, Profiles: map[string]*Profile{}}
+	org := &Org{Name: root.Org, Identity: root.Identity, SelfService: root.SelfService, Workloads: root.Workloads, Delegation: root.Delegation, Profiles: map[string]*Profile{}}
 	if root.APIVersion == APIVersionV1Alpha1 {
 		org.Deprecations = append(org.Deprecations, deprecation(dir, rootPath))
 	}
@@ -199,7 +201,7 @@ func loadFile(org *Org, dir, path string) (deprecated bool, err error) {
 		case KindRollout:
 			target = new(Rollout)
 		case KindUnit:
-			target = &Unit{Dir: filepath.ToSlash(filepath.Dir(rel))}
+			target = &Unit{Dir: filepath.ToSlash(filepath.Dir(rel)), File: rel}
 		default:
 			return false, fmt.Errorf("policy: %s: document %d: unknown kind %q", path, i+1, k)
 		}
