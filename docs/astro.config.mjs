@@ -122,7 +122,7 @@ export default defineConfig({
             },
             {
               label: 'Run the gateway',
-              items: ['guides/bedrock-via-kong', 'guides/direct-anthropic', 'guides/provider-smoke'],
+              items: ['guides/bedrock-via-kong', 'guides/direct-anthropic', 'guides/provider-smoke', 'guides/cost-budgets'],
             },
             {
               label: 'Operate',

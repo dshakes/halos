@@ -43,6 +43,7 @@
     {
       "path": "cmd/halo-proxy",
       "imports": [
+        "internal/budget",
         "internal/bundle",
         "internal/gateway",
         "internal/gateway/upstreamauth",
@@ -89,6 +90,12 @@
     {
       "path": "internal/assign",
       "imports": []
+    },
+    {
+      "path": "internal/budget",
+      "imports": [
+        "internal/policy"
+      ]
     },
     {
       "path": "internal/bundle",
@@ -140,6 +147,7 @@
       "path": "internal/gateway",
       "imports": [
         "internal/assign",
+        "internal/budget",
         "internal/harness",
         "internal/harness/all",
         "internal/policy",
@@ -308,6 +316,7 @@
     {
       "path": "internal/server",
       "imports": [
+        "internal/budget",
         "internal/bundle",
         "internal/controller",
         "internal/fsutil",

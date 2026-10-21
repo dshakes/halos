@@ -84,6 +84,7 @@ type Server struct {
 	relChannels channelsFetch // ring release -> experiment channels; swapped in tests
 	kills       *controller.KillStore
 	gwSum       [32]byte // sha256 of GatewayToken
+	budgets     *budgetStore
 }
 
 // New validates cfg and returns a Server. It does not require the policy dir to load yet.
@@ -130,8 +131,15 @@ func New(cfg Config) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	bs, err := openBudgetStore(cfg.DataDir)
+	if err != nil {
+		return nil, err
+	}
+	if cfg.GatewayToken != "" && cfg.DataDir == "" {
+		cfg.Log.Warn("no --data-dir: gateway budget counters are in memory and reset on restart")
+	}
 	s := &Server{cfg: cfg, tokSum: sha256.Sum256([]byte(cfg.Token)), pol: &policyHolder{dir: cfg.PolicyDir, log: cfg.Log}, reqs: reqs, devices: devs, revoked: revoked,
-		auditLog: al, relCache: &releaseCache{byKey: map[string]cachedPointer{}, chans: map[string][]string{}}}
+		auditLog: al, relCache: &releaseCache{byKey: map[string]cachedPointer{}, chans: map[string][]string{}}, budgets: bs}
 	s.relFetch, s.relChannels = s.registryFetch, s.registryChannels
 	if s.kills = cfg.KillStore; s.kills == nil {
 		if s.kills, err = controller.OpenKillStore(cfg.DataDir); err != nil {
@@ -145,7 +153,7 @@ func New(cfg Config) (*Server, error) {
 // Close releases the files New opened under Config.DataDir. A Store or
 // KillStore passed in via Config stays the caller's to close.
 func (s *Server) Close() error {
-	errs := []error{s.reqs.close(), s.devices.close(), s.revoked.close(), s.auditLog.close()}
+	errs := []error{s.reqs.close(), s.devices.close(), s.revoked.close(), s.auditLog.close(), s.budgets.save(s.cfg.Now(), true)}
 	if s.cfg.KillStore == nil && s.kills != nil {
 		errs = append(errs, s.kills.Close())
 	}
@@ -199,6 +207,9 @@ func (s *Server) Handler() http.Handler {
 	m.HandleFunc("GET /api/v1/killswitch", s.admin(s.getKills))
 	m.HandleFunc("GET /api/v1/gateway/killswitch", s.getGatewayKillswitch)
 	m.HandleFunc("GET /api/v1/gateway/posture", s.getGatewayPosture)
+	m.HandleFunc("POST /api/v1/gateway/budget/check", s.postGatewayBudgetCheck)
+	m.HandleFunc("POST /api/v1/gateway/budget/usage", s.postGatewayBudgetUsage)
+	m.HandleFunc("GET /api/v1/budgets", s.admin(s.getBudgets))
 	m.HandleFunc("POST /api/v1/devices/{id}/revoke", s.admin(s.revokeDevice))
 	m.HandleFunc("POST /api/v1/users/{id}/revoke-sessions", s.admin(s.revokeSessions))
 	// admin-only operator views

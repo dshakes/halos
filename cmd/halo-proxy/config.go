@@ -58,6 +58,9 @@ type Config struct {
 	// Posture asks halo-server for device posture (rings with posture warn or
 	// enforce). Empty URL disables: the posture gate is then never applied.
 	Posture PostureConfig `yaml:"posture"`
+	// Budgets reports usage to and checks verdicts from halo-server's budget
+	// counters for the policy's gateway.budgets. Empty URL disables both.
+	Budgets BudgetConfig `yaml:"budgets"`
 	// Telemetry exports per-request OTLP metrics (halo.gateway.*) for
 	// experiment analysis. Empty otlpEndpoint disables.
 	Telemetry gwmetrics.Config `yaml:"telemetry"`
@@ -175,6 +178,9 @@ func loadConfig(args []string, getenv func(string) string, usage io.Writer) (Con
 	fs.DurationVar(&cfg.KillSwitch.Interval, "killswitch-interval", cfg.KillSwitch.Interval, "kill list poll interval (default 10s)")
 	fs.StringVar(&cfg.Posture.URL, "posture-url", cfg.Posture.URL, "halo-server /api/v1/gateway/posture URL; empty disables the posture gate")
 	fs.StringVar(&cfg.Posture.TokenFile, "posture-token-file", cfg.Posture.TokenFile, "file holding the halo-server gateway token for the posture URL")
+	fs.StringVar(&cfg.Budgets.URL, "budget-url", cfg.Budgets.URL, "halo-server /api/v1/gateway/budget URL; empty disables budget metering and enforcement")
+	fs.StringVar(&cfg.Budgets.TokenFile, "budget-token-file", cfg.Budgets.TokenFile, "file holding the halo-server gateway token for the budget URL")
+	fs.StringVar(&cfg.Budgets.FailMode, "budget-fail-mode", cfg.Budgets.FailMode, "unknown budget verdict under an enforce budget: open (pass, default) | closed (503)")
 	fs.StringVar(&cfg.Telemetry.OTLPEndpoint, "telemetry-otlp-endpoint", cfg.Telemetry.OTLPEndpoint, "OTLP/HTTP collector base URL for halo.gateway.* request metrics; empty disables")
 	fs.StringVar(&cfg.Telemetry.Protocol, "telemetry-protocol", cfg.Telemetry.Protocol, "OTLP protocol: http/protobuf (default) | http/json")
 	fs.DurationVar(&cfg.Telemetry.Interval, "telemetry-interval", cfg.Telemetry.Interval, "OTLP export interval (default 10s, min 1s)")

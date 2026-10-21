@@ -43,6 +43,9 @@ func run() error {
 	if p.kill != nil {
 		go p.kill.Run(ctx)
 	}
+	if p.bc != nil {
+		go p.bc.Run(ctx)
+	}
 	go p.otlp.Run(ctx, func(err error) { log.Warn("request metrics export", "err", err) }) // no-op when disabled
 	errc := make(chan error, 2)
 	go func() { errc <- srv.ListenAndServe() }()
@@ -67,6 +70,11 @@ func run() error {
 	serr := srv.Shutdown(sctx)
 	if err := p.otlp.Flush(sctx); err != nil { // the drained requests' tail
 		log.Warn("request metrics export", "err", err)
+	}
+	if p.bc != nil { // drained requests' usage; unsent usage is lost and under-counts
+		if err := p.bc.FlushNow(sctx); err != nil {
+			log.Warn("budget usage report at shutdown", "err", err)
+		}
 	}
 	if serr != nil && !errors.Is(serr, http.ErrServerClosed) {
 		return fmt.Errorf("halo-proxy: shutdown: %w", serr)

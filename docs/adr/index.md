@@ -22,5 +22,6 @@ Decisions that shape Halos. New ADRs use [MADR](https://adr.github.io/madr/): co
 | [0011](/halos/adr/0011-gateway-enforced-posture-and-version/) | Gateway-enforced device posture and CLI version |
 | [0012](/halos/adr/0012-policy-api-v1/) | halos.dev/v1 is the stable policy API |
 | [0013](/halos/adr/0013-external-gateway-engine/) | Halos manages clients behind a gateway it does not run |
+| [0017](/halos/adr/0017-gateway-cost-budgets/) | Cost budgets and quotas enforced at the gateway |
 
 The canonical files live in `docs/adr/` in the repository; the docs build copies them into the site.
