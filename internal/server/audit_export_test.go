@@ -182,6 +182,11 @@ func TestAuditExportWebhook(t *testing.T) {
 			t.Fatalf("event %d: SIEM-side hash recipe %s != %s", i, computed, stated)
 		}
 	}
+	// The receiver records a batch before it answers; the forwarder advances
+	// its cursor and counters only on that answer, so wait for the ack.
+	waitFor(t, "30 acked", func() bool {
+		return strings.Contains(metrics(e.s), `halo_server_audit_forward_sent_total{sink="dd"} 30`)
+	})
 	cur, _ := os.ReadFile(filepath.Join(dir, "audit-forward", "dd.json"))
 	var c auditCursor
 	if json.Unmarshal(cur, &c) != nil || c.Seq != 30 || c.Hash != e.s.auditLog.head {
