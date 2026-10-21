@@ -118,10 +118,12 @@ var providerEnvs = map[string][]string{
 // A CLI can also be logged in (OAuth, keychain); halo cannot see that without
 // reading credential stores, so verify takes --assume-auth for it.
 var harnessEnvs = map[string][]string{
-	"claude-code": {"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"},
-	"codex":       {"OPENAI_API_KEY", "CODEX_API_KEY"},
-	"gemini-cli":  {"GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_APPLICATION_CREDENTIALS"},
-	"copilot-cli": {"COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"},
+	"claude-code":  {"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"},
+	"codex":        {"OPENAI_API_KEY", "CODEX_API_KEY"},
+	"gemini-cli":   {"GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_APPLICATION_CREDENTIALS"},
+	"copilot-cli":  {"COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"},
+	"cursor-agent": {"CURSOR_API_KEY"},
+	"opencode":     {"HALO_GATEWAY_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY"},
 }
 
 // Credentials lists every known credential variable and whether it is set.

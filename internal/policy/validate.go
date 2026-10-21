@@ -37,7 +37,7 @@ var (
 	awsRegion = regexp.MustCompile(`^[a-z]{2}(-[a-z]+)+-[0-9]+$`)
 	gcpRegion = regexp.MustCompile(`^([a-z]+-[a-z]+[0-9]+|global)$`)
 
-	knownHarnesses   = []string{"claude-code", "codex", "gemini-cli", "copilot-cli"}
+	knownHarnesses   = []string{"claude-code", "codex", "gemini-cli", "copilot-cli", "cursor-agent", "opencode"}
 	permissionModes  = []string{"default", "acceptEdits", "plan", "auto"}
 	sandboxModes     = []string{"off", "workspace-write", "read-only"}
 	gateModes        = []string{GateOff, GateWarn, GateEnforce}

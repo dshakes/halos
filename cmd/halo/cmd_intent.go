@@ -163,7 +163,7 @@ func (a *app) cmdInit() *cobra.Command {
 	}
 	f := c.Flags()
 	f.StringVar(&o.Org, "org", "my-org", "organization name")
-	f.StringSliceVar(&tools, "tools", []string{"claude-code@2.1.280"}, "harnesses as name@version (claude-code, codex, gemini-cli, copilot-cli)")
+	f.StringSliceVar(&tools, "tools", []string{"claude-code@2.1.280"}, "harnesses as name@version (claude-code, codex, gemini-cli, copilot-cli, cursor-agent, opencode)")
 	f.StringVar(&o.Provider, "provider", "anthropic", "anthropic | bedrock | vertex | openai | gemini | multi")
 	f.StringArrayVar(&models, "model", nil, "model alias=provider model id, repeatable (default: the provider's current model;\n"+
 		"tools whose wire the provider cannot serve get an alias named after the tool, e.g. --model codex=gpt-5-codex)")

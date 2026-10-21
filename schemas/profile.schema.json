@@ -33,7 +33,7 @@
     },
     "harnesses": {
       "type": "object",
-      "description": "Enabled harnesses keyed by adapter name (claude-code, codex, gemini-cli, copilot-cli).",
+      "description": "Enabled harnesses keyed by adapter name (claude-code, codex, gemini-cli, copilot-cli, cursor-agent, opencode).",
       "additionalProperties": {
         "type": "object",
         "description": "Harness settings.",

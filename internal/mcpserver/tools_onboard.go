@@ -55,7 +55,7 @@ type proxyIn struct {
 }
 
 type verifyIn struct {
-	Harness    string `json:"harness" jsonschema:"claude-code | codex | gemini-cli | copilot-cli"`
+	Harness    string `json:"harness" jsonschema:"claude-code | codex | gemini-cli | copilot-cli | cursor-agent | opencode"`
 	AssumeAuth bool   `json:"assume_auth,omitempty" jsonschema:"run even with no credential variable set (the CLI is logged in)"`
 	DryRun     *bool  `json:"dry_run,omitempty" jsonschema:"default true: return the command; false runs one short model call"`
 }
@@ -122,7 +122,7 @@ func (s *srv) addOnboardTools(m *mcp.Server) {
 			return nil, r, err
 		})
 	mcp.AddTool(m, &mcp.Tool{Name: "verify_harness", Annotations: &mcp.ToolAnnotations{DestructiveHint: boolp(false), OpenWorldHint: boolp(true)},
-		Description: "Run one CLI headless (claude -p, codex exec, gemini -p, copilot -p) with a fixed prompt and check the reply. dry_run (default true) returns the command; false makes one short model call and, like every write, needs --allow-writes. Output is redacted."},
+		Description: "Run one CLI headless (claude -p, codex exec, gemini -p, copilot -p, cursor-agent -p, opencode run) with a fixed prompt and check the reply. dry_run (default true) returns the command; false makes one short model call and, like every write, needs --allow-writes. Output is redacted."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in verifyIn) (*mcp.CallToolResult, onboard.VerifyResult, error) {
 			// Spawning a CLI that spends the human's credentials is a side effect: same gate as the writes.
 			run, err := s.mayWrite(in.DryRun, "halo onboard verify "+in.Harness)

@@ -16,7 +16,7 @@ Generated from `schemas/profile.schema.json`; do not edit. Nested fields use dot
 | `env` | object |  |  |  |  | Extra environment applied to every harness. |
 | `env.*` | string |  |  |  |  |  |
 | `extends` | string |  |  |  |  | Parent profile. Scalars: child wins; lists: child replaces; maps: merged. |
-| `harnesses` | object |  |  |  |  | Enabled harnesses keyed by adapter name (claude-code, codex, gemini-cli, copilot-cli). |
+| `harnesses` | object |  |  |  |  | Enabled harnesses keyed by adapter name (claude-code, codex, gemini-cli, copilot-cli, cursor-agent, opencode). |
 | `harnesses.*` | object |  |  |  |  | Harness settings. |
 | `harnesses.*.model` | string |  |  |  |  | This harness's default model alias, replacing models.default for it (e.g. codex-default). Must be a gateway.models alias, and in models.allowed when enforce is set. |
 | `harnesses.*.overrides` | object |  |  |  |  | Raw harness-native keys merged last (escape hatch; guardrails still apply). |

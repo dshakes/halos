@@ -215,6 +215,7 @@ func TestHarnessFromUA(t *testing.T) {
 		"claude-cli/2.1.0 (external, cli)": "claude-code",
 		"codex_cli_rs/0.40":                "codex",
 		"GeminiCLI/0.5 (darwin)":           "gemini-cli",
+		"opencode/1.19.3 ai-sdk/x":         "opencode",
 		"curl/8":                           "",
 	} {
 		if got := HarnessFromUA(ua); got != want {
