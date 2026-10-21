@@ -29,7 +29,11 @@ func TestParseFlags(t *testing.T) {
 		{"required", []string{"--listen", ":1"}, "required", nil},
 		{"bad cidr", []string{"--policy-dir", "p", "--token-file", "t", "--trusted-proxy-cidrs", "10.0.0.0/8,nope"}, "trusted-proxy-cidrs", nil},
 		{"unknown flag", []string{"--nope"}, "not defined", nil},
-		{"killswitch key without gateway token", []string{"--policy-dir", "p", "--token-file", "t", "--killswitch-key-file", "k"}, "set together", nil},
+		{"killswitch key without gateway token", []string{"--policy-dir", "p", "--token-file", "t", "--killswitch-key-file", "k"}, "needs --gateway-token-file or --gateway-killswitch-token-file", nil},
+		{"killswitch key with its own token", []string{"--policy-dir", "p", "--token-file", "t", "--killswitch-key-file", "k", "--gateway-killswitch-token-file", "kt", "--data-dir", "d"}, "",
+			func(o options) bool { return o.gatewayCapTokenFiles == [4]string{"kt", "", "", ""} }},
+		{"per-capability token files", []string{"--policy-dir", "p", "--token-file", "t", "--gateway-posture-token-file", "pt", "--gateway-budget-token-file", "bt", "--gateway-directory-token-file", "dt"}, "",
+			func(o options) bool { return o.gatewayCapTokenFiles == [4]string{"", "pt", "bt", "dt"} }},
 		{"gateway token alone serves posture", []string{"--policy-dir", "p", "--token-file", "t", "--gateway-token-file", "g", "--posture-max-age", "30m"}, "",
 			func(o options) bool { return o.gatewayTokenFile == "g" && o.postureMaxAge == 30*time.Minute }},
 		{"posture max age too short", []string{"--policy-dir", "p", "--token-file", "t", "--posture-max-age", "10s"}, "at least 1m", nil},
@@ -129,6 +133,45 @@ func TestPolicyWriterSameCloneGuard(t *testing.T) {
 	}
 	if g := w.(*server.GitPolicyWriter); g.RepoDir != clone || g.ServedDir != served || g.Base != "trunk" {
 		t.Fatalf("%+v", g)
+	}
+}
+
+func TestReadGatewayTokens(t *testing.T) {
+	dir := t.TempDir()
+	file := func(name, tok string) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte(tok+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	shared, budget, short := file("s", "shared-token-0123456789"), file("b", "budget-token-0123456789"), file("x", "short")
+	for _, c := range []struct {
+		name   string
+		o      options
+		shared string
+		caps   [4]string
+		err    string
+	}{
+		{"none", options{}, "", [4]string{}, ""},
+		{"shared only", options{gatewayTokenFile: shared}, "shared-token-0123456789", [4]string{}, ""},
+		{"budget only", options{gatewayCapTokenFiles: [4]string{2: budget}}, "", [4]string{2: "budget-token-0123456789"}, ""},
+		{"shared and budget", options{gatewayTokenFile: shared, gatewayCapTokenFiles: [4]string{2: budget}}, "shared-token-0123456789", [4]string{2: "budget-token-0123456789"}, ""},
+		{"short shared", options{gatewayTokenFile: short}, "", [4]string{}, "--gateway-token-file: token must be at least 16"},
+		{"short directory", options{gatewayCapTokenFiles: [4]string{3: short}}, "", [4]string{}, "--gateway-directory-token-file: token must be at least 16"},
+		{"same as shared", options{gatewayTokenFile: shared, gatewayCapTokenFiles: [4]string{1: shared}}, "", [4]string{}, "--gateway-posture-token-file: must differ"},
+		{"missing file", options{gatewayCapTokenFiles: [4]string{0: filepath.Join(dir, "nope")}}, "", [4]string{}, "--gateway-killswitch-token-file"},
+	} {
+		s, caps, err := readGatewayTokens(c.o)
+		if c.err != "" {
+			if err == nil || !strings.Contains(err.Error(), c.err) {
+				t.Errorf("%s: err %v, want %q", c.name, err, c.err)
+			}
+			continue
+		}
+		if err != nil || s != c.shared || caps != c.caps {
+			t.Errorf("%s: %q %q %v", c.name, s, caps, err)
+		}
 	}
 }
 

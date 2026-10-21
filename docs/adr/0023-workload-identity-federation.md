@@ -7,6 +7,8 @@ date: 2026-10-21
 
 # ADR-0023: Workload identity federation for headless agents
 
+> **Amended 2026-10-21.** "One pattern that does not start with a wildcard" was not a tenant pin: `ref: refs/heads/main` alone, or `repository_owner: acme*`, admitted other organizations' jobs, because a public issuer mints a token with any `aud` for every tenant on it. Every rule must now match one of its issuer's tenant claims exactly (or as `literal/*`): GitHub `repository_owner_id`, `repository_owner`, `repository`, `repository_id`; GitLab.com `namespace_id`, `namespace_path`, `project_id`, `project_path`; Buildkite `organization_id`, `organization_slug`; CircleCI `oidc.circleci.com/org-id`; Google `email`, `sub`; Entra ID `tid`. Other issuers must declare `issuers[].tenantClaim`. GitHub rules that pin only renamable names, or neither `environment` nor `job_workflow_ref`, validate with a warning. See the [guide](/halos/guides/ci-and-cloud-agents/#pinning-the-tenant).
+
 - Status: accepted
 - Date: 2026-10-21
 
@@ -35,7 +37,7 @@ Every major CI platform and cloud already issues short-lived OIDC tokens that sa
 
 ## Decision outcome
 
-**Policy.** `halos.yaml` gains an additive `workloads` section (halos.dev/v1, omitted when unset so existing snapshots keep their digest): a default `audience`, trusted `issuers` (`name`, exact `url` = `iss`, optional per-issuer `audience`) and ordered `rules` (`issuer`, `match` claim -> exact value or `path.Match` glob, `subject` template, `groups`, `maxTTLSeconds`), plus `experiments` (default false). Validation requires: an https issuer (http only on loopback); at least one match pattern per rule that does not start with a wildcard, because public issuers sign tokens for everyone; a subject starting with `workload:` so a workload can never take a human's id; `maxTTLSeconds` at most 3600.
+**Policy.** `halos.yaml` gains an additive `workloads` section (halos.dev/v1, omitted when unset so existing snapshots keep their digest): a default `audience`, trusted `issuers` (`name`, exact `url` = `iss`, optional per-issuer `audience`) and ordered `rules` (`issuer`, `match` claim -> exact value or `path.Match` glob, `subject` template, `groups`, `maxTTLSeconds`), plus `experiments` (default false). Validation requires: an https issuer (http only on loopback); a tenant claim matched exactly per rule (see the amendment above), because public issuers sign tokens for everyone; a subject starting with `workload:` so a workload can never take a human's id; `maxTTLSeconds` at most 3600.
 
 **Exchange.** `POST /api/v1/token/exchange` (form-encoded, `grant_type=urn:ietf:params:oauth:grant-type:token-exchange`, `subject_token_type` jwt or id_token; `actor_token` refused). `halo-server`:
 
@@ -74,3 +76,8 @@ The response is RFC 8693 (`access_token`, `issued_token_type`, `token_type: Bear
 | `halo ci token` / `halo ci config` | `cmd/halo/cmd_ci.go` | `cmd/halo/cmd_ci_test.go` | Done |
 | GitHub composite action, GitLab snippet | `examples/ci-agents/` | `TestExamplesValidate` (policy only) | Done; not run on real runners |
 | Shared replay cache across replicas | | | Gap (ADR-0021) |
+
+## Amended 2026-10-21 (security review)
+
+- **`workload:` is reserved for workload credentials.** Human identities starting with `workload:` (any case) are refused in OIDC (`identity.SubjectFromClaims`), trusted-header mode and SCIM `userName` creation (`identity.CheckHumanID`). Tests: `TestSubjectFromClaims`, `TestTrustedHeader`, `TestSCIMResourceRules`.
+- **Workloads and the SCIM directory.** With a gateway directory configured (ADR-0022), workload subjects skip the directory lookup and keep `Kind: workload`; before, every workload resolved to an unknown caller. The kind always comes from the verified credential, never from the directory. Tests: `TestDirectoryClientWorkloads`, `TestDirectoryKeepsWorkloads`.

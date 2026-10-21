@@ -88,7 +88,7 @@ directory:
 
 `halo-kong` plugin config: `directory_url`, `directory_token` (`{vault://env/halo-gateway-token}`), and `directory_allow_insecure_in_cluster` for a plain-http in-cluster URL.
 
-With a directory configured, the token's groups claim and any groups header no longer count: an active user gets the directory's groups, anyone else (inactive, deleted, never provisioned, or halo-server unreachable past `grace`) is routed as unknown. The user id still comes only from the verified token or trusted header.
+With a directory configured, the token's groups claim and any groups header no longer count: an active user gets the directory's groups; a verified user the directory lists as inactive, deleted or never provisioned is refused with 403 (in the CLI's error format); if halo-server is unreachable past `grace` with nothing cached, the caller is routed as unknown. Workload credentials skip the directory. `userName` must match the IdP's user claim, case aside, and must not start with `workload:`. The user id still comes only from the verified token or trusted header.
 
 ## 4. Verify
 

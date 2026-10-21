@@ -38,6 +38,52 @@ type Unit struct {
 	// Dir is the repo-relative directory of the file that declares the unit
 	// (set by Load). The unit's owners own that directory.
 	Dir string `yaml:"-" json:"-"`
+	// File is the repo-relative file that declares the unit (set by Load). A
+	// top-level unit's file stays with the root owners: its members selector
+	// draws from the whole org.
+	File string `yaml:"-" json:"-"`
+}
+
+// Delegation is what the org lets units add on top of the baseline
+// (halos.yaml delegation:). Anything else a unit adds is a loosening.
+type Delegation struct {
+	// AllowHooks lets units add hooks.items. Default false: a hook is a shell
+	// command every member's harness runs, so a unit owner could otherwise run
+	// code on any member's machine.
+	AllowHooks bool `yaml:"allowHooks,omitempty" json:"allowHooks,omitempty"`
+	// EnvKeys are the env names units may add (exact). Provider, base-URL,
+	// proxy and runtime-injection names (see UnitForbiddenEnv) are refused
+	// even when listed.
+	EnvKeys []string `yaml:"envKeys,omitempty" json:"envKeys,omitempty"`
+}
+
+// UnitForbiddenEnv reports why a unit may never set env key k ("" when it
+// may): it would redirect model traffic or credentials, or inject code into
+// the harness runtime. Matching ignores case.
+func UnitForbiddenEnv(k string) string {
+	u := strings.ToUpper(k)
+	for _, s := range []string{"_BASE_URL", "_API_KEY"} {
+		if strings.HasSuffix(u, s) {
+			return "*" + s + " names a provider endpoint or credential"
+		}
+	}
+	for _, p := range []string{"ANTHROPIC_", "OPENAI_", "GEMINI_", "CLAUDE_CODE_USE_"} {
+		if strings.HasPrefix(u, p) {
+			return p + "* configures the model provider"
+		}
+	}
+	switch u {
+	case "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY":
+		return u + " reroutes traffic around the gateway"
+	}
+	// LD_* and DYLD_* cover LD_PRELOAD, LD_AUDIT, LD_LIBRARY_PATH and their
+	// macOS forms; NODE_* covers NODE_OPTIONS.
+	for _, p := range []string{"NODE_", "LD_", "DYLD_", "PYTHON"} {
+		if strings.HasPrefix(u, p) {
+			return p + "* injects code into the harness runtime"
+		}
+	}
+	return ""
 }
 
 // UnitMembers selects users by IdP group or user id (any match).
@@ -221,8 +267,12 @@ func rank(m map[string]int, v string) int {
 // sandbox, sandboxRequired, disableBypass, deny, allow, ask), mcp.denied and
 // mcp.managedOnly, hooks.managedOnly, telemetry (enabled, endpoint, protocol,
 // logPrompts, existing attributes), egress.allowedDomains, existing env keys,
-// and models.allowed while the parent enforces it.
-func Loosenings(parent, child *Profile) []Loosening {
+// and models.allowed while the parent enforces it. Additions that run code or
+// reroute traffic on members' machines are loosenings too, unless o allows
+// them: hooks (delegation.allowHooks), env keys (delegation.envKeys; provider,
+// proxy and runtime-injection keys never), MCP servers (an exact
+// selfService.catalog entry), and any extensions change.
+func (o *Org) Loosenings(parent, child *Profile) []Loosening {
 	var out []Loosening
 	add := func(field, format string, a ...any) {
 		out = append(out, Loosening{field, fmt.Sprintf(format, a...)})
@@ -293,6 +343,36 @@ func Loosenings(parent, child *Profile) []Loosening {
 				add(kv.field+"."+k, "%q replaces %q; units may add keys, not change inherited ones", v, kv.par[k])
 			}
 		}
+	}
+	d := Delegation{}
+	if o.Delegation != nil {
+		d = *o.Delegation
+	}
+	for _, k := range sortedKeys(child.Env) {
+		if _, inherited := parent.Env[k]; inherited {
+			continue
+		}
+		if why := UnitForbiddenEnv(k); why != "" {
+			add("env."+k, "adds %s: %s; units may never set it", k, why)
+		} else if !slices.Contains(d.EnvKeys, k) {
+			add("env."+k, "adds %s; units may add only the env keys halos.yaml delegation.envKeys lists", k)
+		}
+	}
+	if !d.AllowHooks {
+		for _, h := range child.Hooks.Hooks {
+			if !slices.Contains(parent.Hooks.Hooks, h) {
+				add("hooks.items", "adds a %s hook running %q; units may add hooks only when halos.yaml sets delegation.allowHooks", h.Event, h.Command)
+			}
+		}
+	}
+	for _, s := range child.MCP.Servers {
+		same := func(x MCPServer) bool { return reflect.DeepEqual(x, s) }
+		if !slices.ContainsFunc(parent.MCP.Servers, same) && !slices.ContainsFunc(o.SelfService.Catalog, same) {
+			add("mcp.servers["+s.Name+"]", "adds MCP server %q, which is not an exact selfService.catalog entry; units may add only servers the org lists there", s.Name)
+		}
+	}
+	if !reflect.DeepEqual(parent.Extensions, child.Extensions) {
+		add("extensions", "changed; plugins, marketplaces, skills and subagents are decided centrally")
 	}
 	if parent.Models.Enforce {
 		var added []string
@@ -457,9 +537,11 @@ func flatten(v any) ([]FieldSource, error) {
 // CodeOwners renders a CODEOWNERS file delegating each unit's directory to
 // its owners, then its ancestors' owners (any one may approve), after a
 // catch-all line for defaults (the central team, which keeps halos.yaml,
-// profiles and rings). prefix is the policy directory relative to the
-// repository root ("" or "." when they are the same). Lines are sorted by
-// path, so a nested unit's line follows, and overrides, its parent's.
+// profiles and rings). A top-level unit's own file goes to defaults alone
+// (required then): its members draw from the whole org. prefix is the policy
+// directory relative to the repository root ("" or "." when they are the
+// same). Lines are sorted by path, so a nested unit's line, and a unit's file
+// line, follow and override the directory line above them.
 func (o *Org) CodeOwners(prefix string, defaults []string) ([]byte, error) {
 	var b strings.Builder
 	b.WriteString("# Generated by `halo units codeowners` from the Unit documents (ADR-0018); do not edit by hand.\n")
@@ -481,6 +563,14 @@ func (o *Org) CodeOwners(prefix string, defaults []string) ([]byte, error) {
 			owners = unionAppend(owners, chain[i].Owners)
 		}
 		lines = append(lines, line{path.Join("/", prefix, u.Dir) + "/", strings.Join(owners, " ")})
+		if u.Parent == "" && u.File != "" {
+			// Its members selector draws from the whole org, and any one listed
+			// owner may approve, so the file goes to the root owners alone.
+			if len(defaults) == 0 {
+				return nil, fmt.Errorf("policy: top-level unit %q: set the root owners (--owner): they own %s, whose members selector draws from the whole org", u.Name, u.File)
+			}
+			lines = append(lines, line{path.Join("/", prefix, u.File), strings.Join(defaults, " ")})
+		}
 	}
 	sort.Slice(lines, func(i, j int) bool { return lines[i].path < lines[j].path })
 	for _, l := range lines {
@@ -516,6 +606,13 @@ func (o *Org) shippedProfiles() []string {
 }
 
 func (v *validator) units() {
+	if d := v.org.Delegation; d != nil {
+		for i, k := range d.EnvKeys {
+			if why := UnitForbiddenEnv(k); why != "" {
+				v.errf(fmt.Sprintf("delegation.envKeys[%d]", i), "%s: %s; units may never set it", k, why)
+			}
+		}
+	}
 	units := slices.Clone(v.org.Units)
 	sort.Slice(units, func(i, j int) bool { return units[i].Name < units[j].Name })
 	dirs := map[string]string{}
@@ -538,6 +635,9 @@ func (v *validator) units() {
 		}
 		if len(u.Members.Groups)+len(u.Members.Users) == 0 {
 			v.errf(path+".members", "set members.groups or members.users; an empty selector would match nobody")
+		}
+		if u.Parent == "" && len(u.Members.Users) > 0 {
+			v.errf(path+".members.users", "a top-level unit selects from the whole org, so it may name only IdP groups (members.groups); list users on a unit inside it")
 		}
 		for i, s := range u.Overlay.MCP.Servers {
 			if !ValidName(s.Name) {
@@ -616,7 +716,7 @@ func (v *validator) unitOverlays(prof string, base *Profile, units []*Unit) {
 		if u.Parent != "" {
 			against = "parent unit " + u.Parent + " on profile " + prof
 		}
-		for _, l := range Loosenings(parent, out) {
+		for _, l := range v.org.Loosenings(parent, out) {
 			v.onceErr("units["+u.Name+"].overlay."+l.Field, l.Message,
 				fmt.Sprintf("%s (vs %s): units may only tighten the enforced baseline", l.Message, against))
 		}

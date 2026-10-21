@@ -56,7 +56,7 @@ func newWorkloadEnv(t *testing.T, withKey bool) *wlEnv {
 workloads:
   audience: halos
   issuers:
-    - {name: github, url: %q}
+    - {name: github, url: %q, tenantClaim: repository}
   rules:
     - name: main-branch
       issuer: github

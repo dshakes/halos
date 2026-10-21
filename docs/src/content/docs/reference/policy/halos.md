@@ -10,6 +10,10 @@ Generated from `schemas/halos.schema.json`; do not edit. Nested fields use dotte
 | Field | Type | Required | Default | Allowed values | Constraints | Description |
 |---|---|---|---|---|---|---|
 | `apiVersion` | string |  |  | const halos.dev/v1 |  | Document version. |
+| `delegation` | object |  |  |  |  | What units (ADR-0018) may add on top of the baseline; anything else a unit adds is a loosening that validate rejects. MCP servers a unit adds must be exact selfService.catalog entries. |
+| `delegation.allowHooks` | boolean |  |  |  |  | Let units add hooks.items (shell commands every member's harness runs). Default false. |
+| `delegation.envKeys` | array of string |  |  |  |  | Env names units may add. Provider, base-URL, proxy and runtime-injection names (*_BASE_URL, *_API_KEY, ANTHROPIC_*, OPENAI_*, GEMINI_*, CLAUDE_CODE_USE_*, HTTP(S)_PROXY, ALL_PROXY, NO_PROXY, NODE_*, LD_*, DYLD_*, PYTHON*) are refused even here. |
+| `delegation.envKeys[]` | string |  |  |  | minLength 1 |  |
 | `gateway` | string |  |  |  | format uri | Simple mode: the gateway base URL clients are pointed at. |
 | `gatewayEngine` | string |  |  | halo-proxy, kong, external |  | Simple mode: what serves gateway: halo-proxy (default), kong, or external (your own API gateway; clients are sent provider model ids). |
 | `identity` | object |  |  |  |  | The org's OIDC provider (any compliant IdP: Okta, Entra ID, Google, Keycloak, Ping, Auth0...). Used by the portal, halo-proxy / halo-kong and enrollment. |
@@ -65,13 +69,14 @@ Generated from `schemas/halos.schema.json`; do not edit. Nested fields use dotte
 | `workloads.issuers[]` | object |  |  |  |  |  |
 | `workloads.issuers[].audience` | string |  |  |  | minLength 1 | Overrides workloads.audience for this issuer (CircleCI's default aud is the organization id). |
 | `workloads.issuers[].name` | string | yes |  |  | minLength 1 | Name rules refer to. |
+| `workloads.issuers[].tenantClaim` | string |  |  |  | minLength 1 | The claim naming the tenant (org, group, account) a token was minted for; every rule of this issuer must match it exactly. Required for issuers Halos does not know; for GitHub, GitLab.com, Buildkite, CircleCI, Google and Entra ID it may only pick one of their tenant claims. |
 | `workloads.issuers[].url` | string | yes |  |  | format uri | Exact iss claim; discovery is &lt;url>/.well-known/openid-configuration. https (http only for loopback). |
 | `workloads.rules` | array of object | yes |  |  |  | Tried in order; the first rule of the token's issuer whose every match entry holds mints the credential. |
 | `workloads.rules[]` | object |  |  |  |  |  |
 | `workloads.rules[].groups` | array of string |  |  |  |  | Groups the workload gets (ring membership, budgets) like a human's IdP groups. |
 | `workloads.rules[].groups[]` | string |  |  |  | minLength 1 |  |
 | `workloads.rules[].issuer` | string | yes |  |  | minLength 1 | An issuers[].name. |
-| `workloads.rules[].match` | object | yes |  |  |  | Claim name -> exact value or glob (* never crosses /). At least one pattern must not start with a wildcard. |
+| `workloads.rules[].match` | object | yes |  |  |  | Claim name -> exact value or glob (* never crosses /). One of the issuer's tenant claims must be matched exactly, or as literal/* (GitHub: repository_owner_id, repository_owner, repository or repository_id; GitLab.com: namespace_id, namespace_path, project_id or project_path; Buildkite: organization_id or organization_slug; CircleCI: oidc.circleci.com/org-id; Google: email or sub; Entra ID: tid; other issuers: their tenantClaim). |
 | `workloads.rules[].match.*` | string |  |  |  | minLength 1 |  |
 | `workloads.rules[].maxTTLSeconds` | integer |  |  |  | minimum 1; maximum 3600 | Credential lifetime (default 900). |
 | `workloads.rules[].name` | string | yes |  |  | minLength 1 |  |

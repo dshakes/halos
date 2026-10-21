@@ -84,21 +84,23 @@ type scimRecord struct {
 }
 
 // scimLogStore is an in-memory directory over an append-only JSONL log (replayed in order on open).
-// ponytail: never compacted and Lookup scans every group; compact on open or index memberships if directories reach 100k+ objects.
+// ponytail: never compacted; compact on open if the log outgrows replay time.
 type scimLogStore struct {
-	mu     sync.RWMutex
-	users  map[string]SCIMUser
-	byName map[string]string // lower(userName) -> id
-	groups map[string]SCIMGroup
-	f      *os.File    // nil = memory only
-	log    storage.Log // HA: the shared "scim" log instead of f (OpenSCIMStoreOn)
+	mu       sync.RWMutex
+	users    map[string]SCIMUser
+	byName   map[string]string // lower(userName) -> id
+	groups   map[string]SCIMGroup
+	memberOf map[string]map[string]struct{} // user id -> ids of the groups listing it (Lookup and DeleteUser stay O(user's groups))
+	f        *os.File                       // nil = memory only
+	log      storage.Log                    // HA: the shared "scim" log instead of f (OpenSCIMStoreOn)
 }
 
 // OpenSCIMStoreOn opens the directory on a shared backend's "scim" log
 // (ADR-0021): every read first applies other replicas' writes, so a
-// deprovisioning on one replica holds on all of them at once.
+// deprovisioning on one replica holds on all of them at once. The memberOf
+// index is rebuilt by the same apply on replay and catch-up.
 func OpenSCIMStoreOn(ctx context.Context, o storage.Opener) (SCIMStore, error) {
-	s := &scimLogStore{users: map[string]SCIMUser{}, byName: map[string]string{}, groups: map[string]SCIMGroup{}}
+	s := &scimLogStore{users: map[string]SCIMUser{}, byName: map[string]string{}, groups: map[string]SCIMGroup{}, memberOf: map[string]map[string]struct{}{}}
 	log, err := o.OpenLog(ctx, "scim", func(line []byte) {
 		var rec scimRecord
 		if json.Unmarshal(line, &rec) == nil {
@@ -127,7 +129,7 @@ func (s *scimLogStore) sync() bool {
 
 // OpenSCIMStore opens dir/scim.jsonl, or a memory-only store when dir is "".
 func OpenSCIMStore(dir string) (SCIMStore, error) {
-	s := &scimLogStore{users: map[string]SCIMUser{}, byName: map[string]string{}, groups: map[string]SCIMGroup{}}
+	s := &scimLogStore{users: map[string]SCIMUser{}, byName: map[string]string{}, groups: map[string]SCIMGroup{}, memberOf: map[string]map[string]struct{}{}}
 	if dir == "" {
 		return s, nil
 	}
@@ -159,20 +161,38 @@ func (s *scimLogStore) apply(rec scimRecord) {
 		s.users[rec.User.ID] = *rec.User
 		s.byName[strings.ToLower(rec.User.UserName)] = rec.User.ID
 	case rec.Group != nil && rec.Group.ID != "":
+		s.unindex(rec.Group.ID)
 		s.groups[rec.Group.ID] = *rec.Group
+		for _, m := range rec.Group.Members {
+			if s.memberOf[m] == nil {
+				s.memberOf[m] = map[string]struct{}{}
+			}
+			s.memberOf[m][rec.Group.ID] = struct{}{}
+		}
 	case rec.DelUser != "":
 		if old, ok := s.users[rec.DelUser]; ok {
 			delete(s.byName, strings.ToLower(old.UserName))
 			delete(s.users, rec.DelUser)
 		}
-		for id, g := range s.groups {
-			if i := slices.Index(g.Members, rec.DelUser); i >= 0 {
-				g.Members = slices.Delete(g.Members, i, i+1) // the store owns this slice: Put and the getters copy
-				s.groups[id] = g
-			}
+		for gid := range s.memberOf[rec.DelUser] {
+			g := s.groups[gid]
+			g.Members = slices.DeleteFunc(g.Members, func(m string) bool { return m == rec.DelUser }) // the store owns this slice: Put and the getters copy
+			s.groups[gid] = g
 		}
+		delete(s.memberOf, rec.DelUser)
 	case rec.DelGroup != "":
+		s.unindex(rec.DelGroup)
 		delete(s.groups, rec.DelGroup)
+	}
+}
+
+// unindex drops group gid's current members from memberOf.
+func (s *scimLogStore) unindex(gid string) {
+	for _, m := range s.groups[gid].Members {
+		delete(s.memberOf[m], gid)
+		if len(s.memberOf[m]) == 0 {
+			delete(s.memberOf, m)
+		}
 	}
 }
 
@@ -278,10 +298,8 @@ func (s *scimLogStore) Lookup(userName string) (SCIMUser, []string, bool) {
 		return SCIMUser{}, nil, false
 	}
 	var groups []string
-	for _, g := range s.groups {
-		if slices.Contains(g.Members, id) {
-			groups = append(groups, g.DisplayName)
-		}
+	for gid := range s.memberOf[id] {
+		groups = append(groups, s.groups[gid].DisplayName)
 	}
 	sort.Strings(groups)
 	return s.users[id], groups, true

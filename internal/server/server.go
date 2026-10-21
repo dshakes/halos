@@ -60,6 +60,13 @@ type Config struct {
 	KillStore    *controller.KillStore
 	KillKey      ed25519.PrivateKey
 	GatewayToken string
+	// Optional per-capability gateway tokens. When one is set it is the only
+	// token that capability accepts (the shared GatewayToken no longer does);
+	// empty falls back to GatewayToken. Each also enables its endpoint alone.
+	GatewayKillswitchToken string
+	GatewayPostureToken    string
+	GatewayBudgetToken     string
+	GatewayDirectoryToken  string
 
 	// PostureMaxAge: a device whose last report is older is stale (GET
 	// /api/v1/gateway/posture, served whenever GatewayToken is set). 0 = DefaultPostureMaxAge.
@@ -107,8 +114,8 @@ type Server struct {
 	relFetch    pointerFetch  // ring pointer reader; swapped in tests
 	relChannels channelsFetch // ring release -> experiment channels; swapped in tests
 	kills       *controller.KillStore
-	gwSum       [32]byte     // sha256 of GatewayToken
-	scim        *scimService // nil = SCIM off
+	gwSums      map[gatewayCap][32]byte // sha256 of the token each enabled gateway capability accepts
+	scim        *scimService            // nil = SCIM off
 	budgets     *budgetStore
 	wl          workloadExchange
 	kv          storage.KV // ephemeral state: Backend, else in process
@@ -193,7 +200,7 @@ func New(cfg Config) (*Server, error) {
 		_ = al.close() // already failing
 		return nil, err
 	}
-	if cfg.GatewayToken != "" && cfg.DataDir == "" && cfg.Backend == nil {
+	if cfg.gatewayToken(capBudget) != "" && cfg.DataDir == "" && cfg.Backend == nil {
 		cfg.Log.Warn("no --data-dir: gateway budget counters are in memory and reset on restart")
 	}
 	s := &Server{cfg: cfg, tokSum: sha256.Sum256([]byte(cfg.Token)), pol: &policyHolder{dir: cfg.PolicyDir, log: cfg.Log}, reqs: reqs, devices: devs, revoked: revoked,
@@ -212,7 +219,7 @@ func New(cfg Config) (*Server, error) {
 			return nil, err
 		}
 	}
-	s.gwSum = sha256.Sum256([]byte(cfg.GatewayToken))
+	s.gwSums = gatewaySums(cfg)
 	if s.scim, err = newSCIM(cfg); err != nil {
 		return nil, err
 	}

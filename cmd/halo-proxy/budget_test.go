@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"io"
@@ -171,6 +173,103 @@ func TestBudgetEnforceAcrossReplicas(t *testing.T) {
 	}
 	if resp := a.post(t, "/v1/messages/count_tokens", tok, msgBody, nil); resp.StatusCode != 200 {
 		t.Fatalf("count_tokens refused: %d", resp.StatusCode)
+	}
+}
+
+// A client that hangs up before the final usage event is charged a
+// pessimistic estimate, never nothing: input from message_start, output from
+// the bytes streamed so far capped at the request's max_tokens.
+func TestBudgetChargesAbortedStream(t *testing.T) {
+	clk := &clock{t: time.Date(2026, 10, 21, 12, 0, 0, 0, time.UTC)}
+	budgets := []policy.Budget{{Name: "dev-daily", Scope: policy.ScopeUser, Window: policy.WindowDay, LimitTokens: 1 << 30, Action: policy.BudgetEnforce}}
+	hs := newFakeBudgetServer(t, budgets, clk.now)
+	const marker = "event: content_block_delta\n"
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		io.WriteString(w, "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"model\":\"real-model\",\"usage\":{\"input_tokens\":500,\"output_tokens\":1}}}\n\n")
+		for range 30 {
+			io.WriteString(w, marker+"data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\""+strings.Repeat("z", 100)+"\"}}\n\n")
+		}
+		w.(http.Flusher).Flush()
+		<-r.Context().Done() // message_delta (the final usage) never comes before the client leaves
+	}))
+	t.Cleanup(up.Close)
+	e := budgetEnv(t, hs.URL+"/api/v1/gateway/budget", "", budgets, up, clk)
+	wait := e.awaitHandlers(t, 1)
+	resp := e.post(t, "/v1/messages", e.token(t, "alice@acme.com"), `{"model":"sonnet","max_tokens":100,"stream":true,"messages":[{"role":"user","content":"hi"}]}`, nil)
+	if resp.StatusCode != 200 {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	got := 0
+	buf := make([]byte, 4096)
+	for got < 30*len(marker) {
+		n, err := resp.Body.Read(buf)
+		got += strings.Count(string(buf[:n]), marker) * len(marker)
+		if err != nil {
+			t.Fatalf("stream ended early: %v", err)
+		}
+	}
+	_ = resp.Body.Close()
+	wait()
+	m := metricsText(t, e)
+	for _, want := range []string{`halo_proxy_budget_responses_total{outcome="estimated"} 1`, `halo_proxy_budget_responses_total{outcome="metered"} 0`,
+		"halo_proxy_budget_tokens_total{kind=\"input\"} 500\n", "halo_proxy_budget_tokens_total{kind=\"output\"} 100\n"} {
+		if !strings.Contains(m, want) {
+			t.Errorf("metrics missing %s:\n%s", want, m)
+		}
+	}
+}
+
+// An upstream that compresses although Accept-Encoding was removed is still
+// metered: gzip is decompressed for the usage scan only (the client gets the
+// upstream's bytes); an encoding the stdlib cannot read (br) is estimated.
+func TestBudgetMetersCompressedResponse(t *testing.T) {
+	plain := `{"type":"message","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":60,"output_tokens":50}}`
+	var gz bytes.Buffer
+	zw := gzip.NewWriter(&gz)
+	_, _ = io.WriteString(zw, plain)
+	_ = zw.Close()
+	for _, tc := range []struct {
+		enc     string
+		body    []byte
+		outcome string
+		input   string
+	}{
+		{"gzip", gz.Bytes(), "metered", "halo_proxy_budget_tokens_total{kind=\"input\"} 60\n"},
+		{"br", []byte("\x1b\x2a\x00\xf8\xff\x1f\x01\x00"), "estimated", "halo_proxy_budget_tokens_total{kind=\"input\"} 27\n"}, // request bytes / 3 (82 after the model rewrite)
+	} {
+		t.Run(tc.enc, func(t *testing.T) {
+			clk := &clock{t: time.Date(2026, 10, 21, 12, 0, 0, 0, time.UTC)}
+			budgets := []policy.Budget{{Name: "u", Scope: policy.ScopeUser, Window: policy.WindowDay, LimitTokens: 1 << 30}}
+			hs := newFakeBudgetServer(t, budgets, clk.now)
+			up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.Header().Set("Content-Encoding", tc.enc)
+				_, _ = w.Write(tc.body)
+			}))
+			t.Cleanup(up.Close)
+			e := budgetEnv(t, hs.URL+"/api/v1/gateway/budget", "", budgets, up, clk)
+			wait := e.awaitHandlers(t, 1)
+			req, _ := http.NewRequest("POST", e.proxy.URL+"/v1/messages", strings.NewReader(msgBody))
+			req.Header.Set("Authorization", "Bearer "+e.token(t, "alice@acme.com"))
+			req.Header.Set("Accept-Encoding", tc.enc) // set explicitly: the client then leaves the body as sent
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, _ := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+			wait()
+			if resp.StatusCode != 200 || !bytes.Equal(got, tc.body) {
+				t.Fatalf("status %d; client must get the upstream's bytes unchanged", resp.StatusCode)
+			}
+			m := metricsText(t, e)
+			for _, want := range []string{`halo_proxy_budget_responses_total{outcome="` + tc.outcome + `"} 1`, tc.input} {
+				if !strings.Contains(m, want) {
+					t.Errorf("metrics missing %s:\n%s", want, m)
+				}
+			}
+		})
 	}
 }
 

@@ -227,7 +227,7 @@ Halos ships six binaries from `cmd/`. Two more surfaces run inside one of them o
 - **Config:** flags ([`cmd/halo-server/main.go:59-135`](https://github.com/dshakes/halos/blob/main/cmd/halo-server/main.go#L59-L135)):
   - `--policy-dir`, `--token-file`, `--data-dir`
   - `--portal-config`
-  - `--killswitch-key-file` together with `--gateway-token-file`
+  - `--killswitch-key-file` together with `--gateway-token-file` (or `--gateway-killswitch-token-file`); optional per-capability `--gateway-{killswitch,posture,budget,directory}-token-file`
   - `--controller`, `--interval` (5m, minimum 1m)
   - `--clickhouse-*`
   - `--notify-*`

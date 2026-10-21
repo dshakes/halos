@@ -72,6 +72,10 @@ func TestGatewayPosture(t *testing.T) {
 	want("never reported", false, "never reported")
 	report(tok1, dig("a"))
 	want("on the ring release", true, "")
+	// The subject's case does not matter (user ids compare case-insensitively everywhere).
+	if code, v := get("gw-tok", strings.ToUpper(dev.ID)); code != 200 || !v.Compliant {
+		t.Fatalf("upper-cased subject: %d %+v, want compliant", code, v)
+	}
 	report(tok1, dig("t"))
 	want("on an experiment channel of the ring release", true, "")
 	report(tok1, dig("z"))

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/dshakes/halos/internal/gateway"
@@ -18,11 +19,11 @@ const DefaultPostureMaxAge = 45 * time.Minute
 // getGatewayPosture: GET /api/v1/gateway/posture?subject=<id> (gateway token).
 // The verdict covers every enrolled device of the subject; see posture.
 func (s *Server) getGatewayPosture(w http.ResponseWriter, r *http.Request) {
-	if s.cfg.GatewayToken == "" {
+	if !s.gatewayEnabled(capPosture) {
 		apiErr(w, http.StatusNotFound, "posture not configured")
 		return
 	}
-	if !s.gatewayAuth(w, r) {
+	if !s.gatewayAuth(w, r, capPosture) {
 		return
 	}
 	sub := r.URL.Query().Get("subject")
@@ -128,7 +129,7 @@ func (d *deviceStore) active(userID string, now time.Time) []Device {
 		if exp.IsZero() {
 			exp = v.CreatedAt.Add(d.ttl)
 		}
-		if v.UserID == userID && !v.Revoked && now.Before(exp) {
+		if strings.EqualFold(v.UserID, userID) && !v.Revoked && now.Before(exp) { // ids compare case-insensitively everywhere (SCIM, revocation)
 			out = append(out, *v)
 		}
 	}

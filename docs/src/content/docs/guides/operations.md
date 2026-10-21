@@ -316,6 +316,19 @@ Both halves are read once at startup: `halo-server` from `--killswitch-key-file`
 
 For Kong, the public key and token live in `HALO_KILLSWITCH_PUBKEY` / `HALO_KILLSWITCH_TOKEN` in the Kong deployment's environment; roll Kong between steps 2 and 3.
 
+### Split the gateway token per capability (recommended)
+
+One `--gateway-token-file` token opens all four gateway endpoints on `halo-server`: the kill list, posture verdicts, budget usage writes and SCIM directory reads. Anyone holding it can mark spend against any user's budget or enumerate who is provisioned. Give each capability its own token instead; when one is set, it is the **only** token that endpoint accepts and it opens nothing else:
+
+| `halo-server` flag | Endpoint | `halo-proxy` setting | `halo-kong` field |
+|---|---|---|---|
+| `--gateway-killswitch-token-file` | `GET /api/v1/gateway/killswitch` | `killSwitch.tokenFile` | `killswitch_token` |
+| `--gateway-posture-token-file` | `GET /api/v1/gateway/posture` | `posture.tokenFile` | `posture_token` |
+| `--gateway-budget-token-file` | `/api/v1/gateway/budget/*` | `budgets.tokenFile` | (no budgets) |
+| `--gateway-directory-token-file` | `GET /api/v1/gateway/directory` | `directory.tokenFile` | `directory_token` |
+
+Each token must be at least 16 characters and differ from the shared one. A capability without its own flag keeps accepting `--gateway-token-file`, so you can migrate one at a time: write the new token to the gateway's file for that capability, restart `halo-server` with the new flag, then roll the gateways. Between the two restarts that capability's calls return 401: posture and directory fall back to their cached entries for `grace`, the kill list keeps the last accepted list, and budgets follow their unknown-state policy. `--killswitch-key-file` accepts either the shared or the kill-switch token.
+
 ### Lost signer state file
 
 The file (`pointers.json`) is the replay guard for `refresh`, `promote`, `publish` and `rollback`. Losing it is not an outage: the next signing command refuses with a message naming the ring and the `seq` the registry serves. Confirm the registry is serving what you expect, then re-adopt:

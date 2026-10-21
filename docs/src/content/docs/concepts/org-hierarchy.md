@@ -34,8 +34,24 @@ These fields make up the org security baseline. An overlay may tighten them but 
 | `permissions.deny`, `permissions.ask`, `mcp.denied` | never drop an entry |
 | `permissions.allow`, `egress.allowedDomains` | never add an entry |
 | `telemetry.otlpEndpoint`, `telemetry.protocol`, `telemetry.logPrompts` | unchanged |
-| `telemetry.attributes`, `env` | add keys; never change an inherited one |
+| `telemetry.attributes` | add keys; never change an inherited one |
+| `env` | never change an inherited key; add only keys `delegation.envKeys` lists, and never a provider, proxy or runtime-injection key |
+| `hooks.items` | add none, unless `delegation.allowHooks` |
+| `mcp.servers` | add only exact `selfService.catalog` entries |
 | `models.allowed` while `models.enforce` is set | a subset |
+
+Additions are loosenings because a unit's own owners approve its file: a hook is a shell command every member's harness runs, an env key such as `NODE_OPTIONS` or `ANTHROPIC_BASE_URL` injects code or reroutes model traffic, and an MCP server is code or a network endpoint the harness trusts. The org opts in to what units may add in `halos.yaml`:
+
+```yaml
+delegation:
+  allowHooks: false        # default; true lets units add hooks.items
+  envKeys: [TEAM, JIRA_PROJECT]
+selfService:
+  catalog:                 # the MCP servers units may add, matched exactly
+    - {name: linear, url: https://mcp.linear.app/sse}
+```
+
+`*_BASE_URL`, `*_API_KEY`, `ANTHROPIC_*`, `OPENAI_*`, `GEMINI_*`, `CLAUDE_CODE_USE_*`, `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY`, `NODE_*`, `LD_*`, `DYLD_*` and `PYTHON*` (any case) are refused even when listed. Overlays have no `extensions` field: plugins and marketplaces stay central.
 
 A loosening is a validation error with the exact field path and the layer it loosens:
 
@@ -86,8 +102,9 @@ Each unit lives in a directory of its own (for example `units/payments/unit.yaml
 - A unit directory may hold only Unit documents, so a unit's owners cannot add a Ring, Profile or Toggle there.
 - A unit nested in another unit's directory must be its descendant, so it cannot capture users outside its parent.
 - A unit may not live in the policy root, and only one unit may live in each directory.
+- A top-level unit (no `parent`) selects from the whole org, so it may use `members.groups` only; `members.users` is for units inside it.
 
-`halo units codeowners` prints a CODEOWNERS file. The catch-all line goes to the central team, and each unit's directory goes to its owners and its ancestors' owners:
+`halo units codeowners` prints a CODEOWNERS file. The catch-all line goes to the central team, and each unit's directory goes to its owners and its ancestors' owners. A top-level unit's own file goes to the central team alone, because its `members` decide who in the whole org gets the overlay and CODEOWNERS lets any one listed owner approve; its owners still own the rest of their directory, including every nested unit. `--owner` is therefore required when there is a top-level unit:
 
 ```sh
 halo units codeowners --policy-dir . --owner @acme/ai-platform > .github/CODEOWNERS
@@ -97,6 +114,7 @@ halo units codeowners --policy-dir . --owner @acme/ai-platform > .github/CODEOWN
 * @acme/ai-platform
 /units/payments/ @acme/payments-platform
 /units/payments/checkout/ @acme/checkout-team @acme/payments-platform
+/units/payments/unit.yaml @acme/ai-platform
 ```
 
 Require code-owner review and the `halo validate` check on the policy repo's main branch. Unit owners then merge their own overlays, and nothing they merge can loosen the baseline.

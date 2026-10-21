@@ -33,9 +33,14 @@ workloads:
       url: https://agent.buildkite.com
   rules:
     # Claude Code on main, from a protected environment, in any acme repository.
+    # repository_owner_id pins the tenant by its immutable id (gh api orgs/acme
+    # --jq .id): a renamed or deleted owner name can be re-registered by anyone.
+    # environment (with required reviewers) keeps pull_request_target and
+    # workflow_run jobs, which run on main with fork-supplied code, out.
     - name: github-main
       issuer: github
       match:
+        repository_owner_id: "123456789"
         repository_owner: acme
         repository: acme/*
         ref: refs/heads/main
@@ -47,7 +52,7 @@ workloads:
     - name: github-shared-workflow
       issuer: github
       match:
-        repository_owner: acme
+        repository_owner_id: "123456789"
         job_workflow_ref: acme/ai-platform/.github/workflows/agent.yml@refs/heads/main
       subject: workload:gh:{repository}
       groups: [ci-agents]

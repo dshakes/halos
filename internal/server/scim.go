@@ -16,6 +16,8 @@ import (
 	"unicode"
 
 	"github.com/dshakes/halos/internal/gateway"
+	"github.com/dshakes/halos/internal/identity"
+	"github.com/dshakes/halos/internal/policy"
 	"github.com/dshakes/halos/internal/storage"
 )
 
@@ -224,13 +226,13 @@ func (s *Server) scimAuth(w http.ResponseWriter, r *http.Request) bool {
 
 // getGatewayDirectory: GET /api/v1/gateway/directory?subject=<id> (gateway
 // token). Gateways with a directory configured route only active users with
-// these groups; anyone else is an unknown caller (default routing).
+// these groups; a verified caller listed inactive here is refused (403).
 func (s *Server) getGatewayDirectory(w http.ResponseWriter, r *http.Request) {
-	if s.cfg.GatewayToken == "" || s.scim == nil {
+	if !s.gatewayEnabled(capDirectory) || s.scim == nil {
 		apiErr(w, http.StatusNotFound, "SCIM directory not configured")
 		return
 	}
-	if !s.gatewayAuth(w, r) {
+	if !s.gatewayAuth(w, r, capDirectory) {
 		return
 	}
 	sub := r.URL.Query().Get("subject")
@@ -508,6 +510,9 @@ func validUser(u SCIMUser) error {
 		if err := checkText(c[0], c[1], i == 0); err != nil {
 			return err
 		}
+	}
+	if identity.CheckHumanID(u.UserName) != nil {
+		return badValue("userName must not start with %q (reserved for workload identities)", policy.WorkloadSubjectPrefix)
 	}
 	return nil
 }
@@ -1089,12 +1094,23 @@ func (s *Server) scimGetGroup(w http.ResponseWriter, r *http.Request) {
 
 func memberIDs(in []scimMemberIn) []string {
 	var out []string
+	seen := make(map[string]struct{}, len(in))
 	for _, m := range in {
-		if !slices.Contains(out, m.Value) {
+		if _, dup := seen[m.Value]; !dup {
+			seen[m.Value] = struct{}{}
 			out = append(out, m.Value)
 		}
 	}
 	return out
+}
+
+// idSet is ids as a set, for linear membership deltas.
+func idSet(ids []string) map[string]struct{} {
+	set := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		set[id] = struct{}{}
+	}
+	return set
 }
 
 func (s *Server) scimCreateGroup(w http.ResponseWriter, r *http.Request) {
@@ -1244,8 +1260,9 @@ func (s *Server) commitGroup(r *http.Request, action string, old *SCIMGroup, g S
 // ponytail: a membership delta of thousands makes one long audit detail; summarise if that hurts SIEM ingestion.
 func (s *Server) userNames(a, b []string) string {
 	var out []string
+	inB := idSet(b)
 	for _, id := range a {
-		if !slices.Contains(b, id) {
+		if _, ok := inB[id]; !ok {
 			name := id
 			if u, ok := s.scim.store.User(id); ok {
 				name = u.UserName
@@ -1299,13 +1316,15 @@ func patchGroup(g *SCIMGroup, op scimOp) ([]string, error) {
 		case "replace":
 			g.Members = ids
 		case "add":
+			have := idSet(g.Members)
 			for _, id := range ids {
-				if !slices.Contains(g.Members, id) {
+				if _, ok := have[id]; !ok {
 					g.Members = append(g.Members, id)
 				}
 			}
 		case "remove":
-			g.Members = slices.DeleteFunc(g.Members, func(m string) bool { return slices.Contains(ids, m) })
+			drop := idSet(ids)
+			g.Members = slices.DeleteFunc(g.Members, func(m string) bool { _, ok := drop[m]; return ok })
 		}
 	default:
 		id, rest, ok := valueFilter(op.Path, "members", "value")

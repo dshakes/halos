@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
 	"io"
 	"strings"
 	"time"
@@ -76,25 +75,25 @@ func (p *Proxy) finishGenAI(gw *gwmetrics.Request, rc *routeCtx) {
 }
 
 const (
-	tapMaxLine = 1 << 20 // longest SSE data line scanned for usage; longer ones are skipped
-	tapHead    = 4 << 10 // response prefix searched for the model name
-	tapTail    = 64 << 10
+	tapHead = 4 << 10 // response prefix searched for the model name
+	tapTail = 64 << 10
 )
 
-// usageTap observes a response body as it streams to the client and extracts
-// token usage and the response model. It never buffers the whole body, never
-// delays or alters a byte, and keeps no content: only a bounded line / tail
-// window that is discarded with the request. It is read by the goroutine that
-// runs the reverse proxy copy, so no locking is needed once the copy returns.
-type usageTap struct {
+// genaiTap observes a response body as it streams to the client for the
+// response model and time to first byte; token usage comes from the one
+// usage parser, gateway.UsageTap, through usage. It never buffers the whole
+// body, never delays or alters a byte, and keeps no content: only a bounded
+// head / tail window that is discarded with the request. It is read, and its
+// usage set, by the goroutine that runs the reverse proxy copy, so no
+// locking is needed once the copy returns.
+type genaiTap struct {
 	r      io.ReadCloser
-	stream bool // text/event-stream: scan data lines; else keep a tail for the JSON body
+	stream bool // SSE or AWS event stream; else keep a tail for the JSON body
+	plain  bool // no Content-Encoding: the bytes can be searched for the model
 	start  time.Time
 
 	first        time.Time // first body byte
 	head         []byte
-	line         []byte // partial SSE line
-	skip         bool   // current SSE line exceeded tapMaxLine
 	tail         []byte
 	in, out      int64
 	seen         bool
@@ -102,13 +101,13 @@ type usageTap struct {
 	scannedModel bool
 }
 
-func newUsageTap(r io.ReadCloser, stream bool, start time.Time) *usageTap {
-	return &usageTap{r: r, stream: stream, start: start}
+func newGenAITap(r io.ReadCloser, stream, plain bool, start time.Time) *genaiTap {
+	return &genaiTap{r: r, stream: stream, plain: plain, start: start}
 }
 
-func (t *usageTap) Close() error { return t.r.Close() }
+func (t *genaiTap) Close() error { return t.r.Close() }
 
-func (t *usageTap) Read(p []byte) (int, error) {
+func (t *genaiTap) Read(p []byte) (int, error) {
 	n, err := t.r.Read(p)
 	if n > 0 {
 		t.feed(p[:n])
@@ -116,9 +115,12 @@ func (t *usageTap) Read(p []byte) (int, error) {
 	return n, err
 }
 
-func (t *usageTap) feed(b []byte) {
+func (t *genaiTap) feed(b []byte) {
 	if t.first.IsZero() {
 		t.first = time.Now()
+	}
+	if !t.plain {
+		return
 	}
 	if room := tapHead - len(t.head); room > 0 {
 		t.head = append(t.head, b[:min(room, len(b))]...)
@@ -128,90 +130,20 @@ func (t *usageTap) feed(b []byte) {
 		if len(t.tail) > 2*tapTail { // amortised trim to the last tapTail bytes
 			t.tail = append(t.tail[:0], t.tail[len(t.tail)-tapTail:]...)
 		}
-		return
-	}
-	for len(b) > 0 {
-		i := bytes.IndexByte(b, '\n')
-		if i < 0 {
-			if !t.skip {
-				if len(t.line)+len(b) > tapMaxLine {
-					t.skip, t.line = true, t.line[:0]
-				} else {
-					t.line = append(t.line, b...)
-				}
-			}
-			return
-		}
-		if !t.skip {
-			if len(t.line) == 0 {
-				t.scanLine(b[:i])
-			} else if len(t.line)+i <= tapMaxLine {
-				t.line = append(t.line, b[:i]...)
-				t.scanLine(t.line)
-			}
-		}
-		t.line, t.skip = t.line[:0], false
-		b = b[i+1:]
 	}
 }
 
-func (t *usageTap) scanLine(l []byte) {
-	l = bytes.TrimRight(l, "\r")
-	if bytes.HasPrefix(l, []byte("data:")) && bytes.Contains(l, []byte("sage")) { // usage | usageMetadata
-		t.scanUsage(l)
+// usage records what gateway.UsageTap read: GenAI input counts every input
+// token, cached or not.
+func (t *genaiTap) usage(r gateway.UsageResult) {
+	if r.Found {
+		t.seen = true
+		t.in, t.out = r.Usage.Input+r.Usage.CacheRead+r.Usage.CacheWrite, r.Usage.Output
 	}
 }
 
-// usageDoc covers the usage objects of the supported wires: OpenAI chat
-// (prompt/completion), OpenAI Responses and Anthropic (input/output + cache),
-// Gemini (usageMetadata *TokenCount).
-type usageDoc struct {
-	PromptTokens         int64 `json:"prompt_tokens"`
-	CompletionTokens     int64 `json:"completion_tokens"`
-	InputTokens          int64 `json:"input_tokens"`
-	OutputTokens         int64 `json:"output_tokens"`
-	CacheRead            int64 `json:"cache_read_input_tokens"`
-	CacheCreate          int64 `json:"cache_creation_input_tokens"`
-	PromptTokenCount     int64 `json:"promptTokenCount"`
-	CandidatesTokenCount int64 `json:"candidatesTokenCount"`
-	ThoughtsTokenCount   int64 `json:"thoughtsTokenCount"`
-}
-
-// scanUsage decodes the usage object following every `"usage":` or
-// `"usageMetadata":` key in b and keeps the largest counts seen (Anthropic
-// reports input in message_start and the final output in message_delta).
-func (t *usageTap) scanUsage(b []byte) {
-	for _, key := range [][]byte{[]byte(`"usage"`), []byte(`"usageMetadata"`)} {
-		for rest := b; ; {
-			i := bytes.Index(rest, key)
-			if i < 0 {
-				break
-			}
-			rest = rest[i+len(key):]
-			j := bytes.IndexFunc(rest, func(r rune) bool { return r != ' ' && r != ':' && r != '\t' })
-			if j < 0 || rest[j] != '{' || bytes.IndexByte(rest[:j], ':') < 0 {
-				continue
-			}
-			var u usageDoc
-			if json.NewDecoder(bytes.NewReader(rest[j:])).Decode(&u) != nil {
-				continue
-			}
-			in := max(u.PromptTokens, u.PromptTokenCount, u.InputTokens+u.CacheRead+u.CacheCreate)
-			out := max(u.CompletionTokens, u.OutputTokens, u.CandidatesTokenCount+u.ThoughtsTokenCount)
-			if in > 0 || out > 0 {
-				t.seen = true
-				t.in, t.out = max(t.in, in), max(t.out, out)
-			}
-		}
-	}
-}
-
-// result finishes a non-stream body (usage and model live at the end of the
-// JSON) and reports what was observed. Call after the response was copied.
-func (t *usageTap) result() (in, out int64, model string, ok bool) {
-	if !t.stream && len(t.tail) > 0 {
-		t.scanUsage(t.tail)
-	}
+// result reports what was observed. Call after the response was copied.
+func (t *genaiTap) result() (in, out int64, model string, ok bool) {
 	if !t.scannedModel {
 		t.scannedModel = true
 		t.model = jsonModel(t.head)
@@ -226,7 +158,7 @@ func (t *usageTap) result() (in, out int64, model string, ok bool) {
 // when the response was not a stream or no byte arrived. SSE producers send
 // the first event when the first token (or its message_start frame) is ready,
 // so this is a close proxy, not an exact first-token timestamp.
-func (t *usageTap) ttft() time.Duration {
+func (t *genaiTap) ttft() time.Duration {
 	if !t.stream || t.first.IsZero() {
 		return -1
 	}

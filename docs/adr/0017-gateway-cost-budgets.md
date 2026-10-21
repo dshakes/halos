@@ -7,6 +7,8 @@ date: 2026-10-21
 
 # ADR-0017: Cost budgets and quotas enforced at the gateway
 
+> **Amended 2026-10-21.** Charging only the usage that was read let a client hang up before the final usage event (OpenAI Responses reports usage only in `response.completed`) and pay nothing. A metered 2xx response whose final usage was not read (client hang-up, upstream cut, no usage object, undecodable encoding) is now charged a pessimistic estimate, counted as `outcome="estimated"`. An upstream that compresses anyway is metered: gzip and deflate are decompressed for the scan only, other encodings are estimated. GenAI telemetry reads usage from the same `gateway.UsageTap`. See [cost budgets](/halos/guides/cost-budgets/#how-accurate-it-is).
+
 - Status: accepted (extends ADR-0011)
 - Date: 2026-10-21
 
@@ -42,7 +44,7 @@ Chosen: **option 3**.
 - `budgets[]`: `name`, `scope` (`user` per verified subject, `group` per listed group, `ring` per ring, `org` one counter), optional `groups`/`rings` filters, `window` (`day`, `week` from Monday, `month`, all UTC calendar windows; or `rolling` with `period`), `limitUSD` and/or `limitTokens`, `action` (`warn` default, or `enforce`), `alertAt` (default `[0.8]`).
 - `halo validate` errors on malformed budgets and warns when a budget has a USD limit and a routed model has no price (its tokens count, its cost is $0), and when `engine` is `kong` or `external` (they do not apply budgets).
 
-**Metering** (`halo-proxy`): for model calls of callers with at least one applicable budget, the response body is wrapped in a tap (`gateway.UsageTap`). The tap scans the stream without changing it: SSE line by line (Anthropic `message_start`/`message_delta`, OpenAI `response.completed`, Gemini chunks), AWS event stream frames (Bedrock invoke and converse streams), or the last 64 KiB of a JSON body. Counts are the field-wise maximum of the cumulative usage objects, normalised so input excludes cached tokens on every wire. Memory per response is bounded at about 1 MiB. Usage is charged when the body ends, including a client disconnect mid-stream. `Accept-Encoding` is removed on metered calls so usage never arrives compressed. `count_tokens` is never charged or refused.
+**Metering** (`halo-proxy`): for model calls of callers with at least one applicable budget, the response body is wrapped in a tap (`gateway.UsageTap`). The tap scans the stream without changing it: SSE line by line (Anthropic `message_start`/`message_delta`, OpenAI `response.completed`, Gemini chunks), AWS event stream frames (Bedrock invoke and converse streams), or the last 64 KiB of a JSON body. Counts are the field-wise maximum of the cumulative usage objects, normalised so input excludes cached tokens on every wire. Memory per response is bounded at about 1 MiB. Usage is charged when the body ends, including a client disconnect mid-stream (by estimate since the amendment above). `Accept-Encoding` is removed on metered calls so usage normally arrives uncompressed. `count_tokens` is never charged or refused.
 
 **Counters** (`halo-server`):
 

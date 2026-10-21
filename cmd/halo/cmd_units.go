@@ -21,7 +21,8 @@ func (a *app) cmdUnits() *cobra.Command {
 		Annotations: policyDirAnno,
 		Short:       "Print a CODEOWNERS file that gives each unit's owners its directory in the policy repo",
 		Long: "Each Unit's directory goes to its owners and its ancestors' owners; --owner sets the catch-all line " +
-			"(the central team keeps halos.yaml, profiles and rings). Paths are relative to the git repository root " +
+			"(the central team keeps halos.yaml, profiles and rings) and is required when there is a top-level unit: a top-level " +
+			"unit's own file goes to those root owners alone, because its members selector draws from the whole org. Paths are relative to the git repository root " +
 			"containing the policy dir. Pair it with branch protection that requires code-owner review and `halo validate`.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
