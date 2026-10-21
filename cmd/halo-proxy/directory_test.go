@@ -111,6 +111,44 @@ func TestDirectoryKeepsWorkloads(t *testing.T) {
 	}
 }
 
+// TestDirectoryOutageKeepsIdentity: when the directory cannot be asked (an
+// outage, or halo-server rate-limiting this gateway's IP) a verified caller is
+// never demoted to anonymous, which would pass the posture gate as "unknown"
+// and skip per-user budgets: fail open keeps the subject (so a non-compliant
+// device is still refused), fail closed answers 503 in the protocol's shape.
+func TestDirectoryOutageKeepsIdentity(t *testing.T) {
+	var verdict atomic.Value
+	verdict.Store(gateway.PostureVerdict{Reason: "device laptop-1 is not compliant"})
+	tokFile := filepath.Join(t.TempDir(), "gw.token")
+	if err := os.WriteFile(tokFile, []byte("gw-token"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ua := map[string]string{"User-Agent": "claude-cli/2.1.280 (external, cli)"}
+	for _, c := range []struct {
+		mode, want string
+		status     int
+	}{
+		{"", "halod status", http.StatusForbidden}, // posture gate applied to the kept subject
+		{"open", "halod status", http.StatusForbidden},
+		{"closed", "directory is unreachable", http.StatusServiceUnavailable},
+	} {
+		e, _ := gateEnv(t, "enforce", "off", &verdict)
+		dc, err := DirectoryConfig{URL: "http://127.0.0.1:1/api/v1/gateway/directory", TokenFile: tokFile, FailMode: c.mode}.build(e.p.log)
+		if err != nil {
+			t.Fatal(err)
+		}
+		e.p.dir = dc
+		resp := e.post(t, "/v1/messages", e.token(t, "alice@acme.com", "ai-platform"), msgBody, ua)
+		b, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode != c.status || !strings.Contains(string(b), c.want) {
+			t.Errorf("failMode %q: %d %s, want %d %q", c.mode, resp.StatusCode, b, c.status, c.want)
+		}
+	}
+	if _, err := (DirectoryConfig{URL: "https://halo.example/d", TokenFile: tokFile, FailMode: "strict"}).build(slog.New(slog.NewTextHandler(io.Discard, nil))); err == nil || !strings.Contains(err.Error(), "failMode") {
+		t.Errorf("failMode strict: %v", err)
+	}
+}
+
 func TestDirectoryConfig(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	tok := filepath.Join(t.TempDir(), "t")

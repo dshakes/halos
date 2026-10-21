@@ -35,7 +35,7 @@ func (s *Server) myDevices(w http.ResponseWriter, r *http.Request, p Principal) 
 	}
 	out := MyDevices{Devices: []MyDevice{}, Posture: s.posture(r.Context(), p.ID)}
 	for _, d := range s.devices.list() {
-		if d.UserID != p.ID {
+		if !sameUser(d.UserID, p.ID) {
 			continue
 		}
 		md := MyDevice{Device: d, Expired: !now.Before(expiry(d, s.devices.ttl))}

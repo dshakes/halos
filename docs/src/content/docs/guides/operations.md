@@ -149,6 +149,11 @@ groups:
         labels: {severity: ticket}
         annotations:
           summary: "audit log rotation failing; audit.jsonl keeps growing (nothing is lost)"
+      - alert: HaloPolicyRefused
+        expr: increase(halo_server_policy_refused_total[15m]) > 0 or increase(halo_proxy_policy_refused_total[15m]) > 0
+        labels: {severity: page}
+        annotations:
+          summary: "a policy with security validation errors (unpinned workload rule, unit loosening) was refused; the last good policy is serving, see the 'policy refused' log line"
       - alert: HaloShadowBudgetNearlyExhausted
         expr: halo_shadow_spend_usd / halo_shadow_budget_usd > 0.9
         labels: {severity: ticket}

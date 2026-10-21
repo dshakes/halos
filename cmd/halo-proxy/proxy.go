@@ -221,6 +221,7 @@ func (p *Proxy) AdminHandler() http.Handler {
 			rep, fail, drop = p.bc.Counters()
 		}
 		p.m.writeBudget(w, rep, fail, drop)
+		fmt.Fprintf(w, "# HELP halo_proxy_policy_refused_total Policy snapshots refused for security validation errors (the last good policy keeps serving).\n# TYPE halo_proxy_policy_refused_total counter\nhalo_proxy_policy_refused_total %d\n", p.snap.Refused())
 		var ms runtime.MemStats
 		runtime.ReadMemStats(&ms)
 		fmt.Fprintf(w, "# TYPE go_goroutines gauge\ngo_goroutines %d\n# TYPE go_memstats_heap_inuse_bytes gauge\ngo_memstats_heap_inuse_bytes %d\n", runtime.NumGoroutine(), ms.HeapInuse)
@@ -306,7 +307,11 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if p.dir != nil { // SCIM directory is authoritative: its groups; a deprovisioned caller is refused, never anonymous
 		if sub, err = p.dir.Resolve(r.Context(), sub); err != nil {
-			writeReject(sw, gateway.RejectNotProvisioned(r.URL.EscapedPath()))
+			rej := gateway.RejectNotProvisioned(r.URL.EscapedPath())
+			if errors.Is(err, gateway.ErrDirectoryUnavailable) {
+				rej = gateway.RejectDirectoryUnavailable(r.URL.EscapedPath())
+			}
+			writeReject(sw, rej)
 			return
 		}
 	}

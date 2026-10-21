@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/dshakes/halos/internal/policy"
 )
 
 func TestSnapshotHotReload(t *testing.T) {
@@ -40,5 +42,52 @@ func TestSnapshotHotReload(t *testing.T) {
 	o, err = s.Get()
 	if err == nil || o == nil || o.Name != "v2" {
 		t.Fatalf("corrupt: %v %v", o, err)
+	}
+}
+
+// A compiled snapshot that never went through `halo validate` still cannot
+// activate a security error: a workload rule that pins no tenant, or a unit
+// that loosens the baseline. The last good policy keeps serving and the
+// refusal is counted.
+func TestSnapshotRefusesSecurityErrors(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "policy.json")
+	s := NewSnapshot(p)
+	write := func(o *policy.Org, mt time.Time) {
+		b, err := policy.Compile(o)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, b, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_ = os.Chtimes(p, mt, mt)
+		s.next = time.Time{}
+	}
+	good := testOrg()
+	good.Name = "good"
+	write(good, time.Now().Add(-2*time.Hour))
+	if o, err := s.Get(); err != nil || o.Name != "good" {
+		t.Fatalf("good: %v %v", o, err)
+	}
+	for i, mod := range []func(o *policy.Org){
+		func(o *policy.Org) {
+			o.Workloads = &policy.Workloads{Audience: "halos", Issuers: []policy.WorkloadIssuer{{Name: "gh", URL: "https://token.actions.githubusercontent.com"}},
+				Rules: []policy.WorkloadRule{{Name: "any-main", Issuer: "gh", Match: map[string]string{"ref": "refs/heads/main"}, Subject: "workload:gh:{repository}"}}}
+		},
+		func(o *policy.Org) {
+			o.Delegation = &policy.Delegation{EnvKeys: []string{"ANTHROPIC_BASE_URL"}}
+		},
+	} {
+		bad := testOrg()
+		bad.Name = "bad"
+		mod(bad)
+		write(bad, time.Now().Add(time.Duration(i-1)*time.Hour))
+		o, err := s.Get()
+		if err == nil || o == nil || o.Name != "good" {
+			t.Fatalf("case %d: security error activated: %v %v", i, o, err)
+		}
+		if s.Refused() != uint64(i+1) {
+			t.Fatalf("case %d: refused %d", i, s.Refused())
+		}
 	}
 }

@@ -15,8 +15,9 @@ import (
 )
 
 // TestDirectoryClientResolve: directory groups replace the caller's own; an
-// inactive or unknown subject resolves to nil; an unreachable server serves
-// the cached entry for Grace and then fails closed to unknown.
+// inactive or unknown subject is refused; an unreachable server serves the
+// cached entry for Grace, then keeps the verified subject with no groups
+// (fail open) or refuses (fail closed), never an anonymous caller.
 func TestDirectoryClientResolve(t *testing.T) {
 	var entry atomic.Value
 	entry.Store(DirectoryEntry{Active: true, Groups: []string{"ai-platform"}})
@@ -55,23 +56,44 @@ func TestDirectoryClientResolve(t *testing.T) {
 	if got, err := c.Resolve(ctx, alice); got != nil || !errors.Is(err, ErrNotProvisioned) {
 		t.Fatalf("deprovisioned after TTL: %+v %v, want ErrNotProvisioned (refused, never anonymous)", got, err)
 	}
-	entry.Store(DirectoryEntry{Active: true})
+	entry.Store(DirectoryEntry{Active: true, Groups: []string{"ai-platform"}})
 	now = now.Add(time.Minute)
-	_, _ = c.Resolve(ctx, alice) // cache: active, no groups
+	_, _ = c.Resolve(ctx, alice) // cache: active, ai-platform
 	down.Store(1)
 	now = now.Add(4 * time.Minute)
-	if got, err := c.Resolve(ctx, alice); err != nil || got == nil || len(got.Groups) != 0 {
+	if got, err := c.Resolve(ctx, alice); err != nil || got == nil || !slices.Equal(got.Groups, []string{"ai-platform"}) {
 		t.Fatalf("within grace: %+v %v, want the cached active entry", got, err)
 	}
 	now = now.Add(2 * time.Minute)
-	if got, err := c.Resolve(ctx, alice); got != nil || err != nil {
-		t.Fatalf("past grace with the server down: %+v %v, want nil (unknown)", got, err)
+	// Past grace the caller keeps the verified identity (the posture gate and
+	// per-user budgets still apply) with no groups: never anonymous.
+	if got, err := c.Resolve(ctx, alice); err != nil || got == nil || got.ID != alice.ID || len(got.Groups) != 0 {
+		t.Fatalf("past grace with the server down: %+v %v, want alice with no groups", got, err)
 	}
 	if got, err := c.Resolve(ctx, nil); got != nil || err != nil {
 		t.Fatalf("anonymous: %+v %v", got, err)
 	}
-	if got, err := c.Resolve(ctx, &policy.Subject{ID: "bob@acme.com"}); got != nil || err != nil {
-		t.Fatalf("server error, nothing cached: %+v %v", got, err)
+	if got, err := c.Resolve(ctx, &policy.Subject{ID: "bob@acme.com", Groups: []string{"spoofed"}}); err != nil || got == nil || got.ID != "bob@acme.com" || len(got.Groups) != 0 {
+		t.Fatalf("server error, nothing cached: %+v %v, want bob with no groups", got, err)
+	}
+	c.FailClosed = true
+	if got, err := c.Resolve(ctx, alice); got != nil || !errors.Is(err, ErrDirectoryUnavailable) {
+		t.Fatalf("fail closed: %+v %v, want ErrDirectoryUnavailable", got, err)
+	}
+}
+
+func TestRejectDirectoryUnavailable(t *testing.T) {
+	r := RejectDirectoryUnavailable("/v1/messages")
+	if r.Status != http.StatusServiceUnavailable || r.Protocol != ProtoAnthropic || r.RetryAfter <= 0 {
+		t.Fatalf("%+v", r)
+	}
+	for _, m := range []string{"", DirectoryFailOpen, DirectoryFailClosed} {
+		if err := CheckDirectoryFailMode(m); err != nil {
+			t.Errorf("%q: %v", m, err)
+		}
+	}
+	if CheckDirectoryFailMode("strict") == nil {
+		t.Error("failMode strict accepted")
 	}
 }
 

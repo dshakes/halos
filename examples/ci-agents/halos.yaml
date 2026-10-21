@@ -56,9 +56,12 @@ workloads:
         job_workflow_ref: acme/ai-platform/.github/workflows/agent.yml@refs/heads/main
       subject: workload:gh:{repository}
       groups: [ci-agents]
+    # GitLab and Buildkite: pin the immutable id too (namespace_id,
+    # organization_id); a path or slug alone can be renamed and re-registered.
     - name: gitlab-protected
       issuer: gitlab
       match:
+        namespace_id: "4242"
         namespace_path: acme
         ref_protected: "true"
       subject: workload:gl:{project_path}
@@ -66,6 +69,7 @@ workloads:
     - name: buildkite-main
       issuer: buildkite
       match:
+        organization_id: 0190b0b4-6c1e-4c2b-9a77-0a1b2c3d4e5f
         organization_slug: acme
         pipeline_slug: monorepo
         build_branch: main

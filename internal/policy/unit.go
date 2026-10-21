@@ -67,20 +67,34 @@ func UnitForbiddenEnv(k string) string {
 			return "*" + s + " names a provider endpoint or credential"
 		}
 	}
-	for _, p := range []string{"ANTHROPIC_", "OPENAI_", "GEMINI_", "CLAUDE_CODE_USE_"} {
+	// CLAUDE_CODE_* covers CLAUDE_CODE_USE_BEDROCK/VERTEX and every other
+	// harness switch; AWS_*, GOOGLE_* and CLOUD_ML_REGION pick the cloud
+	// account, endpoint (AWS_ENDPOINT_URL*) and region model calls go to.
+	for _, p := range []string{"ANTHROPIC_", "OPENAI_", "GEMINI_", "CLAUDE_CODE_", "AWS_", "GOOGLE_"} {
 		if strings.HasPrefix(u, p) {
-			return p + "* configures the model provider"
+			return p + "* configures the model provider or harness"
 		}
 	}
 	switch u {
+	case "CLOUD_ML_REGION":
+		return u + " configures the model provider"
 	case "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY":
 		return u + " reroutes traffic around the gateway"
+	case "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "NODE_EXTRA_CA_CERTS":
+		return u + " trusts another CA, so TLS to the gateway can be intercepted"
+	case "PATH", "BASH_ENV", "ENV", "GIT_SSH_COMMAND", "GIT_EXEC_PATH", "JAVA_TOOL_OPTIONS", "_JAVA_OPTIONS", "PERL5OPT", "RUBYOPT":
+		return u + " injects code into the harness runtime or its tools"
+	}
+	if strings.HasPrefix(u, "OTEL_EXPORTER_OTLP_") {
+		return "OTEL_EXPORTER_OTLP_* redirects telemetry (prompts and tool calls) to another collector"
 	}
 	// LD_* and DYLD_* cover LD_PRELOAD, LD_AUDIT, LD_LIBRARY_PATH and their
-	// macOS forms; NODE_* covers NODE_OPTIONS.
-	for _, p := range []string{"NODE_", "LD_", "DYLD_", "PYTHON"} {
+	// macOS forms; NODE_* covers NODE_OPTIONS; GIT_CONFIG_* covers
+	// GIT_CONFIG_GLOBAL and GIT_CONFIG_COUNT/KEY_n/VALUE_n (core.sshCommand,
+	// core.hooksPath); NPM_CONFIG_* matches npm's case-insensitive npm_config_*.
+	for _, p := range []string{"NODE_", "LD_", "DYLD_", "PYTHON", "GIT_CONFIG_", "NPM_CONFIG_"} {
 		if strings.HasPrefix(u, p) {
-			return p + "* injects code into the harness runtime"
+			return p + "* injects code into the harness runtime or its tools"
 		}
 	}
 	return ""

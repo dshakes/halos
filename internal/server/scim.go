@@ -127,7 +127,7 @@ func (d *deviceStore) revokeUser(user string) (int, error) {
 	defer d.mu.Unlock()
 	n := 0
 	for _, v := range d.byID {
-		if v.Revoked || !strings.EqualFold(v.UserID, user) {
+		if v.Revoked || !sameUser(v.UserID, user) {
 			continue
 		}
 		v.Revoked = true
@@ -144,7 +144,7 @@ func (e *enrollments) dropUser(user string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	for h, v := range e.m {
-		if strings.EqualFold(v.user.ID, user) {
+		if sameUser(v.user.ID, user) {
 			delete(e.m, h)
 		}
 	}
@@ -188,14 +188,15 @@ func (s *Server) scimRoutes(m *routeMux) {
 
 // scimAuth accepts only the SCIM bearer token: any configured hash matches
 // (two during a rotation), compared in constant time over every hash. Session
-// cookies are never looked at. Failures share the per-IP failed-auth budget.
+// cookies are never looked at. Failures count against SCIM's own per-IP
+// budget (scimFails), so SCIM noise cannot lock out gateways or devices.
 func (s *Server) scimAuth(w http.ResponseWriter, r *http.Request) bool {
 	if s.scim == nil {
 		scimError(w, http.StatusNotFound, "", "SCIM provisioning is not enabled on this server")
 		return false
 	}
 	ip := s.clientIP(r)
-	if s.authFails.blocked(ip) {
+	if s.scimFails.blocked(ip) {
 		w.Header().Set("Retry-After", "60")
 		scimError(w, http.StatusTooManyRequests, "", "too many failed attempts")
 		return false
@@ -212,7 +213,7 @@ func (s *Server) scimAuth(w http.ResponseWriter, r *http.Request) bool {
 		match |= subtle.ConstantTimeCompare(sum[:], h[:])
 	}
 	if !ok || tok == "" || match != 1 {
-		s.authFails.fail(ip)
+		s.scimFails.fail(ip)
 		w.Header().Set("WWW-Authenticate", `Bearer realm="halos-scim"`)
 		scimError(w, http.StatusUnauthorized, "", "SCIM bearer token required")
 		return false
@@ -614,7 +615,7 @@ func (s *Server) scimListUsers(w http.ResponseWriter, r *http.Request) {
 	}
 	var match []SCIMUser
 	for _, u := range s.scim.store.Users() {
-		if attr == "" || (attr == "username" && strings.EqualFold(u.UserName, val)) ||
+		if attr == "" || (attr == "username" && sameUser(u.UserName, val)) ||
 			(attr == "externalid" && u.ExternalID == val) || (attr == "id" && u.ID == val) {
 			match = append(match, u)
 		}
@@ -776,7 +777,7 @@ func (s *Server) commitUser(r *http.Request, action string, old *SCIMUser, u SCI
 	}
 	details := map[string]string{"id": u.ID, "active": strconv.FormatBool(u.Active)}
 	var gone []string
-	if old != nil && !strings.EqualFold(old.UserName, u.UserName) {
+	if old != nil && !sameUser(old.UserName, u.UserName) {
 		details["previousUserName"] = old.UserName
 		gone = append(gone, old.UserName)
 	}

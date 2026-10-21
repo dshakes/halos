@@ -51,7 +51,7 @@ selfService:
     - {name: linear, url: https://mcp.linear.app/sse}
 ```
 
-`*_BASE_URL`, `*_API_KEY`, `ANTHROPIC_*`, `OPENAI_*`, `GEMINI_*`, `CLAUDE_CODE_USE_*`, `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY`, `NODE_*`, `LD_*`, `DYLD_*` and `PYTHON*` (any case) are refused even when listed. Overlays have no `extensions` field: plugins and marketplaces stay central.
+`*_BASE_URL`, `*_API_KEY`, `ANTHROPIC_*`, `OPENAI_*`, `GEMINI_*`, `CLAUDE_CODE_*`, `AWS_*`, `GOOGLE_*`, `CLOUD_ML_REGION`, `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY`, `OTEL_EXPORTER_OTLP_*`, `SSL_CERT_FILE`, `SSL_CERT_DIR`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, `NODE_EXTRA_CA_CERTS`, `PATH`, `BASH_ENV`, `ENV`, `GIT_SSH_COMMAND`, `GIT_CONFIG_*`, `GIT_EXEC_PATH`, `npm_config_*`, `JAVA_TOOL_OPTIONS`, `_JAVA_OPTIONS`, `PERL5OPT`, `RUBYOPT`, `NODE_*`, `LD_*`, `DYLD_*` and `PYTHON*` (any case) are refused even when listed. halo-server and the gateways refuse to activate a policy with a unit loosening (they keep the last good policy), so the check does not rest on `halo validate` alone. Overlays have no `extensions` field: plugins and marketplaces stay central.
 
 A loosening is a validation error with the exact field path and the layer it loosens:
 

@@ -160,7 +160,7 @@ func (s *Server) postRequest(w http.ResponseWriter, r *http.Request, p Principal
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	for _, x := range l.byID {
-		if x.User == p.ID && x.Kind == req.Kind && x.Item == req.Item && (x.Status == StatusPending || x.Status == StatusApproving) {
+		if sameUser(x.User, p.ID) && x.Kind == req.Kind && x.Item == req.Item && (x.Status == StatusPending || x.Status == StatusApproving) {
 			apiErr(w, http.StatusConflict, "you already have a pending request for this")
 			return
 		}
@@ -178,7 +178,7 @@ func (s *Server) postRequest(w http.ResponseWriter, r *http.Request, p Principal
 
 // listRequests: developers see their own; admins see everyone's.
 func (s *Server) listRequests(w http.ResponseWriter, _ *http.Request, p Principal) {
-	writeJSON(w, http.StatusOK, s.reqs.list(func(r *Request) bool { return p.can(permApprove) || r.User == p.ID }))
+	writeJSON(w, http.StatusOK, s.reqs.list(func(r *Request) bool { return p.can(permApprove) || sameUser(r.User, p.ID) }))
 }
 
 func (s *Server) decide(approve bool) authedHandler {
@@ -195,7 +195,7 @@ func (s *Server) decide(approve bool) authedHandler {
 			l.mu.Unlock()
 			apiErr(w, http.StatusConflict, "request is "+req.Status)
 			return
-		case req.User == p.ID:
+		case sameUser(req.User, p.ID):
 			l.mu.Unlock()
 			apiErr(w, http.StatusForbidden, "you cannot decide your own request")
 			return
