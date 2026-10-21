@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/dshakes/halos/internal/fsutil"
+	"github.com/dshakes/halos/internal/storage"
 )
 
 // AuditEntry is one privileged action. Hash covers every other field, Prev is
@@ -144,6 +145,11 @@ type auditLog struct {
 	start time.Time // time of that entry
 	wake  chan struct{}
 
+	// shared: the chain lives in the HA backend (ADR-0021), one table whose
+	// head-row lock orders appends across replicas; segments and rotation do
+	// not apply. vcache then holds the verified prefix (see verifyShared).
+	shared Backend
+
 	rotateErrs atomic.Uint64
 
 	vmu    sync.Mutex // guards vcache
@@ -218,12 +224,27 @@ func (e AuditEntry) validUTF8() AuditEntry {
 	return e
 }
 
+// ChainAuditEntry returns e as the entry after (seq, head): UTF-8 repaired,
+// Seq, Prev and Hash set. Every backend chains through it.
+func ChainAuditEntry(e AuditEntry, seq uint64, head string) AuditEntry {
+	e = e.validUTF8()
+	e.Seq, e.Prev = seq+1, head
+	e.Hash = e.sum()
+	return e
+}
+
 func (l *auditLog) append(e AuditEntry) error {
+	if l.shared != nil {
+		ctx, cancel := storage.Ctx() // not the request's: a client hanging up must not drop the record
+		defer cancel()
+		if err := l.shared.AppendAudit(ctx, e); err != nil {
+			return fmt.Errorf("audit: append: %w", err)
+		}
+		return nil
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	e = e.validUTF8()
-	e.Seq, e.Prev = l.seq+1, l.head
-	e.Hash = e.sum()
+	e = ChainAuditEntry(e, l.seq, l.head)
 	if l.f != nil {
 		b, _ := json.Marshal(e) // plain struct: cannot fail
 		b = append(b, '\n')
@@ -267,8 +288,18 @@ func (l *auditLog) changed() <-chan struct{} {
 	return l.wake
 }
 
-// headSeq is the seq of the newest entry.
+// headSeq is the seq of the newest entry (0 if the shared head is unreadable:
+// a forwarder then fails its read, never skips).
 func (l *auditLog) headSeq() uint64 {
+	if l.shared != nil {
+		ctx, cancel := storage.Ctx()
+		defer cancel()
+		seq, _, err := l.shared.AuditHead(ctx)
+		if err != nil {
+			return 0
+		}
+		return seq
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.seq
@@ -348,9 +379,13 @@ type auditSnap struct {
 	size        int64
 	activeFirst uint64
 	mem         []AuditEntry
+	shared      Backend // HA: one table, read by seq; no segments
 }
 
 func (l *auditLog) snapshot() (*auditSnap, error) {
+	if l.shared != nil {
+		return &auditSnap{shared: l.shared}, nil
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.f == nil {
@@ -385,6 +420,9 @@ func (s *auditSnap) segment(i int, fn func(raw []byte, e AuditEntry) bool) (bool
 		err := eachAuditFile(s.segs[i].path, func(raw []byte, e AuditEntry) bool { cont = fn(raw, e); return cont })
 		return cont, err
 	}
+	if s.shared != nil {
+		return s.sharedFrom(1, fn)
+	}
 	if s.active == nil {
 		for _, e := range s.mem {
 			raw, _ := json.Marshal(e) // plain struct: cannot fail
@@ -404,6 +442,10 @@ func (s *auditSnap) segment(i int, fn func(raw []byte, e AuditEntry) bool) (bool
 // from streams entries oldest first, starting at the segment that can hold
 // seq, until fn returns false. Callers filter on e.Seq themselves.
 func (s *auditSnap) from(seq uint64, fn func(raw []byte, e AuditEntry) bool) error {
+	if s.shared != nil {
+		_, err := s.sharedFrom(seq, fn)
+		return err
+	}
 	start := 0
 	if s.activeFirst != 0 && seq >= s.activeFirst {
 		start = len(s.segs)
@@ -449,6 +491,9 @@ func (s *auditSnap) tail(n int, match func(AuditEntry) bool) ([]AuditEntry, erro
 // only the active segment. ponytail: an edit that keeps a rotated segment's
 // size and mtime is caught by `halo audit verify`, which never caches.
 func (l *auditLog) verify(s *auditSnap) (chainCheck, error) {
+	if s.shared != nil {
+		return l.verifyShared(s)
+	}
 	var c chainCheck
 	add := func(_ []byte, e AuditEntry) bool { c.add(e); return true }
 	if len(s.segs) > 0 {
@@ -479,6 +524,66 @@ func (l *auditLog) verify(s *auditSnap) (chainCheck, error) {
 	}
 	_, err := s.segment(len(s.segs), add)
 	return c, err
+}
+
+// auditReadTimeout bounds one streamed read of the shared chain.
+const auditReadTimeout = time.Minute
+
+// sharedFrom streams the shared chain from seq on, oldest first.
+func (s *auditSnap) sharedFrom(seq uint64, fn func(raw []byte, e AuditEntry) bool) (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), auditReadTimeout)
+	defer cancel()
+	cont := true
+	err := s.shared.EachAudit(ctx, seq, func(raw []byte, e AuditEntry) bool { cont = fn(raw, e); return cont })
+	if err != nil {
+		return false, fmt.Errorf("audit: read: %w", err)
+	}
+	return cont, nil
+}
+
+// verifyShared verifies the shared chain. A verified prefix is cached and
+// reused only while its last entry still reads back with the same hash, so a
+// request reads just the entries appended since. ponytail: an edit to an
+// older row that keeps that last hash is caught by `halo audit verify
+// --database-url-file`, which never caches (as the file backend's segment cache).
+func (l *auditLog) verifyShared(s *auditSnap) (chainCheck, error) {
+	l.vmu.Lock()
+	c := l.vcache.c
+	l.vmu.Unlock()
+	if c.err != nil || c.total == 0 {
+		c = chainCheck{}
+	} else {
+		same := false
+		if _, err := s.sharedFrom(c.total, func(_ []byte, e AuditEntry) bool { same = e.Seq == c.total && e.Hash == c.last; return false }); err != nil {
+			return c, err
+		}
+		if !same {
+			c = chainCheck{}
+		}
+	}
+	if _, err := s.sharedFrom(c.total+1, func(_ []byte, e AuditEntry) bool { c.add(e); return true }); err != nil {
+		return c, err
+	}
+	if c.err == nil {
+		l.vmu.Lock()
+		l.vcache.c = c
+		l.vmu.Unlock()
+	}
+	return c, nil
+}
+
+// VerifyAuditBackend verifies the whole shared chain, streaming and uncached
+// (`halo audit verify --database-url-file`). Segments is 0: there are none.
+func VerifyAuditBackend(ctx context.Context, b Backend) (AuditVerifyResult, error) {
+	var c chainCheck
+	if err := b.EachAudit(ctx, 1, func(_ []byte, e AuditEntry) bool { c.add(e); return true }); err != nil {
+		return AuditVerifyResult{}, fmt.Errorf("verify audit log: %w", err)
+	}
+	r := AuditVerifyResult{Entries: c.total, Head: c.last}
+	if c.err != nil {
+		r.Error = c.err.Error()
+	}
+	return r, nil
 }
 
 // AuditVerifyResult is what VerifyAuditDir reports.

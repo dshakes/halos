@@ -26,6 +26,8 @@ import (
 
 	"github.com/dshakes/halos/internal/controller"
 	"github.com/dshakes/halos/internal/fsutil"
+	"github.com/dshakes/halos/internal/rollout"
+	"github.com/dshakes/halos/internal/storage"
 )
 
 // AuditConfig is halo-server's --audit-config file (ADR-0016): rotation of
@@ -447,6 +449,7 @@ type auditForwarder struct {
 	log        *auditLog
 	sink       auditSender
 	cursorPath string
+	docs       rollout.Docs // HA: the cursor document, fenced by this sink's lease; nil = cursorPath
 	batch      int
 	poll       time.Duration
 	maxBackoff time.Duration
@@ -461,12 +464,15 @@ func newAuditForwarders(c AuditExport, dir string, l *auditLog, logger *slog.Log
 	if len(c.Sinks) == 0 {
 		return nil, nil
 	}
-	if dir == "" {
+	shared := l.shared != nil // HA: cursors are documents, loaded per lease term (RunAuditExport)
+	if dir == "" && !shared {
 		return nil, errors.New("audit export needs a data dir: cursors must survive a restart")
 	}
 	cdir := filepath.Join(dir, "audit-forward")
-	if err := os.MkdirAll(cdir, 0o750); err != nil {
-		return nil, fmt.Errorf("audit export: %w", err)
+	if !shared {
+		if err := os.MkdirAll(cdir, 0o750); err != nil {
+			return nil, fmt.Errorf("audit export: %w", err)
+		}
 	}
 	host, _ := os.Hostname() // "" is fine: HEC omits it, syslog sends "-"
 	out := make([]*auditForwarder, 0, len(c.Sinks))
@@ -486,7 +492,9 @@ func newAuditForwarders(c AuditExport, dir string, l *auditLog, logger *slog.Log
 		if c.MaxBackoffSeconds > 0 {
 			f.maxBackoff = time.Duration(c.MaxBackoffSeconds) * time.Second
 		}
-		if b, err := os.ReadFile(f.cursorPath); err == nil {
+		if shared {
+			f.cursorPath = ""
+		} else if b, err := os.ReadFile(f.cursorPath); err == nil {
 			if err := json.Unmarshal(b, &f.cur); err != nil {
 				return nil, fmt.Errorf("audit export sink %q: cursor %s: %w", s.Name, f.cursorPath, err)
 			}
@@ -557,7 +565,7 @@ func (f *auditForwarder) step(ctx context.Context) (int, error) {
 	last := evs[len(evs)-1].e
 	next := auditCursor{Seq: last.Seq, Hash: last.Hash}
 	b, _ := json.Marshal(next) // plain struct: cannot fail
-	if err := fsutil.WriteAtomic(f.cursorPath, b, 0o600); err != nil {
+	if err := f.saveCursor(ctx, b); err != nil {
 		return 0, fmt.Errorf("persist cursor after seq %d (batch will be resent): %w", last.Seq, err)
 	}
 	f.cur = next
@@ -567,10 +575,40 @@ func (f *auditForwarder) step(ctx context.Context) (int, error) {
 	return len(evs), nil
 }
 
+// kindAuditCursor is the document kind of HA export cursors (one per sink).
+const kindAuditCursor = "audit-cursor"
+
+func (f *auditForwarder) saveCursor(ctx context.Context, b []byte) error {
+	if f.docs == nil {
+		return fsutil.WriteAtomic(f.cursorPath, b, 0o600)
+	}
+	// Not ctx alone: the sink has the batch, so the cursor should land even
+	// at shutdown; the fence still refuses it if this replica lost the lease.
+	sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), storage.OpTimeout)
+	defer cancel()
+	return f.docs.PutDoc(sctx, kindAuditCursor, f.name, b)
+}
+
+// loadCursor reads the shared cursor at the start of a lease term: another
+// replica may have advanced it since this one last led.
+func (f *auditForwarder) loadCursor(ctx context.Context) error {
+	b, ok, err := f.docs.GetDoc(ctx, kindAuditCursor, f.name)
+	if err != nil {
+		return err
+	}
+	f.cur = auditCursor{}
+	if ok {
+		if err := json.Unmarshal(b, &f.cur); err != nil {
+			return fmt.Errorf("cursor document: %w", err)
+		}
+	}
+	f.acked.Store(f.cur.Seq)
+	return nil
+}
+
 // run delivers until ctx ends. Failures back off exponentially (1s doubling,
 // capped at maxBackoff, jittered) and never skip an entry.
 func (f *auditForwarder) run(ctx context.Context) {
-	defer f.sink.close()
 	var backoff time.Duration
 	for {
 		wake := f.log.changed() // before reading: an append during step is not missed
@@ -606,10 +644,32 @@ func (f *auditForwarder) run(ctx context.Context) {
 
 // RunAuditExport forwards the audit log to every configured sink until ctx
 // ends. Call it once; it returns at once when no sink is configured.
+//
+// With a shared Backend (ADR-0021) each sink forwards from exactly one replica
+// at a time, under lease "audit-export-<sink>": its cursor is a document
+// written through that lease's fence, so N replicas never deliver the same
+// entries N times and a deposed forwarder cannot move the cursor back.
+// Delivery stays at-least-once: a batch sent just before a failover is resent.
 func (s *Server) RunAuditExport(ctx context.Context) {
 	var wg sync.WaitGroup
 	for _, f := range s.forwarders {
-		wg.Go(func() { f.run(ctx) })
+		wg.Go(func() {
+			defer f.sink.close()
+			b := s.cfg.Backend
+			if b == nil {
+				f.run(ctx)
+				return
+			}
+			b.Leased(ctx, "audit-export-"+f.name, func(lctx context.Context, docs rollout.Docs) {
+				f.docs = docs
+				if err := f.loadCursor(lctx); err != nil {
+					f.failed.Add(1)
+					f.logger.Error("audit export: read cursor; retrying next lease round", "sink", f.name, "err", err)
+					return
+				}
+				f.run(lctx)
+			})
+		})
 	}
 	wg.Wait()
 }

@@ -64,6 +64,15 @@ For Claude Code these ride on `OTEL_RESOURCE_ATTRIBUTES`. Codex uses its `[otel]
 
 A rising `halo_controller_errors_total` with flat verdicts usually means ClickHouse or the policy clone is unreachable; the loop retries at 15s, 30s, and so on.
 
+With the Postgres backend (`--database-url-file`, [ADR-0021](/halos/adr/0021-ha-control-plane-on-postgres/)) the same listener also serves, with or without `--controller`:
+
+| Metric | Type | Meaning |
+|---|---|---|
+| `halo_leader{lease}` | gauge | 1 while this replica holds the lease (`lease="controller"`), else 0. Summed over replicas it must be exactly 1 |
+| `halo_leader_changes_total{lease}` | counter | Times this replica gained or lost the lease |
+| `halo_db_errors_total` | counter | Failed Postgres statements (a cancelled request is not counted) |
+| `halo_db_open_connections` | gauge | Open connections in the pool (at most 16) |
+
 ## Audit export metrics
 
 `halo-server --metrics-listen` serves these with or without `--controller`. The `sink` label is the sink's `name` in `--audit-config` ([SIEM export](/halos/guides/siem-export/)).
@@ -84,7 +93,7 @@ These processes expose Prometheus text on a **separate, unauthenticated** addres
 |---|---|---|---|
 | `halo-proxy` | `--admin-listen` (also `/healthz`) | `127.0.0.1:9090` | `halo_proxy_requests_total{ring,variant,status}`, `halo_proxy_upstream_ttfb_seconds`, `halo_proxy_request_duration_seconds`, `halo_proxy_auth_failures_total`, `halo_proxy_shadow_dropped_total`, `halo_proxy_shadow_failed_total` |
 | `halo-shadow` | `-metrics-listen` (env `HALO_SHADOW_METRICS_LISTEN`) | off | `halo_shadow_mirrored_total`, `halo_shadow_dropped_total`, `halo_shadow_errors_total`, `halo_shadow_spend_usd`, `halo_shadow_budget_usd` |
-| `halo-server` | `--metrics-listen` | off | `halo_server_audit_*` and, with `--controller`, `halo_controller_*` above |
+| `halo-server` | `--metrics-listen` | off | `halo_server_audit_*`; with `--controller`, `halo_controller_*`; with `--database-url-file`, `halo_leader*` and `halo_db_*` above |
 
 ## Verification status
 

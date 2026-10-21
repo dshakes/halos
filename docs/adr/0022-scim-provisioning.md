@@ -48,7 +48,7 @@ Chosen: **option 3**. `halo-server` serves RFC 7643/7644 at `/scim/v2`.
 
 **Audit.** Every mutation appends to the hash-chained audit log with actor `scim` (`scim.user.create|replace|patch|delete`, `scim.group.create|replace|patch|delete`), including membership deltas and whether sessions and devices were revoked. A failed audit append answers 500.
 
-**Persistence.** `SCIMStore` is a small interface (users, groups, lookups, puts, deletes). The default implementation is an append-only JSONL log in `--data-dir` (`scim.jsonl`), replayed on start like the device and revocation logs. SCIM requires `--data-dir`. A shared backend implements the same interface; the handlers serialise mutations, so a backend must make each call atomic and enforce `userName` and `displayName` uniqueness itself if several replicas write.
+**Persistence.** `SCIMStore` is a small interface (users, groups, lookups, puts, deletes). The default implementation is an append-only JSONL log in `--data-dir` (`scim.jsonl`), replayed on start like the device and revocation logs. SCIM requires `--data-dir` or the Postgres backend. On Postgres ([ADR-0021](/halos/adr/0021-ha-control-plane-on-postgres/)) the same store runs over the shared `scim` log: every read (and every `Lookup` behind sessions, devices and the gateway directory) first applies the other replicas' writes, and fails closed (user treated as inactive) if the log cannot be read; mutations are serialised across replicas by a cluster lock, so the `userName` and `displayName` uniqueness checks hold; deprovisioning revokes sessions (case-insensitive epoch), devices and pending enrollment tokens in shared state, so it holds on every replica at once.
 
 ### Consequences
 

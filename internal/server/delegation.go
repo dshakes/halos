@@ -75,7 +75,7 @@ func (s *Server) verifyParent(raw, typ string, now time.Time) (parentCred, error
 		}
 		groups := p.Groups
 		if p.SID != "" {
-			g, ok := s.oidc.session(p.SID, now)
+			g, ok := s.oidc.session(p.SID)
 			if !ok {
 				return parentCred{}, errors.New("session expired")
 			}

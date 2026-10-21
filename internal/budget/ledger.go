@@ -97,11 +97,7 @@ func (l *Ledger) prune(budgets []policy.Budget, now time.Time) {
 			l.dirty = true
 			continue
 		}
-		b := &budgets[i]
-		cutoff, _ := Window(b, now)
-		if p := b.RollingPeriod(); p > 0 {
-			cutoff = now.Add(-p - bucketSize(p))
-		}
+		cutoff := Cutoff(&budgets[i], now)
 		for key, bk := range byKey {
 			for s := range bk {
 				if time.Unix(s, 0).Before(cutoff) {
@@ -114,6 +110,39 @@ func (l *Ledger) prune(budgets []policy.Budget, now time.Time) {
 			}
 		}
 	}
+}
+
+// Cutoff is the oldest moment b still counts at now: buckets starting before
+// it are outside every window and can be dropped.
+func Cutoff(b *policy.Budget, now time.Time) time.Time {
+	if p := b.RollingPeriod(); p > 0 {
+		return now.Add(-p - bucketSize(p))
+	}
+	start, _ := Window(b, now)
+	return start
+}
+
+// Counters is a ledger's counter state: budget -> key -> bucket start (unix
+// seconds) -> spend. It is what an external store (the HA backend) persists.
+type Counters = map[string]map[string]map[int64]Spend
+
+// Increments returns what Apply would add to the counters for recs, without
+// batch dedupe: a shared store adds it to its own rows atomically.
+func Increments(budgets []policy.Budget, recs []Record, now time.Time) Counters {
+	l := NewLedger()
+	l.pruned = now // nothing to prune in an empty ledger
+	l.Apply(budgets, "", recs, now)
+	return l.c
+}
+
+// FromCounters is a read-only view over counters loaded from an external
+// store, for Status and All.
+func FromCounters(c Counters) *Ledger {
+	l := NewLedger()
+	if c != nil {
+		l.c = c
+	}
+	return l
 }
 
 // Status returns the state of every counter p is charged to.

@@ -26,6 +26,7 @@ import (
 
 	"github.com/dshakes/halos/internal/policy"
 	"github.com/dshakes/halos/internal/promote"
+	"github.com/dshakes/halos/internal/rollout"
 )
 
 // Actor is the identity the controller records on kills and audit entries.
@@ -54,11 +55,20 @@ type Controller struct {
 	// RolloutStateDir holds one hash-chained state file per Rollout ("" =
 	// rollouts are not driven); PolicyDir is where step scorecards are read.
 	RolloutStateDir, PolicyDir string
+	// RolloutStates, when set, replaces RolloutStateDir (the shared store of an HA deployment).
+	RolloutStates rollout.StateStore
+	// VerdictDocs, when set, replaces VerdictsPath: one VerdictDocKind
+	// document per experiment, which every replica's console reads (HA).
+	VerdictDocs rollout.Docs
 
 	ticks, errs atomic.Uint64
 	vmu         sync.Mutex
 	verdicts    map[promote.Verdict]uint64
 }
+
+// VerdictDocKind is the document kind of shared verdicts (one per experiment,
+// the verdicts-file row format).
+const VerdictDocKind = "verdict"
 
 // DefaultTickTimeout bounds one tick (all experiments).
 const DefaultTickTimeout = 2 * time.Minute
@@ -151,7 +161,16 @@ func (c *Controller) step(ctx context.Context, e *policy.Experiment) error {
 		"n_control", rep.NControl, "n_treatment", rep.NTreatment)
 
 	var errs []error
-	if c.VerdictsPath != "" {
+	switch {
+	case c.VerdictDocs != nil:
+		b, err := promote.VerdictRow(e.Name, rep, now.UTC())
+		if err == nil {
+			err = c.VerdictDocs.PutDoc(ctx, VerdictDocKind, e.Name, b)
+		}
+		if err != nil {
+			errs = append(errs, c.fail(fmt.Errorf("controller: verdict %s: %w", e.Name, err)))
+		}
+	case c.VerdictsPath != "":
 		if err := promote.UpsertVerdict(c.VerdictsPath, e.Name, rep, now.UTC()); err != nil {
 			errs = append(errs, c.fail(fmt.Errorf("controller: %w", err)))
 		}

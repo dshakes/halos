@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/dshakes/halos/internal/policy"
 	"github.com/dshakes/halos/internal/promote"
@@ -37,10 +38,24 @@ func (w *GitWriter) ProposeRollout(ctx context.Context, plan func(string) (*prom
 	return url, nil
 }
 
+// stateSaveTimeout bounds saving a rollout's state after its tick.
+const stateSaveTimeout = 10 * time.Second
+
+// rolloutStates is RolloutStates, else the RolloutStateDir files, else nil (rollouts not driven).
+func (c *Controller) rolloutStates() rollout.StateStore {
+	if c.RolloutStates != nil {
+		return c.RolloutStates
+	}
+	if c.RolloutStateDir == "" {
+		return nil
+	}
+	return rollout.DirStore(c.RolloutStateDir)
+}
+
 // tickRollouts drives every active rollout once. Like experiments, rollback
 // and pause act automatically; advance and complete only open a PR.
 func (c *Controller) tickRollouts(ctx context.Context, org *policy.Org) error {
-	if c.RolloutStateDir == "" {
+	if c.rolloutStates() == nil {
 		return nil
 	}
 	rs := append([]*policy.Rollout(nil), org.Rollouts...)
@@ -71,14 +86,18 @@ func rolloutOwned(org *policy.Org, exp string) bool {
 
 func (c *Controller) rolloutStep(ctx context.Context, org *policy.Org, r *policy.Rollout) error {
 	now := c.now()
-	st, err := rollout.LoadState(c.RolloutStateDir, r.Name)
+	store := c.rolloutStates()
+	st, err := store.Load(ctx, r.Name)
 	if err != nil {
 		// A state file that fails its hash chain is never acted on.
 		return c.fail(fmt.Errorf("controller: rollout %s: %w", r.Name, err))
 	}
 	dirty := st.Sync(r, now)
 	save := func(errs ...error) error {
-		if err := st.Save(c.RolloutStateDir); err != nil {
+		// Not ctx alone: state recording actions already taken must outlive the tick deadline.
+		sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), stateSaveTimeout)
+		defer cancel()
+		if err := store.Save(sctx, &st); err != nil {
 			errs = append(errs, c.fail(fmt.Errorf("controller: rollout %s: %w", r.Name, err)))
 		}
 		return errors.Join(errs...)

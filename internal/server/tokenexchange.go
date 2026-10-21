@@ -15,6 +15,7 @@ import (
 
 	"github.com/dshakes/halos/internal/identity"
 	"github.com/dshakes/halos/internal/policy"
+	"github.com/dshakes/halos/internal/storage"
 )
 
 // Workload identity federation (ADR-0023): POST /api/v1/token/exchange takes a
@@ -44,9 +45,8 @@ var (
 
 // workloadExchange is the exchange's state: one verifier (discovery + JWKS
 // cache) per trusted issuer and audience, and the replay cache. Zero value ready.
-// ponytail: the replay cache is per process; with several halo-server
-// replicas a token can be exchanged once per replica. Share it (or route the
-// endpoint to one replica) if that matters.
+// The in-process replay cache serves the single-replica file backend; with a
+// shared Backend (several replicas) rememberSubjectToken uses the database.
 type workloadExchange struct {
 	mu        sync.Mutex
 	verifiers map[string]*identity.OIDCJWT // issuer URL + "\x00" + audience
@@ -198,7 +198,7 @@ func (s *Server) exchange(w http.ResponseWriter, r *http.Request, org *policy.Or
 		s.Audit(r.Context(), wi.Name+":"+ciSub, "workload.token.denied", "", map[string]string{"issuer": wi.URL, "reason": reason.Error()})
 		oauthErr(w, http.StatusBadRequest, "invalid_grant", reason.Error())
 	}
-	if err := s.wl.remember(replayKey(wi.URL, claims, raw), unixClaim(claims, "exp"), now); err != nil {
+	if err := s.rememberSubjectToken(replayKey(wi.URL, claims, raw), unixClaim(claims, "exp"), now); err != nil {
 		if errors.Is(err, errReplayFull) {
 			s.cfg.Log.Error("workload replay cache full; refusing exchanges until entries expire")
 			oauthErr(w, http.StatusServiceUnavailable, "temporarily_unavailable", "try again later")
@@ -294,6 +294,31 @@ func unverifiedIssuer(raw string) (string, error) {
 		return "", errors.New("subject_token has no iss")
 	}
 	return c.Iss, nil
+}
+
+// kvWorkloadJTI is the shared replay cache's namespace (HA backend).
+const kvWorkloadJTI = "workload-jti"
+
+// rememberSubjectToken records a subject token as exchanged until it expires.
+// With a shared Backend the record is one row keyed by the hashed replay key
+// (insert unless a live row exists), so a token is exchanged once across every
+// replica; a store error refuses the exchange (errReplayFull: 503, retry).
+func (s *Server) rememberSubjectToken(key string, exp, now time.Time) error {
+	if s.cfg.Backend == nil {
+		return s.wl.remember(key, exp, now)
+	}
+	ctx, cancel := storage.Ctx()
+	defer cancel()
+	h := sha256.Sum256([]byte(key)) // the key holds NUL separators; the column is text
+	added, err := s.kv.Add(ctx, kvWorkloadJTI, hex.EncodeToString(h[:]), nil, exp)
+	switch {
+	case err != nil:
+		s.cfg.Log.Error("workload replay cache", "err", err)
+		return errReplayFull
+	case !added:
+		return errReplayed
+	}
+	return nil
 }
 
 // replayKey is iss+jti, or the token's hash for issuers that omit jti: either

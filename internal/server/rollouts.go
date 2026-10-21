@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"path/filepath"
 
@@ -18,7 +19,19 @@ type RolloutView struct {
 	StateError string           `json:"stateError,omitempty"`
 }
 
-func (s *Server) rollouts(w http.ResponseWriter) ([]RolloutView, bool) {
+// rolloutStates is where the controller keeps rollout state: the Backend, else
+// <DataDir>/rollouts, else nowhere (nil).
+func (s *Server) rolloutStates() rollout.StateStore {
+	switch {
+	case s.cfg.Backend != nil:
+		return s.cfg.Backend.RolloutStates()
+	case s.cfg.DataDir != "":
+		return rollout.DirStore(filepath.Join(s.cfg.DataDir, "rollouts"))
+	}
+	return nil
+}
+
+func (s *Server) rollouts(ctx context.Context, w http.ResponseWriter) ([]RolloutView, bool) {
 	org, _, err := s.pol.Get()
 	if org == nil {
 		apiErr(w, http.StatusServiceUnavailable, "policy not loaded: "+err.Error())
@@ -27,8 +40,8 @@ func (s *Server) rollouts(w http.ResponseWriter) ([]RolloutView, bool) {
 	out := make([]RolloutView, 0, len(org.Rollouts))
 	for _, r := range org.Rollouts {
 		v := RolloutView{Rollout: r, Timeline: rollout.BuildTimeline(org, r)}
-		if s.cfg.DataDir != "" {
-			if st, err := rollout.LoadState(filepath.Join(s.cfg.DataDir, "rollouts"), r.Name); err != nil {
+		if store := s.rolloutStates(); store != nil {
+			if st, err := store.Load(ctx, r.Name); err != nil {
 				s.cfg.Log.Warn("rollout state unreadable", "rollout", r.Name, "err", err)
 				v.StateError = err.Error()
 			} else if len(st.History) > 0 {
@@ -40,14 +53,14 @@ func (s *Server) rollouts(w http.ResponseWriter) ([]RolloutView, bool) {
 	return out, true
 }
 
-func (s *Server) listRollouts(w http.ResponseWriter, _ *http.Request, _ Principal) {
-	if out, ok := s.rollouts(w); ok {
+func (s *Server) listRollouts(w http.ResponseWriter, r *http.Request, _ Principal) {
+	if out, ok := s.rollouts(r.Context(), w); ok {
 		writeJSON(w, http.StatusOK, out)
 	}
 }
 
 func (s *Server) getRollout(w http.ResponseWriter, r *http.Request, _ Principal) {
-	out, ok := s.rollouts(w)
+	out, ok := s.rollouts(r.Context(), w)
 	if !ok {
 		return
 	}

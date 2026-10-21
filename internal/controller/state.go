@@ -1,16 +1,15 @@
 package controller
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/dshakes/halos/internal/fsutil"
 	"github.com/dshakes/halos/internal/promote"
+	"github.com/dshakes/halos/internal/storage"
 )
 
 // Actions the controller takes at most once per experiment run.
@@ -49,7 +48,7 @@ type stateRec struct {
 // ponytail: no compaction; one line per action per experiment run.
 type StateLog struct {
 	mu   sync.Mutex
-	f    *os.File
+	log  storage.Log       // nil = memory only
 	done map[string]string // key -> detail
 	exps map[string]bool   // experiments with entries since their last reset
 }
@@ -58,14 +57,14 @@ func stateKey(exp, verdict, action string) string { return exp + "\x00" + verdic
 
 // OpenStateLog opens dir/controller-state.jsonl ("" = memory only).
 func OpenStateLog(dir string) (*StateLog, error) {
+	return OpenStateLogOn(context.Background(), storage.Dir(dir))
+}
+
+// OpenStateLogOn opens the controller-state log of o (for an HA deployment,
+// a log fenced by the leader lease, so a deposed leader cannot record).
+func OpenStateLogOn(ctx context.Context, o storage.Opener) (*StateLog, error) {
 	l := &StateLog{done: map[string]string{}, exps: map[string]bool{}}
-	if dir == "" {
-		return l, nil
-	}
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		return nil, fmt.Errorf("controller state: %w", err)
-	}
-	f, err := fsutil.OpenJSONL(filepath.Join(dir, "controller-state.jsonl"), func(line []byte) {
+	log, err := o.OpenLog(ctx, "controller-state", func(line []byte) {
 		var r stateRec
 		if json.Unmarshal(line, &r) == nil && r.Experiment != "" { // torn line: skip
 			l.apply(r)
@@ -74,7 +73,7 @@ func OpenStateLog(dir string) (*StateLog, error) {
 	if err != nil {
 		return nil, fmt.Errorf("controller state: %w", err)
 	}
-	l.f = f
+	l.log = log
 	return l, nil
 }
 
@@ -93,16 +92,15 @@ func (l *StateLog) apply(r stateRec) {
 }
 
 func (l *StateLog) write(r stateRec) error {
-	if l.f != nil {
+	if l.log != nil {
 		b, err := json.Marshal(r)
 		if err != nil {
 			return fmt.Errorf("controller state: encode: %w", err)
 		}
-		if _, err := l.f.Write(append(b, '\n')); err != nil {
-			return fmt.Errorf("controller state: append: %w", err)
-		}
-		if err := l.f.Sync(); err != nil {
-			return fmt.Errorf("controller state: sync: %w", err)
+		ctx, cancel := storage.Ctx()
+		defer cancel()
+		if err := l.log.Append(ctx, "", b); err != nil {
+			return fmt.Errorf("controller state: %w", err)
 		}
 	}
 	l.apply(r)
@@ -134,10 +132,5 @@ func (l *StateLog) Reset(exp string, at time.Time) error {
 	return l.write(stateRec{Experiment: exp, Reset: true, At: at.UTC()})
 }
 
-// Close closes the log file.
-func (l *StateLog) Close() error {
-	if l.f == nil {
-		return nil
-	}
-	return l.f.Close()
-}
+// Close closes the log.
+func (l *StateLog) Close() error { return storage.CloseLog(&l.mu, l.log) }

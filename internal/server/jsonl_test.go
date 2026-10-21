@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/dshakes/halos/internal/storage"
 )
 
 func appendRaw(t *testing.T, path, s string) {
@@ -24,7 +26,7 @@ func appendRaw(t *testing.T, path, s string) {
 func TestTornLineThenRevokeSurvivesRestart(t *testing.T) {
 	dir := t.TempDir()
 	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
-	d, err := openDeviceStore(dir, 0)
+	d, err := openDeviceStore(storage.Dir(dir), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,22 +34,22 @@ func TestTornLineThenRevokeSurvivesRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d.f.Close()
+	d.log.Close()
 	appendRaw(t, filepath.Join(dir, "devices.jsonl"), `{"id":"torn","hash":"x`)
 
-	d2, err := openDeviceStore(dir, 0)
+	d2, err := openDeviceStore(storage.Dir(dir), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := d2.revoke(dev.ID); err != nil {
 		t.Fatal(err)
 	}
-	d2.f.Close()
-	d3, err := openDeviceStore(dir, 0)
+	d2.log.Close()
+	d3, err := openDeviceStore(storage.Dir(dir), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer d3.f.Close()
+	defer d3.log.Close()
 	if _, err := d3.lookup(tok, now); err == nil {
 		t.Fatal("revocation lost after torn line + restart")
 	}
@@ -58,26 +60,26 @@ func TestTornLineThenRevokeSurvivesRestart(t *testing.T) {
 
 func TestTornLineRequests(t *testing.T) {
 	dir := t.TempDir()
-	l, err := openRequestLog(dir)
+	l, err := openRequestLog(storage.Dir(dir))
 	if err != nil {
 		t.Fatal(err)
 	}
 	_ = l.save(&Request{ID: "a", Status: StatusPending})
-	l.f.Close()
+	l.log.Close()
 	appendRaw(t, filepath.Join(dir, "requests.jsonl"), `{"id":"b","sta`)
-	l2, err := openRequestLog(dir)
+	l2, err := openRequestLog(storage.Dir(dir))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := l2.save(&Request{ID: "a", Status: StatusDenied}); err != nil {
 		t.Fatal(err)
 	}
-	l2.f.Close()
-	l3, err := openRequestLog(dir)
+	l2.log.Close()
+	l3, err := openRequestLog(storage.Dir(dir))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer l3.f.Close()
+	defer l3.log.Close()
 	if r := l3.byID["a"]; r == nil || r.Status != StatusDenied || len(l3.byID) != 1 {
 		t.Fatalf("after torn line: %+v", l3.byID)
 	}
@@ -89,7 +91,7 @@ func TestOpenJSONLReplayError(t *testing.T) {
 	if err := os.WriteFile(p, make([]byte, 2<<20), 0o600); err != nil { // one 2MB "line": over the scanner limit
 		t.Fatal(err)
 	}
-	if _, err := openRequestLog(dir); err == nil {
+	if _, err := openRequestLog(storage.Dir(dir)); err == nil {
 		t.Fatal("want replay error")
 	}
 }

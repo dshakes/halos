@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/dshakes/halos/internal/fsutil"
+	"github.com/dshakes/halos/internal/storage"
 )
 
 // SCIMName is the RFC 7643 §4.1.1 "name" complex attribute (the parts Halos keeps).
@@ -89,6 +91,39 @@ type scimLogStore struct {
 	groups   map[string]SCIMGroup
 	memberOf map[string]map[string]struct{} // user id -> ids of the groups listing it (Lookup and DeleteUser stay O(user's groups))
 	f        *os.File                       // nil = memory only
+	log      storage.Log                    // HA: the shared "scim" log instead of f (OpenSCIMStoreOn)
+}
+
+// OpenSCIMStoreOn opens the directory on a shared backend's "scim" log
+// (ADR-0021): every read first applies other replicas' writes, so a
+// deprovisioning on one replica holds on all of them at once. The memberOf
+// index is rebuilt by the same apply on replay and catch-up.
+func OpenSCIMStoreOn(ctx context.Context, o storage.Opener) (SCIMStore, error) {
+	s := &scimLogStore{users: map[string]SCIMUser{}, byName: map[string]string{}, groups: map[string]SCIMGroup{}, memberOf: map[string]map[string]struct{}{}}
+	log, err := o.OpenLog(ctx, "scim", func(line []byte) {
+		var rec scimRecord
+		if json.Unmarshal(line, &rec) == nil {
+			s.apply(rec)
+		}
+	})
+	if err != nil {
+		return nil, fmt.Errorf("scim store: %w", err)
+	}
+	s.log = log
+	return s, nil
+}
+
+// sync applies other replicas' records; false when the shared log cannot be
+// read (the file and memory stores have no other writer).
+func (s *scimLogStore) sync() bool {
+	if s.log == nil {
+		return true
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ctx, cancel := storage.Ctx()
+	defer cancel()
+	return s.log.Catchup(ctx) == nil
 }
 
 // OpenSCIMStore opens dir/scim.jsonl, or a memory-only store when dir is "".
@@ -163,7 +198,17 @@ func (s *scimLogStore) unindex(gid string) {
 func (s *scimLogStore) write(rec scimRecord) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.f != nil {
+	if s.log != nil {
+		b, err := json.Marshal(rec)
+		if err != nil {
+			return err
+		}
+		ctx, cancel := storage.Ctx()
+		defer cancel()
+		if err := s.log.Append(ctx, "", b); err != nil {
+			return fmt.Errorf("scim store: write: %w", err) // not applied in memory either
+		}
+	} else if s.f != nil {
 		b, err := json.Marshal(rec)
 		if err != nil {
 			return err
@@ -195,6 +240,7 @@ func (s *scimLogStore) DeleteUser(id string) error  { return s.write(scimRecord{
 func (s *scimLogStore) DeleteGroup(id string) error { return s.write(scimRecord{DelGroup: id}) }
 
 func (s *scimLogStore) User(id string) (SCIMUser, bool) {
+	_ = s.sync() // unreadable: serve the last view; writes still replay first
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	u, ok := s.users[id]
@@ -202,6 +248,7 @@ func (s *scimLogStore) User(id string) (SCIMUser, bool) {
 }
 
 func (s *scimLogStore) Group(id string) (SCIMGroup, bool) {
+	_ = s.sync() // unreadable: serve the last view; writes still replay first
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	g, ok := s.groups[id]
@@ -210,6 +257,7 @@ func (s *scimLogStore) Group(id string) (SCIMGroup, bool) {
 }
 
 func (s *scimLogStore) Users() []SCIMUser {
+	_ = s.sync() // unreadable: serve the last view; writes still replay first
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := make([]SCIMUser, 0, len(s.users))
@@ -221,6 +269,7 @@ func (s *scimLogStore) Users() []SCIMUser {
 }
 
 func (s *scimLogStore) Groups() []SCIMGroup {
+	_ = s.sync() // unreadable: serve the last view; writes still replay first
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := make([]SCIMGroup, 0, len(s.groups))
@@ -238,6 +287,9 @@ func (s *scimLogStore) Groups() []SCIMGroup {
 }
 
 func (s *scimLogStore) Lookup(userName string) (SCIMUser, []string, bool) {
+	if !s.sync() { // a deprovisioning on another replica might be unseen: fail closed
+		return SCIMUser{UserName: userName}, nil, true
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	id, ok := s.byName[canonicalUser(userName)]

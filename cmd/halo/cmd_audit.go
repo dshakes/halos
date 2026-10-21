@@ -1,26 +1,31 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
+	"github.com/dshakes/halos/internal/pgstore"
 	"github.com/dshakes/halos/internal/server"
 )
 
 func (a *app) cmdAudit() *cobra.Command {
 	c := &cobra.Command{Use: "audit", Short: "Inspect halo-server's hash-chained audit log"}
-	var dataDir string
+	var dataDir, dbURLFile string
 	verify := &cobra.Command{
 		Use:   "verify",
 		Short: "Verify the audit hash chain across every segment (exit 2 if broken)",
 		Long: "Reads <data-dir>/audit-*.jsonl (rotated segments, oldest first) and then audit.jsonl, and checks\n" +
 			"that sequence numbers run from 1 without gaps, every entry links to the one before it (across\n" +
 			"segment boundaries too) and every hash matches. Read-only: safe against a live halo-server's data dir.\n" +
+			"With --database-url-file it reads the Postgres backend's audit table instead (HA, ADR-0021), uncached.\n" +
 			"Entries cut from the end leave a valid chain; compare the head with the newest hash your SIEM holds.",
 		Args: cobra.NoArgs,
-		RunE: func(*cobra.Command, []string) error {
-			r, err := server.VerifyAuditDir(dataDir)
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			r, err := verifyAudit(cmd.Context(), dataDir, dbURLFile)
 			if err != nil {
 				return err
 			}
@@ -39,8 +44,32 @@ func (a *app) cmdAudit() *cobra.Command {
 			return nil
 		},
 	}
-	verify.Flags().StringVar(&dataDir, "data-dir", "", "halo-server --data-dir holding audit.jsonl (required)")
-	_ = verify.MarkFlagRequired("data-dir")
+	verify.Flags().StringVar(&dataDir, "data-dir", "", "halo-server --data-dir holding audit.jsonl")
+	verify.Flags().StringVar(&dbURLFile, "database-url-file", "", "file holding the Postgres URL of an HA halo-server (instead of --data-dir)")
+	verify.MarkFlagsOneRequired("data-dir", "database-url-file")
+	verify.MarkFlagsMutuallyExclusive("data-dir", "database-url-file")
 	c.AddCommand(verify)
 	return c
+}
+
+func verifyAudit(ctx context.Context, dataDir, dbURLFile string) (server.AuditVerifyResult, error) {
+	if dbURLFile == "" {
+		return server.VerifyAuditDir(dataDir)
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	b, err := os.ReadFile(dbURLFile)
+	if err != nil {
+		return server.AuditVerifyResult{}, fmt.Errorf("--database-url-file: %w", err)
+	}
+	db, err := pgstore.Open(ctx, strings.TrimSpace(string(b)))
+	if err != nil {
+		return server.AuditVerifyResult{}, err // never echo the URL: it carries the password
+	}
+	defer func() { _ = db.Close() }()
+	if err := db.CheckSchema(ctx); err != nil {
+		return server.AuditVerifyResult{}, err
+	}
+	return server.VerifyAuditBackend(ctx, server.NewPGBackend(db))
 }

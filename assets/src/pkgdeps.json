@@ -20,6 +20,7 @@
         "internal/intent",
         "internal/mcpserver",
         "internal/onboard",
+        "internal/pgstore",
         "internal/policy",
         "internal/promote",
         "internal/release",
@@ -60,8 +61,9 @@
       "imports": [
         "internal/bundle",
         "internal/controller",
-        "internal/policy",
+        "internal/pgstore",
         "internal/promote",
+        "internal/rollout",
         "internal/server"
       ]
     },
@@ -69,6 +71,7 @@
       "path": "cmd/halo-shadow",
       "imports": [
         "internal/gateway",
+        "internal/pgstore",
         "internal/shadow"
       ]
     },
@@ -119,6 +122,7 @@
         "internal/policy",
         "internal/promote",
         "internal/rollout",
+        "internal/storage",
         "internal/yamledit"
       ]
     },
@@ -308,6 +312,18 @@
       ]
     },
     {
+      "path": "internal/pgstore",
+      "imports": [
+        "internal/storage"
+      ]
+    },
+    {
+      "path": "internal/pgstore/pgtest",
+      "imports": [
+        "internal/pgstore"
+      ]
+    },
+    {
       "path": "internal/policy",
       "imports": [
         "internal/assign"
@@ -353,9 +369,11 @@
         "internal/harness",
         "internal/harness/all",
         "internal/identity",
+        "internal/pgstore",
         "internal/policy",
         "internal/promote",
         "internal/rollout",
+        "internal/storage",
         "internal/toggle",
         "internal/yamledit",
         "web"
@@ -372,6 +390,12 @@
     {
       "path": "internal/stats",
       "imports": []
+    },
+    {
+      "path": "internal/storage",
+      "imports": [
+        "internal/fsutil"
+      ]
     },
     {
       "path": "internal/telemetry",

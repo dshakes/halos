@@ -5,7 +5,33 @@ import (
 	"errors"
 	"os"
 	"time"
+
+	"github.com/dshakes/halos/internal/controller"
+	"github.com/dshakes/halos/internal/storage"
 )
+
+// verdicts is LoadVerdicts(VerdictsPath), or with a shared Backend the
+// controller's per-experiment verdict documents, which the leader writes and
+// every replica serves (ADR-0021).
+func (s *Server) verdicts() (map[string]Verdict, error) {
+	if s.cfg.Backend == nil {
+		return LoadVerdicts(s.cfg.VerdictsPath)
+	}
+	ctx, cancel := storage.Ctx()
+	defer cancel()
+	out := map[string]Verdict{}
+	rows, err := s.cfg.Backend.Docs(ctx, controller.VerdictDocKind)
+	if err != nil {
+		return out, err
+	}
+	for _, b := range rows {
+		var v Verdict
+		if json.Unmarshal(b, &v) == nil && v.Experiment != "" {
+			out[v.Experiment] = v
+		}
+	}
+	return out, nil
+}
 
 // Verdict is the console's view of an experiment analysis (a local view model
 // mirroring promote.Report, plus an optional primary-effect CI for the forest plot).

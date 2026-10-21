@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,6 +24,7 @@ import (
 
 	"github.com/dshakes/halos/internal/identity"
 	"github.com/dshakes/halos/internal/policy"
+	"github.com/dshakes/halos/internal/storage"
 )
 
 const (
@@ -130,7 +132,7 @@ func (s *Server) principal(r *http.Request) (Principal, bool) {
 		return Principal{}, false
 	}
 	if p.SID != "" {
-		g, ok := s.oidc.session(p.SID, s.cfg.Now())
+		g, ok := s.oidc.session(p.SID)
 		if !ok {
 			return Principal{}, false
 		}
@@ -182,62 +184,51 @@ type oidcState struct {
 	key      string
 	provider *oidc.Provider
 
-	// Server-side state, in memory (lost on restart: users log in again).
-	smu      sync.Mutex
-	used     map[string]time.Time // consumed login states until expiry: single use
-	sessions map[string]bigSession
+	// Consumed login states and server-side sessions. In process by default
+	// (lost on restart: users log in again); shared across replicas in HA.
+	kv storage.KV
 }
 
-type bigSession struct {
-	groups []string
-	exp    time.Time
-}
+const (
+	kvLoginState = "oidc-state"
+	kvSession    = "oidc-session"
+)
 
-// consume marks a login state used; false if it already was.
-func (o *oidcState) consume(state string, exp, now time.Time) bool {
-	o.smu.Lock()
-	defer o.smu.Unlock()
-	for k, e := range o.used {
-		if now.After(e) {
-			delete(o.used, k)
-		}
-	}
-	if _, dup := o.used[state]; dup {
-		return false
-	}
-	if o.used == nil {
-		o.used = map[string]time.Time{}
-	}
-	o.used[state] = exp
-	return true
+// consume marks a login state used until exp; false if it already was (or
+// the store cannot say: a login is retried, a replayed state is not let in).
+func (o *oidcState) consume(state string, exp time.Time) bool {
+	ctx, cancel := storage.Ctx()
+	defer cancel()
+	h := sha256.Sum256([]byte(state))
+	ok, err := o.kv.Add(ctx, kvLoginState, hex.EncodeToString(h[:]), nil, exp)
+	return err == nil && ok
 }
 
 // newSession stores groups server-side and returns the session id.
-// ponytail: in-memory, pruned on insert; a shared store if halo-server scales out.
-func (o *oidcState) newSession(groups []string, exp, now time.Time) string {
-	o.smu.Lock()
-	defer o.smu.Unlock()
-	for k, v := range o.sessions {
-		if now.After(v.exp) {
-			delete(o.sessions, k)
-		}
+func (o *oidcState) newSession(groups []string, exp time.Time) (string, error) {
+	b, err := json.Marshal(groups)
+	if err != nil {
+		return "", err
 	}
-	if o.sessions == nil {
-		o.sessions = map[string]bigSession{}
-	}
+	ctx, cancel := storage.Ctx()
+	defer cancel()
 	id := randB64(24)
-	o.sessions[id] = bigSession{groups, exp}
-	return id
+	if err := o.kv.Put(ctx, kvSession, id, b, exp); err != nil {
+		return "", err
+	}
+	return id, nil
 }
 
-func (o *oidcState) session(id string, now time.Time) ([]string, bool) {
-	o.smu.Lock()
-	defer o.smu.Unlock()
-	v, ok := o.sessions[id]
-	if !ok || now.After(v.exp) {
+// session returns a live session's groups; a store error is no session.
+func (o *oidcState) session(id string) ([]string, bool) {
+	ctx, cancel := storage.Ctx()
+	defer cancel()
+	b, ok, err := o.kv.Get(ctx, kvSession, id)
+	var groups []string
+	if err != nil || !ok || json.Unmarshal(b, &groups) != nil {
 		return nil, false
 	}
-	return v.groups, true
+	return groups, true
 }
 
 // policyGroups keeps only the groups current policy refers to (role groups,
@@ -348,7 +339,7 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.setCookie(w, oidcCookie, "", "/auth", -time.Second) // state is single-use
-	if !s.oidc.consume(st.State, time.Unix(st.Exp, 0), s.cfg.Now()) {
+	if !s.oidc.consume(st.State, time.Unix(st.Exp, 0)) {
 		fail(http.StatusBadRequest, "login state already used", nil)
 		return
 	}
@@ -401,7 +392,13 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 	exp := s.cfg.Now().Add(sessionTTL)
 	sess := cookiePayload{Sub: p.ID, Groups: policyGroups(org, p.Groups), Exp: exp.Unix(), Iat: s.cfg.Now().UnixNano()}
 	if v := s.seal(sess); len(v) > maxCookie {
-		sess.SID, sess.Groups = s.oidc.newSession(sess.Groups, exp, s.cfg.Now()), nil
+		sid, err := s.oidc.newSession(sess.Groups, exp)
+		if err != nil {
+			s.cfg.Log.Error("store session", "user", p.ID, "err", err)
+			apiErr(w, http.StatusServiceUnavailable, "login unavailable")
+			return
+		}
+		sess.SID, sess.Groups = sid, nil
 	}
 	s.setCookie(w, sessionCookie, s.seal(sess), "/", sessionTTL)
 	s.cfg.Log.Info("login", "user", p.ID, "roles", p.Roles)
@@ -424,9 +421,11 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 			}
 			s.Audit(r.Context(), p.Sub, "logout", "", nil)
 			if p.SID != "" {
-				s.oidc.smu.Lock()
-				delete(s.oidc.sessions, p.SID)
-				s.oidc.smu.Unlock()
+				ctx, cancel := storage.Ctx()
+				if err := s.oidc.kv.Delete(ctx, kvSession, p.SID); err != nil {
+					s.cfg.Log.Warn("delete session", "err", err) // the epoch bump already ended it
+				}
+				cancel()
 			}
 		}
 	}

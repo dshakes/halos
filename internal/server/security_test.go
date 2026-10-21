@@ -2,8 +2,10 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/hex"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -130,9 +132,8 @@ func TestEnrollRateLimited(t *testing.T) {
 	if c := enroll(good); c != http.StatusTooManyRequests {
 		t.Fatalf("blocked IP with a valid token: %d, want 429", c)
 	}
-	e.s.enroll.mu.Lock()
-	_, kept := e.s.enroll.m[hashTok(good)]
-	e.s.enroll.mu.Unlock()
+	gh := hashTok(good)
+	_, kept, _ := e.s.kv.Get(context.Background(), kvEnroll, hex.EncodeToString(gh[:]))
 	if !kept {
 		t.Fatal("a rate-limited attempt burned a valid enrollment token")
 	}

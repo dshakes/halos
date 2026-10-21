@@ -14,7 +14,9 @@ import (
 	"github.com/dshakes/halos/internal/budget"
 	"github.com/dshakes/halos/internal/fsutil"
 	"github.com/dshakes/halos/internal/gateway"
+	"github.com/dshakes/halos/internal/pgstore"
 	"github.com/dshakes/halos/internal/policy"
+	"github.com/dshakes/halos/internal/storage"
 )
 
 // Budget API limits.
@@ -29,19 +31,22 @@ const (
 )
 
 // budgetStore is halo-server's authoritative budget ledger (ADR-0017),
-// persisted as <data-dir>/budgets.json. halo-server is a single replica, so
-// there is one writer.
+// persisted as <data-dir>/budgets.json with one writer, or, with a shared
+// Backend (ADR-0021), kept in the database: every replica then adds usage to
+// and reads verdicts from the same counters, so N replicas grant one budget,
+// not N.
 type budgetStore struct {
 	l    *budget.Ledger
-	path string // "" = in-memory only
+	path string  // "" = in-memory only
+	db   Backend // set: counters live in the database; l is unused
 
 	mu    sync.Mutex // serialises saves
 	saved time.Time
 }
 
-func openBudgetStore(dir string) (*budgetStore, error) {
-	s := &budgetStore{l: budget.NewLedger()}
-	if dir == "" {
+func openBudgetStore(dir string, db Backend) (*budgetStore, error) {
+	s := &budgetStore{l: budget.NewLedger(), db: db}
+	if dir == "" || db != nil {
 		return s, nil
 	}
 	if err := os.MkdirAll(dir, 0o750); err != nil {
@@ -80,6 +85,78 @@ func (s *budgetStore) save(now time.Time, force bool) error {
 		return fmt.Errorf("server: save budgets: %w", err)
 	}
 	return nil
+}
+
+// status is the state of every counter p is charged to.
+func (s *budgetStore) status(budgets []policy.Budget, p budget.Principal, now time.Time) ([]budget.Status, error) {
+	if s.db == nil {
+		return s.l.Status(budgets, p, now), nil
+	}
+	cs := budget.Charges(budgets, p)
+	keys := make([][2]string, 0, len(cs))
+	for _, c := range cs {
+		keys = append(keys, [2]string{c.Budget.Name, c.Key})
+	}
+	l, err := s.load(keys)
+	if err != nil {
+		return nil, err
+	}
+	return l.Status(budgets, p, now), nil
+}
+
+// all is every counter with spend in its window (see budget.Ledger.All).
+func (s *budgetStore) all(budgets []policy.Budget, now time.Time) ([]budget.Status, error) {
+	if s.db == nil {
+		return s.l.All(budgets, now), nil
+	}
+	l, err := s.load(nil)
+	if err != nil {
+		return nil, err
+	}
+	return l.All(budgets, now), nil
+}
+
+// apply charges recs once per batch id.
+func (s *budgetStore) apply(budgets []policy.Budget, batch string, recs []budget.Record, now time.Time) (bool, error) {
+	if s.db == nil {
+		return s.l.Apply(budgets, batch, recs, now), nil
+	}
+	var incs []pgstore.BudgetCounter
+	for name, byKey := range budget.Increments(budgets, recs, now) {
+		for key, bk := range byKey {
+			for start, sp := range bk {
+				incs = append(incs, pgstore.BudgetCounter{Budget: name, Key: key, Bucket: start, USD: sp.USD, Tokens: sp.Tokens})
+			}
+		}
+	}
+	keep := make(map[string]int64, len(budgets))
+	for i := range budgets {
+		keep[budgets[i].Name] = budget.Cutoff(&budgets[i], now).Unix()
+	}
+	ctx, cancel := storage.Ctx()
+	defer cancel()
+	return s.db.ApplyBudget(ctx, batch, incs, keep)
+}
+
+// load reads counters from the database into a read-only ledger view.
+func (s *budgetStore) load(keys [][2]string) (*budget.Ledger, error) {
+	ctx, cancel := storage.Ctx()
+	defer cancel()
+	rows, err := s.db.BudgetCounters(ctx, keys)
+	if err != nil {
+		return nil, err
+	}
+	c := budget.Counters{}
+	for _, r := range rows {
+		if c[r.Budget] == nil {
+			c[r.Budget] = map[string]map[int64]budget.Spend{}
+		}
+		if c[r.Budget][r.Key] == nil {
+			c[r.Budget][r.Key] = map[int64]budget.Spend{}
+		}
+		c[r.Budget][r.Key][r.Bucket] = budget.Spend{USD: r.USD, Tokens: r.Tokens}
+	}
+	return budget.FromCounters(c), nil
 }
 
 func budgetsOf(org *policy.Org) []policy.Budget {
@@ -137,7 +214,13 @@ func (s *Server) postGatewayBudgetCheck(w http.ResponseWriter, r *http.Request) 
 		apiErr(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, gateway.BudgetVerdict{Budgets: s.budgets.l.Status(budgets, in.Principal, s.cfg.Now())})
+	sts, err := s.budgets.status(budgets, in.Principal, s.cfg.Now())
+	if err != nil {
+		s.cfg.Log.Error("read budgets", "err", err)
+		apiErr(w, http.StatusServiceUnavailable, "budget store unavailable")
+		return
+	}
+	writeJSON(w, http.StatusOK, gateway.BudgetVerdict{Budgets: sts})
 }
 
 // postGatewayBudgetUsage: POST /api/v1/gateway/budget/usage (gateway token).
@@ -177,7 +260,12 @@ func (s *Server) postGatewayBudgetUsage(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 	now := s.cfg.Now()
-	dup := s.budgets.l.Apply(budgets, in.Batch, in.Records, now)
+	dup, err := s.budgets.apply(budgets, in.Batch, in.Records, now)
+	if err != nil { // not counted: the gateway keeps the batch and retries it
+		s.cfg.Log.Error("apply budget usage", "batch", in.Batch, "err", err)
+		apiErr(w, http.StatusServiceUnavailable, "budget store unavailable")
+		return
+	}
 	if err := s.budgets.save(now, false); err != nil {
 		s.cfg.Log.Error("save budgets", "err", err) // counted in memory; the next save retries
 	}
@@ -201,7 +289,13 @@ func (s *Server) getBudgets(w http.ResponseWriter, r *http.Request, _ Principal)
 	now := s.cfg.Now()
 	name, key := r.URL.Query().Get("budget"), r.URL.Query().Get("key")
 	out := BudgetsResponse{Budgets: []budget.Status{}, At: now.UTC()}
-	for _, st := range s.budgets.l.All(budgetsOf(org), now) {
+	sts, err := s.budgets.all(budgetsOf(org), now)
+	if err != nil {
+		s.cfg.Log.Error("read budgets", "err", err)
+		apiErr(w, http.StatusServiceUnavailable, "budget store unavailable")
+		return
+	}
+	for _, st := range sts {
 		if (name == "" || st.Budget == name) && (key == "" || st.Key == key) {
 			out.Budgets = append(out.Budgets, st)
 		}
