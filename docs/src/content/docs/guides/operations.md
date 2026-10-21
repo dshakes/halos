@@ -169,7 +169,17 @@ halo toggle kill <toggle> --server https://halos.example.com --reason "..."   # 
 curl -X POST -H "Authorization: Bearer $ADMIN" https://halos.example.com/api/v1/experiments/<name>/kill
 ```
 
-Then open the pause PR so the policy repo agrees with reality; the kill holds until someone unkills, even if the PR is slow. Full walkthrough: [kill a bad change](/halos/tutorials/kill-a-bad-change/). Requires `server.killSwitch.existingSecret`; without it kill returns 501 and the only lever is merging the pause PR.
+Killing needs the `operator` or `admin` role ([console roles](/halos/guides/production-deployment/#console-roles)). Then open the pause PR so the policy repo agrees with reality; the kill holds until someone unkills, even if the PR is slow. Full walkthrough: [kill a bad change](/halos/tutorials/kill-a-bad-change/). Requires `server.killSwitch.existingSecret`; without it kill returns 501 and the only lever is merging the pause PR.
+
+### A user gets 403
+
+The console hides what a user's roles do not allow, so a 403 usually means a script or a stale tab. Each one is in the audit log with the route and the permission it needed:
+
+```bash
+curl -s --cookie "halo_session=$SESSION" 'https://halos.example.com/api/v1/audit?action=authz.deny&limit=50' | jq '.entries[] | {time, actor, target, details}'
+```
+
+`details.need` is the missing permission (`read`, `operate`, `approve`, `audit`, `admin`) and `details.roles` what the user held. Grant it by adding their IdP group to the right role under `identity.roles` in a policy PR; they pick it up at their next login. `need: unmapped` means a route has no entry in the server's permission table, which is a bug: report it.
 
 ### Roll a ring back to a previous release
 

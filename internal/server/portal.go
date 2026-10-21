@@ -125,6 +125,7 @@ type profileSummary struct {
 // Me is GET /api/v1/me.
 type Me struct {
 	Principal
+	Permissions []string        `json:"permissions"` // the console hides what these do not allow
 	Ring        string          `json:"ring"`
 	Release     string          `json:"release,omitempty"`
 	Variants    []AssignmentRow `json:"variants"`
@@ -222,7 +223,7 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request, p Principal) {
 	if p.Groups == nil {
 		p.Groups = []string{}
 	}
-	m := Me{Principal: p, Variants: assignments(org, p.subject(), ring), SelfService: org.SelfService.Enabled, Launchers: []string{}, Requestable: []string{}, OptInRings: []string{}, SupportURL: s.cfg.Portal.SupportURL, DevInsecure: s.cfg.DevUser != ""}
+	m := Me{Principal: p, Permissions: p.permissions(), Variants: assignments(org, p.subject(), ring), SelfService: org.SelfService.Enabled, Launchers: []string{}, Requestable: []string{}, OptInRings: []string{}, SupportURL: s.cfg.Portal.SupportURL, DevInsecure: s.cfg.DevUser != ""}
 	if ring != nil {
 		m.Ring, m.Release = ring.Name, ring.Release
 		if prof, err := org.ResolveProfile(ring.Profile); err == nil {
@@ -232,7 +233,7 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request, p Principal) {
 	if org.SelfService.Enabled {
 		var setup []LauncherSetup
 		m.Launchers, setup = s.launchers(org, r)
-		if p.Admin {
+		if p.can(permAdmin) {
 			m.LauncherSetup = setup
 		}
 		m.Requestable = append(m.Requestable, org.SelfService.Requestable...)

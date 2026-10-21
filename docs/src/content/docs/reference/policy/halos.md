@@ -13,12 +13,23 @@ Generated from `schemas/halos.schema.json`; do not edit. Nested fields use dotte
 | `gateway` | string |  |  |  | format uri | Simple mode: the gateway base URL clients are pointed at. |
 | `gatewayEngine` | string |  |  | halo-proxy, kong, external |  | Simple mode: what serves gateway: halo-proxy (default), kong, or external (your own API gateway; clients are sent provider model ids). |
 | `identity` | object |  |  |  |  | The org's OIDC provider (any compliant IdP: Okta, Entra ID, Google, Keycloak, Ping, Auth0...). Used by the portal, halo-proxy / halo-kong and enrollment. |
-| `identity.adminGroups` | array of string |  |  |  |  | Groups that may approve requests and manage experiments in the portal. |
+| `identity.adminGroups` | array of string |  |  |  |  | Groups holding halo-server's admin role. Same as roles.admin; kept for existing policy repos. |
 | `identity.adminGroups[]` | string |  |  |  |  |  |
 | `identity.audience` | string |  |  |  |  | Audience expected in gateway bearer tokens; defaults to clientID. |
 | `identity.clientID` | string |  |  |  |  | OAuth client id used by the portal. |
 | `identity.groupsClaim` | string |  |  |  |  | JWT claim holding the user's groups (default "groups"). |
 | `identity.issuer` | string |  |  |  | format uri | OIDC issuer URL; discovery is fetched from &lt;issuer>/.well-known/openid-configuration. |
+| `identity.roles` | object |  |  |  |  | halo-server roles (ADR-0015): IdP groups per role. A user holds every role any of their groups maps to. |
+| `identity.roles.admin` | array of string |  |  |  |  | Everything, including devices, sessions and toggle proposals. Same as adminGroups. |
+| `identity.roles.admin[]` | string |  |  |  | minLength 1 |  |
+| `identity.roles.approver` | array of string |  |  |  |  | Viewer plus approving and denying access requests. |
+| `identity.roles.approver[]` | string |  |  |  | minLength 1 |  |
+| `identity.roles.auditor` | array of string |  |  |  |  | Read and export the audit log; nothing else. |
+| `identity.roles.auditor[]` | string |  |  |  | minLength 1 |  |
+| `identity.roles.operator` | array of string |  |  |  |  | Viewer plus kill switch and experiment status (pause, resume, conclude). |
+| `identity.roles.operator[]` | string |  |  |  | minLength 1 |  |
+| `identity.roles.viewer` | array of string |  |  |  |  | Read fleet, releases, rollouts, experiments, toggles and policy. |
+| `identity.roles.viewer[]` | string |  |  |  | minLength 1 |  |
 | `identity.userClaim` | string |  |  |  |  | JWT claim holding the user id (default "email"). |
 | `kind` | string |  |  | const Halos |  | Document kind. |
 | `models` | object |  |  |  |  | Simple mode: model alias -> provider model id, or a list of ids in failover order. An id may be prefixed &lt;provider>/ (required with provider multi). The default alias is required. |

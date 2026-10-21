@@ -43,7 +43,7 @@ var deprecatedFlags = map[string]string{"verdicts": "verdicts-file", "controller
 
 type options struct {
 	policyDir, listen, tokenFile, dataDir, verdicts, portalCfg, devUser string
-	devGroups                                                           []string
+	devGroups, devRoles                                                 []string
 	devAdmin                                                            bool
 	deviceTTL, postureMaxAge                                            time.Duration
 	trusted                                                             []netip.Prefix
@@ -59,7 +59,7 @@ type options struct {
 
 func parseFlags(args []string) (options, error) {
 	var o options
-	var devGroups, proxies string
+	var devGroups, devRoles, proxies string
 	fs := flag.NewFlagSet("halo-server", flag.ContinueOnError)
 	fs.StringVar(&o.policyDir, "policy-dir", "", "policy repo directory (required)")
 	fs.StringVar(&o.listen, "listen", "127.0.0.1:8080", "listen address")
@@ -70,7 +70,8 @@ func parseFlags(args []string) (options, error) {
 	fs.StringVar(&o.portalCfg, "portal-config", "", "portal/self-service JSON config (baseURL, registry, launchers, halod checksums, ...)")
 	fs.StringVar(&o.devUser, "dev-insecure-user", "", "INSECURE demo mode: disable login and act as this user")
 	fs.StringVar(&devGroups, "dev-insecure-groups", "", "comma-separated groups for --dev-insecure-user")
-	fs.BoolVar(&o.devAdmin, "dev-insecure-admin", false, "make the --dev-insecure-user an admin")
+	fs.BoolVar(&o.devAdmin, "dev-insecure-admin", false, "make the --dev-insecure-user an admin (same as --dev-insecure-roles admin)")
+	fs.StringVar(&devRoles, "dev-insecure-roles", "", "comma-separated roles for --dev-insecure-user: "+strings.Join(server.Roles, ", "))
 	fs.DurationVar(&o.deviceTTL, "device-ttl", server.DefaultDeviceTTL, "device token lifetime after enrollment; expired devices must re-enroll")
 	fs.StringVar(&proxies, "trusted-proxy-cidrs", "", "comma-separated CIDRs of reverse proxies whose X-Forwarded-For is trusted for rate limiting")
 	fs.BoolVar(&o.controller, "controller", false, "run the automated experiment loop (evaluate, kill switch on rollback, PRs, notifications)")
@@ -106,7 +107,7 @@ func parseFlags(args []string) (options, error) {
 			slog.Warn("deprecated flag; use the new name", "flag", "--"+f.Name, "use", "--"+to)
 		}
 	})
-	o.devGroups = splitCSV(devGroups)
+	o.devGroups, o.devRoles = splitCSV(devGroups), splitCSV(devRoles)
 	for _, c := range splitCSV(proxies) {
 		p, err := netip.ParsePrefix(c)
 		if err != nil {
@@ -233,7 +234,7 @@ func run(ctx context.Context, args []string) error {
 	srv, err := server.New(server.Config{
 		PolicyDir: o.policyDir, Token: strings.TrimSpace(string(tok)), VerdictsPath: o.verdicts, Store: store,
 		SessionKey: []byte(sessionKey), OIDCClientSecret: clientSecret, Portal: portal, DataDir: o.dataDir, Writer: writer,
-		DeviceTTL: o.deviceTTL, DevUser: o.devUser, DevGroups: o.devGroups, DevAdmin: o.devAdmin, TrustedProxies: o.trusted,
+		DeviceTTL: o.deviceTTL, DevUser: o.devUser, DevGroups: o.devGroups, DevRoles: o.devRoles, DevAdmin: o.devAdmin, TrustedProxies: o.trusted,
 		KillStore: kills, KillKey: killKey, GatewayToken: gwToken, PostureMaxAge: o.postureMaxAge,
 	})
 	if err != nil {

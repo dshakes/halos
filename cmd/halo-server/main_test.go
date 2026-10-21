@@ -44,10 +44,10 @@ func TestParseFlags(t *testing.T) {
 			func(o options) bool {
 				return o.controller && o.interval == 5*time.Minute && o.policyRepoBase == "main" && o.killKeyFile == "k" && o.gatewayTokenFile == "g" && o.policyRepoDir == "r"
 			}},
-		{"ok", []string{"--policy-dir", "p", "--token-file", "t", "--trusted-proxy-cidrs", " 10.1.2.3/8 ,", "--dev-insecure-groups", "a, b,", "--dev-insecure-admin", "--device-ttl", "24h"}, "",
+		{"ok", []string{"--policy-dir", "p", "--token-file", "t", "--trusted-proxy-cidrs", " 10.1.2.3/8 ,", "--dev-insecure-groups", "a, b,", "--dev-insecure-roles", "viewer,auditor", "--dev-insecure-admin", "--device-ttl", "24h"}, "",
 			func(o options) bool {
 				return o.policyDir == "p" && o.listen == "127.0.0.1:8080" && len(o.trusted) == 1 && o.trusted[0].String() == "10.0.0.0/8" &&
-					strings.Join(o.devGroups, "|") == "a|b" && o.devAdmin && o.deviceTTL == 24*time.Hour
+					strings.Join(o.devGroups, "|") == "a|b" && strings.Join(o.devRoles, "|") == "viewer|auditor" && o.devAdmin && o.deviceTTL == 24*time.Hour
 			}},
 	}
 	for _, tc := range tests {

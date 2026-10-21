@@ -1,6 +1,6 @@
 ---
 title: Security model
-description: Trust boundaries, signed releases and ring pointers, signer continuity, evidence trust, the signed kill switch, audit chain, verified installs, root-side hardening, identity, guardrails, and honest limits.
+description: Trust boundaries, signed releases and ring pointers, signer continuity, evidence trust, the signed kill switch, console roles, audit chain, verified installs, root-side hardening, identity, guardrails, and honest limits.
 ---
 
 The full asset list, attacker models and per-control mapping are in the [threat model](/halos/reference/threat-model/). This page is the design.
@@ -23,7 +23,7 @@ The full asset list, attacker models and per-control mapping are in the [threat 
 | Signer to registry | A registry serving an old signed pointer that `refresh` or `promote` would re-sign into a fresh one | Signer state file, promote from the source ring's signed pointer, expired pointers refused ([below](#signer-continuity)) |
 | Developer machines to the collector | Forged metrics that trip, promote or hide an experiment | Up to three receivers (CLI, gateway, optional eval); only the authenticated gateway receiver may drive a kill ([below](#evidence-trust)) |
 | `halo-server` to gateway | Forged, stale or replayed kill list; a stolen release key forging kills; an attacker on the path un-killing an experiment | Kill list signed with a dedicated ed25519 key; gateway token; freshness and strictly-newer checks ([below](#kill-switch)) |
-| Console and API to privileged actions | Silent or rewritten history of who killed, revoked or changed what | Hash-chained audit log ([below](#audit-log)) |
+| Console and API to privileged actions | One over-broad admin group; a new route reachable by everyone; silent or rewritten history of who killed, revoked or changed what | Five roles from IdP groups, one deny-by-default route table, audited denials ([below](#console-roles)); hash-chained audit log ([below](#audit-log)) |
 | `halo-proxy` to Bedrock | Client credentials reaching AWS; unsigned requests | Client auth stripped, request SigV4-signed with the gateway's own AWS identity; no credentials means 502, never unsigned ([below](#bedrock-credentials)) |
 
 ## Signing
@@ -59,14 +59,14 @@ Experiments decide rollouts, so telemetry is an attack surface. Developer machin
 
 ## Kill switch
 
-The kill switch lets `halo-server` (the controller on a rollback verdict, or an admin) switch an experiment off at the gateways in seconds. Because it can change live routing without a merge, it has its own trust chain:
+The kill switch lets `halo-server` (the controller on a rollback verdict, or an operator) switch an experiment off at the gateways in seconds. Because it can change live routing without a merge, it has its own trust chain:
 
 - **Separate key.** The kill list is signed with its own ed25519 key (`halo keys generate --name killswitch`, private half in `halo-server --killswitch-key-file`). It is **not** the release key. A stolen kill key can kill experiments (routing everyone to control) but cannot sign a release or a ring pointer; a stolen release key cannot forge a kill list. The signature covers a domain prefix (`halo-killswitch-v1\n`) plus the payload, so it cannot be confused with any other signature.
 - **Gateway token.** Gateways fetch the list with a bearer token (`--gateway-token-file`, at least 16 characters), compared in constant time, with failed attempts rate-limited per client IP. The endpoint returns 404 unless both the key and the token are configured. The token gates who can read the list, the signature gates what a gateway believes.
 - **Freshness.** A list is rejected if its `issuedAt` is more than 10 minutes old or more than 1 minute in the future.
 - **Replay.** A list is accepted only if its `issuedAt` is strictly newer than the list the gateway already holds, so replaying an older envelope cannot undo a kill.
 - **Fail toward keeping kills.** If the fetch or verification fails, the gateway keeps the last accepted list. If it never accepted one, it kills nothing and the policy snapshot decides. Kills do not expire.
-- **Admin actions are audited, fail-closed.** Kill and unkill (by an admin, or by the controller as `halo-controller`) write `experiment.kill` and `experiment.unkill` (`toggle.kill` and `toggle.unkill` for feature toggles) audit entries with the reason ([audit log](#audit-log)). A kill needs a reason (HTTP 422 without one).
+- **Operator actions are audited, fail-closed.** Kill and unkill (by an operator or admin, or by the controller as `halo-controller`) write `experiment.kill` and `experiment.unkill` (`toggle.kill` and `toggle.unkill` for feature toggles) audit entries with the reason ([audit log](#audit-log)). A kill needs a reason (HTTP 422 without one).
 - **No key, no kill.** Without `--killswitch-key-file` (which requires `--data-dir` and `--gateway-token-file`) the server serves no list, answers 501 to kill and unkill, and `GET /api/v1/capabilities` reports `killSwitch: false`. The in-process controller then does not pretend: it reports the rollback as not enforced and asks humans to merge the pause PR urgently.
 - **The controller holds killed experiments.** A running experiment that is already killed is not evaluated (its evidence is all control); humans are told once to unkill before resuming.
 - **TLS for the token.** Gateways refuse plain `http://` to a non-loopback kill URL, since the bearer token would travel in the clear, unless `killSwitch.allowInsecureInCluster` (`halo-kong`: `killswitch_allow_insecure_in_cluster`) is set for a trusted in-cluster URL. A misconfigured `halo-kong` still serves traffic but logs at ERROR and adds `x-halo-killswitch: misconfigured` to the upstream request.
@@ -74,9 +74,26 @@ The kill switch lets `halo-server` (the controller on a rollback verdict, or an 
 
 Limits: a kill affects gateways (routing and mirroring). It reaches client-axis variants on machines only where `halod` has `killSwitch` configured (portal enrollment sets it when `halo-server` has a kill key); otherwise those revert on pause and republish ([details](/halos/concepts/experiments/#limits-the-client-axis)). If `halo-server` is down when a kill is issued, nothing is killed until it is back. Decision record: [ADR-0009](/halos/adr/0009-signed-kill-switch/).
 
+## Console roles
+
+`halo-server` grants authority by role, not by one admin flag ([ADR-0015](/halos/adr/0015-rbac-roles-for-halo-server/)). Policy maps IdP groups to roles in `identity.roles`; `identity.adminGroups` still grants `admin`.
+
+| Role | May |
+|---|---|
+| `viewer` | Read fleet, devices, releases, rollouts, experiments, toggles, the kill list and policy |
+| `operator` | Viewer, plus kill and unkill experiments and toggles, and open experiment status PRs |
+| `approver` | Viewer, plus approve and deny access requests |
+| `auditor` | Read and export the audit log, nothing else |
+| `admin` | Everything, including device and session revocation and toggle proposals |
+
+- **One table, deny by default.** Every cookie-authenticated route is in `routePerms` (`internal/server/rbac.go`) with the one permission it needs. A route registered without an entry answers 403 to everyone, admins included, and a test walking the server's routes fails until the entry is added.
+- **Roles come from current policy.** They are recomputed from the session's groups on every request, never read from the cookie, so removing a group from a role takes effect at once. A misspelled role name in policy is a load error.
+- **Denials are audited.** A 403 for a missing permission appends `authz.deny` with the user, path, route, needed permission and the user's roles.
+- **The console only hides.** `/api/v1/me` and `/api/v1/capabilities` report the caller's roles and permissions so the console can hide what it may not do; the server enforces either way.
+
 ## Audit log
 
-Privileged actions (login, logout, device enroll and revoke, session revoke, access-request decisions, experiment status PRs, kill and unkill) append to `audit.jsonl` in `--data-dir`. Each entry carries `seq`, `prev` (the previous entry's hash) and its own `hash` over every other field. `GET /api/v1/audit` re-reads the file, verifies the whole chain and returns `verified` plus a `head` hash. Editing, reordering or removing any entry except the newest breaks the chain from that point on, and the console shows it.
+Privileged actions (login, logout, authorization denials, device enroll and revoke, session revoke, access-request decisions, experiment status PRs, kill and unkill) append to `audit.jsonl` in `--data-dir`. Each entry carries `seq`, `prev` (the previous entry's hash) and its own `hash` over every other field. `GET /api/v1/audit` re-reads the file, verifies the whole chain and returns `verified` plus a `head` hash. Editing, reordering or removing any entry except the newest breaks the chain from that point on, and the console shows it.
 
 Appends are fsynced before the action is acknowledged, and **privileged actions fail closed**: kill and unkill, device enrollment, session and device revocation and experiment-status PRs return HTTP 500 if the append fails. A kill whose audit append fails stays applied (fail safe), a failed unkill is reverted, and a revocation stays in force; the audit gap is what the error reports. `halo controller run` appends through the same chain, so it is a **single writer**: never run it against a data dir a live `halo-server` is writing.
 
@@ -167,8 +184,9 @@ Every claim on this page is held by at least one test in the repository; `intern
 | Bedrock: client `Authorization`, `x-api-key` and `x-amz*` dropped even with `forwardAuth`; non-AWS hosts and missing credentials are 502, never unsigned | `cmd/halo-proxy/security_test.go:TestBedrockClientCredentialsDroppedEvenWithForwardAuth`, `cmd/halo-proxy/bedrock_test.go:TestBedrockNonAWSHostRefused`, `cmd/halo-proxy/bedrock_test.go:TestBedrockMissingCredentials502`, `internal/gateway/upstreamauth/bedrock_test.go:TestStripClientAmz` |
 | Shadow replays and the mirrorer stay on policy hosts and never follow redirects | `internal/shadow/security_test.go:TestMirrorerDoesNotFollowRedirects`, `internal/shadow/shadow_test.go:TestBedrockPathStaysOnPolicyHost`, `internal/shadow/security_test.go:FuzzShadowReplayStaysOnPolicyHost` |
 | Kill list: signed with the dedicated key, fresh, strictly newer than the held one, never expires, fetched over TLS without following redirects | `internal/gateway/killswitch_test.go:TestKillListSignVerify`, `internal/gateway/toggles_test.go:TestKillListTogglesSignedFreshMonotonic`, `internal/gateway/security_test.go:TestKillsDoNotExpire`, `internal/gateway/security_test.go:TestKillSwitchNeverFollowsRedirects`, `internal/gateway/kong/deck_test.go:TestKillswitchURLMustBeHTTPS`, `internal/gateway/fuzz_test.go:FuzzVerifyKillList`, `internal/gateway/fuzz_test.go:FuzzKillSwitchRefresh` |
-| Kill endpoint: admin-only, reason required, 501 without a key, gateway token compared in constant time and rate limited | `internal/server/killswitch_test.go:TestKillEndpointsAuthz`, `internal/server/killswitch_test.go:TestKillWithoutKeyNotImplemented`, `internal/server/security_test.go:TestGatewayKillswitchRateLimited`, `internal/server/security_test.go:TestGatewayKillswitchConfigAndDomain`, `internal/server/fuzz_test.go:FuzzKillListSigned` |
+| Kill endpoint: operator or admin only, reason required, 501 without a key, gateway token compared in constant time and rate limited | `internal/server/killswitch_test.go:TestKillEndpointsAuthz`, `internal/server/rbac_test.go:TestRolePermissionMatrix`, `internal/server/killswitch_test.go:TestKillWithoutKeyNotImplemented`, `internal/server/security_test.go:TestGatewayKillswitchRateLimited`, `internal/server/security_test.go:TestGatewayKillswitchConfigAndDomain`, `internal/server/fuzz_test.go:FuzzKillListSigned` |
 | Auto-kill only on gateway-sourced evidence; CLI and eval evidence never kill; tampered or forged rollout state is not acted on | `internal/controller/controller_test.go:TestRollbackOnNonGatewayEvidenceDoesNotKill`, `internal/controller/eval_source_test.go:TestEvalEvidenceNeverKills`, `internal/controller/rollouts_test.go:TestRolloutBreachOnCLIEvidenceDoesNotKill`, `internal/controller/rollouts_test.go:TestRolloutTamperedStateIsNotActedOn`, `internal/telemetry/collector_test.go:TestGenerateEvidenceTrust`, `internal/telemetry/gwmetrics/gwmetrics_test.go:TestUnitHashing` |
+| Console roles: every cookie route is in the permission table and enforced, an unmapped route is denied to everyone, each role gets exactly its permissions, every denial is audited, `adminGroups` still grants admin, unknown role names fail to load | `internal/server/rbac_test.go:TestRoutePermsCoverMux`, `internal/server/rbac_test.go:TestUnmappedRouteDenied`, `internal/server/rbac_test.go:TestRolePermissionMatrix`, `internal/server/rbac_test.go:TestInHandlerAuthorization`, `internal/server/rbac_test.go:TestRolesFor`, `internal/policy/roles_test.go:TestIdentityRoles` |
 | Audit log: hash chain verifies, edits break it, appends survive restart and torn lines, privileged actions fail closed when the append fails | `internal/server/console_test.go:TestAuditChainAndEndpoint`, `internal/server/console_test.go:TestAuditPersistsAcrossRestartAndTornLine`, `internal/server/security_test.go:TestPrivilegedActionsFailClosedOnAudit`, `internal/server/security_test.go:TestAuditInvalidUTF8StaysVerifiable`, `internal/server/fuzz_test.go:FuzzAuditChainTamper`, `internal/server/fuzz_test.go:FuzzAuditChainParse` |
 | Enrollment and device tokens: single use, short TTL, stored only as SHA-256, revocable, expiring; a device cannot overwrite another host's record | `internal/server/portal_test.go:TestEnrollmentToken`, `internal/server/devices_test.go:TestDeviceFlow`, `internal/server/epoch_test.go:TestDeviceTokenExpires`, `internal/server/devices_test.go:TestDeviceCannotOverwriteOtherHost` |
 | Failed logins, enrollments and device auth are rate limited per client IP, behind trusted proxies too | `internal/server/security_test.go:TestLoginCallbackRateLimited`, `internal/server/security_test.go:TestEnrollRateLimited`, `internal/server/devices_test.go:TestFailedAuthRateLimit`, `internal/server/devices_test.go:TestRateLimitBehindProxy` |

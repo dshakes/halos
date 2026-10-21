@@ -50,7 +50,54 @@
           "items": {
             "type": "string"
           },
-          "description": "Groups that may approve requests and manage experiments in the portal."
+          "description": "Groups holding halo-server's admin role. Same as roles.admin; kept for existing policy repos."
+        },
+        "roles": {
+          "type": "object",
+          "description": "halo-server roles (ADR-0015): IdP groups per role. A user holds every role any of their groups maps to.",
+          "properties": {
+            "viewer": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": "Read fleet, releases, rollouts, experiments, toggles and policy."
+            },
+            "operator": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": "Viewer plus kill switch and experiment status (pause, resume, conclude)."
+            },
+            "approver": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": "Viewer plus approving and denying access requests."
+            },
+            "auditor": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": "Read and export the audit log; nothing else."
+            },
+            "admin": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": "Everything, including devices, sessions and toggle proposals. Same as adminGroups."
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false

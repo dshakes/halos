@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { useMe, usePolicy, useProposeToggle, useToggle, useToggleKill, useToggles, type Toggle, type ToggleProposal, type ToggleRule } from "../api";
+import { useCan, usePolicy, useProposeToggle, useToggle, useToggleKill, useToggles, type Toggle, type ToggleProposal, type ToggleRule } from "../api";
 import { Card, Empty, ErrorBox, Mono, Modal, Pill, ago } from "../ui";
 
 /** A rule as a sentence: "10% of ring1-canary", "group acme-platform-eng". */
@@ -214,6 +214,7 @@ function Drawer({ name, onClose }: { name: string; onClose: () => void }) {
   const [dialog, setDialog] = useState(false);
   const [propose, setPropose] = useState(false);
   const list = useToggles();
+  const can = useCan();
   useEffect(() => {
     const esc = (e: KeyboardEvent) => { if (e.key === "Escape" && !dialog) onClose(); };
     window.addEventListener("keydown", esc);
@@ -248,10 +249,10 @@ function Drawer({ name, onClose }: { name: string; onClose: () => void }) {
 
             <Card title="Actions" right={<span className="ml-4 text-right text-mute">kill takes effect at the next poll (~10 s gateways, ~60 s devices); rule changes go through a PR</span>}>
               <div className="flex flex-wrap gap-2 p-4">
-                {list.data?.killEnabled && (
+                {list.data?.killEnabled && can("operate") && (
                   <button className={t.kill ? btn : "rounded-md bg-rose-600 px-3 py-1.5 font-medium text-white"} onClick={() => setDialog(true)}>{t.kill ? "Restore" : "Kill"}</button>
                 )}
-                <button className={btn} onClick={() => setPropose((v) => !v)} aria-expanded={propose}>Propose change</button>
+                {can("admin") && <button className={btn} onClick={() => setPropose((v) => !v)} aria-expanded={propose}>Propose change</button>}
                 {list.data && !list.data.killEnabled && <span className="self-center text-mute">kill switch is not configured on this server</span>}
               </div>
               {propose && <div className="border-t border-line"><ProposeForm t={t} /></div>}
@@ -295,7 +296,7 @@ function Drawer({ name, onClose }: { name: string; onClose: () => void }) {
 
 export function Toggles({ name }: { name?: string }) {
   const { data, error, isLoading } = useToggles();
-  const me = useMe();
+  const read = useCan()("read");
   const [q, setQ] = useState("");
   const [axis, setAxis] = useState<"" | "client" | "traffic">("");
   const [chips, setChips] = useState<Chip[]>([]);
@@ -307,7 +308,7 @@ export function Toggles({ name }: { name?: string }) {
       chips.every((c) => (c === "killed" ? !!t.kill : c === "stale" ? t.stale : t.default)),
     );
   }, [data, q, axis, chips]);
-  if (me.data && !me.data.admin) return <Empty>Toggles are managed by admins.</Empty>;
+  if (!read) return <Empty>Toggles need the viewer role or higher.</Empty>;
   if (error) return <ErrorBox error={error} />;
   if (isLoading || !data) return <Empty>Loading…</Empty>;
   const close = () => { window.location.hash = "#/toggles"; };

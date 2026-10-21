@@ -1,12 +1,13 @@
-import { useCapabilities, useKills, useUnkillExperiment } from "../api";
+import { useCan, useCapabilities, useKills, useUnkillExperiment } from "../api";
 import { Card, Empty, ErrorBox, Mono, ago } from "../ui";
 
-/** Active kills (admin). Renders nothing unless the server reports the kill switch capability. */
+/** Active kills (read; unkill needs operate). Renders nothing unless the server reports the kill switch capability. */
 export function KillSwitchPanel() {
   const caps = useCapabilities();
   const enabled = caps.data?.killSwitch === true;
   const kills = useKills(enabled);
   const unkill = useUnkillExperiment();
+  const operate = useCan()("operate");
   if (!enabled) return null;
   const active = (kills.data?.killed ?? []).filter((k) => k.killed);
   return (
@@ -17,7 +18,7 @@ export function KillSwitchPanel() {
             <Mono>{k.experiment}</Mono>
             <div className="truncate text-mute" title={k.reason}>{k.reason || "no reason given"} · by {k.by} · <span title={k.at}>{ago(k.at)}</span></div>
           </div>
-          <button
+          {operate && <button
             className="rounded-md border border-line px-3 py-1.5 hover:bg-panel2 disabled:opacity-50"
             disabled={unkill.isPending}
             onClick={() => {
@@ -27,7 +28,7 @@ export function KillSwitchPanel() {
             }}
           >
             Unkill
-          </button>
+          </button>}
         </div>
       ))}
       {unkill.error && <div className="p-4"><ErrorBox error={unkill.error} /></div>}
