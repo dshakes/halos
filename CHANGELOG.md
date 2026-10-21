@@ -5,6 +5,7 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 ## [Unreleased]
 
 ### Added
+- Agent identity and delegation (ADR-0024): `POST /api/v1/token/exchange` with `actor_id` mints short-lived delegated agent credentials (RFC 8693 `act` chain, root principal as subject, down-only model scope, depth/cycle/TTL limits, audited). halo-proxy and halo-kong route them as the root, enforce `agents.*` per call and stamp `x-halo-actor`. `agents.remote` is an A2A allowlist with pinned AgentCard digests, checked by `halo agents verify` and `POST /api/v1/agents/egress`.
 - **Multi-turn agent shadowing** ([ADR-0014](https://dshakes.github.io/halos/adr/0014-step-level-multi-turn-shadow/), amends ADR-0004). A shadow experiment with `turns: all` mirrors every step of a sampled session, not only the first turn. Each step replays the real prefix (developer prompt, production's actions, real tool results and terminal output) to both arms, and nothing either arm returns is executed. `halo eval online` reads each step without a judge across Anthropic, Bedrock (invoke and Converse), OpenAI Responses and Gemini:
   - tool and argument agreement with the control;
   - **fidelity** to the action production actually took, recovered from the session's next mirrored step and prefix-checked so subagent and compacted conversations are skipped (the control's fidelity is the measured noise floor);
