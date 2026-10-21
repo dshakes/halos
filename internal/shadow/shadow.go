@@ -10,6 +10,7 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -17,6 +18,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -107,6 +109,19 @@ func newGCM(key []byte) (cipher.AEAD, error) {
 		return nil, fmt.Errorf("shadow: pair key: %w", err)
 	}
 	return cipher.NewGCM(b)
+}
+
+// ReadKeyFile loads a base64 pair key file, the -pair-key-file format.
+func ReadKeyFile(path string) ([]byte, error) {
+	b, err := os.ReadFile(path) //nolint:gosec // operator-supplied path
+	if err != nil {
+		return nil, fmt.Errorf("shadow: read pair key: %w", err)
+	}
+	k, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(b)))
+	if err != nil {
+		return nil, fmt.Errorf("shadow: pair key %s is not base64: %w", path, err)
+	}
+	return k, nil
 }
 
 // DecodePair reads one JSONL row, decrypting it with keys (by key id) when sealed.

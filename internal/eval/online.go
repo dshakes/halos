@@ -95,9 +95,13 @@ const DefaultAgentQuiet = time.Hour
 // PairScore is one pair's judge scores; each is one analysis sample of
 // halo.eval.judge.score for its arm, under unit = hashed session (pairs of
 // one session are correlated; the analysis takes the per-session mean).
+// History keeps the id and scores, never the raw session, so `halo eval
+// harvest` can select the pairs where the candidate lost.
 type PairScore struct {
-	ID, Session        string
-	Control, Candidate float64
+	ID        string  `json:"id"`
+	Session   string  `json:"-"`
+	Control   float64 `json:"control"`
+	Candidate float64 `json:"candidate"`
 }
 
 // OnlineResult is one experiment's online quality reading.
@@ -117,8 +121,9 @@ type OnlineResult struct {
 	ControlVariant   string   `json:"controlVariant"`
 	CandidateVariant string   `json:"candidateVariant"`
 	PairIDs          []string `json:"pairIds"`
-	// Scores are the per-pair readings the exporter sends (not kept in history).
-	Scores []PairScore `json:"-"`
+	// Scores are the per-pair readings the exporter sends; history keeps them
+	// (pair ids and numbers only) for harvest's judge-loss selection.
+	Scores []PairScore `json:"scores,omitempty"`
 	// Ops are the operational readings over every eligible pair, errored ones
 	// included (they are the point): the refusal, latency and cost regressions
 	// ADR-0004 says shadow catches beside quality.
@@ -365,22 +370,12 @@ func GradedPairs(path string) (map[string]bool, error) {
 // HistoryIDs returns the pair ids already judged and the step ids whose agent
 // samples were already exported (missing file = none).
 func HistoryIDs(path string) (graded, agent map[string]bool, err error) {
-	graded, agent = map[string]bool{}, map[string]bool{}
-	b, err := os.ReadFile(path) //nolint:gosec // operator-chosen history file
-	if errors.Is(err, os.ErrNotExist) {
-		return graded, agent, nil
-	}
+	es, err := readHistory(path)
 	if err != nil {
-		return nil, nil, fmt.Errorf("history: %w", err)
+		return nil, nil, err
 	}
-	for n, l := range bytes.Split(b, []byte("\n")) {
-		if len(bytes.TrimSpace(l)) == 0 {
-			continue
-		}
-		var e HistoryEntry
-		if err := json.Unmarshal(l, &e); err != nil {
-			return nil, nil, fmt.Errorf("history %s line %d: %w", path, n+1, err)
-		}
+	graded, agent = map[string]bool{}, map[string]bool{}
+	for _, e := range es {
 		if e.Online != nil {
 			for _, id := range e.Online.PairIDs {
 				graded[id] = true
@@ -391,6 +386,47 @@ func HistoryIDs(path string) (graded, agent map[string]bool, err error) {
 		}
 	}
 	return graded, agent, nil
+}
+
+// HistoryScores returns the judge scores recorded per pair id in the history
+// file (missing file = none; a later reading of a pair wins).
+func HistoryScores(path string) (map[string]PairScore, error) {
+	es, err := readHistory(path)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]PairScore{}
+	for _, e := range es {
+		if e.Online != nil {
+			for _, s := range e.Online.Scores {
+				out[s.ID] = s
+			}
+		}
+	}
+	return out, nil
+}
+
+// readHistory parses the JSONL history file (missing file = no entries).
+func readHistory(path string) ([]HistoryEntry, error) {
+	b, err := os.ReadFile(path) //nolint:gosec // operator-chosen history file
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("history: %w", err)
+	}
+	var out []HistoryEntry
+	for n, l := range bytes.Split(b, []byte("\n")) {
+		if len(bytes.TrimSpace(l)) == 0 {
+			continue
+		}
+		var e HistoryEntry
+		if err := json.Unmarshal(l, &e); err != nil {
+			return nil, fmt.Errorf("history %s line %d: %w", path, n+1, err)
+		}
+		out = append(out, e)
+	}
+	return out, nil
 }
 
 // OTLPExporter posts halo.eval.* metrics to an OTel collector over OTLP/HTTP

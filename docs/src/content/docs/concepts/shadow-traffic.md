@@ -90,6 +90,17 @@ A breach opens a pause or rollback PR. Shadow evidence never promotes: it measur
 
 **Trust.** Production's action is read from the history the developer's CLI sends with the next step, so it is client-supplied. A developer in the rings could fabricate it for their own sessions. That moves one sample per fabricated session, and eval evidence only opens PRs that a human merges ([ADR-0014](/halos/adr/0014-step-level-multi-turn-shadow/#trust-model-of-the-reference)).
 
+## From a regressed step to a regression test
+
+A shadow reading says the candidate regressed; `halo eval harvest` turns the steps where it did into tests that run again on every future candidate ([ADR-0020](/halos/adr/0020-harvest-shadow-sessions-into-replay-evals/)).
+
+1. **Read.** `halo eval online` shows, for example, a fidelity delta below the noise floor and a premature-stop rate of 4% against the control's 1%.
+2. **Harvest.** `halo eval harvest --pairs pairs.jsonl --pair-key-file pair.key --experiment opus-5-5-shadow --out evals/steps/opus-5-5` selects the steps where the candidate diverged, made an invalid call or stopped early (add `judge-loss` with `--history`, or a `sample` by depth), and writes one case per step: the real prefix, the offered tools and the action production took. Redaction runs first and cannot be turned off: identifiers outside an allowlist of request fields are dropped, and credentials, JWTs, private keys, high-entropy strings and emails are replaced. Files are 0600, sessions appear only hashed, and any redaction failure writes nothing.
+3. **Review and commit.** The cases still hold real prompts and terminal output with their secrets removed by pattern. Read them before they enter a repository.
+4. **Replay.** `halo eval steps run --suite evals/steps/opus-5-5 --model opus-next --url https://gateway.example.com` asks each candidate the same question at the same step and grades the next action deterministically, with session-clustered CIs.
+
+A step suite is still teacher-forced: it tests decisions, not outcomes, and like shadow evidence it never promotes. See [Writing evals](/halos/guides/writing-evals/#step-suites-harvested-from-shadow-traffic) for the case format.
+
 ## Running halo-shadow
 
 ```bash

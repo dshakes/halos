@@ -23,5 +23,6 @@ Decisions that shape Halos. New ADRs use [MADR](https://adr.github.io/madr/): co
 | [0012](/halos/adr/0012-policy-api-v1/) | halos.dev/v1 is the stable policy API |
 | [0013](/halos/adr/0013-external-gateway-engine/) | Halos manages clients behind a gateway it does not run |
 | [0014](/halos/adr/0014-step-level-multi-turn-shadow/) | Step-level shadowing of multi-turn agent sessions (amends 0004) |
+| [0020](/halos/adr/0020-harvest-shadow-sessions-into-replay-evals/) | Harvesting shadow sessions into replay evals (builds on 0014) |
 
 The canonical files live in `docs/adr/` in the repository; the docs build copies them into the site.
