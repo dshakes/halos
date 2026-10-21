@@ -36,6 +36,13 @@ type UsageResult struct {
 	// or a body without usage leave it false: charge EstimateUsage instead.
 	Complete bool
 	Bytes    int64 // response bytes seen (decoded bytes when the tap decoded them)
+	// Streamed: the body was an SSE or AWS event stream the tap decoded, so
+	// OutputText and OutputEvents measure the generated output.
+	Streamed bool
+	// OutputText is the UTF-8 bytes of generated output (text, thinking, tool
+	// arguments) in the stream's delta events, without framing or JSON
+	// escaping; OutputEvents counts those events.
+	OutputText, OutputEvents int64
 }
 
 // UsageTap wraps a model response body in the caller's wire protocol and
@@ -100,8 +107,10 @@ type usageTap struct {
 	raw   rawUsage // field-wise maximum over every usage object seen
 	found bool
 	cut   bool // SSE: the current line outgrew usageMaxLine and lost its head
-	once  sync.Once
-	done  func(UsageResult)
+	// text and deltas measure generated output in streamed events (outputEvent).
+	text, deltas int64
+	once         sync.Once
+	done         func(UsageResult)
 }
 
 var errTapDone = errors.New("usage tap: body ended")
@@ -183,30 +192,99 @@ func (t *usageTap) finish() {
 			t.scan(t.buf)
 		}
 		t.buf = nil
-		t.done(UsageResult{Usage: t.raw.normalise(t.proto), Found: t.found, Complete: t.eof && t.found && decodedOK, Bytes: max(t.n, t.decoded)})
+		t.done(UsageResult{Usage: t.raw.normalise(t.proto), Found: t.found, Complete: t.eof && t.found && decodedOK, Bytes: max(t.n, t.decoded),
+			Streamed: decodedOK && t.mode != tapJSON, OutputText: t.text, OutputEvents: t.deltas})
 	})
+}
+
+// Estimate defaults.
+const (
+	// DefaultOutputCeiling caps the output estimate of a request that sets no
+	// maximum output tokens: no supported model generates more in one call.
+	DefaultOutputCeiling = 128_000
+	// DefaultServerStateInputTokens is the input charged, when final usage is
+	// missing, for a request that names server-side state (ServerStateInput):
+	// a full long-context window, since its real size is invisible here.
+	DefaultServerStateInputTokens = 200_000
+)
+
+// Estimate is what EstimateUsage knows about the request.
+type Estimate struct {
+	RequestBytes int
+	// MaxOutput is the request's maximum output tokens (MaxOutputTokens); 0 = none.
+	MaxOutput int64
+	// OutputCeiling caps the output estimate when MaxOutput is 0 (0 = DefaultOutputCeiling).
+	OutputCeiling int64
+	// ServerStateInput is the input to charge when the request names
+	// server-side state (ServerStateInput true); 0 = it does not.
+	ServerStateInput int64
 }
 
 // EstimateUsage is the pessimistic charge for a metered 2xx response whose
 // final usage was not read (r.Complete false), so hanging up before the last
-// event never makes a call free: input as reported so far (Anthropic's
-// message_start), else request bytes / 3; output the larger of response bytes
-// / 3 and the output reported so far, capped at the request's maximum output
-// tokens (0 = no cap). Never zero.
-func EstimateUsage(r UsageResult, requestBytes int, maxOutput int64) budget.Usage {
+// event never makes a call free:
+//
+//   - input as reported so far (Anthropic's message_start), else request
+//     bytes / 3; at least e.ServerStateInput when the request names
+//     server-side state, whose size the request bytes do not show;
+//   - output the larger of the output reported so far and a measure of what
+//     was generated: for a decoded stream the delta payload text / 4 (at least
+//     one token per delta event), so SSE framing and JSON escaping are not
+//     charged; otherwise response bytes / 4. Capped at the request's maximum
+//     output tokens, else e.OutputCeiling;
+//   - never zero.
+func EstimateUsage(r UsageResult, e Estimate) budget.Usage {
 	u := r.Usage
 	if u.Input+u.CacheRead+u.CacheWrite == 0 {
-		u.Input = int64(requestBytes) / 3
+		u.Input = int64(e.RequestBytes) / 3
 	}
-	out := max(r.Bytes/3, u.Output)
-	if maxOutput > 0 && out > maxOutput {
-		out = max(maxOutput, u.Output)
+	if in := u.Input + u.CacheRead + u.CacheWrite; e.ServerStateInput > in {
+		u.Input += e.ServerStateInput - in
 	}
-	u.Output = out
+	gen := r.Bytes / 4
+	if r.Streamed {
+		gen = max(r.OutputText/4, r.OutputEvents)
+	}
+	limit := e.MaxOutput
+	if limit <= 0 {
+		limit = e.OutputCeiling
+	}
+	if limit <= 0 {
+		limit = DefaultOutputCeiling
+	}
+	u.Output = max(min(gen, limit), u.Output)
 	if u.Tokens() == 0 {
 		u.Input = 1
 	}
 	return u
+}
+
+// ServerStateInput reports whether a request names server-side state whose
+// tokens the provider bills as input but the request body does not carry: an
+// OpenAI Responses previous_response_id, conversation, or stored prompt id.
+func ServerStateInput(proto string, body []byte) bool {
+	if proto != ProtoResponses {
+		return false
+	}
+	var r struct {
+		Previous     string          `json:"previous_response_id"`
+		Conversation json.RawMessage `json:"conversation"`
+		Prompt       json.RawMessage `json:"prompt"`
+	}
+	if json.Unmarshal(body, &r) != nil {
+		return false
+	}
+	set := func(m json.RawMessage) bool {
+		s := string(bytes.TrimSpace(m))
+		return s != "" && s != "null" && s != `""` && s != "{}"
+	}
+	if r.Previous != "" || set(r.Conversation) {
+		return true
+	}
+	var p struct {
+		ID string `json:"id"`
+	}
+	return set(r.Prompt) && json.Unmarshal(r.Prompt, &p) == nil && p.ID != ""
 }
 
 // MaxOutputTokens is a model request's output token limit on any supported
@@ -274,7 +352,75 @@ func (t *usageTap) line(l []byte) {
 		t.scan(l)
 	} else if d, ok := bytes.CutPrefix(bytes.TrimRight(l, "\r"), []byte("data:")); ok {
 		t.scan(d)
+		t.output(d)
 	}
+}
+
+// outputEvent is the part of a streamed event that carries generated output:
+// delta (Anthropic content_block_delta and Bedrock Converse contentBlockDelta:
+// an object; OpenAI Responses *.delta events: a string) and Gemini's
+// candidates[].content.parts.
+type outputEvent struct {
+	Delta      json.RawMessage `json:"delta"`
+	Candidates []struct {
+		Content struct {
+			Parts []json.RawMessage `json:"parts"`
+		} `json:"content"`
+	} `json:"candidates"`
+}
+
+// output adds the generated output in one streamed event (a JSON document)
+// to t.text and t.deltas.
+func (t *usageTap) output(b []byte) {
+	if !bytes.Contains(b, []byte(`"delta"`)) && !bytes.Contains(b, []byte(`"candidates"`)) {
+		return // message_start, pings, usage-only events: skip the decode
+	}
+	var ev outputEvent
+	if json.Unmarshal(b, &ev) != nil {
+		return
+	}
+	n := textBytes(ev.Delta)
+	for _, c := range ev.Candidates {
+		for _, p := range c.Content.Parts {
+			n += textBytes(p)
+		}
+	}
+	if n > 0 {
+		t.text += n
+		t.deltas++
+	}
+}
+
+// textBytes sums the decoded length of every string in a JSON value except
+// type tags and signatures (opaque, not generated tokens).
+func textBytes(raw json.RawMessage) int64 {
+	if len(raw) == 0 {
+		return 0
+	}
+	var v any
+	if json.Unmarshal(raw, &v) != nil {
+		return 0
+	}
+	var walk func(any) int64
+	walk = func(v any) int64 {
+		var n int64
+		switch x := v.(type) {
+		case string:
+			n = int64(len(x))
+		case []any:
+			for _, e := range x {
+				n += walk(e)
+			}
+		case map[string]any:
+			for k, e := range x {
+				if k != "type" && k != "signature" && k != "thoughtSignature" {
+					n += walk(e)
+				}
+			}
+		}
+		return n
+	}
+	return walk(v)
 }
 
 // frames scans every complete AWS event stream frame in t.buf. Framing is
@@ -296,8 +442,10 @@ func (t *usageTap) frames() {
 		}
 		if json.Unmarshal(payload, &chunk) == nil && len(chunk.Bytes) > 0 {
 			t.scan(chunk.Bytes)
+			t.output(chunk.Bytes)
 		} else {
 			t.scan(payload) // converse-stream: the event itself (metadata carries usage)
+			t.output(payload)
 		}
 		t.buf = t.buf[:copy(t.buf, t.buf[total:])]
 	}

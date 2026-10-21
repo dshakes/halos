@@ -67,31 +67,42 @@ type knownIssuer struct {
 	provider string
 	url      string // the iss, or its prefix up to a "/" (per-tenant issuer paths)
 	claims   []string
+	// ids are the claims among claims that never change. A rule that pins the
+	// tenant only by the others (names, slugs, paths) is warned: a renamed or
+	// deleted tenant's name can be re-registered by someone else.
+	ids []string
 }
 
 var knownIssuers = []knownIssuer{
-	// repository_owner_id and repository_id are immutable; names can be renamed and re-registered.
-	{"GitHub Actions", "https://token.actions.githubusercontent.com", []string{"repository_owner_id", "repository_owner", "repository", "repository_id"}},
-	{"GitLab.com", "https://gitlab.com", []string{"namespace_id", "namespace_path", "project_id", "project_path"}},
-	{"Buildkite", "https://agent.buildkite.com", []string{"organization_id", "organization_slug"}},
-	{"CircleCI", "https://oidc.circleci.com/org", []string{"oidc.circleci.com/org-id"}},
-	{"Google", "https://accounts.google.com", []string{"email", "sub"}},
-	{"Microsoft Entra ID", "https://login.microsoftonline.com", []string{"tid"}},
-	{"Microsoft Entra ID", "https://sts.windows.net", []string{"tid"}},
+	{"GitHub Actions", "https://token.actions.githubusercontent.com", []string{"repository_owner_id", "repository_owner", "repository", "repository_id"}, []string{"repository_owner_id", "repository_id"}},
+	{"GitLab.com", "https://gitlab.com", []string{"namespace_id", "namespace_path", "project_id", "project_path"}, []string{"namespace_id", "project_id"}},
+	{"Buildkite", "https://agent.buildkite.com", []string{"organization_id", "organization_slug"}, []string{"organization_id"}},
+	{"CircleCI", "https://oidc.circleci.com/org", []string{"oidc.circleci.com/org-id"}, nil},
+	{"Google", "https://accounts.google.com", []string{"email", "sub"}, nil},
+	{"Microsoft Entra ID", "https://login.microsoftonline.com", []string{"tid"}, nil},
+	{"Microsoft Entra ID", "https://sts.windows.net", []string{"tid"}, nil},
+}
+
+// knownIssuerFor is the knownIssuers entry for issuer URL u, if any.
+func knownIssuerFor(u string) (knownIssuer, bool) {
+	u = strings.ToLower(strings.TrimRight(u, "/"))
+	for _, k := range knownIssuers {
+		if u == k.url || strings.HasPrefix(u, k.url+"/") {
+			return k, true
+		}
+	}
+	return knownIssuer{}, false
 }
 
 // TenantClaims returns the provider name ("" for an issuer Halos does not
 // know) and the claims a rule of issuer i may pin its tenant with (none for
 // an unknown issuer without tenantClaim).
 func (i WorkloadIssuer) TenantClaims() (provider string, claims []string) {
-	u := strings.ToLower(strings.TrimRight(i.URL, "/"))
-	for _, k := range knownIssuers {
-		if u == k.url || strings.HasPrefix(u, k.url+"/") {
-			if i.TenantClaim != "" {
-				return k.provider, []string{i.TenantClaim}
-			}
-			return k.provider, k.claims
+	if k, ok := knownIssuerFor(i.URL); ok {
+		if i.TenantClaim != "" {
+			return k.provider, []string{i.TenantClaim}
 		}
+		return k.provider, k.claims
 	}
 	if i.TenantClaim != "" {
 		return "", []string{i.TenantClaim}
@@ -154,8 +165,48 @@ func (w *Workloads) AudienceFor(i WorkloadIssuer) string {
 // experiments (and shadowed).
 func (w *Workloads) AllowsExperiments() bool { return w != nil && w.Experiments }
 
+// pinnedTenantClaims is the set of issuer is's tenant claims that rule r
+// matches exactly (a literal, or literal/*).
+func (r WorkloadRule) pinnedTenantClaims(is WorkloadIssuer) map[string]bool {
+	_, claims := is.TenantClaims()
+	pinned := map[string]bool{}
+	for _, c := range claims {
+		if pat, ok := r.Match[c]; ok && pinsTenant(pat) {
+			pinned[c] = true
+		}
+	}
+	return pinned
+}
+
+// UnpinnedRules names the rules that pin no tenant of their issuer (or name
+// no declared issuer). Validate refuses them; MatchWorkload never matches
+// them, so a policy that reached a server without validation still cannot
+// admit another tenant's jobs.
+func (w *Workloads) UnpinnedRules() []string {
+	if w == nil {
+		return nil
+	}
+	var out []string
+	for _, r := range w.Rules {
+		if !w.tenantPinned(r) {
+			out = append(out, r.Name)
+		}
+	}
+	return out
+}
+
+func (w *Workloads) tenantPinned(r WorkloadRule) bool {
+	for _, is := range w.Issuers {
+		if is.Name == r.Issuer {
+			return len(r.pinnedTenantClaims(is)) > 0
+		}
+	}
+	return false
+}
+
 // MatchWorkload returns the first rule for issuer whose match entries all
 // hold on claims, plus its expanded subject. Claims are verified token claims.
+// A rule that pins no tenant (UnpinnedRules) is skipped, whatever loaded it.
 func (w *Workloads) MatchWorkload(issuer string, claims map[string]any) (WorkloadRule, string, bool) {
 	if w == nil {
 		return WorkloadRule{}, "", false
@@ -164,7 +215,7 @@ func (w *Workloads) MatchWorkload(issuer string, claims map[string]any) (Workloa
 		if r.Issuer != issuer || len(r.Match) == 0 {
 			continue
 		}
-		if !r.matches(claims) {
+		if !r.matches(claims) || !w.tenantPinned(r) {
 			continue
 		}
 		if sub, ok := r.expandSubject(claims); ok {
@@ -303,12 +354,7 @@ func (v *validator) workloadTenantPin(p string, r WorkloadRule, is WorkloadIssue
 	if len(claims) == 0 {
 		return // issuers[].tenantClaim is reported
 	}
-	pinned := map[string]bool{}
-	for _, c := range claims {
-		if pat, ok := r.Match[c]; ok && pinsTenant(pat) {
-			pinned[c] = true
-		}
-	}
+	pinned := r.pinnedTenantClaims(is)
 	if len(pinned) == 0 {
 		who := provider
 		if who == "" {
@@ -319,11 +365,12 @@ func (v *validator) workloadTenantPin(p string, r WorkloadRule, is WorkloadIssue
 			who, strings.Join(claims, ", "))
 		return
 	}
+	if k, ok := knownIssuerFor(is.URL); ok && len(k.ids) > 0 && !slices.ContainsFunc(k.ids, func(c string) bool { return pinned[c] }) {
+		v.warnf(p+".match", "pins the tenant by name only: a %s tenant can be renamed or deleted and the name re-registered by someone else, who then matches; add %s, which never changes",
+			k.provider, strings.Join(k.ids, " or "))
+	}
 	if provider != "GitHub Actions" {
 		return
-	}
-	if !pinned["repository_owner_id"] && !pinned["repository_id"] {
-		v.warnf(p+".match", "pins the tenant by name only: an owner or repository can be renamed or deleted and the name re-registered by someone else, who then matches; add repository_owner_id (or repository_id), which never changes")
 	}
 	if _, env := r.Match["environment"]; !env {
 		if _, wf := r.Match["job_workflow_ref"]; !wf {

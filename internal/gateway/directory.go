@@ -41,6 +41,9 @@ type DirectoryClient struct {
 	Client     *http.Client
 	Now        func() time.Time
 	Log        *slog.Logger
+	// FailClosed: refuse (ErrDirectoryUnavailable) instead of failing open
+	// when the directory cannot be asked (DirectoryFailClosed).
+	FailClosed bool
 
 	mu    sync.Mutex
 	cache map[string]directoryEntry
@@ -87,12 +90,45 @@ func RejectNotProvisioned(path string) *Rejection {
 		Message: "your identity is deactivated or not provisioned in the Halos directory; ask your administrator"}
 }
 
+// ErrDirectoryUnavailable is Resolve's answer under FailClosed when halo-server
+// cannot be asked and no entry younger than Grace is cached. Callers answer
+// RejectDirectoryUnavailable.
+var ErrDirectoryUnavailable = errors.New("gateway: directory unavailable")
+
+// RejectDirectoryUnavailable is the 503, in the caller's protocol, for ErrDirectoryUnavailable.
+func RejectDirectoryUnavailable(path string) *Rejection {
+	return &Rejection{Status: http.StatusServiceUnavailable, Protocol: protocolOrPrefix(path), Code: "directory_unavailable", RetryAfter: 30 * time.Second,
+		Message: "halos: your identity cannot be checked right now (the Halos directory is unreachable). Retry shortly."}
+}
+
+// Directory fail modes (directory.failMode): what Resolve does when the
+// directory cannot be asked and no entry younger than Grace is cached.
+const (
+	// DirectoryFailOpen (default) keeps the verified subject with no groups:
+	// default routing, no experiments, and still the posture gate and per-user
+	// budgets. A deactivated user is never demoted to an anonymous caller.
+	DirectoryFailOpen = "open"
+	// DirectoryFailClosed refuses the request (ErrDirectoryUnavailable, a 503).
+	DirectoryFailClosed = "closed"
+)
+
+// CheckDirectoryFailMode validates a directory.failMode value ("" = open).
+func CheckDirectoryFailMode(m string) error {
+	if m != "" && m != DirectoryFailOpen && m != DirectoryFailClosed {
+		return fmt.Errorf("directory.failMode %q must be open or closed", m)
+	}
+	return nil
+}
+
 // Resolve returns sub with the directory's groups. It returns nil, nil
-// (unknown caller) when sub is nil, or when halo-server cannot be asked and no
-// entry younger than Grace is cached; and ErrNotProvisioned when the directory
-// does not list sub as active. Workload subjects (ADR-0023) are not in SCIM:
-// they are returned unchanged without a lookup. Kind always comes from the
-// verified credential, never from the directory.
+// (unknown caller) only when sub is nil, and ErrNotProvisioned when the
+// directory does not list sub as active. When halo-server cannot be asked and
+// no entry younger than Grace is cached it returns sub with no groups
+// (fail open), or ErrDirectoryUnavailable under FailClosed: never nil, which
+// would let an outage turn a deactivated user into an anonymous caller that
+// skips the posture gate and per-user budgets. Workload subjects (ADR-0023)
+// are not in SCIM: they are returned unchanged without a lookup. Kind always
+// comes from the verified credential, never from the directory.
 // ponytail: concurrent misses for one subject each call halo-server, as PostureClient.Check does.
 func (c *DirectoryClient) Resolve(ctx context.Context, sub *policy.Subject) (*policy.Subject, error) {
 	if sub == nil || sub.ID == "" {
@@ -116,11 +152,16 @@ func (c *DirectoryClient) Resolve(ctx context.Context, sub *policy.Subject) (*po
 			if c.Log != nil {
 				c.Log.Warn("directory lookup failed; serving cached entry", "err", err)
 			}
+		case c.FailClosed:
+			if c.Log != nil {
+				c.Log.Warn("directory lookup failed; request refused (failMode closed)", "err", err)
+			}
+			return nil, fmt.Errorf("%w: %w", ErrDirectoryUnavailable, err)
 		default:
 			if c.Log != nil {
-				c.Log.Warn("directory lookup failed; caller treated as unknown", "err", err)
+				c.Log.Warn("directory lookup failed; caller keeps their identity with no groups", "err", err)
 			}
-			return nil, nil
+			return &policy.Subject{ID: sub.ID, Kind: sub.Kind}, nil
 		}
 	}
 	if !e.Active {

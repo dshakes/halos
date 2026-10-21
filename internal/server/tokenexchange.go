@@ -117,7 +117,7 @@ func oauthErr(w http.ResponseWriter, code int, kind, desc string) {
 
 func (s *Server) postTokenExchange(w http.ResponseWriter, r *http.Request) {
 	ip := s.clientIP(r)
-	if s.authFails.blocked(ip) {
+	if s.exchangeFails.blocked(ip) {
 		w.Header().Set("Retry-After", "60")
 		oauthErr(w, http.StatusTooManyRequests, "slow_down", "too many failed attempts")
 		return
@@ -177,7 +177,7 @@ func (s *Server) exchange(w http.ResponseWriter, r *http.Request, org *policy.Or
 		return
 	}
 	if err != nil {
-		s.authFails.fail(ip)
+		s.exchangeFails.fail(ip)
 		// Unverified input is logged, not audited: anyone can send garbage.
 		s.cfg.Log.Info("workload token rejected", "err", err.Error(), "remote", ip)
 		oauthErr(w, http.StatusBadRequest, "invalid_grant", "subject_token rejected")
@@ -185,7 +185,7 @@ func (s *Server) exchange(w http.ResponseWriter, r *http.Request, org *policy.Or
 	}
 	ciSub, _ := policy.ClaimString(claims, "sub")
 	deny := func(reason error) {
-		s.authFails.fail(ip)
+		s.exchangeFails.fail(ip)
 		s.Audit(r.Context(), wi.Name+":"+ciSub, "workload.token.denied", "", map[string]string{"issuer": wi.URL, "reason": reason.Error()})
 		oauthErr(w, http.StatusBadRequest, "invalid_grant", reason.Error())
 	}
@@ -200,6 +200,10 @@ func (s *Server) exchange(w http.ResponseWriter, r *http.Request, org *policy.Or
 	}
 	rule, subject, ok := org.Workloads.MatchWorkload(wi.Name, claims)
 	if !ok {
+		if skipped := org.Workloads.UnpinnedRules(); len(skipped) > 0 { // unreachable after the load-time check; defence in depth
+			s.wlSkipped.Add(uint64(len(skipped)))
+			s.cfg.Log.Error("workload rules skipped: they pin no tenant", "rules", skipped)
+		}
 		deny(errNoRule)
 		return
 	}

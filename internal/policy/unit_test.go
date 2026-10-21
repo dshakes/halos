@@ -89,6 +89,28 @@ func TestUnitOverlayEnforcement(t *testing.T) {
 	}
 }
 
+// Env keys that redirect model traffic, credentials, telemetry or TLS trust,
+// or inject code into the harness or its tools, are never delegable, in any case.
+func TestUnitForbiddenEnv(t *testing.T) {
+	for _, k := range []string{
+		"PATH", "path", "BASH_ENV", "ENV", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_MAX_OUTPUT_TOKENS", "claude_code_x",
+		"AWS_REGION", "AWS_ENDPOINT_URL", "AWS_ENDPOINT_URL_BEDROCK_RUNTIME", "aws_profile", "CLOUD_ML_REGION",
+		"GOOGLE_APPLICATION_CREDENTIALS", "GOOGLE_CLOUD_PROJECT", "OTEL_EXPORTER_OTLP_ENDPOINT", "otel_exporter_otlp_headers",
+		"GIT_SSH_COMMAND", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_COUNT", "GIT_EXEC_PATH", "npm_config_registry", "NPM_CONFIG_USERCONFIG",
+		"JAVA_TOOL_OPTIONS", "_JAVA_OPTIONS", "PERL5OPT", "RUBYOPT", "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE",
+		"CURL_CA_BUNDLE", "NODE_EXTRA_CA_CERTS", "LD_PRELOAD", "HTTPS_PROXY", "FOO_BASE_URL",
+	} {
+		if UnitForbiddenEnv(k) == "" {
+			t.Errorf("%s: allowed, want forbidden", k)
+		}
+	}
+	for _, k := range []string{"TEAM", "OTEL_RESOURCE_ATTRIBUTES", "GIT_AUTHOR_NAME", "PATHS_TEAM", "ENVIRONMENT", "MY_AWS_THING"} {
+		if why := UnitForbiddenEnv(k); why != "" {
+			t.Errorf("%s: forbidden (%s), want allowed", k, why)
+		}
+	}
+}
+
 // A unit owner must not be able to run code, or reroute model traffic, on
 // members' machines: hooks, new env keys and MCP servers are loosenings unless
 // the org delegates them, and provider/proxy/injection env keys never pass.

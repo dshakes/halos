@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -163,8 +165,134 @@ func TestLoginCallbackRateLimited(t *testing.T) {
 	}
 }
 
+// Failed-auth budgets are per endpoint class: garbage sent to the public
+// token exchange and SCIM endpoints from an IP a gateway shares exhausts only
+// those classes, never the gateway token (directory, posture, budget, kill
+// list) or device endpoints. Otherwise anyone could cut a gateway off from its
+// directory and force its fail mode.
+func TestAuthLockoutIsPerEndpointClass(t *testing.T) {
+	e := scimEnv(t, false, func(c *Config) {
+		_, c.WorkloadKey, _ = ed25519.GenerateKey(rand.Reader)
+		f := filepath.Join(c.PolicyDir, "halos.yaml")
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b = append(b, "workloads:\n  audience: halos\n  issuers: [{name: github, url: https://token.actions.githubusercontent.com}]\n"+
+			"  rules: [{name: r, issuer: github, match: {repository_owner_id: \"42\"}, subject: 'workload:gh:{repository}'}]\n"...)
+		if err := os.WriteFile(f, b, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	})
+	dt := enrollDevice(t, e, dev)
+	exchange := func() int {
+		r := httptest.NewRequest("POST", "/api/v1/token/exchange", strings.NewReader(exchangeForm("a.b.c").Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		w := httptest.NewRecorder()
+		e.h.ServeHTTP(w, r)
+		return w.Code
+	}
+	for i := 0; i < authFailBurst; i++ {
+		if c := exchange(); c != http.StatusBadRequest {
+			t.Fatalf("garbage exchange %d: %d", i, c)
+		}
+		if c := e.scimAs("Bearer wrong", "GET", "/scim/v2/Users", "").Code; c != http.StatusUnauthorized {
+			t.Fatalf("bad SCIM token %d: %d", i, c)
+		}
+	}
+	if c := exchange(); c != http.StatusTooManyRequests {
+		t.Fatalf("exchange after burst: %d, want 429", c)
+	}
+	if c := e.scimAs("Bearer wrong", "GET", "/scim/v2/Users", "").Code; c != http.StatusTooManyRequests {
+		t.Fatalf("SCIM after burst: %d, want 429", c)
+	}
+	if c := do(e.h, "GET", "/api/v1/gateway/directory?subject=dev@acme.example", "Bearer "+gwTok, "").Code; c != 200 {
+		t.Fatalf("gateway directory from the same IP: %d, want 200 (separate budget)", c)
+	}
+	if c := do(e.h, "GET", "/api/v1/fleet/ring", "Bearer "+dt, "").Code; c != 200 {
+		t.Fatalf("device auth from the same IP: %d, want 200 (separate budget)", c)
+	}
+}
+
+// halo-server enforces the security validation itself on every policy load:
+// a reload whose workload rule pins no tenant (or whose unit loosens the
+// baseline) is refused, loudly and counted, and the last good policy keeps
+// serving; with no good policy yet, nothing is served.
+func TestPolicyLoadRefusesSecurityErrors(t *testing.T) {
+	e := newWorkloadEnv(t, true)
+	if org, _, err := e.s.pol.Get(); org == nil || err != nil {
+		t.Fatalf("fixture: %v", err)
+	}
+	f := filepath.Join(e.dir, "halos.yaml")
+	b, err := os.ReadFile(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bad := strings.Replace(string(b), `match: {repository: "acme/*", ref: refs/heads/main}`, `match: {ref: refs/heads/main}`, 1)
+	if bad == string(b) {
+		t.Fatal("fixture changed")
+	}
+	if err := os.WriteFile(f, []byte(bad), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e.s.ReloadPolicy()
+	org, _, err := e.s.pol.Get()
+	if err == nil || !strings.Contains(err.Error(), "pins no tenant") {
+		t.Fatalf("unpinned workload rule activated: err %v", err)
+	}
+	if org == nil || org.Workloads.Rules[0].Match["repository"] != "acme/*" {
+		t.Fatalf("last good policy not kept: %+v", org)
+	}
+	var m bytes.Buffer
+	e.s.WriteMetrics(&m)
+	if !strings.Contains(m.String(), "halo_server_policy_refused_total 1\n") {
+		t.Fatalf("refusal not counted:\n%s", m.String())
+	}
+	// A fresh server with only the bad policy serves none.
+	s, err := New(Config{PolicyDir: e.dir, Token: tok, SessionKey: []byte(strings.Repeat("k", 32)), Log: slog.New(slog.DiscardHandler)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	if org, _, err := s.pol.Get(); org != nil || err == nil {
+		t.Fatalf("bad policy activated on a fresh server: %v", err)
+	}
+}
+
+// A user id compares the same way everywhere (canonicalUser): an IdP that
+// sends "Boss@Acme.example" on one login and "boss@acme.example" on another
+// cannot approve their own access request, and keeps their own requests,
+// devices and whoami self view.
+func TestUserIDsCompareCanonically(t *testing.T) {
+	e := newEnv(t, nil)
+	upper := Principal{ID: " Boss@ACME.example", Groups: admin.Groups}
+	rq := decode[Request](t, e.as(upper, "POST", "/api/v1/requests", `{"kind":"ring-opt-in","item":"`+optInRing(t, e)+`","justification":"please"}`))
+	if w := e.as(admin, "POST", "/api/v1/requests/"+rq.ID+"/approve", ""); w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "your own request") {
+		t.Fatalf("self-approval under another case: %d %s", w.Code, w.Body)
+	}
+	if c := e.as(admin, "POST", "/api/v1/requests", `{"kind":"ring-opt-in","item":"`+optInRing(t, e)+`","justification":"again"}`).Code; c != http.StatusConflict {
+		t.Fatalf("duplicate pending request under another case: %d, want 409", c)
+	}
+	devUpper := Principal{ID: "DEV@acme.example"}
+	rq = decode[Request](t, e.as(dev, "POST", "/api/v1/requests", `{"kind":"ring-opt-in","item":"`+optInRing(t, e)+`","justification":"please"}`))
+	if mine := decode[[]Request](t, e.as(devUpper, "GET", "/api/v1/requests", "")); len(mine) != 1 || mine[0].ID != rq.ID {
+		t.Fatalf("own requests under another case: %+v", mine)
+	}
+	if c := e.as(devUpper, "GET", "/api/v1/whoami?user=dev@acme.example", "").Code; c != 200 {
+		t.Fatalf("whoami self under another case: %d", c)
+	}
+	enrollDevice(t, e, dev)
+	if w := e.as(devUpper, "GET", "/api/v1/me/devices", ""); w.Code != 200 || !strings.Contains(w.Body.String(), `"id"`) {
+		t.Fatalf("own devices under another case: %d %s", w.Code, w.Body)
+	}
+	if !sameUser("Alice@Corp.com ", "alice@corp.com") || sameUser("alice", "alice2") {
+		t.Fatal("sameUser")
+	}
+}
+
 // The gateway kill-list token is rate limited per IP on failure; a client
-// that keeps guessing is refused even with the right token until it cools down.
+// that keeps guessing is refused, but a gateway presenting the valid token
+// from the same (shared egress) IP is not locked out by someone else's noise.
 func TestGatewayKillswitchRateLimited(t *testing.T) {
 	_, h, _ := newKillServer(t, true)
 	for i := 0; i < authFailBurst; i++ {
@@ -172,10 +300,11 @@ func TestGatewayKillswitchRateLimited(t *testing.T) {
 			t.Fatalf("guess %d: %d", i, c)
 		}
 	}
-	for _, auth := range []string{"Bearer guess-0123456789abcdef", "Bearer " + gwTok} {
-		if c := do(h, "GET", "/api/v1/gateway/killswitch", auth, "").Code; c != http.StatusTooManyRequests {
-			t.Fatalf("%q after burst: %d, want 429", auth[:12], c)
-		}
+	if c := do(h, "GET", "/api/v1/gateway/killswitch", "Bearer guess-0123456789abcdef", "").Code; c != http.StatusTooManyRequests {
+		t.Fatalf("guess after burst: %d, want 429", c)
+	}
+	if c := do(h, "GET", "/api/v1/gateway/killswitch", "Bearer "+gwTok, "").Code; c != 200 {
+		t.Fatalf("valid gateway token from the blocked IP: %d, want 200", c)
 	}
 	r := httptest.NewRequest("GET", "/api/v1/gateway/killswitch", nil)
 	r.RemoteAddr = "198.51.100.7:1234"

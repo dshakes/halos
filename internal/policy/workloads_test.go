@@ -57,6 +57,30 @@ func TestMatchWorkloadGlobs(t *testing.T) {
 	}
 }
 
+// A policy that never went through Validate (halo-server, a hand-built
+// snapshot) still cannot admit another tenant: MatchWorkload skips rules that
+// pin no tenant, and rules naming no declared issuer.
+func TestMatchWorkloadSkipsUnpinnedRules(t *testing.T) {
+	w := ghWorkloads()
+	w.Rules = []WorkloadRule{
+		{Name: "any-main", Issuer: "github", Match: map[string]string{"ref": "refs/heads/main"}, Subject: "workload:gh:{repository}"},
+		{Name: "owner-glob", Issuer: "github", Match: map[string]string{"repository_owner": "acme*"}, Subject: "workload:gh:{repository}"},
+		{Name: "ghost-issuer", Issuer: "nope", Match: map[string]string{"repository_owner": "acme"}, Subject: "workload:gh:{repository}"},
+		{Name: "pinned", Issuer: "github", Match: map[string]string{"repository_owner": "acme", "ref": "refs/heads/main"}, Subject: "workload:gh:{repository}"},
+	}
+	if got := strings.Join(w.UnpinnedRules(), ","); got != "any-main,owner-glob,ghost-issuer" {
+		t.Fatalf("UnpinnedRules = %s", got)
+	}
+	evil := map[string]any{"repository_owner": "acme-evil", "repository": "acme-evil/x", "ref": "refs/heads/main"}
+	if r, sub, ok := w.MatchWorkload("github", evil); ok {
+		t.Fatalf("another tenant's job matched rule %s as %s", r.Name, sub)
+	}
+	r, sub, ok := w.MatchWorkload("github", map[string]any{"repository_owner": "acme", "repository": "acme/app", "ref": "refs/heads/main"})
+	if !ok || r.Name != "pinned" || sub != "workload:gh:acme/app" {
+		t.Fatalf("pinned rule: %s %q %v", r.Name, sub, ok)
+	}
+}
+
 func TestWorkloadSubjectExpansion(t *testing.T) {
 	r := WorkloadRule{Name: "r", Issuer: "i", Match: map[string]string{"sub": "x"}}
 	for _, tc := range []struct {
@@ -186,10 +210,19 @@ func TestValidateWorkloadsGitHubWarnings(t *testing.T) {
 		{"owner id and environment", map[string]string{"repository_owner_id": "42", "environment": "prod"}, nil},
 		{"repo id and pinned workflow", map[string]string{"repository_id": "7", "job_workflow_ref": "acme/p/.github/workflows/a.yml@refs/heads/main"}, nil},
 		{"owner name and environment", map[string]string{"repository_owner": "acme", "environment": "prod"}, []string{"renamed"}},
+		{"buildkite slug only", map[string]string{"organization_slug": "acme"}, []string{"organization_id"}},
+		{"buildkite org id", map[string]string{"organization_id": "0190b0b4", "organization_slug": "acme"}, nil},
+		{"gitlab path only", map[string]string{"namespace_path": "acme"}, []string{"namespace_id or project_id"}},
+		{"gitlab project id", map[string]string{"project_id": "7", "namespace_path": "acme"}, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			w := ghWorkloads()
 			w.Rules[0].Match = tc.match
+			if strings.HasPrefix(tc.name, "buildkite") {
+				w.Issuers[0].URL = "https://agent.buildkite.com"
+			} else if strings.HasPrefix(tc.name, "gitlab") {
+				w.Issuers[0].URL = "https://gitlab.com"
+			}
 			v := &validator{org: &Org{Workloads: w}}
 			v.workloads()
 			var got []string
@@ -248,7 +281,7 @@ func TestCIAgentsExampleWorkloads(t *testing.T) {
 	if issues := org.Validate(); HasErrors(issues) || len(org.Workloads.Rules) < 4 {
 		t.Fatalf("issues %v", issues)
 	}
-	_, sub, ok := org.Workloads.MatchWorkload("gitlab", map[string]any{"namespace_path": "acme", "ref_protected": "true", "project_path": "acme/api"})
+	_, sub, ok := org.Workloads.MatchWorkload("gitlab", map[string]any{"namespace_id": "4242", "namespace_path": "acme", "ref_protected": "true", "project_path": "acme/api"})
 	if !ok || sub != "workload:gl:acme/api" {
 		t.Fatalf("gitlab rule: %q %v", sub, ok)
 	}

@@ -7,7 +7,7 @@ description: Provision users and groups into halo-server from Okta or Microsoft 
 
 - Deactivating or deleting a user in the IdP immediately ends their console sessions, revokes every device token `halod` holds for them, and drops their pending enrollment tokens. It is recorded in the audit log with actor `scim`.
 - With `--scim-authoritative`, the IdP's group assignments decide rings, toggle targeting and admin rights on halo-server, and changes apply without a re-login. Users the IdP has not provisioned are refused.
-- With `directory.url` on the gateways, a verified caller's groups come from the same directory, and a deprovisioned user is an unknown caller (default routing, no experiments).
+- With `directory.url` on the gateways, a verified caller's groups come from the same directory, and a deprovisioned user is refused (403).
 
 Design and limits: [ADR-0022](/halos/adr/0022-scim-provisioning/). Endpoints: [API reference](/halos/reference/api/#scim-20-provisioning).
 
@@ -84,11 +84,12 @@ directory:
   tokenFile: /secrets/gateway-token
   cacheTTL: 1m   # how long a deprovisioned user can keep their cohort here
   grace: 5m      # serve the last entry this long if halo-server is unreachable
+  failMode: open # past grace: open keeps the verified caller with no groups; closed answers 503
 ```
 
-`halo-kong` plugin config: `directory_url`, `directory_token` (`{vault://env/halo-gateway-token}`), and `directory_allow_insecure_in_cluster` for a plain-http in-cluster URL.
+`halo-kong` plugin config: `directory_url`, `directory_token` (`{vault://env/halo-gateway-token}`), `directory_fail_mode` (`open` or `closed`), and `directory_allow_insecure_in_cluster` for a plain-http in-cluster URL.
 
-With a directory configured, the token's groups claim and any groups header no longer count: an active user gets the directory's groups; a verified user the directory lists as inactive, deleted or never provisioned is refused with 403 (in the CLI's error format); if halo-server is unreachable past `grace` with nothing cached, the caller is routed as unknown. Workload credentials skip the directory. `userName` must match the IdP's user claim, case aside, and must not start with `workload:`. The user id still comes only from the verified token or trusted header.
+With a directory configured, the token's groups claim and any groups header no longer count: an active user gets the directory's groups; a verified user the directory lists as inactive, deleted or never provisioned is refused with 403 (in the CLI's error format). If halo-server is unreachable past `grace` with nothing cached (or the `halo-kong` directory config is invalid), the caller is never made anonymous: with `failMode: open` (default) they keep their verified identity with no groups, so default routing and no experiments, while the posture gate and per-user budgets still apply to them; with `closed` they get 503 with `Retry-After: 30`. halo-server keeps a separate failed-auth budget per endpoint class, so garbage sent to its public token-exchange or SCIM endpoints from an IP a gateway shares cannot lock the gateway out of the directory. Workload credentials skip the directory. `userName` must match the IdP's user claim, case aside, and must not start with `workload:`. The user id still comes only from the verified token or trusted header.
 
 ## 4. Verify
 

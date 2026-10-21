@@ -178,8 +178,20 @@ func TestBudgetEnforceAcrossReplicas(t *testing.T) {
 
 // A client that hangs up before the final usage event is charged a
 // pessimistic estimate, never nothing: input from message_start, output from
-// the bytes streamed so far capped at the request's max_tokens.
+// the delta text streamed so far (/ 4, not the SSE wire bytes, which are
+// several times larger) capped at the request's max_tokens.
 func TestBudgetChargesAbortedStream(t *testing.T) {
+	for _, tc := range []struct {
+		name, body, output string
+	}{
+		{"max_tokens caps", `{"model":"sonnet","max_tokens":100,"stream":true,"messages":[{"role":"user","content":"hi"}]}`, "100"},
+		{"delta text / 4", `{"model":"sonnet","stream":true,"messages":[{"role":"user","content":"hi"}]}`, "750"}, // 30 deltas x 100 bytes
+	} {
+		t.Run(tc.name, func(t *testing.T) { testBudgetChargesAbortedStream(t, tc.body, tc.output) })
+	}
+}
+
+func testBudgetChargesAbortedStream(t *testing.T, body, output string) {
 	clk := &clock{t: time.Date(2026, 10, 21, 12, 0, 0, 0, time.UTC)}
 	budgets := []policy.Budget{{Name: "dev-daily", Scope: policy.ScopeUser, Window: policy.WindowDay, LimitTokens: 1 << 30, Action: policy.BudgetEnforce}}
 	hs := newFakeBudgetServer(t, budgets, clk.now)
@@ -196,7 +208,7 @@ func TestBudgetChargesAbortedStream(t *testing.T) {
 	t.Cleanup(up.Close)
 	e := budgetEnv(t, hs.URL+"/api/v1/gateway/budget", "", budgets, up, clk)
 	wait := e.awaitHandlers(t, 1)
-	resp := e.post(t, "/v1/messages", e.token(t, "alice@acme.com"), `{"model":"sonnet","max_tokens":100,"stream":true,"messages":[{"role":"user","content":"hi"}]}`, nil)
+	resp := e.post(t, "/v1/messages", e.token(t, "alice@acme.com"), body, nil)
 	if resp.StatusCode != 200 {
 		t.Fatalf("status %d", resp.StatusCode)
 	}
@@ -213,7 +225,7 @@ func TestBudgetChargesAbortedStream(t *testing.T) {
 	wait()
 	m := metricsText(t, e)
 	for _, want := range []string{`halo_proxy_budget_responses_total{outcome="estimated"} 1`, `halo_proxy_budget_responses_total{outcome="metered"} 0`,
-		"halo_proxy_budget_tokens_total{kind=\"input\"} 500\n", "halo_proxy_budget_tokens_total{kind=\"output\"} 100\n"} {
+		"halo_proxy_budget_tokens_total{kind=\"input\"} 500\n", "halo_proxy_budget_tokens_total{kind=\"output\"} " + output + "\n"} {
 		if !strings.Contains(m, want) {
 			t.Errorf("metrics missing %s:\n%s", want, m)
 		}
@@ -378,6 +390,8 @@ func TestBudgetConfig(t *testing.T) {
 		"unreadable token":  {URL: "https://h", TokenFile: tok + ".none"},
 		"plain http remote": {URL: "http://halo.test/x", TokenFile: tok},
 		"bad fail mode":     {URL: "https://h", TokenFile: tok, FailMode: "sometimes"},
+		"negative ceiling":  {URL: "https://h", TokenFile: tok, MaxEstimatedOutputTokens: -1},
+		"negative state":    {URL: "https://h", TokenFile: tok, ServerStateInputTokens: -1},
 	} {
 		if _, err := c.build(log); err == nil || !strings.Contains(err.Error(), "halo-proxy") {
 			t.Errorf("%s: err = %v", name, err)

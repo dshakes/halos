@@ -21,14 +21,21 @@ type DirectoryConfig struct {
 	// longest a deprovisioned user keeps their cohort at this gateway.
 	CacheTTL time.Duration `yaml:"cacheTTL"`
 	// Grace is how long the last entry keeps serving while halo-server is
-	// unreachable (default 5m); after it callers are unknown (default routing).
+	// unreachable (default 5m). After it, FailMode decides.
 	Grace time.Duration `yaml:"grace"`
+	// FailMode: open (default) keeps the verified caller with no groups
+	// (default routing, no experiments; posture gate and per-user budgets
+	// still apply); closed answers 503. A caller is never made anonymous.
+	FailMode string `yaml:"failMode"`
 	// AllowInsecureInCluster permits plain http to a non-loopback host.
 	AllowInsecureInCluster bool `yaml:"allowInsecureInCluster"`
 }
 
 // build returns nil when the directory is not configured.
 func (c DirectoryConfig) build(log *slog.Logger) (*gateway.DirectoryClient, error) {
+	if err := gateway.CheckDirectoryFailMode(c.FailMode); err != nil {
+		return nil, fmt.Errorf("halo-proxy: %w", err)
+	}
 	if c.URL == "" {
 		if c.TokenFile != "" {
 			return nil, fmt.Errorf("halo-proxy: directory.url is required when directory.tokenFile is set")
@@ -46,5 +53,6 @@ func (c DirectoryConfig) build(log *slog.Logger) (*gateway.DirectoryClient, erro
 	if err != nil {
 		return nil, fmt.Errorf("halo-proxy: %w", err)
 	}
+	dc.FailClosed = c.FailMode == gateway.DirectoryFailClosed
 	return dc, nil
 }

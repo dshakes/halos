@@ -123,6 +123,11 @@ type Config struct {
 	DirectoryToken string `json:"directory_token"` // {vault://env/NAME} or literal (halo-server --gateway-directory-token-file, else the shared gateway token)
 	// DirectoryAllowInsecure permits plain http to a non-loopback host.
 	DirectoryAllowInsecure bool `json:"directory_allow_insecure_in_cluster"`
+	// DirectoryFailMode: when the directory cannot be asked (no entry younger
+	// than 5m cached), open (default) keeps the verified caller with no groups
+	// (default routing, no experiments; posture gate still applies) and closed
+	// answers 503. A caller is never made anonymous.
+	DirectoryFailMode string `json:"directory_fail_mode"`
 }
 
 var (
@@ -254,25 +259,42 @@ var (
 
 // directoryClient returns the process-wide client for this config (its cache
 // is shared by every route); nil when unconfigured. An invalid config is
-// logged and fails closed: every caller is then unknown (default routing).
+// logged and handled like an unreachable directory (directoryDown).
 func (c Config) directoryClient(kong kongAPI) (dc *gateway.DirectoryClient, invalid bool) {
 	if c.DirectoryURL == "" {
 		return nil, false
 	}
 	tok := secret(c.DirectoryToken)
-	key := c.DirectoryURL + "\x00" + tok + "\x00" + strconv.FormatBool(c.DirectoryAllowInsecure)
+	key := c.DirectoryURL + "\x00" + tok + "\x00" + strconv.FormatBool(c.DirectoryAllowInsecure) + "\x00" + c.DirectoryFailMode
 	directoryMu.Lock()
 	defer directoryMu.Unlock()
 	if dc, ok := directoryClients[key]; ok {
 		return dc, false
 	}
-	dc, err := gateway.NewDirectoryClient(c.DirectoryURL, tok, 0, 0, nil, c.DirectoryAllowInsecure)
+	err := gateway.CheckDirectoryFailMode(c.DirectoryFailMode)
+	if err == nil {
+		dc, err = gateway.NewDirectoryClient(c.DirectoryURL, tok, 0, 0, nil, c.DirectoryAllowInsecure)
+	}
 	if err != nil {
-		_ = kong.Err("halo-kong: directory config invalid; every caller is treated as unknown: ", err.Error())
+		_ = kong.Err("halo-kong: directory config invalid; callers keep their identity with no groups (or 503 unless directory_fail_mode is open): ", err.Error())
 		return nil, true
 	}
+	dc.FailClosed = c.DirectoryFailMode == gateway.DirectoryFailClosed
 	directoryClients[key] = dc
 	return dc, false
+}
+
+// directoryDown is the answer for a verified caller when the directory config
+// is invalid: the open fail mode keeps sub with no groups, never anonymous;
+// any other (closed, or an invalid value) refuses.
+func (c Config) directoryDown(sub *policy.Subject, path string) (*policy.Subject, *gateway.Rejection) {
+	if c.DirectoryFailMode != "" && c.DirectoryFailMode != gateway.DirectoryFailOpen {
+		return nil, gateway.RejectDirectoryUnavailable(path)
+	}
+	if sub == nil || sub.Kind == policy.SubjectWorkload { // workloads are not in SCIM: unchanged, as Resolve does
+		return sub, nil
+	}
+	return &policy.Subject{ID: sub.ID, Kind: sub.Kind}, nil
 }
 
 // gate applies the ring's posture and version gates; outcomes is what failed
@@ -449,11 +471,19 @@ func (c Config) access(kong kongAPI) {
 
 	if dc, invalid := c.directoryClient(kong); dc != nil {
 		if sub, err = dc.Resolve(context.Background(), sub); err != nil { // a deprovisioned caller is refused, never anonymous
-			exit(kong, gateway.RejectNotProvisioned(path))
+			rej := gateway.RejectNotProvisioned(path)
+			if errors.Is(err, gateway.ErrDirectoryUnavailable) {
+				rej = gateway.RejectDirectoryUnavailable(path)
+			}
+			exit(kong, rej)
 			return
 		}
 	} else if invalid {
-		sub = nil
+		var rej *gateway.Rejection
+		if sub, rej = c.directoryDown(sub, path); rej != nil {
+			exit(kong, rej)
+			return
+		}
 	}
 	ks, ksBad := c.killPoller(kong)
 	res := gateway.PrepareVerified(ks.Apply(org), sub, h, path, body) // killed experiments: control, no shadow

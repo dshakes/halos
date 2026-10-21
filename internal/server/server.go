@@ -15,6 +15,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/dshakes/halos/internal/controller"
@@ -99,20 +100,28 @@ type Server struct {
 	enroll enrollments
 	reqs   *requestLog
 
-	devices     *deviceStore
-	authFails   authLimiter
-	loginFails  authLimiter // failed OIDC callbacks; separate so logins cannot lock out devices
-	revoked     *sessionRevocations
-	auditLog    *auditLog
-	forwarders  []*auditForwarder
-	relCache    *releaseCache
-	relFetch    pointerFetch  // ring pointer reader; swapped in tests
-	relChannels channelsFetch // ring release -> experiment channels; swapped in tests
-	kills       *controller.KillStore
-	gwSums      map[gatewayCap][32]byte // sha256 of the token each enabled gateway capability accepts
-	scim        *scimService            // nil = SCIM off
-	budgets     *budgetStore
-	wl          workloadExchange
+	devices *deviceStore
+	// Failed-auth budgets per client IP, one per endpoint class, so failures on
+	// one class never lock out another: an attacker sharing a gateway's egress
+	// IP who sends garbage to the public token exchange or SCIM cannot cut the
+	// gateways off from their directory, posture, budget and kill endpoints.
+	authFails     authLimiter // device tokens and enrollment
+	loginFails    authLimiter // failed OIDC callbacks
+	gwFails       authLimiter // gateway tokens; a valid token is never blocked
+	exchangeFails authLimiter // POST /api/v1/token/exchange
+	scimFails     authLimiter // /scim/v2
+	revoked       *sessionRevocations
+	auditLog      *auditLog
+	forwarders    []*auditForwarder
+	relCache      *releaseCache
+	relFetch      pointerFetch  // ring pointer reader; swapped in tests
+	relChannels   channelsFetch // ring release -> experiment channels; swapped in tests
+	kills         *controller.KillStore
+	gwSums        map[gatewayCap][32]byte // sha256 of the token each enabled gateway capability accepts
+	scim          *scimService            // nil = SCIM off
+	budgets       *budgetStore
+	wl            workloadExchange
+	wlSkipped     atomic.Uint64 // unpinned workload rules skipped at exchange
 }
 
 // New validates cfg and returns a Server. It does not require the policy dir to load yet.
@@ -609,7 +618,7 @@ func (s *Server) whoami(w http.ResponseWriter, r *http.Request, p Principal) {
 		apiErr(w, http.StatusBadRequest, "user required (<=256 chars)")
 		return
 	}
-	if !p.can(permRead) && user != p.ID { // developers may only debug themselves
+	if !p.can(permRead) && !sameUser(user, p.ID) { // developers may only debug themselves
 		s.deny(w, r, p, "GET /api/v1/whoami?user=<other>", permRead)
 		return
 	}

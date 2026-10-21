@@ -80,6 +80,26 @@ func (o *Org) Validate() []Issue {
 	return v.issues
 }
 
+// securityPaths prefix the issue paths of fields that grant identity or
+// widen what runs on members' machines: workload federation (tenant pinning,
+// subjects, TTLs) and unit overlays and delegation (loosenings, forbidden env
+// keys, hooks, MCP servers).
+var securityPaths = []string{"workloads", "units[", "delegation"}
+
+// SecurityIssues returns o's error-severity Validate issues on security fields
+// (securityPaths). halo-server and the gateways run it on every policy load
+// and refuse to activate a policy that has any, keeping the last good one:
+// `halo validate` and `halo release build` are not the only gate.
+func SecurityIssues(o *Org) []Issue {
+	var out []Issue
+	for _, i := range o.Validate() {
+		if i.Severity == SeverityError && slices.ContainsFunc(securityPaths, func(p string) bool { return strings.HasPrefix(i.Path, p) }) {
+			out = append(out, i)
+		}
+	}
+	return out
+}
+
 // clone deep-copies o through its JSON form, the same form gateway snapshots use.
 func (o *Org) clone() (*Org, error) {
 	b, err := json.Marshal(o)
