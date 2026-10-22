@@ -94,29 +94,29 @@ Generated from `schemas/halos.schema.json`; do not edit. Nested fields use dotte
 | `tools.*` |  |  |  |  |  |  |
 | `vendorAdmin` | object |  |  |  |  | Vendor admin sync (ADR-0025): drive the vendors' cloud admin consoles from one ring's profile with `halo admin plan\|apply\|export`. A vendor is managed when its key is present. Credentials never live here. |
 | `vendorAdmin.claude` | object |  |  |  |  |  |
-| `vendorAdmin.claude.location` | string |  |  |  |  | Location of the Gemini settings resources (gemini only; default global). |
-| `vendorAdmin.claude.org` | string |  |  |  | pattern ^[^/?#% ]*$ | Tenant: the GitHub organization login (copilot, required), or the Claude organization / ChatGPT workspace / Cursor team id recorded in exports. |
-| `vendorAdmin.claude.project` | string |  |  |  | pattern ^[^/?#% ]*$ | Google Cloud project holding the Gemini Code Assist settings (gemini only, required). |
+| `vendorAdmin.claude.location` | string |  |  |  | pattern ^([a-z]+-[a-z]+[0-9]+\|global)$ | Location of the Gemini settings resources (gemini only; default global). |
+| `vendorAdmin.claude.org` | string |  |  |  | pattern ^[A-Za-z0-9][A-Za-z0-9-]&#123;0,38}$ | Tenant: the GitHub organization login (copilot, required), or the Claude organization / ChatGPT workspace / Cursor team id recorded in exports. |
+| `vendorAdmin.claude.project` | string |  |  |  | pattern ^[a-z][a-z0-9-]&#123;4,28}[a-z0-9]$ | Google Cloud project holding the Gemini Code Assist settings (gemini only, required). |
 | `vendorAdmin.claude.releaseChannel` |  |  |  | stable, experimental |  | Gemini Code Assist release channel (gemini only); unset leaves it unmanaged. |
 | `vendorAdmin.codex` | object |  |  |  |  |  |
-| `vendorAdmin.codex.location` | string |  |  |  |  | Location of the Gemini settings resources (gemini only; default global). |
-| `vendorAdmin.codex.org` | string |  |  |  | pattern ^[^/?#% ]*$ | Tenant: the GitHub organization login (copilot, required), or the Claude organization / ChatGPT workspace / Cursor team id recorded in exports. |
-| `vendorAdmin.codex.project` | string |  |  |  | pattern ^[^/?#% ]*$ | Google Cloud project holding the Gemini Code Assist settings (gemini only, required). |
+| `vendorAdmin.codex.location` | string |  |  |  | pattern ^([a-z]+-[a-z]+[0-9]+\|global)$ | Location of the Gemini settings resources (gemini only; default global). |
+| `vendorAdmin.codex.org` | string |  |  |  | pattern ^[A-Za-z0-9][A-Za-z0-9-]&#123;0,38}$ | Tenant: the GitHub organization login (copilot, required), or the Claude organization / ChatGPT workspace / Cursor team id recorded in exports. |
+| `vendorAdmin.codex.project` | string |  |  |  | pattern ^[a-z][a-z0-9-]&#123;4,28}[a-z0-9]$ | Google Cloud project holding the Gemini Code Assist settings (gemini only, required). |
 | `vendorAdmin.codex.releaseChannel` |  |  |  | stable, experimental |  | Gemini Code Assist release channel (gemini only); unset leaves it unmanaged. |
 | `vendorAdmin.copilot` | object |  |  |  |  |  |
-| `vendorAdmin.copilot.location` | string |  |  |  |  | Location of the Gemini settings resources (gemini only; default global). |
-| `vendorAdmin.copilot.org` | string |  |  |  | pattern ^[^/?#% ]*$ | Tenant: the GitHub organization login (copilot, required), or the Claude organization / ChatGPT workspace / Cursor team id recorded in exports. |
-| `vendorAdmin.copilot.project` | string |  |  |  | pattern ^[^/?#% ]*$ | Google Cloud project holding the Gemini Code Assist settings (gemini only, required). |
+| `vendorAdmin.copilot.location` | string |  |  |  | pattern ^([a-z]+-[a-z]+[0-9]+\|global)$ | Location of the Gemini settings resources (gemini only; default global). |
+| `vendorAdmin.copilot.org` | string |  |  |  | pattern ^[A-Za-z0-9][A-Za-z0-9-]&#123;0,38}$ | Tenant: the GitHub organization login (copilot, required), or the Claude organization / ChatGPT workspace / Cursor team id recorded in exports. |
+| `vendorAdmin.copilot.project` | string |  |  |  | pattern ^[a-z][a-z0-9-]&#123;4,28}[a-z0-9]$ | Google Cloud project holding the Gemini Code Assist settings (gemini only, required). |
 | `vendorAdmin.copilot.releaseChannel` |  |  |  | stable, experimental |  | Gemini Code Assist release channel (gemini only); unset leaves it unmanaged. |
 | `vendorAdmin.cursor` | object |  |  |  |  |  |
-| `vendorAdmin.cursor.location` | string |  |  |  |  | Location of the Gemini settings resources (gemini only; default global). |
-| `vendorAdmin.cursor.org` | string |  |  |  | pattern ^[^/?#% ]*$ | Tenant: the GitHub organization login (copilot, required), or the Claude organization / ChatGPT workspace / Cursor team id recorded in exports. |
-| `vendorAdmin.cursor.project` | string |  |  |  | pattern ^[^/?#% ]*$ | Google Cloud project holding the Gemini Code Assist settings (gemini only, required). |
+| `vendorAdmin.cursor.location` | string |  |  |  | pattern ^([a-z]+-[a-z]+[0-9]+\|global)$ | Location of the Gemini settings resources (gemini only; default global). |
+| `vendorAdmin.cursor.org` | string |  |  |  | pattern ^[A-Za-z0-9][A-Za-z0-9-]&#123;0,38}$ | Tenant: the GitHub organization login (copilot, required), or the Claude organization / ChatGPT workspace / Cursor team id recorded in exports. |
+| `vendorAdmin.cursor.project` | string |  |  |  | pattern ^[a-z][a-z0-9-]&#123;4,28}[a-z0-9]$ | Google Cloud project holding the Gemini Code Assist settings (gemini only, required). |
 | `vendorAdmin.cursor.releaseChannel` |  |  |  | stable, experimental |  | Gemini Code Assist release channel (gemini only); unset leaves it unmanaged. |
 | `vendorAdmin.gemini` | object |  |  |  |  |  |
-| `vendorAdmin.gemini.location` | string |  |  |  |  | Location of the Gemini settings resources (gemini only; default global). |
-| `vendorAdmin.gemini.org` | string |  |  |  | pattern ^[^/?#% ]*$ | Tenant: the GitHub organization login (copilot, required), or the Claude organization / ChatGPT workspace / Cursor team id recorded in exports. |
-| `vendorAdmin.gemini.project` | string |  |  |  | pattern ^[^/?#% ]*$ | Google Cloud project holding the Gemini Code Assist settings (gemini only, required). |
+| `vendorAdmin.gemini.location` | string |  |  |  | pattern ^([a-z]+-[a-z]+[0-9]+\|global)$ | Location of the Gemini settings resources (gemini only; default global). |
+| `vendorAdmin.gemini.org` | string |  |  |  | pattern ^[A-Za-z0-9][A-Za-z0-9-]&#123;0,38}$ | Tenant: the GitHub organization login (copilot, required), or the Claude organization / ChatGPT workspace / Cursor team id recorded in exports. |
+| `vendorAdmin.gemini.project` | string |  |  |  | pattern ^[a-z][a-z0-9-]&#123;4,28}[a-z0-9]$ | Google Cloud project holding the Gemini Code Assist settings (gemini only, required). |
 | `vendorAdmin.gemini.releaseChannel` |  |  |  | stable, experimental |  | Gemini Code Assist release channel (gemini only); unset leaves it unmanaged. |
 | `vendorAdmin.ring` | string |  |  |  |  | Ring whose profile the consoles get; console settings are org-wide (default: the last ring, GA). |
 | `workloads` | object |  |  |  |  | Workload identity federation for headless CI / cloud agents (ADR-0023): halo-server exchanges a token from a trusted OIDC issuer for a short-lived gateway credential when a rule matches its claims. |

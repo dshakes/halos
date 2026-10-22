@@ -652,16 +652,17 @@
       "properties": {
         "org": {
           "type": "string",
-          "pattern": "^[^/?#% ]*$",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9-]{0,38}$",
           "description": "Tenant: the GitHub organization login (copilot, required), or the Claude organization / ChatGPT workspace / Cursor team id recorded in exports."
         },
         "project": {
           "type": "string",
-          "pattern": "^[^/?#% ]*$",
+          "pattern": "^[a-z][a-z0-9-]{4,28}[a-z0-9]$",
           "description": "Google Cloud project holding the Gemini Code Assist settings (gemini only, required)."
         },
         "location": {
           "type": "string",
+          "pattern": "^([a-z]+-[a-z]+[0-9]+|global)$",
           "description": "Location of the Gemini settings resources (gemini only; default global)."
         },
         "releaseChannel": {

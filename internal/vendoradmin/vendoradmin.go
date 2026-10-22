@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unicode"
 
 	"github.com/dshakes/halos/internal/policy"
 )
@@ -36,9 +37,14 @@ type Setting struct {
 	From   string `json:"from"` // the policy field it derives from
 	Access Access `json:"access"`
 	// Strict is the value that is the tighter control (a scalar setting);
-	// changing a setting away from it is a loosening. List settings loosen
-	// when an entry the console has is missing from the desired list.
-	Strict any `json:"-"`
+	// changing a setting away from it (or from a StrictAlso value, which the
+	// vendor treats the same) is a loosening. List settings loosen when an
+	// entry the console has is missing from the desired list.
+	Strict     any   `json:"-"`
+	StrictAlso []any `json:"-"`
+	// Sticky settings loosen whenever an existing value changes (a binding
+	// target: moving it un-governs the old target).
+	Sticky bool `json:"-"`
 }
 
 // Change is one setting whose live value differs from the desired one.
@@ -60,11 +66,14 @@ type Artifact struct {
 
 // Plan is one vendor's desired state and, after Diff, its drift.
 type Plan struct {
-	Vendor    string     `json:"vendor"`
-	Target    string     `json:"target"`
-	Desired   []Setting  `json:"desired"`
-	Changes   []Change   `json:"changes"`
-	Read      bool       `json:"read"` // the live state was read and diffed
+	Vendor  string    `json:"vendor"`
+	Target  string    `json:"target"`
+	Desired []Setting `json:"desired"`
+	Changes []Change  `json:"changes"`
+	Read    bool      `json:"read"` // the live state was read and diffed
+	// Conflicts are console resources Halos does not own that govern the same
+	// target (a non-halos Gemini setting bound to the project); apply refuses.
+	Conflicts []string   `json:"conflicts,omitempty"`
 	Warnings  []string   `json:"warnings"`
 	Manual    []string   `json:"manual,omitempty"`
 	Artifacts []Artifact `json:"artifacts,omitempty"`
@@ -89,27 +98,58 @@ func (p *Plan) HasAPI() bool {
 	return slices.ContainsFunc(p.Desired, func(s Setting) bool { return s.Access != AccessManual })
 }
 
+// conflictsKey is the Client.Read key listing console resources Halos does
+// not own that govern the same target (Plan.Conflicts).
+const conflictsKey = "#conflicts"
+
 // Diff fills p.Changes from current, the live values Client.Read returned
-// (a missing key is unset). Manual settings are not diffed: nothing can read them.
+// (a missing key is unset). Manual settings are not diffed: nothing can read
+// them. A list setting's live value is []any: Halos owns its string entries;
+// any other entry (a Copilot {"if-any-match": [...]} rule) is preserved, so
+// the desired value is the desired strings followed by those entries.
 func (p *Plan) Diff(current map[string]any) {
 	p.Read, p.Changes = true, []Change{}
+	p.Conflicts, _ = current[conflictsKey].([]string)
 	for _, s := range p.Desired {
 		if s.Access == AccessManual {
 			continue
 		}
-		cur := current[s.Key]
-		if equal(cur, s.Value) {
+		cur, want := current[s.Key], s.Value
+		if strs, ok := s.Value.([]string); ok {
+			want = MergeList(strs, cur)
+		}
+		if equal(cur, want) {
 			continue
 		}
-		p.Changes = append(p.Changes, Change{Key: s.Key, Current: cur, Desired: s.Value, Access: s.Access, Loosens: loosens(s, cur)})
+		p.Changes = append(p.Changes, Change{Key: s.Key, Current: cur, Desired: want, Access: s.Access, Loosens: loosens(s, cur)})
 	}
 }
 
-// Loosenings are the writable changes apply refuses.
+// MergeList is want's strings (sorted, deduplicated) followed by the
+// non-string entries of the live list cur, in their live order.
+func MergeList(want []string, cur any) []any {
+	ws := slices.Clone(want)
+	slices.Sort(ws)
+	ws = slices.Compact(ws)
+	out := make([]any, 0, len(ws))
+	for _, w := range ws {
+		out = append(out, w)
+	}
+	have, _ := cur.([]any)
+	for _, h := range have {
+		if _, isStr := h.(string); !isStr {
+			out = append(out, h)
+		}
+	}
+	return out
+}
+
+// Loosenings are the changes apply refuses: the ones Halos would write.
+// Loosening read-only settings are shown by plan but are a human's call.
 func (p *Plan) Loosenings() []Change {
 	var out []Change
 	for _, c := range p.Changes {
-		if c.Loosens {
+		if c.Loosens && c.Access == AccessWrite {
 			out = append(out, c)
 		}
 	}
@@ -121,10 +161,19 @@ func loosens(s Setting, cur any) bool {
 		return false
 	}
 	if want, ok := s.Value.([]string); ok {
-		have, _ := cur.([]string)
-		return slices.ContainsFunc(have, func(x string) bool { return !slices.Contains(want, x) })
+		have, _ := cur.([]any)
+		return slices.ContainsFunc(have, func(x any) bool {
+			str, isStr := x.(string)
+			return isStr && !slices.Contains(want, str)
+		})
 	}
-	return s.Strict != nil && equal(cur, s.Strict) && !equal(s.Value, s.Strict)
+	if s.Sticky {
+		return !equal(cur, s.Value)
+	}
+	if s.Strict == nil || equal(s.Value, s.Strict) {
+		return false
+	}
+	return equal(cur, s.Strict) || slices.ContainsFunc(s.StrictAlso, func(v any) bool { return equal(cur, v) })
 }
 
 func equal(a, b any) bool {
@@ -134,6 +183,18 @@ func equal(a, b any) bool {
 	x, err1 := json.Marshal(a)
 	y, err2 := json.Marshal(b)
 	return err1 == nil && err2 == nil && string(x) == string(y)
+}
+
+// Sanitize drops control (Cc) and format (Cf) characters from s, so a policy
+// or console value cannot move the cursor, recolour or hide text in a
+// terminal (ESC sequences, CR) or reorder it (bidi overrides) in STEPS.md.
+func Sanitize(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.Is(unicode.Cc, r) || unicode.Is(unicode.Cf, r) {
+			return -1
+		}
+		return r
+	}, s)
 }
 
 // forbiddenValues are invariant 1: never emitted to any console.

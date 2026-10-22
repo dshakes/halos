@@ -1,6 +1,7 @@
 package vendoradmin
 
 import (
+	"encoding/json"
 	"fmt"
 	"path"
 	"slices"
@@ -43,11 +44,21 @@ func adapterArtifact(in input, adapter string, want map[string]string) (*Plan, e
 	if !ok {
 		return nil, fmt.Errorf("adapter %s is not registered", adapter)
 	}
-	files, warns, err := ad.Render(in.profile, harness.Context{Gateway: in.org.Gateway, Ring: in.ring, Release: "console", OS: harness.Linux})
+	// No gateway, ring or release: a console serves every login, not a machine
+	// halod enrolled, so nothing machine- or ring-scoped belongs in it.
+	files, warns, err := ad.Render(in.profile, harness.Context{OS: harness.Linux})
 	if err != nil {
 		return nil, err
 	}
-	p := &Plan{Warnings: append([]string{}, warns...)}
+	p := &Plan{}
+	for _, w := range warns {
+		if !strings.HasSuffix(w, "no gateway configured; traffic is not routed through Halos") {
+			p.Warnings = append(p.Warnings, w)
+		}
+	}
+	if in.org.Gateway != nil {
+		p.Warnings = append(p.Warnings, adapter+": the Halos gateway is machine config (credential helper, base URL, ring headers); it is not rendered for the console")
+	}
 	for _, f := range files {
 		if name, ok := want[path.Base(f.Path)]; ok {
 			p.Artifacts = append(p.Artifacts, Artifact{Name: name, Content: string(f.Data)})
@@ -61,19 +72,105 @@ func adapterArtifact(in input, adapter string, want map[string]string) (*Plan, e
 	return p, nil
 }
 
-// renderClaude: Claude Code server-managed settings take the same JSON as
-// managed-settings.json, and there is no API for them (console only).
+// claudeMachineKeys are managed-settings.json keys that belong to a machine
+// halod manages: credential helpers and their machine paths, commands at
+// machine paths, and gateway model mapping. Delivered from the console they
+// would break claude.ai logins: keys from an apiKeyHelper do not trigger the
+// server-managed settings fetch, and a custom ANTHROPIC_BASE_URL skips it
+// (code.claude.com/docs/en/server-managed-settings).
+var claudeMachineKeys = []string{"apiKeyHelper", "awsAuthRefresh", "awsCredentialExport", "otelHeadersHelper", "hooks", "statusLine", "modelOverrides"}
+
+// claudeMachineEnv reports whether an env key is machine or gateway scoped:
+// the Anthropic endpoint, credentials, custom (x-halo-*) headers and model
+// pins, provider switches, and OTEL attributes stamped with ring and release.
+func claudeMachineEnv(k string) bool {
+	return strings.HasPrefix(k, "ANTHROPIC_") || strings.HasPrefix(k, "CLAUDE_CODE_USE_") ||
+		k == "CLAUDE_CODE_API_KEY_HELPER_TTL_MS" || k == "OTEL_EXPORTER_OTLP_HEADERS"
+}
+
+// machineAttrs are OTEL resource attributes stamped per machine release; the
+// console carries the policy's own telemetry.attributes only.
+var machineAttrs = []string{"halo.ring", "halo.release", "halo.experiment", "halo.variant"}
+
+// consoleAttrs drops machineAttrs from an OTEL_RESOURCE_ATTRIBUTES value.
+func consoleAttrs(v string) (string, []string) {
+	var keep, dropped []string
+	for _, kv := range strings.Split(v, ",") {
+		k, _, _ := strings.Cut(kv, "=")
+		if slices.Contains(machineAttrs, k) {
+			dropped = append(dropped, k)
+			continue
+		}
+		keep = append(keep, kv)
+	}
+	return strings.Join(keep, ","), dropped
+}
+
+// consoleSettings strips claudeMachineKeys and machine env keys from a
+// rendered managed-settings.json, returning the console JSON and one warning
+// per removed key.
+func consoleSettings(data string) (string, []string, error) {
+	var m map[string]any
+	if err := json.Unmarshal([]byte(data), &m); err != nil {
+		return "", nil, fmt.Errorf("claude-code rendered invalid JSON: %w", err)
+	}
+	var warns []string
+	for _, k := range claudeMachineKeys {
+		if _, ok := m[k]; ok {
+			delete(m, k)
+			warns = append(warns, fmt.Sprintf("claude: %s is machine config (runs or points at a path on a halod-managed machine); not rendered for the console", k))
+		}
+	}
+	if env, ok := m["env"].(map[string]any); ok {
+		if v, ok := env["OTEL_RESOURCE_ATTRIBUTES"].(string); ok {
+			kept, dropped := consoleAttrs(v)
+			if len(dropped) > 0 {
+				warns = append(warns, fmt.Sprintf("claude: OTEL_RESOURCE_ATTRIBUTES %s are stamped per machine release; not rendered for the console", strings.Join(dropped, ", ")))
+			}
+			if kept == "" {
+				delete(env, "OTEL_RESOURCE_ATTRIBUTES")
+			} else {
+				env["OTEL_RESOURCE_ATTRIBUTES"] = kept
+			}
+		}
+		for _, k := range hutil.SortedKeys(env) {
+			if claudeMachineEnv(k) {
+				delete(env, k)
+				warns = append(warns, fmt.Sprintf("claude: env.%s is machine or gateway config; not rendered for the console", k))
+			}
+		}
+		if len(env) == 0 {
+			delete(m, "env")
+		}
+	}
+	out, err := hutil.JSON(m)
+	if err != nil {
+		return "", nil, err
+	}
+	return string(out), warns, nil
+}
+
+// renderClaude: Claude Code server-managed settings take the managed-settings
+// JSON schema, and there is no API for them (console only). The artifact is
+// the adapter's file without machine-scoped keys.
 func renderClaude(in input) (*Plan, error) {
 	p, err := adapterArtifact(in, "claude-code", map[string]string{"managed-settings.json": "claude-managed-settings.json"})
 	if err != nil {
 		return nil, err
 	}
+	content, warns, err := consoleSettings(p.Artifacts[0].Content)
+	if err != nil {
+		return nil, err
+	}
+	p.Artifacts[0].Content = content
+	p.Warnings = append(p.Warnings, warns...)
 	p.Warnings = append(p.Warnings,
-		"claude: server-managed settings and halod's managed-settings.json do not merge; a session that fetches server-managed settings uses them instead of the file (apart from the documented per-key exceptions), so paste this artifact unchanged",
+		"claude: server-managed settings and halod's managed-settings.json do not merge; a session that fetches server-managed settings uses them instead of the file (apart from the documented per-key exceptions), so machine-only keys above do not apply to such sessions",
 		"claude: sessions that authenticate with apiKeyHelper or a custom ANTHROPIC_BASE_URL (the Halos gateway) do not fetch server-managed settings; the console reaches claude.ai Team/Enterprise logins only")
 	p.Manual = []string{
 		"Sign in to claude.ai as an organization Owner; open Organization settings > Claude Code > Managed settings (https://claude.ai/admin-settings/claude-code).",
-		"Replace the JSON with claude-managed-settings.json and save. If the editor reports schema warnings, stop and fix the policy rather than saving with errors.",
+		"Diff claude-managed-settings.json against the JSON already saved there. Add or tighten what policy requires; keep any setting the console already has that is stricter than the artifact. Never paste machine keys (apiKeyHelper, env.ANTHROPIC_*, hooks) into the console.",
+		"Save only when the editor reports no schema warnings; otherwise fix the policy rather than saving with errors.",
 		"Re-run `halo admin export` after every policy change that touches this ring's profile: there is no read API, so drift cannot be detected.",
 	}
 	return p, nil
@@ -91,11 +188,11 @@ func renderCodex(in input) (*Plan, error) {
 		p.Warnings = append(p.Warnings, "codex: telemetry.attributes ride on halod's OTEL wrapper script; the console cannot carry them")
 	}
 	p.Warnings = append(p.Warnings,
-		"codex: Agent Security requirements rank above halod's /etc/codex/requirements.toml but below the legacy managed_config.toml halod also writes and below MDM (scalars and lists override, tables merge); paste these artifacts unchanged so the layers agree",
+		"codex: Agent Security requirements rank above halod's /etc/codex/requirements.toml but below the legacy managed_config.toml halod also writes and below MDM (scalars and lists override, tables merge); reconcile these artifacts with the console's current policy so the layers agree",
 		"codex: authentication fields in cloud-managed requirements are ignored; login restrictions reach machines only through halod")
 	p.Manual = []string{
 		"Sign in to ChatGPT as a workspace owner, admin or Codex admin; open Admin Console > Agent security > Workspace default.",
-		"Choose Edit as TOML, paste codex-requirements.toml as the requirements and codex-config.toml as the defaults, and save. Do not add overrides that grant more than the workspace default.",
+		"Choose Edit as TOML and diff codex-requirements.toml (requirements) and codex-config.toml (defaults) against the current policy. Add or tighten what policy requires; keep any requirement already there that is stricter. Do not add overrides that grant more than the workspace default.",
 		"There is no documented read API: re-run `halo admin export` after policy changes.",
 	}
 	return p, nil
@@ -115,12 +212,13 @@ func renderGemini(in input) (*Plan, error) {
 	p.Desired = []Setting{
 		{Key: geminiKey("loggingSettings", "logMetadata"), Value: tel.Enabled, From: "telemetry.enabled", Access: AccessWrite, Strict: true},
 		{Key: geminiKey("loggingSettings", "logPromptsAndResponses"), Value: tel.Enabled && tel.LogPrompts, From: "telemetry.logPrompts", Access: AccessWrite, Strict: true},
-		{Key: geminiKey("loggingSettings", "binding"), Value: bind, From: "vendorAdmin.gemini.project", Access: AccessWrite},
+		{Key: geminiKey("loggingSettings", "binding"), Value: bind, From: "vendorAdmin.gemini.project", Access: AccessWrite, Sticky: true},
 	}
 	if t.ReleaseChannel != "" {
 		p.Desired = append(p.Desired,
-			Setting{Key: geminiKey("releaseChannelSettings", "releaseChannel"), Value: strings.ToUpper(t.ReleaseChannel), From: "vendorAdmin.gemini.releaseChannel", Access: AccessWrite, Strict: "STABLE"},
-			Setting{Key: geminiKey("releaseChannelSettings", "binding"), Value: bind, From: "vendorAdmin.gemini.project", Access: AccessWrite})
+			// an unspecified channel is the default, stable: moving to experimental from it loosens
+			Setting{Key: geminiKey("releaseChannelSettings", "releaseChannel"), Value: strings.ToUpper(t.ReleaseChannel), From: "vendorAdmin.gemini.releaseChannel", Access: AccessWrite, Strict: "STABLE", StrictAlso: []any{"CHANNEL_TYPE_UNSPECIFIED"}},
+			Setting{Key: geminiKey("releaseChannelSettings", "binding"), Value: bind, From: "vendorAdmin.gemini.project", Access: AccessWrite, Sticky: true})
 	}
 	if tel.LogPrompts && !tel.Enabled {
 		p.Warnings = append(p.Warnings, "gemini: telemetry.logPrompts without telemetry.enabled renders logPromptsAndResponses false")
@@ -146,7 +244,7 @@ func renderCopilot(in input) (*Plan, error) {
 		case !ok:
 			other++
 		case g == "":
-			p.Warnings = append(p.Warnings, fmt.Sprintf("copilot: deny %q is relative to the home directory; content exclusion has no home-relative form, not rendered", d))
+			p.Warnings = append(p.Warnings, fmt.Sprintf("copilot: deny %q is relative to the home directory; content exclusion has no home-relative form, not rendered", Sanitize(d)))
 		default:
 			globs = append(globs, g)
 		}
@@ -206,7 +304,7 @@ func renderCursor(in input) (*Plan, error) {
 					ids = append(ids, t.Model)
 				}
 			}
-			lines = append(lines, fmt.Sprintf("- %s (provider model ids: %s)", alias, strings.Join(ids, ", ")))
+			lines = append(lines, Sanitize(fmt.Sprintf("- %s (provider model ids: %s)", alias, strings.Join(ids, ", "))))
 		}
 		p.Artifacts = []Artifact{{Name: "cursor-models.md", Content: "# Cursor team model allowlist\n\nEnable only the Cursor models that correspond to these policy aliases:\n\n" + strings.Join(lines, "\n") + "\n"}}
 		p.Manual = []string{

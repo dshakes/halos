@@ -129,7 +129,7 @@ The org-wide cloud console of each vendor, driven by `halo admin` from the GA ri
 
 | Vendor | Console | Write | Read | Otherwise |
 |---|---|---|---|---|
-| Claude Code | Server-managed settings | none | none | export `managed-settings.json`. Replaces the file for sessions that fetch it. Gateway (`apiKeyHelper`) sessions do not fetch it |
+| Claude Code | Server-managed settings | none | none | export `managed-settings.json` without machine keys (credential helpers, gateway env, hooks). Replaces the file for sessions that fetch it. Gateway (`apiKeyHelper`) sessions do not fetch it |
 | Codex | ChatGPT Agent Security | none documented | none | export `requirements.toml` and `config.toml` |
 | Gemini Code Assist | logging, release channel | `cloudaicompanion` v1 | `cloudaicompanion` v1 | logging covers IDE use, not Gemini CLI |
 | Copilot | content exclusion | `PUT /orgs/{org}/copilot/content_exclusion` | `GET` of the same path | not applied by Copilot CLI or agent mode |

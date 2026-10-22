@@ -14,13 +14,20 @@ func TestVendorAdminValidate(t *testing.T) {
 		want string // substring of an issue; "" = no issue
 		sev  Severity
 	}{
-		{"ok", &VendorAdmin{Copilot: &VendorTarget{Org: "acme"}, Gemini: &VendorTarget{Project: "p", ReleaseChannel: "stable"}, Claude: &VendorTarget{}}, "", ""},
+		{"ok", &VendorAdmin{Copilot: &VendorTarget{Org: "acme"}, Gemini: &VendorTarget{Project: "acme-dev", ReleaseChannel: "stable"}, Claude: &VendorTarget{}}, "", ""},
 		{"copilot needs org", &VendorAdmin{Copilot: &VendorTarget{}}, "vendorAdmin.copilot.org", SeverityError},
-		{"copilot org path", &VendorAdmin{Copilot: &VendorTarget{Org: "a/../b"}}, "not a GitHub organization", SeverityError},
+		{"copilot org path", &VendorAdmin{Copilot: &VendorTarget{Org: "a/../b"}}, "not a valid id", SeverityError},
+		{"claude org traversal", &VendorAdmin{Claude: &VendorTarget{Org: ".."}}, "vendorAdmin.claude.org", SeverityError},
+		{"cursor org escape", &VendorAdmin{Cursor: &VendorTarget{Org: "a\x1b[2J"}}, "vendorAdmin.cursor.org", SeverityError},
+		{"org too long", &VendorAdmin{Codex: &VendorTarget{Org: strings.Repeat("a", 40)}}, "vendorAdmin.codex.org", SeverityError},
+		{"project uppercase", &VendorAdmin{Gemini: &VendorTarget{Project: "Acme_Dev"}}, "vendorAdmin.gemini.project", SeverityError},
+		{"project traversal", &VendorAdmin{Gemini: &VendorTarget{Project: "../../x"}}, "vendorAdmin.gemini.project", SeverityError},
+		{"location traversal", &VendorAdmin{Gemini: &VendorTarget{Project: "acme-dev", Location: "../x"}}, "location", SeverityError},
+		{"uuid org ok", &VendorAdmin{Claude: &VendorTarget{Org: "4f9c2a1e-0b6d-4e1a-9c2f-7a3b5d8e1f00"}}, "", ""},
 		{"gemini needs project", &VendorAdmin{Gemini: &VendorTarget{}}, "vendorAdmin.gemini.project", SeverityError},
-		{"bad channel", &VendorAdmin{Gemini: &VendorTarget{Project: "p", ReleaseChannel: "nightly"}}, "releaseChannel", SeverityError},
-		{"bad location", &VendorAdmin{Gemini: &VendorTarget{Project: "p", Location: "Mars"}}, "location", SeverityError},
-		{"gemini fields elsewhere", &VendorAdmin{Codex: &VendorTarget{Project: "p"}}, "gemini only", SeverityError},
+		{"bad channel", &VendorAdmin{Gemini: &VendorTarget{Project: "acme-dev", ReleaseChannel: "nightly"}}, "releaseChannel", SeverityError},
+		{"bad location", &VendorAdmin{Gemini: &VendorTarget{Project: "acme-dev", Location: "Mars"}}, "location", SeverityError},
+		{"gemini fields elsewhere", &VendorAdmin{Codex: &VendorTarget{Project: "acme-dev"}}, "gemini only", SeverityError},
 		{"unknown ring", &VendorAdmin{Ring: "nope", Claude: &VendorTarget{}}, "unknown ring", SeverityError},
 		{"non-GA ring warns", &VendorAdmin{Ring: "ring1-canary", Claude: &VendorTarget{}}, "org-wide", SeverityWarning},
 	}

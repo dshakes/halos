@@ -152,7 +152,7 @@ func TestDiff(t *testing.T) {
 		{Key: "d", Value: "enabled", Access: AccessRead},
 		{Key: "e", Value: "x", Access: AccessManual},
 	}}
-	p.Diff(map[string]any{"a": true, "b": "EXPERIMENTAL", "c": []string{"/x", "/y"}})
+	p.Diff(map[string]any{"a": true, "b": "EXPERIMENTAL", "c": []any{"/x", "/y"}})
 	got := map[string]Change{}
 	for _, c := range p.Changes {
 		got[c.Key] = c
@@ -171,103 +171,150 @@ func TestDiff(t *testing.T) {
 	}
 }
 
-type recorded struct{ method, path, body, auth, version string }
+type recorded struct{ method, path, body, auth, version, ifMatch string }
 
-// fake records every request and answers from routes ("METHOD path" -> status, body).
-func fake(t *testing.T, routes map[string][2]string) (*httptest.Server, *[]recorded) {
+// reply is a fake's answer: status, body and optional response headers.
+type reply struct {
+	code int
+	body string
+	hdr  map[string]string
+}
+
+func ok(body string) reply { return reply{code: 200, body: body} }
+
+// fakeFn records every request and answers with fn(method, request URI, call
+// number of that METHOD+URI); unknown routes get 404.
+func fakeFn(t *testing.T, fn func(method, uri string, n int) (reply, bool)) (*httptest.Server, *[]recorded) {
 	t.Helper()
 	var mu sync.Mutex
 	var got []recorded
+	calls := map[string]int{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
 		mu.Lock()
-		got = append(got, recorded{r.Method, r.URL.RequestURI(), string(b), r.Header.Get("Authorization"), r.Header.Get("X-GitHub-Api-Version")})
+		got = append(got, recorded{r.Method, r.URL.RequestURI(), string(b), r.Header.Get("Authorization"), r.Header.Get("X-GitHub-Api-Version"), r.Header.Get("If-Match")})
+		k := r.Method + " " + r.URL.RequestURI()
+		calls[k]++
+		n := calls[k]
 		mu.Unlock()
-		rt, ok := routes[r.Method+" "+r.URL.RequestURI()]
-		if !ok {
-			rt = [2]string{"404", `{"error":{"code":404,"status":"NOT_FOUND"}}`}
+		rp, found := fn(r.Method, r.URL.RequestURI(), n)
+		if !found {
+			rp = reply{404, `{"error":{"code":404,"status":"NOT_FOUND"}}`, nil}
 		}
-		code := map[string]int{"200": 200, "404": 404, "401": 401}[rt[0]]
-		w.WriteHeader(code)
-		_, _ = io.WriteString(w, rt[1])
+		for k, v := range rp.hdr {
+			w.Header().Set(k, v)
+		}
+		w.WriteHeader(rp.code)
+		_, _ = io.WriteString(w, rp.body)
 	}))
 	t.Cleanup(srv.Close)
 	return srv, &got
 }
 
-func TestApplyGemini(t *testing.T) {
-	const parent = "/v1/projects/acme-dev/locations/global"
-	srv, got := fake(t, map[string][2]string{
-		// logging exists (logMetadata false omitted, proto3 JSON) and is bound; release channel does not exist
-		"GET " + parent + "/loggingSettings/halos":                                                  {"200", `{"name":"projects/acme-dev/locations/global/loggingSettings/halos"}`},
-		"GET " + parent + "/loggingSettings/halos/settingBindings/halos":                            {"200", `{"name":"x","target":"projects/acme-dev","product":"GEMINI_CODE_ASSIST"}`},
-		"PATCH " + parent + "/loggingSettings/halos?updateMask=logMetadata":                         {"200", `{}`},
-		"POST " + parent + "/releaseChannelSettings?release_channel_setting_id=halos":               {"200", `{}`},
-		"POST " + parent + "/releaseChannelSettings/halos/settingBindings?setting_binding_id=halos": {"200", `{"name":"operations/1"}`},
-	})
+// fake answers from a fixed route table ("METHOD uri").
+func fake(t *testing.T, routes map[string]reply) (*httptest.Server, *[]recorded) {
+	return fakeFn(t, func(m, u string, _ int) (reply, bool) { r, ok := routes[m+" "+u]; return r, ok })
+}
+
+func vendorPlan(t *testing.T, vendor string) *Plan {
+	t.Helper()
 	rep, err := Render(exampleOrg(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := rep.Vendors[slices.IndexFunc(rep.Vendors, func(p *Plan) bool { return p.Vendor == "gemini" })]
-	c := NewClient("gemini", srv.URL, "ya29.secret", policy.VendorTarget{Project: "acme-dev"})
+	return rep.Vendors[slices.IndexFunc(rep.Vendors, func(p *Plan) bool { return p.Vendor == vendor })]
+}
+
+// readDiff is plan: read the live console and diff it into p.
+func readDiff(t *testing.T, c *Client, p *Plan) {
+	t.Helper()
 	cur, err := c.Read(context.Background(), p)
 	if err != nil {
 		t.Fatal(err)
 	}
 	p.Diff(cur)
-	applied, err := c.Apply(context.Background(), p)
+}
+
+const gParent = "/v1/projects/acme-dev/locations/global"
+
+// geminiRoutes: logging exists (logMetadata false omitted, proto3 JSON) and
+// is bound; release channel does not exist.
+func geminiRoutes() map[string]reply {
+	return map[string]reply{
+		"GET " + gParent + "/loggingSettings":                                                        ok(`{"loggingSettings":[{"name":"projects/acme-dev/locations/global/loggingSettings/halos"}]}`),
+		"GET " + gParent + "/loggingSettings/halos":                                                  ok(`{"name":"projects/acme-dev/locations/global/loggingSettings/halos"}`),
+		"GET " + gParent + "/loggingSettings/halos/settingBindings/halos":                            ok(`{"name":"x","target":"projects/acme-dev","product":"GEMINI_CODE_ASSIST"}`),
+		"GET " + gParent + "/releaseChannelSettings":                                                 ok(`{}`),
+		"PATCH " + gParent + "/loggingSettings/halos?updateMask=logMetadata":                         ok(`{}`),
+		"POST " + gParent + "/releaseChannelSettings?release_channel_setting_id=halos":               ok(`{}`),
+		"POST " + gParent + "/releaseChannelSettings/halos/settingBindings?setting_binding_id=halos": ok(`{"name":"operations/1"}`),
+	}
+}
+
+var geminiReads = []recorded{
+	{method: "GET", path: gParent + "/loggingSettings"},
+	{method: "GET", path: gParent + "/loggingSettings/halos"},
+	{method: "GET", path: gParent + "/loggingSettings/halos/settingBindings/halos"},
+	{method: "GET", path: gParent + "/releaseChannelSettings"},
+	{method: "GET", path: gParent + "/releaseChannelSettings/halos"}, // 404: no binding to read
+}
+
+func TestApplyGemini(t *testing.T) {
+	srv, got := fake(t, geminiRoutes())
+	p := vendorPlan(t, "gemini")
+	c := NewClient("gemini", srv.URL, "ya29.secret", policy.VendorTarget{Project: "acme-dev"})
+	readDiff(t, c, p)
+	res, err := c.Apply(context.Background(), p)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(applied) != 3 {
-		t.Fatalf("applied %+v", applied)
+	if len(res) != 3 || slices.ContainsFunc(res, func(r Result) bool { return !r.OK }) {
+		t.Fatalf("results %+v", res)
 	}
-	want := []recorded{
-		{"GET", parent + "/loggingSettings/halos", "", "", ""},
-		{"GET", parent + "/loggingSettings/halos/settingBindings/halos", "", "", ""},
-		{"GET", parent + "/releaseChannelSettings/halos", "", "", ""}, // 404: no binding to read
-		{"PATCH", parent + "/loggingSettings/halos?updateMask=logMetadata", `{"logMetadata":true}`, "", ""},
-		{"POST", parent + "/releaseChannelSettings?release_channel_setting_id=halos", `{"releaseChannel":"STABLE"}`, "", ""},
-		{"POST", parent + "/releaseChannelSettings/halos/settingBindings?setting_binding_id=halos", `{"product":"GEMINI_CODE_ASSIST","target":"projects/acme-dev"}`, "", ""},
-	}
+	want := slices.Concat(geminiReads, geminiReads, []recorded{ // plan's read, apply's re-read, the writes
+		{method: "PATCH", path: gParent + "/loggingSettings/halos?updateMask=logMetadata", body: `{"logMetadata":true}`},
+		{method: "POST", path: gParent + "/releaseChannelSettings?release_channel_setting_id=halos", body: `{"releaseChannel":"STABLE"}`},
+		{method: "POST", path: gParent + "/releaseChannelSettings/halos/settingBindings?setting_binding_id=halos", body: `{"product":"GEMINI_CODE_ASSIST","target":"projects/acme-dev"}`},
+	})
 	assertRequests(t, *got, want, "Bearer ya29.secret", "")
 }
 
+func copilotRoutes(all string) map[string]reply {
+	return map[string]reply{
+		"GET /orgs/acme/copilot/content_exclusion": ok(`{"octo-repo":["/src/kernel.rs"],"*":` + all + `}`),
+		"GET /orgs/acme/copilot/billing":           ok(`{"seat_breakdown":{"total":3},"seat_management_setting":"assign_selected","ide_chat":"enabled","platform_chat":"enabled","cli":"enabled","public_code_suggestions":"block","plan_type":"business"}`),
+		"PUT /orgs/acme/copilot/content_exclusion": ok(`{"message":"Content exclusion rules updated successfully."}`),
+	}
+}
+
+var copilotReads = []recorded{
+	{method: "GET", path: "/orgs/acme/copilot/content_exclusion"},
+	{method: "GET", path: "/orgs/acme/copilot/billing"},
+}
+
 func TestApplyCopilot(t *testing.T) {
-	srv, got := fake(t, map[string][2]string{
-		"GET /orgs/acme/copilot/content_exclusion": {"200", `{"octo-repo":["/src/kernel.rs"],"*":["/.env"]}`},
-		"GET /orgs/acme/copilot/billing":           {"200", `{"seat_breakdown":{"total":3},"seat_management_setting":"assign_selected","ide_chat":"enabled","platform_chat":"enabled","cli":"enabled","public_code_suggestions":"block","plan_type":"business"}`},
-		"PUT /orgs/acme/copilot/content_exclusion": {"200", `{"message":"Content exclusion rules updated successfully."}`},
-	})
-	rep, err := Render(exampleOrg(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-	p := rep.Vendors[slices.IndexFunc(rep.Vendors, func(p *Plan) bool { return p.Vendor == "copilot" })]
+	srv, got := fake(t, copilotRoutes(`["/.env"]`))
+	p := vendorPlan(t, "copilot")
 	c := NewClient("copilot", srv.URL, "ghp_secret", policy.VendorTarget{Org: "acme"})
-	cur, err := c.Read(context.Background(), p)
-	if err != nil {
-		t.Fatal(err)
-	}
-	p.Diff(cur)
+	readDiff(t, c, p)
 	if len(p.Changes) != 2 {
 		t.Fatalf("changes %+v, want content exclusion and cli", p.Changes)
 	}
-	applied, err := c.Apply(context.Background(), p)
+	res, err := c.Apply(context.Background(), p)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(applied) != 1 || applied[0].Key != "content_exclusion.*" {
-		t.Fatalf("applied %+v: only content exclusion is writable", applied)
+	if len(res) != 1 || res[0].Change.Key != exclusionKey || !res[0].OK {
+		t.Fatalf("results %+v: only content exclusion is writable", res)
 	}
-	want := []recorded{
-		{"GET", "/orgs/acme/copilot/content_exclusion", "", "", ""},
-		{"GET", "/orgs/acme/copilot/billing", "", "", ""},
-		{"GET", "/orgs/acme/copilot/content_exclusion", "", "", ""},
-		{"PUT", "/orgs/acme/copilot/content_exclusion", `{"*":["/.env","/.env.*","/secrets/**"],"octo-repo":["/src/kernel.rs"]}`, "", ""},
-	}
+	want := slices.Concat(copilotReads, copilotReads, []recorded{
+		{method: "GET", path: "/orgs/acme/copilot/content_exclusion"},
+		{method: "PUT", path: "/orgs/acme/copilot/content_exclusion", body: `{"*":["/.env","/.env.*","/secrets/**"],"octo-repo":["/src/kernel.rs"]}`},
+	})
 	assertRequests(t, *got, want, "Bearer ghp_secret", githubVersion)
+	if (*got)[len(*got)-1].ifMatch != "" {
+		t.Fatal("If-Match sent without an ETag from GitHub")
+	}
 }
 
 func assertRequests(t *testing.T, got, want []recorded, auth, version string) {
@@ -287,22 +334,11 @@ func assertRequests(t *testing.T, got, want []recorded, auth, version string) {
 }
 
 func TestNoLoosening(t *testing.T) {
-	// The console excludes more than policy and logs prompts; policy does neither.
-	srv, got := fake(t, map[string][2]string{
-		"GET /orgs/acme/copilot/content_exclusion": {"200", `{"*":["/.env","/.env.*","/secrets/**","/extra"]}`},
-		"GET /orgs/acme/copilot/billing":           {"200", `{"cli":"enabled"}`},
-	})
-	rep, err := Render(exampleOrg(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-	p := rep.Vendors[slices.IndexFunc(rep.Vendors, func(p *Plan) bool { return p.Vendor == "copilot" })]
+	// The console excludes more than policy; policy does not.
+	srv, got := fake(t, copilotRoutes(`["/.env","/.env.*","/secrets/**","/extra"]`))
+	p := vendorPlan(t, "copilot")
 	c := NewClient("copilot", srv.URL, "t", policy.VendorTarget{Org: "acme"})
-	cur, err := c.Read(context.Background(), p)
-	if err != nil {
-		t.Fatal(err)
-	}
-	p.Diff(cur)
+	readDiff(t, c, p)
 	n := len(*got)
 	if _, err := c.Apply(context.Background(), p); err == nil || !strings.Contains(err.Error(), "refusing to loosen content_exclusion.*") {
 		t.Fatalf("want loosening refusal, got %v", err)
@@ -313,7 +349,7 @@ func TestNoLoosening(t *testing.T) {
 
 	g := &Plan{Vendor: "gemini", Desired: []Setting{{Key: geminiKey("loggingSettings", "logPromptsAndResponses"), Value: false, Access: AccessWrite, Strict: true}}}
 	g.Diff(map[string]any{geminiKey("loggingSettings", "logPromptsAndResponses"): true})
-	if _, err := NewClient("gemini", "http://unused.invalid", "t", policy.VendorTarget{Project: "p"}).Apply(context.Background(), g); err == nil {
+	if _, err := NewClient("gemini", "http://127.0.0.1:1", "t", policy.VendorTarget{Project: "p"}).Apply(context.Background(), g); err == nil {
 		t.Fatal("turning logging off must be refused")
 	}
 }
