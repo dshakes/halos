@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/go-jose/go-jose/v4"
 )
@@ -44,9 +45,16 @@ type sigVerified struct{ ok bool }
 type sigVerifiedKey struct{}
 
 // jwksKeySet is an issuer's JWKS for oidc.NewVerifier: keys are cached and
-// refetched when no cached key verifies a token (key rotation), except for a
-// CacheOnly context. One fetch runs at a time; callers that waited for it
-// use its result instead of fetching again.
+// refetched when no cached key verifies a token (key rotation), and once the
+// set is jwksMaxAge old (a key the issuer withdrew stops verifying), except
+// for a CacheOnly context. One fetch runs at a time; callers that waited for
+// it use its result instead of fetching again.
+//
+// A stale set keeps verifying when it cannot be refreshed: under CacheOnly
+// (a blocked IP never makes halo-server fetch), and when the issuer is
+// unreachable (retried every jwksStaleRetry). Signatures are still checked
+// against keys the issuer did publish; availability through an issuer
+// outage wins over dropping a key the issuer may have withdrawn meanwhile.
 type jwksKeySet struct {
 	url    string
 	client *http.Client
@@ -54,12 +62,31 @@ type jwksKeySet struct {
 	mu   sync.RWMutex
 	keys []jose.JSONWebKey
 	gen  uint64 // bumped by every completed fetch
+	// refreshAt is when the cached set is next refetched before use (zero
+	// until the first fetch); now is the clock (nil = time.Now).
+	refreshAt time.Time
+	now       func() time.Time
 
 	fetchMu sync.Mutex
 }
 
 // maxJWKSBody bounds a JWKS response.
 const maxJWKSBody = 1 << 20
+
+const (
+	// jwksMaxAge: a cached key set older than this is refetched before use.
+	jwksMaxAge = 24 * time.Hour
+	// jwksStaleRetry: after a failed refresh of a stale set, the stale set
+	// serves this long before the next attempt.
+	jwksStaleRetry = time.Minute
+)
+
+func (k *jwksKeySet) clock() time.Time {
+	if k.now != nil {
+		return k.now()
+	}
+	return time.Now()
+}
 
 func joseAlgs() []jose.SignatureAlgorithm {
 	out := make([]jose.SignatureAlgorithm, len(AllowedAlgs))
@@ -80,10 +107,22 @@ func (k *jwksKeySet) VerifySignature(ctx context.Context, raw string) ([]byte, e
 	}
 	kid := jws.Signatures[0].Header.KeyID
 	k.mu.RLock()
-	keys, gen := k.keys, k.gen
+	keys, gen, refreshAt := k.keys, k.gen, k.refreshAt
 	k.mu.RUnlock()
+	refreshed := false
+	if !cacheOnly(ctx) && !refreshAt.IsZero() && !k.clock().Before(refreshAt) {
+		if fresh, err := k.refresh(ctx, gen); err == nil {
+			keys, refreshed = fresh, true
+		} else { // keep the stale set (see jwksKeySet); retry later
+			k.mu.Lock()
+			if k.gen == gen {
+				k.refreshAt = k.clock().Add(jwksStaleRetry)
+			}
+			k.mu.Unlock()
+		}
+	}
 	payload, ok := verifyWith(jws, kid, keys)
-	if !ok && !cacheOnly(ctx) {
+	if !ok && !refreshed && !cacheOnly(ctx) {
 		if keys, err = k.refresh(ctx, gen); err != nil {
 			return nil, err
 		}
@@ -125,7 +164,7 @@ func (k *jwksKeySet) refresh(ctx context.Context, seen uint64) ([]jose.JSONWebKe
 		return nil, err
 	}
 	k.mu.Lock()
-	k.keys, k.gen = keys, k.gen+1
+	k.keys, k.gen, k.refreshAt = keys, k.gen+1, k.clock().Add(jwksMaxAge)
 	k.mu.Unlock()
 	return keys, nil
 }

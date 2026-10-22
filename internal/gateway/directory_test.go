@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -205,5 +206,52 @@ func TestDirectoryClientNeverFailsOpenOnInactiveOrRefusal(t *testing.T) {
 				t.Fatalf("HTTP %d: %+v %v, want ErrNotProvisioned (never fail open)", code, got, err)
 			}
 		})
+	}
+}
+
+// A full cache evicts active entries, never inactive ones: forgetting a
+// deactivated user's answer would let fail open re-admit them in an outage.
+func TestDirectoryCacheEvictionKeepsInactive(t *testing.T) {
+	var down atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if down.Load() {
+			http.Error(w, "down", http.StatusServiceUnavailable)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(DirectoryEntry{Active: true})
+	}))
+	t.Cleanup(srv.Close)
+	c, err := NewDirectoryClient(srv.URL, "tok", time.Minute, 5*time.Minute, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(1_000_000, 0)
+	c.Now = func() time.Time { return now }
+	c.store("mallory@acme.com", DirectoryEntry{}, now.Add(-time.Hour)) // deactivated, answered long ago
+	for i := 1; i < maxDirectoryEntries; i++ {
+		c.store(fmt.Sprintf("u%d@acme.com", i), DirectoryEntry{Active: true}, now) // fresh, active
+	}
+	if _, err := c.Resolve(context.Background(), &policy.Subject{ID: "new@acme.com"}); err != nil {
+		t.Fatal(err)
+	}
+	c.mu.Lock()
+	n, inactive := len(c.cache), c.cache["mallory@acme.com"]
+	c.mu.Unlock()
+	if n > maxDirectoryEntries || inactive.at.IsZero() {
+		t.Fatalf("cache %d entries, inactive entry kept: %v", n, !inactive.at.IsZero())
+	}
+	down.Store(true)
+	if got, err := c.Resolve(context.Background(), &policy.Subject{ID: "mallory@acme.com"}); got != nil || !errors.Is(err, ErrNotProvisioned) {
+		t.Fatalf("deactivated user during an outage after eviction: %+v %v, want ErrNotProvisioned", got, err)
+	}
+
+	// A cache full of inactive entries stays bounded and keeps all of them.
+	full := &DirectoryClient{}
+	for i := 0; i < maxDirectoryEntries; i++ {
+		full.store(fmt.Sprintf("d%d", i), DirectoryEntry{}, now)
+	}
+	full.store("another", DirectoryEntry{Active: true}, now)
+	if len(full.cache) != maxDirectoryEntries || full.cache["d0"].at.IsZero() {
+		t.Fatalf("all-inactive cache: %d entries", len(full.cache))
 	}
 }

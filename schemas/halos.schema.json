@@ -188,7 +188,7 @@
             "type": "string",
             "minLength": 1
           },
-          "description": "Env names units may add. Provider, cloud, base-URL, proxy, telemetry, CA-trust and runtime-injection names (*_BASE_URL, *_API_KEY, ANTHROPIC_*, OPENAI_*, GEMINI_*, CLAUDE_CODE_*, AWS_*, GOOGLE_*, CLOUD_ML_REGION, HTTP(S)_PROXY, ALL_PROXY, NO_PROXY, OTEL_EXPORTER_OTLP_*, SSL_CERT_FILE, SSL_CERT_DIR, REQUESTS_CA_BUNDLE, CURL_CA_BUNDLE, NODE_EXTRA_CA_CERTS, PATH, BASH_ENV, ENV, GIT_SSH_COMMAND, GIT_CONFIG_*, GIT_EXEC_PATH, npm_config_*, JAVA_TOOL_OPTIONS, _JAVA_OPTIONS, PERL5OPT, RUBYOPT, NODE_*, LD_*, DYLD_*, PYTHON*; any case) are refused even here."
+          "description": "Env names units may add. Provider, cloud, base-URL, proxy, telemetry, CA-trust and runtime-injection names (*_BASE_URL, *_API_KEY, ANTHROPIC_*, OPENAI_*, GEMINI_*, CLAUDE_CODE_*, AWS_*, GOOGLE_*, CLOUD_ML_REGION, HTTP(S)_PROXY, ALL_PROXY, NO_PROXY, OTEL_EXPORTER_OTLP_*, SSL_CERT_FILE, SSL_CERT_DIR, REQUESTS_CA_BUNDLE, CURL_CA_BUNDLE, NODE_EXTRA_CA_CERTS, PATH, BASH_ENV, ENV, GIT_SSH_COMMAND, GIT_CONFIG_*, GIT_EXEC_PATH, npm_config_*, JAVA_TOOL_OPTIONS, _JAVA_OPTIONS, PERL5OPT, RUBYOPT, NODE_*, LD_*, DYLD_*, PYTHON*, every GIT_* but commit identity, CC, CXX, CGO_*, GO module sources (GOPROXY, GOSUMDB, GONOSUMDB, GOPRIVATE, ...), PIP_*, UV_*, YARN_*, BUNDLE_*, GEM_*, build tool options and DOCKER_HOST; any case) are refused even here."
         }
       },
       "additionalProperties": false

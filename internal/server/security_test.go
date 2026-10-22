@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/dshakes/halos/internal/gateway"
+	"github.com/dshakes/halos/internal/policy"
 )
 
 // asH is env.as with extra request headers.
@@ -245,7 +246,7 @@ func TestPolicyLoadRefusesSecurityErrors(t *testing.T) {
 	// The last good policy keeps serving, minus the rule the refused policy
 	// changed: a modification is never applied, but the old rule is gone from
 	// it, so it stops matching (TestRefusedPolicyStillRemovesWorkloadRules).
-	if org == nil || org.Workloads == nil || len(org.Workloads.Rules) != 0 || org.Gateway == nil {
+	if org == nil || org.Workloads == nil || org.Gateway == nil || ruleFor(org, "acme/app") != "" {
 		t.Fatalf("last good policy not kept, or the changed rule still in effect: %+v", org)
 	}
 	var m bytes.Buffer
@@ -361,25 +362,25 @@ workloads:
 	if err == nil || !strings.Contains(err.Error(), "units") {
 		t.Fatalf("policy with a unit typo was not refused: %v", err)
 	}
-	if org == nil || org.Workloads == nil || len(org.Workloads.Rules) != 0 {
-		t.Fatalf("rules in effect %+v, want none: compromised removed, kept changed (not applied), new added (not applied)", org.Workloads)
+	if org == nil || org.Workloads == nil || ruleFor(org, "acme/app") != "" || ruleFor(org, "acme/tools") != "" || ruleFor(org, "acme/new") != "" {
+		t.Fatalf("rules in effect %+v, want none matching: compromised removed, kept changed (not applied), new added (not applied)", org.Workloads)
 	}
 	// The exchange stops minting for the removed rule at once.
 	if w := e.post(exchangeForm(e.mint(t)), ""); w.Code != http.StatusBadRequest {
 		t.Fatalf("exchange for the removed rule: %d %s, want 400", w.Code, w.Body)
 	}
-	if hp, err := e.s.Policy(); err != nil || len(hp.Workloads.Rules) != 0 {
+	if hp, err := e.s.Policy(); err != nil || ruleFor(hp, "acme/app") != "" {
 		t.Fatalf("Server.Policy (controller path) still has the removed rule: %+v %v", hp, err)
 	}
 
 	// Removing only "compromised" keeps "kept" unchanged in effect.
 	write(compromised + kept)
-	if org, _, err := e.s.pol.Get(); err == nil || len(org.Workloads.Rules) != 2 {
+	if org, _, err := e.s.pol.Get(); err == nil || ruleFor(org, "acme/app") != "compromised" || ruleFor(org, "acme/tools") != "kept" {
 		t.Fatalf("still refused (unit typo), back to the last good rules: %+v %v", org.Workloads, err)
 	}
 	write(kept)
 	org, _, _ = e.s.pol.Get()
-	if len(org.Workloads.Rules) != 1 || org.Workloads.Rules[0].Name != "kept" {
+	if ruleFor(org, "acme/app") != "" || ruleFor(org, "acme/tools") != "kept" {
 		t.Fatalf("rules in effect %+v, want only kept", org.Workloads.Rules)
 	}
 	var m bytes.Buffer
@@ -659,5 +660,67 @@ func TestGatewayKillswitchConfigAndDomain(t *testing.T) {
 	}
 	if ed25519.Verify(pub, env.Payload, env.Signature) {
 		t.Fatal("kill-list signature is not domain-separated")
+	}
+}
+
+// ruleFor is the workload rule a GitHub token for repository on main gets
+// under org ("" = none).
+func ruleFor(org *policy.Org, repository string) string {
+	r, _, ok := org.Workloads.MatchWorkload("github", map[string]any{"repository": repository, "repository_owner": "acme", "ref": "refs/heads/main"})
+	if !ok {
+		return ""
+	}
+	return r.Name
+}
+
+// A refused policy that drops a narrow rule above a broader one leaves the
+// narrow rule as a deny tombstone: its tokens do not fall through to the
+// broader rule, so no token gains a grant over the last good policy.
+func TestRefusedPolicyRemovalDoesNotWiden(t *testing.T) {
+	e := newWorkloadEnv(t, true)
+	f := filepath.Join(e.dir, "halos.yaml")
+	write := func(rules string) {
+		t.Helper()
+		root := fmt.Sprintf(`org: acme-corp
+workloads:
+  audience: halos
+  issuers:
+    - {name: github, url: %q, tenantClaim: repository_owner}
+  rules:
+%s`, e.iss.URL, rules)
+		if err := os.WriteFile(f, []byte(root), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		e.s.ReloadPolicy()
+	}
+	const narrow = `    - {name: untrusted-readonly, issuer: github, match: {repository_owner: acme, repository: "acme/untrusted"}, subject: "workload:gh:{repository}", groups: [readonly]}
+`
+	const broad = `    - {name: org-deploy, issuer: github, match: {repository_owner: acme}, subject: "workload:gh:{repository}", groups: [deploy]}
+`
+	write(narrow + broad)
+	if org, _, err := e.s.pol.Get(); err != nil || ruleFor(org, "acme/untrusted") != "untrusted-readonly" || ruleFor(org, "acme/app") != "org-deploy" {
+		t.Fatalf("fixture: %v", err)
+	}
+	unit := filepath.Join(e.dir, "units", "payments", "checkout", "unit.yaml")
+	ub, err := os.ReadFile(unit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(unit, bytes.Replace(ub, []byte("parent: payments"), []byte("parent: paymnets"), 1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	write(broad) // refused (unit typo); drops the narrow rule
+	org, _, err := e.s.pol.Get()
+	if err == nil {
+		t.Fatal("policy with a unit typo was not refused")
+	}
+	if got := ruleFor(org, "acme/untrusted"); got != "" {
+		t.Fatalf("acme/untrusted fell through to %q after its narrow rule was removed, want no rule", got)
+	}
+	if got := ruleFor(org, "acme/app"); got != "org-deploy" {
+		t.Fatalf("acme/app: %q, want org-deploy (unchanged)", got)
+	}
+	if w := e.post(exchangeForm(e.mint(t, "repository", "acme/untrusted")), ""); w.Code != http.StatusBadRequest {
+		t.Fatalf("exchange for acme/untrusted: %d %s, want 400", w.Code, w.Body)
 	}
 }

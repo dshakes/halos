@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/dshakes/halos/internal/identity"
@@ -52,6 +53,46 @@ type workloadExchange struct {
 	mu        sync.Mutex
 	verifiers map[string]*identity.OIDCJWT // issuer URL + "\x00" + audience
 	seen      map[string]time.Time         // replay key -> subject token expiry
+	denied    map[string]time.Time         // issuer + "\x00" + IP -> last workload.token.denied audit
+	// deniedSuppressed counts workload.token.denied audits coalesced away
+	// (halo_server_workload_denied_audit_suppressed_total).
+	deniedSuppressed atomic.Uint64
+}
+
+const (
+	// deniedAuditWindow: at most one workload.token.denied audit entry per
+	// issuer and client IP per window; the rest are logged and counted.
+	deniedAuditWindow = time.Minute
+	// maxDeniedAuditKeys bounds the coalescing map; when full of keys inside
+	// the window, further denials are suppressed (counted), not audited.
+	maxDeniedAuditKeys = 10_000
+)
+
+// auditDenied reports whether a workload.token.denied for key (issuer+IP)
+// should be audited now; false means it was coalesced and counted.
+func (x *workloadExchange) auditDenied(key string, now time.Time) bool {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	if last, ok := x.denied[key]; ok && now.Sub(last) < deniedAuditWindow {
+		x.deniedSuppressed.Add(1)
+		return false
+	}
+	if x.denied == nil {
+		x.denied = map[string]time.Time{}
+	}
+	if _, ok := x.denied[key]; !ok && len(x.denied) >= maxDeniedAuditKeys {
+		for k, last := range x.denied {
+			if now.Sub(last) >= deniedAuditWindow {
+				delete(x.denied, k)
+			}
+		}
+		if len(x.denied) >= maxDeniedAuditKeys {
+			x.deniedSuppressed.Add(1)
+			return false
+		}
+	}
+	x.denied[key] = now
+	return true
 }
 
 func (x *workloadExchange) verifier(issuer, audience string) (*identity.OIDCJWT, error) {
@@ -263,9 +304,21 @@ func (s *Server) exchange(w http.ResponseWriter, r *http.Request, org *policy.Or
 		return
 	}
 	ciSub, _ := policy.ClaimString(claims, "sub")
-	deny := func(reason error) { // a verified token: audited, never counted against the IP
-		s.Audit(r.Context(), wi.Name+":"+ciSub, "workload.token.denied", "", map[string]string{"issuer": wi.URL, "reason": reason.Error()})
+	deny := func(reason error) { // a verified token: audited (coalesced per issuer+IP), never counted against the IP
+		if s.wl.auditDenied(wi.URL+"\x00"+ip, now) {
+			s.Audit(r.Context(), wi.Name+":"+ciSub, "workload.token.denied", "", map[string]string{"issuer": wi.URL, "reason": reason.Error()})
+		} else {
+			s.cfg.Log.Info("workload token denied (audit coalesced)", "issuer", wi.URL, "reason", reason.Error(), "remote", ip)
+		}
 		oauthErr(w, http.StatusBadRequest, "invalid_grant", reason.Error())
+	}
+	// Match before remembering: only a token a tenant-pinned rule accepts takes
+	// a replay-cache slot, so tokens anyone can mint from a shared CI issuer
+	// (any repository, any audience the job picks) cannot fill the cache.
+	rule, subject, ok := org.Workloads.MatchWorkload(wi.Name, claims)
+	if !ok { // unpinned rules never match; policyHolder counts them per load
+		deny(errNoRule)
+		return
 	}
 	if err := s.rememberSubjectToken(replayKey(wi.URL, claims, raw), unixClaim(claims, "exp"), now); err != nil {
 		if errors.Is(err, errReplayFull) {
@@ -274,11 +327,6 @@ func (s *Server) exchange(w http.ResponseWriter, r *http.Request, org *policy.Or
 			return
 		}
 		deny(err)
-		return
-	}
-	rule, subject, ok := org.Workloads.MatchWorkload(wi.Name, claims)
-	if !ok { // unpinned rules never match; policyHolder counts them per load
-		deny(errNoRule)
 		return
 	}
 	ttl := rule.TTL()

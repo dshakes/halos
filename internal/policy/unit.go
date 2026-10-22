@@ -72,6 +72,9 @@ func UnitForbiddenEnv(k string) string {
 	if why, ok := forbiddenEnvExact[u]; ok {
 		return u + " " + why
 	}
+	if gitIdentityEnv[u] {
+		return ""
+	}
 	for _, f := range forbiddenEnvPrefixes {
 		if strings.HasPrefix(u, f.prefix) {
 			return f.prefix + "* " + f.why
@@ -106,10 +109,22 @@ var forbiddenEnvExact = map[string]string{
 	// Compilers and language runtimes.
 	"GOFLAGS": envInject, "RUSTC": envInject, "PERL5LIB": envInject, "PERL5OPT": envInject, "RUBYLIB": envInject, "RUBYOPT": envInject,
 	"JDK_JAVA_OPTIONS": envInject, "JAVA_TOOL_OPTIONS": envInject, "_JAVA_OPTIONS": envInject, "DOTNET_STARTUP_HOOKS": envInject,
-	"ELECTRON_RUN_AS_NODE": envInject,
+	"ELECTRON_RUN_AS_NODE": envInject, "CC": envInject, "CXX": envInject, "CLASSPATH": envInject, "GCONV_PATH": envInject,
+	"MAVEN_OPTS": envInject, "GRADLE_OPTS": envInject, "JAVA_OPTS": envInject, "PHPRC": envInject, "PHP_INI_SCAN_DIR": envInject,
+	"MAKEFLAGS": envInject, "MAKEFILES": envInject, "GOENV": envInject, "GOTOOLCHAIN": envInject,
+	// Package and module sources: a unit could serve its own dependencies.
+	"GOPROXY": envReroute, "GONOPROXY": envReroute, "GOSUMDB": envReroute, "GONOSUMDB": envReroute, "GONOSUMCHECK": envReroute,
+	"GOINSECURE": envReroute, "GOPRIVATE": envReroute,
+	// Programs tools start for the user, and where containers run.
+	"SUDO_ASKPASS": envInject, "BROWSER": envInject, "DOCKER_HOST": envReroute,
 	// Harness configuration directories.
 	"CLAUDE_CONFIG_DIR": envConfig, "CODEX_HOME": envConfig,
 }
+
+// gitIdentityEnv are the GIT_* names a unit may set (commit identity only):
+// every other GIT_* is refused (GIT_EXTERNAL_DIFF, GIT_SEQUENCE_EDITOR, ...
+// run programs; git adds such variables over time).
+var gitIdentityEnv = map[string]bool{"GIT_AUTHOR_NAME": true, "GIT_AUTHOR_EMAIL": true, "GIT_COMMITTER_NAME": true, "GIT_COMMITTER_EMAIL": true}
 
 // forbiddenEnvPrefixes are the families UnitForbiddenEnv refuses.
 var forbiddenEnvPrefixes = []struct{ prefix, why string }{
@@ -127,14 +142,19 @@ var forbiddenEnvPrefixes = []struct{ prefix, why string }{
 	{"BASH_FUNC_", envInject},
 	// LD_* and DYLD_* cover LD_PRELOAD, LD_AUDIT, LD_LIBRARY_PATH and their
 	// macOS forms; NODE_* covers NODE_OPTIONS; PYTHON* covers PYTHONPATH and
-	// PYTHONSTARTUP; GIT_CONFIG_* covers GIT_CONFIG_GLOBAL and
-	// GIT_CONFIG_COUNT/KEY_n/VALUE_n (core.sshCommand, core.hooksPath);
+	// PYTHONSTARTUP; GIT_* (but gitIdentityEnv) covers GIT_CONFIG_GLOBAL,
+	// GIT_CONFIG_COUNT/KEY_n/VALUE_n (core.sshCommand, core.hooksPath),
+	// GIT_EXTERNAL_DIFF and GIT_SEQUENCE_EDITOR;
 	// NPM_CONFIG_* matches npm's case-insensitive npm_config_*; CARGO_* covers
 	// CARGO_BUILD_RUSTC_WRAPPER, CARGO_TARGET_<triple>_LINKER and RUNNER;
 	// RUSTC_* covers RUSTC_WRAPPER and RUSTC_WORKSPACE_WRAPPER; SSH_ASKPASS*
-	// covers SSH_ASKPASS and SSH_ASKPASS_REQUIRE.
-	{"NODE_", envInject}, {"LD_", envInject}, {"DYLD_", envInject}, {"PYTHON", envInject}, {"GIT_CONFIG_", envInject},
+	// covers SSH_ASKPASS and SSH_ASKPASS_REQUIRE; CGO_* covers CGO_CFLAGS and
+	// CGO_LDFLAGS; PIP_*, UV_*, YARN_*, BUNDLE_* and GEM_* configure package
+	// managers (index URLs, build hooks, install paths); LUA_INIT* runs Lua.
+	{"NODE_", envInject}, {"LD_", envInject}, {"DYLD_", envInject}, {"PYTHON", envInject}, {"GIT_", envInject},
 	{"NPM_CONFIG_", envInject}, {"CARGO_", envInject}, {"RUSTC_", envInject}, {"SSH_ASKPASS", envInject},
+	{"CGO_", envInject}, {"PIP_", envInject}, {"UV_", envInject}, {"YARN_", envInject}, {"BUNDLE_", envInject},
+	{"GEM_", envInject}, {"LUA_INIT", envInject},
 }
 
 // UnitMembers selects users by IdP group or user id (any match).

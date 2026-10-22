@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -397,5 +398,42 @@ func TestAgentEgressDecision(t *testing.T) {
 	}
 	if allow != 3 || deny != 4 {
 		t.Fatalf("audit allow=%d deny=%d", allow, deny)
+	}
+}
+
+// A login right after a revocation (stamped past the padded epoch by
+// issueAt) delegates, and so do its delegated credentials, although their
+// auth_time is in whole seconds; a session issued before the revocation, and
+// every credential delegated from it, stays dead.
+func TestDelegationAfterRevocationAuthTime(t *testing.T) {
+	e, _ := delegationEnv(t, false)
+	before, _ := e.delegate(t, delegForm(e.session(alice), tokenTypeSession, "planner", paramActorHarness, "claude-code"))
+	// An epoch that is not on a whole second, as a real clock's is not.
+	if err := e.s.revoked.revoke(alice.ID, e.now.Add(500*time.Millisecond)); err != nil {
+		t.Fatal(err)
+	}
+	*e.now = e.now.Add(time.Second)
+	iat, ok := e.s.revoked.issueAt(alice.ID, *e.now)
+	if !ok {
+		t.Fatal("issueAt")
+	}
+	fresh := e.s.seal(cookiePayload{Sub: alice.ID, Groups: alice.Groups, Iat: iat, Exp: e.now.Add(time.Hour).Unix()})
+	first, _ := e.delegate(t, delegForm(fresh, tokenTypeSession, "planner", paramActorHarness, "claude-code"))
+	e.delegate(t, delegForm(first.AccessToken, tokenTypeJWT, "reviewer")) // liveHumanRoot on the signed auth_time
+
+	e.s.revoked.mu.Lock()
+	epoch := e.s.revoked.before[canonicalUser(alice.ID)]
+	e.s.revoked.mu.Unlock()
+	stale := e.s.seal(cookiePayload{Sub: alice.ID, Groups: alice.Groups, Iat: epoch - 1, Exp: e.now.Add(time.Hour).Unix()})
+	for name, f := range map[string]url.Values{
+		"session issued before the revocation": delegForm(stale, tokenTypeSession, "reviewer"),
+		"credential delegated before it":       delegForm(before.AccessToken, tokenTypeJWT, "reviewer"),
+	} {
+		if w := e.exchange(f); w.Code != http.StatusBadRequest {
+			t.Errorf("%s: %d %s, want 400", name, w.Code, w.Body)
+		}
+	}
+	if _, err := e.s.liveHumanRoot(alice.ID, alice.Groups, (epoch-1)/int64(time.Second)); !errors.Is(err, errRootRevoked) {
+		t.Fatalf("auth_time of a session issued just before the epoch: %v, want errRootRevoked", err)
 	}
 }

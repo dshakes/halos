@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/dshakes/halos/internal/policy"
@@ -346,5 +349,40 @@ func TestOrgPathEscaped(t *testing.T) {
 		if strings.Contains(r.path, "/../") || strings.HasPrefix(r.path, "/user") {
 			t.Fatalf("traversal reached the server: %s", r.path)
 		}
+	}
+}
+
+// A redirect is never followed: net/http would resend the Authorization
+// header to the same host over http (or to a subdomain). A 3xx is an error
+// naming the redirect, and the credential never reaches the target.
+func TestClientDoesNotFollowRedirects(t *testing.T) {
+	const token = "ghp_secret-admin-token"
+	var leaked atomic.Int64
+	mux := http.NewServeMux()
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	mux.HandleFunc("/landing/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "" {
+			leaked.Add(1)
+		}
+		_, _ = w.Write([]byte(`{}`))
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://"+r.Host+"/landing"+r.URL.Path, http.StatusFound)
+	})
+	for name, c := range map[string]*Client{
+		"NewClient":            NewClient("copilot", srv.URL, token, policy.VendorTarget{Org: "acme"}),
+		"caller-supplied HTTP": {Vendor: "copilot", BaseURL: srv.URL, Token: token, Target: policy.VendorTarget{Org: "acme"}, HTTP: srv.Client()},
+	} {
+		_, err := c.Read(context.Background(), &Plan{})
+		if err == nil || !strings.Contains(err.Error(), "redirect") || !hasStatus(err, http.StatusFound) {
+			t.Fatalf("%s: err %v, want a 302 redirect error", name, err)
+		}
+		if strings.Contains(err.Error(), token) {
+			t.Fatalf("%s: error leaks the token: %v", name, err)
+		}
+	}
+	if n := leaked.Load(); n != 0 {
+		t.Fatalf("Authorization followed a redirect %d time(s)", n)
 	}
 }
