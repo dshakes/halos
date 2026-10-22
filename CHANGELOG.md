@@ -60,6 +60,11 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
   - `halo telemetry collector-config` gains a `traces/gateway` pipeline.
 
 ### Security
+- HA (ADR-0021, amended): cluster locks and claims are owned and expire on the database clock; a SCIM mutation that can't take the lock answers 503, and a userName is provisioned once across replicas.
+- HA: the leader fence check is race-free (`FOR SHARE`, `clock_timestamp()`); the controller records a fenced intent before every kill, PR and notification; a new leader finds an existing PR by its `halos-intent` marker, and webhook notifications carry `X-Halo-Event-Id`.
+- HA: budget buckets are pruned by age on the database clock, never by a replica's policy; session revocations and enrollment voids are padded for clock skew; an enrollment racing a deprovisioning is undone.
+- HA: catch-ups are coalesced and the audit tail is paged; new `--database-max-conns`; a non-loopback database URL must use `sslmode=verify-full` unless `--database-insecure-tls`; migrations declare `min-binary-schema` so a binary rollback works across additive migrations; `halo-server import` is transactional.
+- Helm: the chart refuses HA with NetworkPolicy but no `databaseEgress.to`; new optional `server.database.migrateJob` hook, so the serving role needs only DML.
 - Vendor admin sync (ADR-0025, amended): `halo admin apply` re-reads every console before writing and aborts with nothing written if it changed since the confirmed plan; Copilot writes are also conditional on GitHub's ETag when one is returned.
 - Copilot content exclusion keeps object rules (`{"if-any-match": [...]}`) under `"*"`; a path string the policy lacks is a loosening that apply refuses.
 - The Claude console export no longer contains machine config (`apiKeyHelper`, hooks, `env.ANTHROPIC_*`, ring stamps); each removed key is warned, and the Claude and Codex steps reconcile rather than paste.
