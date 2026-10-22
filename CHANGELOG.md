@@ -59,6 +59,10 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
   - `halo telemetry collector-config` gains a `traces/gateway` pipeline.
 
 ### Security
+- Delegated agents' `deniedTools` can no longer be bypassed by deep JSON nesting, Gemini `function_declarations`, Bedrock Converse tools, or hosted tools (web search, code execution, MCP servers). When `deniedTools` is set, gateways refuse agent calls whose tools they cannot read. A hosted tool counts by its type (prefix match), and an MCP server as `mcp:<server>`.
+- Gateways and the egress decision re-check every agent in a delegation chain (groups, models) and enforce the root's profile and unit `maxDepth`. Egress refuses agents whose human root's sessions were revoked, and never returns an allow without its audit record.
+- Agent delegation and egress have their own failed-auth rate limit. Policy refusals no longer count, and neither do expired agent credentials at egress. Refused parents are audited as `agent.token.denied`, and `halo_server_audit_append_errors_total` counts failed audit appends.
+- Actor labels are limited to `[A-Za-z0-9._:-]`, and an oversized `expires_in` is a 400. AgentCard digests reject invalid UTF-8 and lone surrogates, and card fields are read by exact key. Remote agents at NAT64, 6to4, Teredo or IPv4-compatible addresses are refused, and `halo agents verify` escapes control characters.
 - SCIM deprovisioning revokes sessions whatever the case of the user id, and gateway posture matches device owners case-insensitively.
 - Gateways with a SCIM directory refuse (403) a verified caller who is deactivated or not provisioned, instead of routing them anonymously. Workload credentials skip the directory, and human identities cannot start with `workload:`.
 - SCIM memberships are indexed: lookups and member changes are linear.
