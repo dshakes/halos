@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"math"
 	"net/http"
 	"net/netip"
 	"os"
@@ -20,6 +19,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/dshakes/halos/internal/bundle"
@@ -206,35 +206,95 @@ var gatewayCapFlags = [4]string{"killswitch", "posture", "budget", "directory"}
 // Gateway token strength. halo-server accepts a valid gateway token even
 // from an IP blocked for failed attempts (so a gateway sharing an egress IP
 // with a guesser is never locked out), which tells a blocked guesser when a
-// guess is right; only a token nobody can guess keeps that safe.
+// guess is right; only a token nobody can guess keeps that safe. So a token
+// must look like the output of a random generator, not a passphrase.
 const (
 	minGatewayTokenLen  = 32
 	minGatewayTokenBits = 128
+	// maxGatewayTokenRun: a run this long of one character, or of consecutive
+	// ascending or descending characters, is refused. A random 64-character
+	// hex token has one with probability under 1e-6.
+	maxGatewayTokenRun = 8
 )
 
-// tokenEntropyBits estimates t's entropy as its length times log2 of the
-// number of distinct characters in it: what a random token over that
-// charset would carry, and near zero for "aaaa..." or "abab...".
-func tokenEntropyBits(t string) float64 {
-	seen := map[rune]bool{}
-	for _, r := range t {
-		seen[r] = true
+// tokenCharset classifies t: "hex" (4 bits per character), "base64" (the
+// standard or URL-safe alphabet, 6 bits; trailing "=" padding ignored), or
+// "" for anything else (spaces, punctuation, other scripts).
+func tokenCharset(t string) (name string, bitsPerChar float64) {
+	isHex, isB64 := true, true
+	for _, r := range strings.TrimRight(t, "=") {
+		switch {
+		case r >= '0' && r <= '9', r >= 'a' && r <= 'f', r >= 'A' && r <= 'F':
+		case r >= 'g' && r <= 'z', r >= 'G' && r <= 'Z', r == '+', r == '/', r == '-', r == '_':
+			isHex = false
+		default:
+			return "", 0
+		}
 	}
-	if len(seen) < 2 {
-		return 0
+	switch {
+	case isHex:
+		return "hex", 4
+	case isB64:
+		return "base64", 6
 	}
-	return float64(utf8.RuneCountInString(t)) * math.Log2(float64(len(seen)))
+	return "", 0
 }
 
-// checkGatewayToken refuses a gateway token shorter than minGatewayTokenLen
-// characters or with less than minGatewayTokenBits of estimated entropy.
+// longestRun is the longest stretch of t in which each character equals the
+// previous one, or each is one above it, or each one below it.
+func longestRun(t string) int {
+	best, run, step := 1, 1, 0
+	for i := 1; i < len(t); i++ {
+		d := int(t[i]) - int(t[i-1])
+		switch {
+		case (d == 0 || d == 1 || d == -1) && d == step && run > 1:
+			run++
+		case d == 0 || d == 1 || d == -1:
+			run, step = 2, d
+		default:
+			run = 1
+		}
+		best = max(best, run)
+	}
+	return best
+}
+
+// checkGatewayToken refuses a gateway token that does not look random: fewer
+// than minGatewayTokenLen characters; a character outside hex or base64
+// (url); under minGatewayTokenBits by charset bits x length; a long run
+// (maxGatewayTokenRun); too few distinct characters for its charset; or,
+// for base64, missing upper case, lower case or digits (a random base64
+// token of 32+ characters has all three with probability above 1-1e-7).
 func checkGatewayToken(t string) error {
 	const fix = "generate one with: openssl rand -hex 32"
-	if n := utf8.RuneCountInString(t); n < minGatewayTokenLen {
+	n := utf8.RuneCountInString(t)
+	if n < minGatewayTokenLen {
 		return fmt.Errorf("token is %d characters, want at least %d; %s", n, minGatewayTokenLen, fix)
 	}
-	if bits := tokenEntropyBits(t); bits < minGatewayTokenBits {
-		return fmt.Errorf("token has about %.0f bits of entropy (length x log2 of its distinct characters), want at least %d; %s", bits, minGatewayTokenBits, fix)
+	cs, per := tokenCharset(t)
+	if cs == "" {
+		return fmt.Errorf("token must be hex or base64/base64url characters only (random bytes, not a passphrase); %s", fix)
+	}
+	body := strings.TrimRight(t, "=")
+	if bits := per * float64(len(body)); bits < minGatewayTokenBits {
+		return fmt.Errorf("token carries %.0f bits (%d %s characters), want at least %d; %s", bits, len(body), cs, minGatewayTokenBits, fix)
+	}
+	if r := longestRun(body); r >= maxGatewayTokenRun {
+		return fmt.Errorf("token has a run of %d repeated or consecutive characters, so it is not random; %s", r, fix)
+	}
+	seen := map[rune]bool{}
+	var upper, lower, digit bool
+	for _, r := range body {
+		seen[r] = true
+		upper = upper || unicode.IsUpper(r)
+		lower = lower || unicode.IsLower(r)
+		digit = digit || unicode.IsDigit(r)
+	}
+	if minDistinct := map[string]int{"hex": 8, "base64": 16}[cs]; len(seen) < minDistinct {
+		return fmt.Errorf("token uses %d distinct characters, want at least %d for %s, so it is not random; %s", len(seen), minDistinct, cs, fix)
+	}
+	if cs == "base64" && (!upper || !lower || !digit) {
+		return fmt.Errorf("token looks like words, not random base64 (it lacks upper case, lower case or digits); %s", fix)
 	}
 	return nil
 }

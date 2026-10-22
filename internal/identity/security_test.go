@@ -1,6 +1,7 @@
 package identity
 
 import (
+	"context"
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
@@ -168,4 +169,75 @@ func TestOIDCJWTRefetchesJWKSOnUnknownKid(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	t.Fatalf("rotated key after refetch: %v", verr)
+}
+
+// A cached JWKS older than jwksMaxAge is refetched before use, so a key the
+// issuer withdrew stops verifying, but never for a CacheOnly request (a
+// blocked IP), which keeps verifying from the stale set. A stale set also
+// keeps serving while the issuer is unreachable, retried every jwksStaleRetry.
+func TestJWKSMaxAge(t *testing.T) {
+	old, _ := identitytest.NewIssuer("k1")
+	rotated, _ := identitytest.NewIssuer("k2")
+	var withdrawn, down atomic.Bool
+	var fetches atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/jwks" {
+			fetches.Add(1)
+			if down.Load() {
+				http.Error(w, "down", http.StatusBadGateway)
+				return
+			}
+			keys := []any{rotated.JWK()}
+			if !withdrawn.Load() {
+				keys = append(keys, old.JWK())
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"keys": keys})
+			return
+		}
+		old.Handler().ServeHTTP(w, r)
+	}))
+	defer srv.Close()
+	old.URL, rotated.URL = srv.URL, srv.URL
+	v, err := NewOIDCJWT(srv.URL, aud, "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok, err := old.Mint(map[string]any{"aud": aud, "email": "a@x", "exp": time.Now().Add(72 * time.Hour).Unix()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if _, err := v.Claims(ctx, tok); err != nil || fetches.Load() != 1 {
+		t.Fatalf("first verify: %v, fetches %d", err, fetches.Load())
+	}
+	now := time.Now()
+	v.keys.now = func() time.Time { return now }
+	if _, err := v.Claims(ctx, tok); err != nil || fetches.Load() != 1 {
+		t.Fatalf("fresh set: %v, fetches %d, want no refetch", err, fetches.Load())
+	}
+	withdrawn.Store(true) // the issuer drops k1
+	now = now.Add(jwksMaxAge + time.Second)
+	// A blocked IP never fetches: the stale set still verifies k1.
+	if _, err := v.Claims(CacheOnly(ctx), tok); err != nil || fetches.Load() != 1 {
+		t.Fatalf("cache-only on a stale set: %v, fetches %d, want ok without a fetch", err, fetches.Load())
+	}
+	// The issuer is down: the stale set serves, and is not refetched per request.
+	down.Store(true)
+	for i := 0; i < 3; i++ {
+		if _, err := v.Claims(ctx, tok); err != nil {
+			t.Fatalf("stale set while the issuer is down: %v", err)
+		}
+	}
+	if n := fetches.Load(); n != 2 {
+		t.Fatalf("fetches while the issuer is down = %d, want 2 (one retry, then the stale set for %s)", n, jwksStaleRetry)
+	}
+	// Back up, past the retry: the refetched set no longer holds k1.
+	down.Store(false)
+	now = now.Add(jwksStaleRetry)
+	if _, err := v.Claims(ctx, tok); err == nil {
+		t.Fatal("a key the issuer withdrew still verifies after the set's max age")
+	}
+	if n := fetches.Load(); n != 3 {
+		t.Fatalf("fetches = %d, want 3 (the max-age refresh, no second fetch for the unknown key)", n)
+	}
 }

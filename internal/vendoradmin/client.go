@@ -76,8 +76,12 @@ func NewClient(vendor, base, token string, t policy.VendorTarget) *Client {
 	if base == "" {
 		base = def
 	}
-	return &Client{Vendor: vendor, BaseURL: strings.TrimRight(base, "/"), Target: t, Token: token, HTTP: &http.Client{Timeout: 30 * time.Second}}
+	return &Client{Vendor: vendor, BaseURL: strings.TrimRight(base, "/"), Target: t, Token: token, HTTP: &http.Client{Timeout: 30 * time.Second, CheckRedirect: noRedirect}}
 }
+
+// noRedirect: a redirect is never followed. net/http would resend the
+// Authorization header to the same host over http, or to a subdomain.
+func noRedirect(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 
 // redact removes the token from s.
 func (c *Client) redact(s string) string {
@@ -126,7 +130,9 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any, hdr
 	for i := 0; i+1 < len(hdr); i += 2 {
 		req.Header.Set(hdr[i], hdr[i+1])
 	}
-	resp, err := c.HTTP.Do(req)
+	hc := *c.HTTP // whatever client the caller set, it never follows a redirect
+	hc.CheckRedirect = noRedirect
+	resp, err := hc.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("%s %s: %s", method, path, c.redact(err.Error()))
 	}
@@ -134,6 +140,10 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any, hdr
 	b, err := io.ReadAll(io.LimitReader(resp.Body, maxBody))
 	if err != nil {
 		return nil, fmt.Errorf("%s %s: read body: %s", method, path, c.redact(err.Error()))
+	}
+	if resp.StatusCode/100 == 3 {
+		return nil, fmt.Errorf("%s %s: %w: the API redirected (to %q); redirects are not followed so the credential is never resent, set the API base URL to the final location",
+			method, path, statusErr{resp.StatusCode}, Sanitize(c.redact(resp.Header.Get("Location"))))
 	}
 	if resp.StatusCode/100 != 2 {
 		msg := strings.TrimSpace(string(b))

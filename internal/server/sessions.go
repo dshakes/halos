@@ -122,17 +122,25 @@ func (r *sessionRevocations) valid(user string, issuedAt int64) bool {
 	return !ok || issuedAt > b
 }
 
-// issueAt is the issue time to stamp on a new session for user: now, or just
-// past user's revocation epoch when that is later (a fresh login right after
-// a padded revocation must not be born dead). ok=false: the store is
-// unreadable, so the epoch is unknown.
+// issueAt is the issue time to stamp on a new session for user: now, or the
+// first whole second past user's revocation epoch when that is later (a fresh
+// login right after a padded revocation must not be born dead). Whole second:
+// delegated credentials carry the root's auth_time in OIDC seconds (the
+// session's iat rounded down), and liveHumanRoot compares that with the
+// nanosecond epoch, so the rounded-down stamp must itself be past the epoch.
+// ok=false: the store is unreadable, so the epoch is unknown.
 func (r *sessionRevocations) issueAt(user string, now time.Time) (int64, bool) {
 	if r.catchup() != nil {
 		return 0, false
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return max(now.UnixNano(), r.before[canonicalUser(user)]+1), true
+	b, ok := r.before[canonicalUser(user)]
+	if !ok {
+		return now.UnixNano(), true
+	}
+	const sec = int64(time.Second)
+	return max(now.UnixNano(), (b/sec+1)*sec), true
 }
 
 // revokeSessions (admin): POST /api/v1/users/{id}/revoke-sessions logs the user out everywhere.

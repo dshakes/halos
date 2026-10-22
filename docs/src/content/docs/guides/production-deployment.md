@@ -49,7 +49,7 @@ The chart never holds secret values; it references Secrets you create.
 | `server.oidcClientSecret.existingSecret` | `client-secret` | Portal OIDC client secret |
 | `halos-halo-shadow` | `token` | `halo-shadow` `HALO_SHADOW_TOKEN`; also injected into `halo-proxy` as `HALO_PROXY_HALO_SHADOW_TOKEN` |
 | `halo-shadow.authHeader.existingSecret` | `auth-header` | Upstream credential header for halo-shadow (`Name: value`) |
-| `server.killSwitch.existingSecret` | `signing-key`, `gateway-token` | Kill-switch signing key (Ed25519 PKCS#8 PEM) and gateway bearer token (at least 32 characters and 128 bits of estimated entropy, e.g. `openssl rand -hex 32`); set together |
+| `server.killSwitch.existingSecret` | `signing-key`, `gateway-token` | Kill-switch signing key (Ed25519 PKCS#8 PEM) and gateway bearer token (random hex or base64, at least 32 characters and 128 bits, e.g. `openssl rand -hex 32`; passphrases are refused); set together |
 | `proxy.killSwitch.pubkey.existingSecret` | `killswitch.pub` | Public half of the signing key, for `halo-proxy` |
 | `server.controller.clickhouse.existingSecret` | `username`, `password` | Controller evidence store |
 | `server.controller.policyRepo.ghToken.existingSecret` | `token` | `GH_TOKEN` for `gh` (controller PRs) |

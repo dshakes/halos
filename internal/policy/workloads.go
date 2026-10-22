@@ -135,6 +135,10 @@ type WorkloadRule struct {
 	Groups  []string `yaml:"groups,omitempty" json:"groups,omitempty"`
 	// MaxTTLSeconds bounds the minted credential (default 900, at most 3600).
 	MaxTTLSeconds int `yaml:"maxTTLSeconds,omitempty" json:"maxTTLSeconds,omitempty"`
+	// tombstone marks a last-good rule a refused policy removed or changed
+	// (TightenWorkloads): it still matches in its place, but grants nothing.
+	// Unexported, so no policy file can set it.
+	tombstone bool
 }
 
 // TTL is the rule's credential lifetime.
@@ -192,7 +196,7 @@ func (w *Workloads) UnpinnedRules() []string {
 	}
 	var out []string
 	for _, r := range w.Rules {
-		if !w.tenantPinned(r) {
+		if !r.tombstone && !w.tenantPinned(r) {
 			out = append(out, r.Name)
 		}
 	}
@@ -212,11 +216,14 @@ func (w *Workloads) tenantPinned(r WorkloadRule) bool {
 // found errors) that still applies over good, the last policy that passed:
 // workload rule removals, so an unrelated error elsewhere cannot block the
 // emergency removal of a compromised rule. The result is good's rules that
-// next still has unchanged (equal, under an issuer of the same name);
-// additions and modifications are not applied, nor is anything else in next.
-// It returns good itself when no rule is dropped, else a shallow copy of good
-// with its own Workloads, plus the names of the dropped rules. Neither input
-// is modified.
+// next still has unchanged (equal, under an issuer of the same name), and
+// each dropped rule left in its place as a deny tombstone: it still matches,
+// first-match-wins, but grants nothing. So removing a narrow rule never lets
+// its tokens fall through to a broader rule below it, and every token's grant
+// is a subset of its last-good grant. Additions and modifications are not
+// applied, nor is anything else in next. It returns good itself when no rule
+// is dropped, else a shallow copy of good with its own Workloads, plus the
+// names of the dropped rules. Neither input is modified.
 func TightenWorkloads(good, next *Org) (*Org, []string) {
 	if good == nil || good.Workloads == nil || len(good.Workloads.Rules) == 0 {
 		return good, nil
@@ -230,11 +237,11 @@ func TightenWorkloads(good, next *Org) (*Org, []string) {
 	for _, r := range good.Workloads.Rules {
 		still := nw != nil && slices.ContainsFunc(nw.Rules, func(n WorkloadRule) bool { return reflect.DeepEqual(n, r) }) &&
 			slices.ContainsFunc(nw.Issuers, func(i WorkloadIssuer) bool { return i.Name == r.Issuer })
-		if still {
-			keep = append(keep, r)
-		} else {
+		if !still {
+			r.tombstone = true
 			dropped = append(dropped, r.Name)
 		}
+		keep = append(keep, r)
 	}
 	if len(dropped) == 0 {
 		return good, nil
@@ -248,6 +255,7 @@ func TightenWorkloads(good, next *Org) (*Org, []string) {
 // MatchWorkload returns the first rule for issuer whose match entries all
 // hold on claims, plus its expanded subject. Claims are verified token claims.
 // A rule that pins no tenant (UnpinnedRules) is skipped, whatever loaded it.
+// A tombstone (TightenWorkloads) that matches ends the search with no rule.
 func (w *Workloads) MatchWorkload(issuer string, claims map[string]any) (WorkloadRule, string, bool) {
 	if w == nil {
 		return WorkloadRule{}, "", false
@@ -256,7 +264,13 @@ func (w *Workloads) MatchWorkload(issuer string, claims map[string]any) (Workloa
 		if r.Issuer != issuer || len(r.Match) == 0 {
 			continue
 		}
-		if !r.matches(claims) || !w.tenantPinned(r) {
+		if !r.matches(claims) {
+			continue
+		}
+		if r.tombstone {
+			return WorkloadRule{}, "", false
+		}
+		if !w.tenantPinned(r) {
 			continue
 		}
 		if sub, ok := r.expandSubject(claims); ok {

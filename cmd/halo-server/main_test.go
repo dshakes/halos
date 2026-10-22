@@ -149,8 +149,14 @@ func TestReadGatewayTokens(t *testing.T) {
 	shared, budget, short := file("s", sharedTok), file("b", budgetTok), file("x", "short")
 	// 40 characters but a repeated pattern: long enough, guessable.
 	weak := file("w", strings.Repeat("ab", 20))
-	// 32 characters over 8 symbols: 96 bits.
+	// 32 characters, an ascending run.
 	lowEntropy := file("l", strings.Repeat("abcdefgh", 4))
+	// Long and varied enough for a length x distinct-characters estimate, but
+	// words or the alphabet, not random bytes.
+	words := file("words", "halos-gateway-token-production-2026")
+	alphabet := file("abc", "abcdefghijklmnopqrstuvwxyz012345")
+	const b64Tok = "Zq3_Xw8-Lk2PvR7yTn0aBm5cHd9eJf4gUs6tWiYo1Q"
+	b64 := file("b64", b64Tok)
 	for _, c := range []struct {
 		name   string
 		o      options
@@ -164,8 +170,14 @@ func TestReadGatewayTokens(t *testing.T) {
 		{"shared and budget", options{gatewayTokenFile: shared, gatewayCapTokenFiles: [4]string{2: budget}}, sharedTok, [4]string{2: budgetTok}, ""},
 		{"short shared", options{gatewayTokenFile: short}, "", [4]string{}, "--gateway-token-file: token is 5 characters, want at least 32; generate one with: openssl rand -hex 32"},
 		{"short directory", options{gatewayCapTokenFiles: [4]string{3: short}}, "", [4]string{}, "--gateway-directory-token-file: token is 5 characters"},
-		{"repeated pattern shared", options{gatewayTokenFile: weak}, "", [4]string{}, "--gateway-token-file: token has about 40 bits of entropy"},
-		{"low entropy killswitch", options{gatewayCapTokenFiles: [4]string{0: lowEntropy}}, "", [4]string{}, "--gateway-killswitch-token-file: token has about 96 bits"},
+		{"repeated pattern shared", options{gatewayTokenFile: weak}, "", [4]string{}, "--gateway-token-file: token uses 2 distinct characters"},
+		{"ascending run killswitch", options{gatewayCapTokenFiles: [4]string{0: lowEntropy}}, "", [4]string{}, "--gateway-killswitch-token-file: token has a run of 8"},
+		{"words", options{gatewayTokenFile: words}, "", [4]string{}, "token looks like words, not random base64"},
+		{"alphabet", options{gatewayTokenFile: alphabet}, "", [4]string{}, "token has a run of 26 repeated or consecutive characters"},
+		{"passphrase", options{gatewayTokenFile: file("pp", "correct horse battery staple 2026 x")}, "", [4]string{}, "hex or base64/base64url characters only"},
+		{"repeated run", options{gatewayTokenFile: file("rr", "5f0c9e2a7b14d8630000000000a1c0e9f2b7d4a6")}, "", [4]string{}, "token has a run of 10"},
+		{"hex under 128 bits", options{gatewayTokenFile: file("h31", "5f0c9e2a7b14d863a1c0e9f2b7d4a61")}, "", [4]string{}, "token is 31 characters"},
+		{"random base64url", options{gatewayTokenFile: b64}, b64Tok, [4]string{}, ""},
 		{"low entropy posture", options{gatewayCapTokenFiles: [4]string{1: weak}}, "", [4]string{}, "openssl rand -hex 32"},
 		{"low entropy budget", options{gatewayCapTokenFiles: [4]string{2: lowEntropy}}, "", [4]string{}, "--gateway-budget-token-file"},
 		// 31 distinct characters (153 bits) but one short of the minimum length.

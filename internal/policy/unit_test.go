@@ -113,12 +113,19 @@ func TestUnitForbiddenEnv(t *testing.T) {
 		"CLAUDE_CONFIG_DIR", "CODEX_HOME", "GEMINI_CLI_HOME", "gemini_config_dir",
 		// Every OTEL_* setting.
 		"OTEL_RESOURCE_ATTRIBUTES", "OTEL_SERVICE_NAME", "OTEL_METRICS_EXPORTER", "OTEL_LOGS_EXPORTER", "OTEL_TRACES_SAMPLER", "otel_sdk_disabled",
+		// Every GIT_* but commit identity.
+		"GIT_EXTERNAL_DIFF", "git_sequence_editor", "GIT_DIR", "GIT_WORK_TREE",
+		// Build tools, package sources and runtimes.
+		"CC", "cxx", "CGO_LDFLAGS", "cgo_cflags", "GOPROXY", "GOSUMDB", "GONOSUMDB", "GONOSUMCHECK", "GOINSECURE", "GOPRIVATE",
+		"GOENV", "gotoolchain", "PIP_INDEX_URL", "pip_extra_index_url", "UV_INDEX_URL", "MAVEN_OPTS", "GRADLE_OPTS", "JAVA_OPTS",
+		"_java_options", "CLASSPATH", "GCONV_PATH", "LUA_INIT", "LUA_INIT_5_4", "PHPRC", "PHP_INI_SCAN_DIR", "SUDO_ASKPASS",
+		"BROWSER", "MAKEFLAGS", "MAKEFILES", "DOCKER_HOST", "NPM_CONFIG_PREFIX", "YARN_RC_FILENAME", "BUNDLE_GEMFILE", "GEM_HOME",
 	} {
 		if UnitForbiddenEnv(k) == "" {
 			t.Errorf("%s: allowed, want forbidden", k)
 		}
 	}
-	for _, k := range []string{"TEAM", "GIT_AUTHOR_NAME", "PATHS_TEAM", "ENVIRONMENT", "MY_AWS_THING", "HOMEPAGE_URL", "MY_OTEL_TEAM", "RUSTFLAGS_NOTE"} {
+	for _, k := range []string{"TEAM", "GIT_AUTHOR_NAME", "git_author_email", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "PATHS_TEAM", "GEMS_TEAM", "CCACHE_NOTE", "ENVIRONMENT", "MY_AWS_THING", "HOMEPAGE_URL", "MY_OTEL_TEAM", "RUSTFLAGS_NOTE"} {
 		if why := UnitForbiddenEnv(k); why != "" {
 			t.Errorf("%s: forbidden (%s), want allowed", k, why)
 		}

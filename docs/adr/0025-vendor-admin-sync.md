@@ -153,6 +153,7 @@ An independent security review found these issues, all fixed on `vendor-admin-fi
 | L4: the apply record lied on partial failure | per-change `Result`s, including not-attempted changes | `TestApplyPartialFailureResults`, `TestAdminApplyRecordOnFailure` |
 | L5: loosening classification gaps | unspecified channel counts as stable; rebinding loosens; conflicting bindings refuse | `TestGeminiLooseningClassification` |
 | L6: exit-code softness | `--offline` exits 3; manual vendors are `not checked (manual)`; only writable loosenings block apply | `TestAdminPlanExitCodes`, `TestReadOnlyLooseningDoesNotBlock` |
+| Final review (2026-10-22): the API client followed redirects, and net/http resends `Authorization` to the same host over http or to a subdomain | `CheckRedirect` returns `http.ErrUseLastResponse` on every client, the caller's included; a 3xx is an error naming the `Location` | `TestClientDoesNotFollowRedirects` |
 
 ## More information
 

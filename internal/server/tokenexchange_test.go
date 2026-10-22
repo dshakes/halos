@@ -530,3 +530,72 @@ func TestExchangeLimiterCountsOnlyForgeries(t *testing.T) {
 		t.Fatalf("CI exchange from the agent-blocked IP: %d %s, want 200", w.Code, w.Body)
 	}
 }
+
+// Tokens anyone can mint from a shared CI issuer (another repository, a
+// branch no rule names) never take a replay-cache slot, so they cannot fill
+// the cache and refuse every tenant; their denials are audited at most once
+// per issuer+IP per minute, the rest counted. Replay protection still holds
+// for tokens a rule matches.
+func TestUnmatchedWorkloadTokensSkipReplayCacheAndCoalesceAudit(t *testing.T) {
+	e := newWorkloadEnv(t, true)
+	const ip, n = "203.0.113.20", 5
+	for i := 0; i < n; i++ {
+		if w := e.post(exchangeForm(e.mint(t, "repository", fmt.Sprintf("evil/x%d", i))), ip); w.Code != http.StatusBadRequest {
+			t.Fatalf("unmatched token %d: %d %s", i, w.Code, w.Body)
+		}
+	}
+	e.s.wl.mu.Lock()
+	cached := len(e.s.wl.seen)
+	e.s.wl.mu.Unlock()
+	if cached != 0 {
+		t.Fatalf("replay cache holds %d unmatched tokens, want 0", cached)
+	}
+	countDenied := func() int {
+		entries, _ := e.s.auditLog.all()
+		c := 0
+		for _, a := range entries {
+			if a.Action == "workload.token.denied" {
+				c++
+			}
+		}
+		return c
+	}
+	if got := countDenied(); got != 1 {
+		t.Fatalf("denied audit entries from one issuer+IP = %d, want 1 (coalesced)", got)
+	}
+	var m bytes.Buffer
+	e.s.WriteMetrics(&m)
+	if want := fmt.Sprintf("halo_server_workload_denied_audit_suppressed_total %d\n", n-1); !strings.Contains(m.String(), want) {
+		t.Fatalf("metrics missing %q", want)
+	}
+	// Another IP gets its own audit entry.
+	if w := e.post(exchangeForm(e.mint(t, "repository", "evil/y")), ""); w.Code != http.StatusBadRequest || countDenied() != 2 {
+		t.Fatalf("other IP: %d, denied entries %d, want 2", w.Code, countDenied())
+	}
+	// A matching token is remembered and its replay refused.
+	ok := e.mint(t)
+	if w := e.post(exchangeForm(ok), ip); w.Code != http.StatusOK {
+		t.Fatalf("matching token: %d %s", w.Code, w.Body)
+	}
+	if w := e.post(exchangeForm(ok), ip); w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "replay") {
+		t.Fatalf("replay: %d %s", w.Code, w.Body)
+	}
+}
+
+func TestAuditDeniedBounded(t *testing.T) {
+	var x workloadExchange
+	now := time.Now()
+	x.denied = map[string]time.Time{}
+	for i := range maxDeniedAuditKeys {
+		x.denied[fmt.Sprint(i)] = now
+	}
+	if x.auditDenied("new", now) {
+		t.Fatal("full of live keys: audited")
+	}
+	if !x.auditDenied("new", now.Add(deniedAuditWindow)) || len(x.denied) != 1 {
+		t.Fatalf("stale keys not pruned: %d", len(x.denied))
+	}
+	if x.deniedSuppressed.Load() != 1 {
+		t.Fatalf("suppressed = %d", x.deniedSuppressed.Load())
+	}
+}

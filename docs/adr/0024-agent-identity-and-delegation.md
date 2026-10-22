@@ -12,6 +12,8 @@ date: 2026-10-21
 
 > **Amended 2026-10-21 (third security review).** A delegation exchange is dispatched before the CI exchange's limiter is consulted, so it depends on `agentFails` alone. At the exchange only an unverifiable parent counts; a parent this server signed that has expired passes uncounted, and a signed parent is accepted even from an IP `agentFails` blocks (`TestExchangeLimiterCountsOnlyForgeries`).
 
+> **Amended 2026-10-22 (final security review).** Delegated credentials carry the root's `auth_time` in whole seconds (the session's issue time rounded down), and a login right after a revocation was stamped one nanosecond past the epoch, so its rounded-down `auth_time` fell before the epoch and every credential delegated from that session failed as revoked. A login after a revocation is now stamped on the first whole second past the epoch; a session issued before the revocation, and every credential delegated from it, still fails (test: `TestDelegationAfterRevocationAuthTime`).
+
 ## Context and problem statement
 
 Coding agents spawn subagents, call remote agents over Agent2Agent (A2A), and run as background or cloud agents. Halos sees a human (OIDC) or a CI workload (ADR-0023), never "agent X acting for human Y via agent Z". That leaves four risks:

@@ -192,14 +192,27 @@ func (c *DirectoryClient) store(subject string, e DirectoryEntry, now time.Time)
 	if c.cache == nil {
 		c.cache = map[string]directoryEntry{}
 	}
-	if len(c.cache) >= maxDirectoryEntries {
-		for k, old := range c.cache { // ponytail: O(n) sweep when full, as PostureClient; an LRU if 100k subjects is routine
-			if now.Sub(old.at) >= c.Grace {
+	if _, known := c.cache[subject]; !known && len(c.cache) >= maxDirectoryEntries {
+		// Only active entries are evicted: a cached inactive answer is what keeps
+		// a deactivated user refused through an outage (Resolve), so it is never
+		// forgotten to make room. Active entries past Grace go first, then all.
+		// ponytail: O(n) sweep when full, as PostureClient; an LRU if 100k subjects is routine
+		for k, old := range c.cache {
+			if old.e.Active && now.Sub(old.at) >= c.Grace {
 				delete(c.cache, k)
 			}
 		}
 		if len(c.cache) >= maxDirectoryEntries {
-			clear(c.cache)
+			for k, old := range c.cache {
+				if old.e.Active {
+					delete(c.cache, k)
+				}
+			}
+		}
+		if len(c.cache) >= maxDirectoryEntries {
+			// Every entry is inactive (100k deprovisioned subjects with IdP-signed
+			// tokens): this answer is not cached rather than forget one of them.
+			return
 		}
 	}
 	c.cache[subject] = directoryEntry{e: e, at: now}
