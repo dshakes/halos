@@ -5,7 +5,7 @@ description: "Serve Halos tools, resources and prompts over stdio MCP"
 
 Serve Halos tools, resources and prompts over stdio MCP
 
-Serve Halos over stdio MCP. Read-only tools are always on. --allow-writes adds experiment and proposal tools (dry_run by default, reason required). --server (or HALO_SERVER) plus an admin HALO_SESSION enables the fleet tools (kill switch, audit, devices). No tool publishes releases, retags rings, merges or pushes.
+Serve Halos over stdio MCP. Read-only tools are always on. --allow-writes adds experiment and proposal tools (dry_run by default, reason required). --server (or HALO_SERVER) plus an admin HALO_SESSION enables the fleet tools (kill switch, audit, devices). --admin-read lets admin_plan read the vendor consoles with HALO_MCP_ADMIN_&lt;VENDOR>_TOKEN; without it admin_plan renders from policy only. No tool publishes releases, retags rings, merges or pushes.
 
 ## Usage
 
@@ -17,6 +17,7 @@ halo mcp serve [flags]
 
 | Flag | Shorthand | Type | Default | Description |
 |---|---|---|---|---|
+| `--admin-read` |  | bool | false | let admin_plan read the live vendor consoles with HALO_MCP_ADMIN_&lt;VENDOR>_TOKEN (default: render from policy only) |
 | `--allow-writes` |  | bool | false | expose write tools (experiment status, promotion/rollback proposals) |
 | `--clickhouse` |  | string |  | ClickHouse HTTP URL; enables analyze_experiment |
 | `--database` |  | string |  | ClickHouse database |

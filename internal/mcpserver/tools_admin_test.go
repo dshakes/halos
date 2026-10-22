@@ -48,23 +48,37 @@ func TestAdminPlanReadOnly(t *testing.T) {
 		}
 	}
 
-	cs := connect(t, Options{PolicyDir: dir, AdminBaseURLs: map[string]string{"copilot": srv.URL}})
-	t.Setenv("HALO_ADMIN_COPILOT_TOKEN", "")
-	out, err := call(t, cs, "admin_plan", nil)
+	// M3: without --admin-read, no console is contacted even with tokens set.
+	t.Setenv("HALO_ADMIN_COPILOT_TOKEN", "ghp_cli_shell")
+	t.Setenv("HALO_MCP_ADMIN_COPILOT_TOKEN", "ghp_mcp")
+	off := connect(t, Options{PolicyDir: dir, AdminBaseURLs: map[string]string{"copilot": srv.URL}})
+	out, err := call(t, off, "admin_plan", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(strings.Join(anyStrings(out["next_steps"]), "\n"), "no credential") {
-		t.Fatalf("missing credential not surfaced: %v", out["next_steps"])
+	if auth != "" || out["checked"] != false || out["drift"] != false ||
+		!strings.Contains(strings.Join(anyStrings(out["next_steps"]), "\n"), "--admin-read") {
+		t.Fatalf("offline by default: auth %q out %v", auth, out)
 	}
 
-	t.Setenv("HALO_ADMIN_COPILOT_TOKEN", "ghp_mcp")
+	// M3: with --admin-read, the CLI's HALO_ADMIN_* token is never used.
+	cs := connect(t, Options{PolicyDir: dir, AdminRead: true, AdminBaseURLs: map[string]string{"copilot": srv.URL}})
+	t.Setenv("HALO_MCP_ADMIN_COPILOT_TOKEN", "")
 	out, err = call(t, cs, "admin_plan", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out["drift"] != true || auth != "Bearer ghp_mcp" {
-		t.Fatalf("drift %v auth %q", out["drift"], auth)
+	if auth != "" || !strings.Contains(strings.Join(anyStrings(out["next_steps"]), "\n"), "HALO_MCP_ADMIN_COPILOT_TOKEN is not set") {
+		t.Fatalf("shell token used or missing credential not surfaced: auth %q %v", auth, out["next_steps"])
+	}
+
+	t.Setenv("HALO_MCP_ADMIN_COPILOT_TOKEN", "ghp_mcp")
+	out, err = call(t, cs, "admin_plan", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out["checked"] != true || out["drift"] != true || auth != "Bearer ghp_mcp" {
+		t.Fatalf("checked %v drift %v auth %q", out["checked"], out["drift"], auth)
 	}
 }
 

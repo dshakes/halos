@@ -103,8 +103,78 @@ func TestAdminPlanExitCodes(t *testing.T) {
 	if code != exitError || !strings.Contains(errb, "no credential") {
 		t.Fatalf("no credential: exit %d %s", code, errb)
 	}
-	if code, _, errb = halo(t, "admin", "plan", "--policy-dir", dir, "--offline"); code != 0 {
-		t.Fatalf("offline: exit %d %s", code, errb)
+	// L6: offline compares nothing, so it is neither in sync nor drift
+	code, out, errb = halo(t, "admin", "plan", "--policy-dir", dir, "--offline")
+	if code != exitUnchecked || !strings.Contains(out, "not checked (offline)") {
+		t.Fatalf("offline: exit %d %s\n%s", code, errb, out)
+	}
+
+	// L6: manual vendors are never reported as in sync
+	code, out, _ = halo(t, "admin", "plan", "--policy-dir", dir, "--copilot-token-file", tok, "--copilot-base-url", sync.URL)
+	if code != 0 || strings.Count(out, "not checked (manual)") != 3 || strings.Count(out, "in sync") != 1 {
+		t.Fatalf("manual vendors: exit %d\n%s", code, out)
+	}
+
+	// L3: a credential never goes to a plain-http, non-loopback API
+	code, _, errb = halo(t, "admin", "plan", "--policy-dir", dir, "--copilot-token-file", tok, "--copilot-base-url", "http://api.github.example")
+	if code != exitError || !strings.Contains(errb, "must be https") {
+		t.Fatalf("http base URL: exit %d %s", code, errb)
+	}
+}
+
+// L4: the apply record is truthful when the write fails.
+func TestAdminApplyRecordOnFailure(t *testing.T) {
+	dir := adminPolicy(t)
+	t.Setenv("HALO_ADMIN_COPILOT_TOKEN", "t")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method + " " + r.URL.Path {
+		case "GET /orgs/acme/copilot/billing":
+			_, _ = io.WriteString(w, `{"cli":"disabled"}`)
+		case "GET /orgs/acme/copilot/content_exclusion":
+			_, _ = io.WriteString(w, `{"*":["/.env"]}`)
+		default:
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+	}))
+	defer srv.Close()
+	code, out, errb := halo(t, "admin", "apply", "--policy-dir", dir, "--copilot-base-url", srv.URL, "--yes", "--output", "json")
+	var rec adminRecord
+	if err := json.Unmarshal([]byte(out), &rec); err != nil {
+		t.Fatalf("%v\n%s\n%s", err, out, errb)
+	}
+	if code != exitError || len(rec.Applied) != 1 || rec.Applied[0].OK || !strings.Contains(rec.Applied[0].Error, "HTTP 500") {
+		t.Fatalf("exit %d record %+v", code, rec)
+	}
+}
+
+// L1/L2: identifiers are validated, and console values cannot inject
+// terminal escapes or Markdown into plan output and STEPS.md.
+func TestAdminOutputSanitized(t *testing.T) {
+	dir := adminPolicy(t)
+	tok := filepath.Join(t.TempDir(), "tok")
+	if err := os.WriteFile(tok, []byte("t"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	evil, _ := fakeGitHub(t, "disabled", `["/.env","/.env.*","/secrets/**","/x\u001b[2J|`+"`"+`\u202e"]`)
+	code, out, _ := halo(t, "admin", "plan", "--policy-dir", dir, "--copilot-token-file", tok, "--copilot-base-url", evil.URL)
+	if code != exitValidation || strings.ContainsAny(out, "\x1b\u202e") {
+		t.Fatalf("exit %d, escape reached the terminal: %q", code, out)
+	}
+	if got := md("a|b`c\x1b[0m\u202ed"); got != `a\|b'c[0md` {
+		t.Fatalf("md = %q", got)
+	}
+
+	bad := copyDir(t, dir)
+	hp := filepath.Join(bad, "halos.yaml")
+	b, err := os.ReadFile(hp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(hp, []byte(strings.Replace(string(b), "  claude: {}\n", "  claude:\n    org: \"../x\"\n", 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errb := halo(t, "admin", "export", "--policy-dir", bad, "--out", t.TempDir()); code != exitValidation {
+		t.Fatalf("org ../x accepted: exit %d %s", code, errb)
 	}
 }
 

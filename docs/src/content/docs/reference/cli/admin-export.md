@@ -5,7 +5,7 @@ description: "Write the console artifacts and manual steps for every vendorAdmin
 
 Write the console artifacts and manual steps for every vendorAdmin vendor
 
-Writes &lt;out>/&lt;vendor>/ with the artifacts an admin pastes into a console that has no write API (Claude managed settings JSON, Codex requirements and config TOML, the Cursor model list) and a STEPS.md with the manual steps, the read-only settings and every warning. Reads no console.
+Writes &lt;out>/&lt;vendor>/ with the artifacts an admin reconciles into a console that has no write API (Claude managed settings JSON without machine-only keys, Codex requirements and config TOML, the Cursor model list) and a STEPS.md with the manual steps, the read-only settings and every warning. Reads no console.
 
 ## Usage
 

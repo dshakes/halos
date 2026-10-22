@@ -2,7 +2,7 @@ package policy
 
 import (
 	"fmt"
-	"strings"
+	"regexp"
 )
 
 // VendorAdmin drives the vendors' cloud admin consoles from this policy
@@ -57,7 +57,14 @@ func (o *Org) VendorAdminRing() string {
 	return ga.Name
 }
 
-var releaseChannels = []string{"stable", "experimental"}
+var (
+	releaseChannels = []string{"stable", "experimental"}
+	// vendorOrgRe is a GitHub organization login's shape (also accepted for
+	// the other vendors' tenant ids, which are recorded, not dereferenced).
+	vendorOrgRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]{0,38}$`)
+	// gcpProjectRe is a Google Cloud project id.
+	gcpProjectRe = regexp.MustCompile(`^[a-z][a-z0-9-]{4,28}[a-z0-9]$`)
+)
 
 func (v *validator) vendorAdmin() {
 	va := v.org.VendorAdmin
@@ -76,7 +83,11 @@ func (v *validator) vendorAdmin() {
 			v.warnf("vendorAdmin.ring", "console settings are org-wide: every member, including ring %s, gets ring %s's console settings", ga, va.Ring)
 		}
 	}
-	for name, t := range map[string]*VendorTarget{"claude": va.Claude, "codex": va.Codex, "gemini": va.Gemini, "copilot": va.Copilot, "cursor": va.Cursor} {
+	for _, e := range []struct {
+		name string
+		t    *VendorTarget
+	}{{"claude", va.Claude}, {"codex", va.Codex}, {"gemini", va.Gemini}, {"copilot", va.Copilot}, {"cursor", va.Cursor}} {
+		name, t := e.name, e.t
 		if t == nil {
 			continue
 		}
@@ -84,18 +95,21 @@ func (v *validator) vendorAdmin() {
 		if name != "gemini" && (t.Project != "" || t.Location != "" || t.ReleaseChannel != "") {
 			v.errf(p, "project, location and releaseChannel apply to gemini only")
 		}
+		// These identifiers become API path segments, terminal output and
+		// STEPS.md text: a strict charset closes path traversal and injection.
+		if t.Org != "" && !vendorOrgRe.MatchString(t.Org) {
+			v.errf(p+".org", "%q is not a valid id: want letters, digits and hyphens, starting alphanumeric, at most 39 characters", t.Org)
+		}
 		switch name {
 		case "copilot":
 			if t.Org == "" {
 				v.errf(p+".org", "the GitHub organization login is required")
-			} else if strings.ContainsAny(t.Org, "/?#% ") {
-				v.errf(p+".org", "%q is not a GitHub organization login", t.Org)
 			}
 		case "gemini":
 			if t.Project == "" {
 				v.errf(p+".project", "the Google Cloud project id is required")
-			} else if strings.ContainsAny(t.Project, "/?#% ") {
-				v.errf(p+".project", "%q is not a Google Cloud project id", t.Project)
+			} else if !gcpProjectRe.MatchString(t.Project) {
+				v.errf(p+".project", "%q is not a Google Cloud project id (6-30 lowercase letters, digits and hyphens, starting with a letter)", t.Project)
 			}
 			if t.Location != "" && !gcpRegion.MatchString(t.Location) {
 				v.errf(p+".location", "%q is not a Google Cloud location", t.Location)

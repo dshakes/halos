@@ -13,17 +13,18 @@ import (
 func (a *app) cmdMCP() *cobra.Command {
 	c := &cobra.Command{Use: "mcp", Short: "Model Context Protocol server for agents"}
 	var dir, schemaDir, server string
-	var writes bool
+	var writes, adminRead bool
 	var ch clickhouseFlags
 	serve := &cobra.Command{
 		Use:   "serve",
 		Short: "Serve Halos tools, resources and prompts over stdio MCP",
 		Long: "Serve Halos over stdio MCP. Read-only tools are always on. --allow-writes adds experiment " +
 			"and proposal tools (dry_run by default, reason required). --server (or HALO_SERVER) plus an admin HALO_SESSION " +
-			"enables the fleet tools (kill switch, audit, devices). No tool publishes releases, retags rings, merges or pushes.",
+			"enables the fleet tools (kill switch, audit, devices). --admin-read lets admin_plan read the vendor consoles with " +
+			"HALO_MCP_ADMIN_<VENDOR>_TOKEN; without it admin_plan renders from policy only. No tool publishes releases, retags rings, merges or pushes.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			o := mcpserver.Options{PolicyDir: dir, AllowWrites: writes, SchemaDir: schemaDir, Version: version, Server: server}
+			o := mcpserver.Options{PolicyDir: dir, AllowWrites: writes, SchemaDir: schemaDir, Version: version, Server: server, AdminRead: adminRead}
 			if ch.url != "" {
 				o.ClickHouse = ch.client()
 			}
@@ -38,6 +39,7 @@ func (a *app) cmdMCP() *cobra.Command {
 	}
 	serve.Flags().StringVar(&dir, "policy-dir", ".", "policy repo directory")
 	serve.Flags().BoolVar(&writes, "allow-writes", false, "expose write tools (experiment status, promotion/rollback proposals)")
+	serve.Flags().BoolVar(&adminRead, "admin-read", false, "let admin_plan read the live vendor consoles with HALO_MCP_ADMIN_<VENDOR>_TOKEN (default: render from policy only)")
 	serve.Flags().StringVar(&schemaDir, "schema-dir", "", "JSON Schema directory (default: auto-detect)")
 	serve.Flags().StringVar(&server, "server", "", "halo-server base URL for the fleet tools (or HALO_SERVER); admin session from HALO_SESSION")
 	serve.Flags().StringVar(&ch.url, "clickhouse", "", "ClickHouse HTTP URL; enables analyze_experiment")
