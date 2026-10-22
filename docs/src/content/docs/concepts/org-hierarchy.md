@@ -35,7 +35,7 @@ These fields make up the org security baseline. An overlay may tighten them but 
 | `permissions.allow`, `egress.allowedDomains` | never add an entry |
 | `telemetry.otlpEndpoint`, `telemetry.protocol`, `telemetry.logPrompts` | unchanged |
 | `telemetry.attributes` | add keys; never change an inherited one |
-| `env` | never change an inherited key; add only keys `delegation.envKeys` lists, and never a provider, proxy or runtime-injection key |
+| `env` | never change an inherited key; add only keys `delegation.envKeys` lists, and never a provider, proxy, telemetry (`OTEL_*`), shell-hook, pager or editor, git-wrapper, compiler or runtime-injection, or harness config-dir key ([full list](/halos/concepts/security-model/#delegated-units)) |
 | `hooks.items` | add none, unless `delegation.allowHooks` |
 | `mcp.servers` | add only exact `selfService.catalog` entries |
 | `models.allowed` while `models.enforce` is set | a subset |

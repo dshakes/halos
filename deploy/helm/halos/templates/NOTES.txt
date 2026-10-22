@@ -10,7 +10,7 @@ Pre-create these Secrets (this chart never creates or reads secret values):
   - {{ .Values.server.oidcClientSecret.existingSecret }} (key {{ .Values.server.oidcClientSecret.key }}): OIDC client secret
 {{- end }}
 {{- with .Values.server.killSwitch.existingSecret }}
-  - {{ . }} (keys {{ $.Values.server.killSwitch.signingKey }}, {{ $.Values.server.killSwitch.gatewayToken }}): kill-switch Ed25519 PKCS#8 signing key + gateway bearer token (>= 16 chars)
+  - {{ . }} (keys {{ $.Values.server.killSwitch.signingKey }}, {{ $.Values.server.killSwitch.gatewayToken }}): kill-switch Ed25519 PKCS#8 signing key + gateway bearer token (>= 32 chars and 128 bits of entropy: openssl rand -hex 32)
 {{- end }}
 {{- if .Values.server.controller.enabled }}
 {{- with .Values.server.controller.clickhouse.existingSecret }}

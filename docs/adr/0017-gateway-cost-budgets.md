@@ -14,6 +14,8 @@ date: 2026-10-21
 - Status: accepted (extends ADR-0011)
 - Date: 2026-10-21
 
+> **Amended 2026-10-21 (third security review).** When final usage is missing, the input floor `budgets.serverStateInputTokens` also applies to remote inputs and server tools (Responses `input_file`/`input_image` by id or URL, `item_reference`, `file_search`, `web_search*`, `mcp`, `code_interpreter`, `background`; Anthropic server tools, `mcp_servers`, file or URL sources), the output estimate is at least the thinking budget (else the cap) when the request enables reasoning, and a background request with `usage: null` is charged the floor plus the cap (`TestEstimateChargesUnseenTokens`). Per-user budget keys use the canonical user id (`policy.CanonicalUser`, shared with halo-server), so one person is one counter however the IdP cases the id; counters keyed by a mixed-case subject before this change start again from zero under the lowercase key.
+
 ## Context and problem statement
 
 Spend is visible only after the fact. `Stopping.maxSpendUSD` stops an experiment, `halo-shadow` caps its own mirror spend, and `halo.cost.usd_per_session` is a metric. Nothing stops one developer, team or ring from spending without limit, and nothing warns before the monthly bill does. Every model call already crosses `halo-proxy`, which knows the verified caller, the ring and the provider model, so the gateway can meter and cap spend.

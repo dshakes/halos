@@ -334,7 +334,7 @@ One `--gateway-token-file` token opens all four gateway endpoints on `halo-serve
 | `--gateway-budget-token-file` | `/api/v1/gateway/budget/*` | `budgets.tokenFile` | (no budgets) |
 | `--gateway-directory-token-file` | `GET /api/v1/gateway/directory` | `directory.tokenFile` | `directory_token` |
 
-Each token must be at least 16 characters and differ from the shared one. A capability without its own flag keeps accepting `--gateway-token-file`, so you can migrate one at a time: write the new token to the gateway's file for that capability, restart `halo-server` with the new flag, then roll the gateways. Between the two restarts that capability's calls return 401: posture and directory fall back to their cached entries for `grace`, the kill list keeps the last accepted list, and budgets follow their unknown-state policy. `--killswitch-key-file` accepts either the shared or the kill-switch token.
+Each token must be at least 32 characters with 128 bits of estimated entropy (length times log2 of its distinct characters; `openssl rand -hex 32` gives 256) and differ from the shared one; `halo-server` refuses to start otherwise, naming the flag. A capability without its own flag keeps accepting `--gateway-token-file`, so you can migrate one at a time: write the new token to the gateway's file for that capability, restart `halo-server` with the new flag, then roll the gateways. Between the two restarts that capability's calls return 401: posture and directory fall back to their cached entries for `grace`, the kill list keeps the last accepted list, and budgets follow their unknown-state policy. `--killswitch-key-file` accepts either the shared or the kill-switch token.
 
 ### Lost signer state file
 

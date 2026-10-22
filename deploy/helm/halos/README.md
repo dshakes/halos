@@ -19,7 +19,7 @@ helm template halo deploy/helm/halos -f my-values.yaml | kubectl diff -f -   # r
 | `halos-halo-shadow` | `token` | halo-shadow `HALO_SHADOW_TOKEN`; also injected into halo-proxy as `HALO_PROXY_HALO_SHADOW_TOKEN`, and into Kong as `HALO_SHADOW_TOKEN` (you configure Kong) |
 | `halo-shadow.upstreamHeaders.existingSecret` | `upstream-headers.yaml` | halo-shadow `--upstream-headers`: YAML `{upstream: {Header: value}}`, `${ENV}` expanded (`halo-shadow.extraEnv`). `HALO_SHADOW_AUTH_HEADER` is refused by halo-shadow |
 | `halo-shadow.pairKey.existingSecret` | `pair-key` | optional `--pair-key-file` (base64 32-byte AES-256-GCM key) |
-| `server.killSwitch.existingSecret` | `signing-key`, `gateway-token` | halo-server `--killswitch-key-file` (Ed25519 PKCS#8 PEM, `halo keys generate --name killswitch`) and `--gateway-token-file` (>= 16 chars); set together |
+| `server.killSwitch.existingSecret` | `signing-key`, `gateway-token` | halo-server `--killswitch-key-file` (Ed25519 PKCS#8 PEM, `halo keys generate --name killswitch`) and `--gateway-token-file` (>= 32 characters and 128 bits of estimated entropy: `openssl rand -hex 32`); set together |
 | `server.gatewayTokens.existingSecret` | the keys you name (`killswitch`, `posture`, `budget`, `directory`) | per-capability gateway bearer tokens (`--gateway-<cap>-token-file`); recommended over the shared `gateway-token` |
 | `proxy.killSwitch.pubkey.existingSecret` | `killswitch.pub` | PUBLIC half of the signing key -> halo-proxy `killSwitch.pubkeyFile`; token defaults to `server.killSwitch.existingSecret`/`gateway-token` |
 | `server.controller.clickhouse.existingSecret` | `username`, `password` | `--clickhouse-user` (via env) / `--clickhouse-password-file` |

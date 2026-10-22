@@ -64,11 +64,13 @@ Any other issuer (self-managed GitLab, AWS, AKS, your own) must name its tenant 
       tenantClaim: sub         # rules must match sub exactly, e.g. the role ARN
 ```
 
-On a known issuer `tenantClaim` may narrow the choice to one of its tenant claims (for example `repository_owner_id`), never widen it.
+On a known issuer `tenantClaim` may narrow the choice to one of its tenant claims (for example `repository_owner_id`), never widen it: any other value (`ref`, `environment`) fails `halo validate` and is ignored at runtime.
 
 **Prefer immutable ids.** `repository_owner` and `repository` are names. If `acme` renames or deletes its organization, anyone can register `acme` and its workflows then match. `repository_owner_id` and `repository_id` never change (`gh api orgs/acme --jq .id`, `gh api repos/acme/app --jq .id`). `halo validate` warns on a rule that pins names only: GitHub without `repository_owner_id` or `repository_id`, GitLab.com without `namespace_id` or `project_id`, Buildkite without `organization_id` (`organization_slug` is a name).
 
-**Enforced at runtime too.** A rule that pins no tenant fails `halo validate` and `halo release build`, and halo-server and the gateways refuse to activate a policy with such a rule (or a unit loosening), keeping the last good one and logging `policy refused` (`halo_server_policy_refused_total`). The exchange never matches an unpinned rule, whatever loaded it.
+**Enforced at runtime too.** A rule that pins no tenant fails `halo validate` and `halo release build`, and halo-server and the gateways refuse to activate a policy with such a rule (or a unit loosening), keeping the last good one and logging `policy refused` (`halo_server_policy_refused_total`). The exchange never matches an unpinned rule, whatever loaded it (`halo_server_workload_rules_skipped` reports any in effect). A refused policy still removes rules: to revoke a compromised rule in an emergency, delete it; even if something unrelated in the same change fails validation, the rules in effect become the last good rules that are still present unchanged, and `halo_server_policy_tightened_total` counts it. Rules it adds or changes wait for a policy that validates.
+
+**Shared runners.** Hosted runners share egress IPs, so the exchange's failed-attempt limit counts only malformed tokens, unknown issuers and bad signatures. A neighbour's signed tokens for its own repository (no matching rule, expired, wrong audience) never lock your jobs out, and a signed token is accepted even from a blocked IP (verified from cached keys, without calling the issuer).
 
 **Forks and `pull_request_target`.** A pinned owner or repository says which repository's workflow runs, not whose code. `pull_request_target` and `workflow_run` workflows run on the base branch (`ref: refs/heads/main`), with the base repository's identity, and can be made to check out and run a fork's code. Pinning `ref` does not stop that. For anything that reaches production models or spends real budget, also pin one of:
 

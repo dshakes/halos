@@ -41,7 +41,7 @@ routing and no shadow mirroring.
 | Flag | Purpose |
 |---|---|
 | `--killswitch-key-file` | ed25519 PKCS#8 PEM private key (`halo keys generate --name killswitch`). It signs the kill list. Use a dedicated key, not the release key. **Requires `--data-dir`** (kills must survive a restart). |
-| `--gateway-token-file` | Bearer token (16+ chars) that gateways present to `GET /api/v1/gateway/killswitch`. |
+| `--gateway-token-file` | Bearer token (at least 32 characters and 128 bits of estimated entropy; `openssl rand -hex 32`) that gateways present to `GET /api/v1/gateway/killswitch`. |
 
 The key needs the token; startup fails otherwise, and fails if the key is set without `--data-dir`. The token alone serves only `GET /api/v1/gateway/posture` (below). Without a key the server is honest about it: no kill list is served, kill and unkill return 501, `GET /api/v1/capabilities` reports `killSwitch: false`, and the in-process controller reports rollbacks as **not enforced** ("merge the pause PR urgently") instead of recording a kill nobody reads. The gateway endpoint returns
 `{"payload": base64(JSON {version, experiments, issuedAt}), "signature": base64(ed25519("halo-killswitch-v1\n" + payload))}`.
