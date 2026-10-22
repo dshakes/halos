@@ -22,6 +22,11 @@ type Verifier interface {
 // ErrNoCredentials is returned when the request carries nothing to verify.
 var ErrNoCredentials = errors.New("identity: no credentials")
 
+// ErrTokenExpired wraps the expiry refusal of a halo-server workload or
+// delegated credential. Its signature has already verified when it is
+// returned, so the holder is genuine and only late.
+var ErrTokenExpired = errors.New("expired")
+
 // ErrAmbiguous is returned when a trusted identity/groups header appears more
 // than once; adapters answer 400 rather than guess which value is real.
 var ErrAmbiguous = errors.New("identity: identity header sent more than once")

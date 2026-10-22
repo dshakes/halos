@@ -491,7 +491,7 @@
             "minLength": 1
           },
           "uniqueItems": true,
-          "description": "Tool names a delegated agent's model call may not declare (tools[].name; Gemini functionDeclarations[].name). Case-insensitive."
+          "description": "Tools a delegated agent's model call may not declare: function names (case-insensitive) and hosted tool identifiers such as web_search, code_execution or mcp:<server> (prefix match ignoring case and underscores). With any set, an agent call whose tools the gateway cannot read is refused."
         },
         "actors": {
           "type": "array",

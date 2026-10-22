@@ -105,7 +105,7 @@ The gateway applies current policy on every model call. A refusal is a 400 `agen
 - The agent is still in `agents.actors`.
 - The depth is within the current org `maxDepth`.
 - The model is within the credential scope, `allowedModels` and the actor's `models`.
-- No tool in `tools[]` is in `deniedTools`. Keys are matched case-insensitively and duplicate keys all count, so a body cannot show the gateway one tool list and the upstream another.
+- No declared tool is in `deniedTools`. Keys are matched case-insensitively and duplicate keys all count, so a body cannot show the gateway one tool list and the upstream another (see the amendment for hosted tools and fail-closed reading).
 
 `x-halo-actor` (the chain) and `x-halo-actor-depth` are gateway-owned. Client copies are always cleared and the verified values stamped.
 
@@ -134,11 +134,24 @@ Telemetry:
 - **Good.** A remote agent is a reviewed policy entry with a pinned card. A card change fails `halo agents verify` in CI.
 - **Bad.**
   - Delegated credentials cannot be revoked one by one before `exp`. Their lifetime is capped, removing an actor or lowering `maxDepth` takes effect at the next gateway policy load, and deprovisioning the root takes effect at the next directory lookup.
-- **Bad.** The gateway applies the org `maxDepth`. A profile or unit `maxDepth` is enforced at issuance only, so a lowered unit cap takes effect as credentials expire (at most `maxTTLSeconds`).
+- **Bad.** The gateway has no session revocation list: a revoked human's agents stop exchanging and getting egress decisions at once, but their model calls continue until the credential expires (at most `maxTTLSeconds`) or SCIM deprovisioning reaches the gateway's directory.
 - **Bad.** Only the halo_session cookie and Halos credentials are accepted as parents. A human whose gateway credential is an IdP token must get a session first, from the portal login or `HALO_SESSION`.
 - **Bad.** The egress decision is advisory unless an egress proxy enforces it. Harnesses cannot be configured to consult it.
 - **Neutral.** Signature verification accepts the card as served, or with empty members dropped, because the spec's default-value rules need the proto schema. Both forms cover the same signed content.
 - **Neutral.** RFC 8693 says nested actors are informational. Halos still checks chain length and cycles, because it minted the chain.
+
+## Amended 2026-10-21 (security review)
+
+- **Tools are read fail closed.** The tool reader gave up on a body nested past 64 levels and returned no tools, so a deep `metadata` member skipped `deniedTools`. With `deniedTools` set, an agent call whose tools cannot be read (too deep, trailing data, malformed declarations, or a (protocol, path) not on the reader's explicit list) is now refused in the protocol's error shape. Tests: `TestDelegatedToolBypasses`, `TestToolNamesFailClosed`.
+- **Every request shape is read.** Keys are matched ignoring case and underscores, so Gemini `function_declarations` counts like `functionDeclarations`. Bedrock Converse and converse-stream tools (`toolConfig.tools[].toolSpec.name`, `systemTool`, and Anthropic tools under `additionalModelRequestFields`) are read; they were not inspected at all. Tests: `TestToolNames`, `TestDelegatedToolBypasses`.
+- **Hosted tools count by their type.** A tool the provider runs or builds in (Anthropic server tools and `mcp_servers`, OpenAI hosted tool types and `mcp`, Gemini `codeExecution`, `googleSearch`, `urlContext`) is identified by its type, its Gemini or Bedrock tool key, or `mcp:<server>`, and a `deniedTools` entry matches it as a prefix ignoring case and underscores (`web_search` denies `web_search_20250305` and `web_search_preview`; `mcp` denies every MCP server). Chosen over a separate hosted-tool allowlist because it needs no new policy field and an exact match would let the next tool version through. Test: `TestDeniesTool`.
+- **Egress honours session revocation.** The delegated credential's signed `auth_time` (already minted) now reaches the subject, and the egress decision refuses a human root whose sessions were revoked after it, through the same check the exchange uses (`liveHumanRoot`). Test: `TestEgressRevokedRoot`.
+- **Own rate-limit bucket.** Delegation and egress no longer share the CI exchange's failed-auth bucket, and only authentication failures spend theirs: a bad, forged or unverifiable credential, or an expired parent at the exchange. Policy refusals of an authenticated caller (`agent.token.denied`) do not. An expired agent credential at egress does not either: its signature verified (`identity.ErrTokenExpired` is returned only after it), a long agent run routinely outlives its credential, and counting it would let one NAT'd fleet lock itself out. Test: `TestAgentLimiter`.
+- **Auditing.** `agent.egress.allow` is fail closed (no allow without the record). Refusing a verified parent (revoked or deprovisioned root) and a policy that cannot be resolved for the root are audited as `agent.token.denied` with the root and the parent's `jti`. Refusals stay best-effort, and every failed audit append increments `halo_server_audit_append_errors_total`. Tests: `TestEgressAllowIsAuditStrict`, `TestDelegationAuditsRefusedParents`, `TestDelegationAuditsDeprovisionedParent`.
+- **Actor labels.** `actor_harness` and `actor_session` are limited to `[A-Za-z0-9._:-]` (64 and 256 bytes) in `CheckChain`, and checked before anything is audited, so they cannot forge structure in the audit chain detail. They are self-asserted labels, not controls. Tests: `TestCheckChainLabels`, `TestDelegationActorLabels`.
+- **Full re-check.** The gateway and the egress decision re-check every actor of the chain (still in `agents.actors`, `groups` held by the root) and the `models` of every actor, not only the current one and the frozen scope. The gateway also enforces the root's profile and unit `maxDepth`, memoised per policy snapshot by ring and unit, so the earlier accepted gap is closed. Tests: `TestDelegatedChainRecheck`, `TestChainRecheck`, `TestDecideRemoteRechecksChain`.
+- **AgentCards.** The JCS digest refuses invalid UTF-8 and lone surrogate escapes, which encoding/json turned into U+FFFD so distinct cards shared a digest. `ParseCard` reads fields by exact key from the decoded value the digest covers (encoding/json matched `SKILLS` for `skills`). The SSRF blocklist refuses NAT64 (`64:ff9b::/96`, `64:ff9b:1::/48`), 6to4 (`2002::/16`, relay `192.88.99.0/24`), Teredo (`2001::/32`) and IPv4-compatible (`::/96`) outright rather than unwrapping the embedded IPv4 address: a translator could deliver them inside, and no card host needs one. `halo agents verify` escapes control and format characters in card text. Tests: `TestCanonicalizeRefusesLossyUnicode`, `TestParseCardExactKeys`, `TestPublicAddrTransition`, `TestAgentsVerifyEscapesCard`.
+- **`expires_in`.** Compared in seconds before conversion; a value that overflowed `time.Duration` became a negative lifetime and a 500. Now a 400, audited. Test: `TestDelegationExpiresInOverflow`.
 
 ## Implementation status (2026-10-21)
 
@@ -156,4 +169,5 @@ Telemetry:
 | Card digests pinned in ring releases; per-harness warnings | `internal/release/release.go` | `internal/release/agents_test.go` `TestBuildPinsRemoteAgents` | Done |
 | Egress decision API | `internal/server/delegation.go` | `TestAgentEgressDecision`, `internal/policy/agents_test.go` `TestDecideRemote` | Done |
 | A client command for the exchange (`halo agents token`) and MCP tools | | | Gap: the guide uses `curl` |
-| Per-credential revocation; gateway-side profile and unit depth | | | Gap |
+| Gateway-side profile and unit depth; every actor re-checked | `internal/gateway/agents.go`, `internal/policy/agents.go` | `TestDelegatedChainRecheck`, `TestDecideRemoteRechecksChain` | Done (amendment) |
+| Per-credential revocation | | | Gap |

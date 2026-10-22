@@ -617,6 +617,7 @@ func (s *Server) RunAuditExport(ctx context.Context) {
 // WriteMetrics writes halo-server's Prometheus text-format metrics.
 func (s *Server) WriteMetrics(w io.Writer) {
 	fmt.Fprintf(w, "# TYPE halo_server_audit_rotate_errors_total counter\nhalo_server_audit_rotate_errors_total %d\n", s.auditLog.rotateErrs.Load())
+	fmt.Fprintf(w, "# HELP halo_server_audit_append_errors_total Audit appends that failed: the action was refused (strict) or went unrecorded (best-effort refusals and logins).\n# TYPE halo_server_audit_append_errors_total counter\nhalo_server_audit_append_errors_total %d\n", s.auditFails.Load())
 	fmt.Fprintf(w, "# HELP halo_server_policy_refused_total Policy loads refused for security validation errors (the last good policy keeps serving).\n# TYPE halo_server_policy_refused_total counter\nhalo_server_policy_refused_total %d\n", s.pol.refused.Load())
 	fmt.Fprintf(w, "# HELP halo_server_workload_rules_skipped_total Workload rules skipped at token exchange because they pin no tenant.\n# TYPE halo_server_workload_rules_skipped_total counter\nhalo_server_workload_rules_skipped_total %d\n", s.wlSkipped.Load())
 	if len(s.forwarders) == 0 {

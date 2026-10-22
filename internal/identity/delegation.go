@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -88,7 +89,7 @@ func ActFromChain(chain []policy.Actor) *Act {
 // the delegation attached.
 func (c DelegatedClaims) AsSubject() policy.Subject {
 	return policy.Subject{ID: c.Subject, Groups: c.Groups, Kind: c.RootKind,
-		Delegation: &policy.DelegationChain{Actors: c.Chain(), Models: c.ModelScope(), ID: c.ID}}
+		Delegation: &policy.DelegationChain{Actors: c.Chain(), Models: c.ModelScope(), ID: c.ID, AuthTime: c.AuthTime}}
 }
 
 // SignDelegatedToken signs c with the workload key. It refuses claims
@@ -137,7 +138,7 @@ func (c DelegatedClaims) check(now time.Time) error {
 	case c.Expiry == 0 || c.IssuedAt == 0 || c.NotBefore == 0 || c.ID == "":
 		return errors.New("exp, iat, nbf and jti are required")
 	case !now.Before(exp):
-		return fmt.Errorf("expired at %s", exp.UTC().Format(time.RFC3339))
+		return fmt.Errorf("%w at %s", ErrTokenExpired, exp.UTC().Format(time.RFC3339))
 	case nbf.After(now.Add(workloadSkew)), iat.After(now.Add(workloadSkew)):
 		return errors.New("not yet valid (nbf/iat in the future)")
 	case exp.Sub(iat) > policy.MaxWorkloadTTL:
@@ -146,8 +147,20 @@ func (c DelegatedClaims) check(now time.Time) error {
 	return CheckChain(c.Chain())
 }
 
+// Limits of an actor's harness and session labels. Both are self-asserted by
+// the caller of the exchange: labels for audit and correlation, never a
+// control. The character set keeps them from forging structure in the audit
+// chain detail ("agent(harness/session)>...") or a terminal.
+const (
+	maxActorHarness = 64
+	maxActorSession = 256
+)
+
+var actorLabelRe = regexp.MustCompile(`^[A-Za-z0-9._:-]*$`)
+
 // CheckChain enforces the structure every delegation chain must have: 1 to
-// policy.MaxAgentDepth actors, each a valid agent name, none twice (a cycle).
+// policy.MaxAgentDepth actors, each a valid agent name, none twice (a cycle),
+// harness and session labels within their length and character set.
 func CheckChain(chain []policy.Actor) error {
 	if len(chain) == 0 {
 		return errors.New("act claim is required")
@@ -164,8 +177,11 @@ func CheckChain(chain []policy.Actor) error {
 			return fmt.Errorf("delegation cycle: agent %q appears twice", a.Agent)
 		}
 		seen[a.Agent] = true
-		if len(a.Harness) > 64 || len(a.Session) > 256 {
+		if len(a.Harness) > maxActorHarness || len(a.Session) > maxActorSession {
 			return errors.New("actor harness or session too long")
+		}
+		if !actorLabelRe.MatchString(a.Harness) || !actorLabelRe.MatchString(a.Session) {
+			return errors.New("actor harness and session may hold only A-Z a-z 0-9 . _ : -")
 		}
 	}
 	return nil

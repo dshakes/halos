@@ -78,3 +78,36 @@ func TestAgentsVerify(t *testing.T) {
 		t.Fatalf("url not in policy: %d %s", code, errb)
 	}
 }
+
+// TestAgentsVerifyEscapesCard (L6): a hostile card cannot write terminal
+// escapes, carriage returns or bidi overrides through halo agents verify.
+func TestAgentsVerifyEscapesCard(t *testing.T) {
+	const hostile = `{"name":"Billing\u001b[2J\u001b]0;pwned\u0007","version":"1\r\nOK https://evil","skills":[{"id":"refund\u202egnp.exe"}],` +
+		`"securitySchemes":{"oauth\u001b[31m":{}},"supportedInterfaces":[{"url":"https://x/\u009b31m","protocolBinding":"JSONRPC\u0000","protocolVersion":"1.0"}]}`
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(hostile)) }))
+	t.Cleanup(srv.Close)
+	pool := x509.NewCertPool()
+	pool.AddCert(srv.Certificate())
+	old := cardFetcher
+	cardFetcher = func(timeout time.Duration, allowPrivate bool) a2a.Fetcher {
+		return a2a.Fetcher{Timeout: timeout, AllowPrivate: allowPrivate, RootCAs: pool}
+	}
+	t.Cleanup(func() { cardFetcher = old })
+	code, out, errb := halo(t, "agents", "verify", "--allow-private", srv.URL+"/card")
+	if code != 0 {
+		t.Fatalf("verify: %d %s %s", code, out, errb)
+	}
+	for _, bad := range []string{"\x1b", "\a", "\r", "\u202e", "\u009b", "\x00"} {
+		if strings.Contains(out, bad) {
+			t.Errorf("output holds %q:\n%q", bad, out)
+		}
+	}
+	for _, want := range []string{`Billing\u001b[2J`, `1\u000d\u000aOK`, `refund\u202egnp.exe`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output lacks %s:\n%s", want, out)
+		}
+	}
+	if got := termSafe("a\xffb\uFFFDc"); got != `a\xffb`+"\uFFFD"+"c" {
+		t.Errorf("termSafe invalid UTF-8: %q", got)
+	}
+}

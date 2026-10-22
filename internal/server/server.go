@@ -108,7 +108,8 @@ type Server struct {
 	authFails     authLimiter // device tokens and enrollment
 	loginFails    authLimiter // failed OIDC callbacks
 	gwFails       authLimiter // gateway tokens; a valid token is never blocked
-	exchangeFails authLimiter // POST /api/v1/token/exchange
+	exchangeFails authLimiter // POST /api/v1/token/exchange (CI workload federation)
+	agentFails    authLimiter // agent delegation exchange and POST /api/v1/agents/egress
 	scimFails     authLimiter // /scim/v2
 	revoked       *sessionRevocations
 	auditLog      *auditLog
@@ -122,6 +123,7 @@ type Server struct {
 	budgets       *budgetStore
 	wl            workloadExchange
 	wlSkipped     atomic.Uint64 // unpinned workload rules skipped at exchange
+	auditFails    atomic.Uint64 // audit appends that failed (strict and best-effort)
 }
 
 // New validates cfg and returns a Server. It does not require the policy dir to load yet.
