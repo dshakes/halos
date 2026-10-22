@@ -56,7 +56,8 @@ Copilot CLI is in `halod`'s write allowlist too (from its adapter's `harness.Met
 ## Version enforcement
 
 - Claude Code: the release sets `requiredMinimumVersion` and `requiredMaximumVersion`; the CLI refuses to start outside that range.
-- Codex, Gemini CLI and Copilot CLI: no CLI-side pin. `halod` and the Feature install the exact version and report drift.
+- Codex, Gemini CLI, Copilot CLI and OpenCode: no CLI-side pin. `halod` and the Feature install the exact version and report drift (for OpenCode the release also renders `autoupdate: false`).
+- Cursor CLI: its installer cannot pin a version, so `halod` cannot install it and warns.
 - **The gateway checks the version on every model call.** With `versionGate: enforce` on a ring, `halo-proxy` and `halo-kong` parse the CLI version from the User-Agent and refuse (403) a version the ring does not pin, and a missing or unrecognised User-Agent. For Claude Code this is defence in depth. Copilot CLI's User-Agent is not known, so it counts as unrecognised. Default `warn`: logged and counted, not refused. See [gateway gates](#gateway-gates).
 - **Installs are verified artifacts, not shell scripts.** The release carries, per OS and architecture, an https URL with an exact size and a sha256 (binary) or sha512 integrity (npm tarball). `halod` streams it under a size cap, refuses non-https redirects, checks the hash, and only then renames it into place. npm tarballs install with `--ignore-scripts` and empty user and global npmrc using a root-owned Node. The legacy `installCommand` (`curl | bash`, `npm install -g` with lifecycle scripts) runs only when `allowShellInstall: true` is set in `halod.yaml`, and `halod` logs a warning each time. Offline builds (`halo release build --no-artifacts`) therefore install nothing unless you opt in.
 

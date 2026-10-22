@@ -34,7 +34,7 @@ Halos ships six binaries from `cmd/`. Two more surfaces run inside one of them o
   - `internal/policy`: types, strict loader, validation and the default guardrails.
   - `internal/release`: renders every harness for every OS into a content-addressed tar.
   - `internal/bundle`: OCI push and pull, ed25519 and cosign signing, signed ring pointers.
-  - `internal/harness/*`: adapters for Claude Code, Codex, Gemini CLI and Copilot CLI.
+  - `internal/harness/*`: adapters for Claude Code, Codex, Gemini CLI, Copilot CLI, Cursor CLI and OpenCode.
   - `internal/promote`, `internal/rollout`, `internal/controller`: verdicts, rollout state and PRs.
   - `internal/mcpserver`: `halo mcp serve`.
   - `internal/eval`, `internal/stats`: replay evals, scorecards and statistics.

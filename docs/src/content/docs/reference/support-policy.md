@@ -41,7 +41,7 @@ This is the commitment from `v0.1.1` on. It is a policy, not something the code 
 | 0.1.0 | superseded by 0.1.1 (incomplete publish) | — |
 | 0.1.0-rc.1, rc.2 | prerelease | — |
 
-Harness CLIs (Claude Code, Codex, Gemini CLI, Copilot CLI) are not ours to support. The versions a Halos release was exercised against are in the [harness matrix](/halos/reference/harness-matrix/) (`make uat-clis` runs them on every PR). A newer CLI that changes its config format is a Halos **minor**, not a patch, because the adapter's rendered bytes change.
+Harness CLIs (Claude Code, Codex, Gemini CLI, Copilot CLI, Cursor CLI, OpenCode) are not ours to support. The versions a Halos release was exercised against are in the [harness matrix](/halos/reference/harness-matrix/) (`make uat-clis` runs them on every PR). A newer CLI that changes its config format is a Halos **minor**, not a patch, because the adapter's rendered bytes change.
 
 ## Upgrade order
 

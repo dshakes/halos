@@ -4,7 +4,7 @@ description: Apply a Halos release inside a Dev Container with the Halos Feature
 ---
 
 :::caution[Verified in CI, not in Codespaces]
-The Feature lives in `features/halos/` and its options below are read from `devcontainer-feature.json`. CI builds it with the devcontainer CLI (`scripts/ci-devcontainer.sh`): a fixture dev container applies a real signed release from a TLS registry and the pinned Claude Code and the managed settings land in the container, and this repo's own `.devcontainer` is built and brought up. `make uat-clis` also runs the Feature's `install.sh` against all four CLIs. Not run: Codespaces, the `firewall` option (needs `NET_ADMIN`) and a published Feature OCI artifact (**UNVERIFIED**).
+The Feature lives in `features/halos/` and its options below are read from `devcontainer-feature.json`. CI builds it with the devcontainer CLI (`scripts/ci-devcontainer.sh`): a fixture dev container applies a real signed release from a TLS registry and the pinned Claude Code and the managed settings land in the container, and this repo's own `.devcontainer` is built and brought up. `make uat-clis` also runs the Feature's `install.sh` against Claude Code, Codex, Gemini CLI and Copilot CLI (Cursor CLI and OpenCode are not in that run). Not run: Codespaces, the `firewall` option (needs `NET_ADMIN`) and a published Feature OCI artifact (**UNVERIFIED**).
 :::
 
 ## What the Feature does

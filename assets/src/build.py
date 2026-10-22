@@ -524,12 +524,14 @@ def architecture():
     d = D(
         "architecture",
         880,
-        560,
+        592,
         "Halos architecture",
         "Policy compiles to a signed release and ring pointers. The client plane (halod, MDM, Dev "
         "Container Feature, Coder, CI action) applies it; the traffic plane (halo-proxy or the Kong "
-        "plugin) routes to Anthropic, Bedrock, Vertex or OpenAI; the evidence plane (OTEL, ClickHouse, "
-        "halo eval, controller, console, MCP) proposes promotion PRs and fires the kill switch.",
+        "plugin) routes to Anthropic, Bedrock, Vertex or OpenAI, meters budgets and carries delegated agent "
+        "credentials; the evidence plane (OTEL, ClickHouse, halo eval, controller, MCP, and halo-server "
+        "with RBAC, SCIM and SIEM audit export on Postgres) proposes promotion PRs and fires the kill switch. "
+        "Six harnesses run on the client plane.",
         out=("assets", "docs"),
     )
     # control bar
@@ -550,7 +552,7 @@ def architecture():
         akind="accent",
     )
     cols = [24, 320, 616]
-    pw, top, ph = 240, 168, 368
+    pw, top, ph, pitch = 240, 168, 400, 50
     planes = [
         (
             "Client plane",
@@ -558,10 +560,12 @@ def architecture():
             [
                 ("halod", ["agent · macOS, Linux, Windows"]),
                 ("MDM exports", ["Jamf · Kandji · Intune"]),
-                ("Dev Container Feature", ["devcontainers · Codespaces"]),
-                ("Coder module", ["cloud workspaces"]),
-                ("CI action", ["runners · headless evals"]),
-                ("Harnesses", ["Claude Code · Codex · Gemini"]),
+                ("Dev Container · Coder", ["Codespaces · cloud workspaces"]),
+                ("CI action", ["runners · workload identity"]),
+                (
+                    "Six harnesses",
+                    ["Claude Code · Codex · Gemini", "Copilot · Cursor · OpenCode"],
+                ),
             ],
         ),
         (
@@ -570,7 +574,8 @@ def architecture():
             [
                 ("halo-proxy", ["OIDC · model routes · failover"], "accent"),
                 ("Kong + halo-kong", ["drop-in gateway plugin"]),
-                ("halo-shadow", ["async per-step mirror"]),
+                ("halo-shadow", ["async multi-turn mirror"]),
+                ("Budgets · agent identity", ["cost caps · delegated tokens"]),
             ],
         ),
         (
@@ -581,7 +586,8 @@ def architecture():
                 ("ClickHouse", ["halo.* tables"]),
                 ("halo eval", ["pass@k · LLM judge · matrix"]),
                 ("controller", ["mSPRT verdicts · rollback"], "accent"),
-                ("halo-server console", ["portal · kill switch"]),
+                ("halo-server", ["console · RBAC · SCIM · SIEM"]),
+                ("Postgres (HA)", ["replicas · leader lease"]),
                 ("MCP", ["halo mcp serve · agents"]),
             ],
         ),
@@ -590,9 +596,10 @@ def architecture():
         d.zone(x, top, pw, ph, label, sub=sub)
         for i, it in enumerate(items):
             kind = it[2] if len(it) > 2 else "card"
-            d.card(x + 12, top + 40 + i * 54, pw - 24, 46, it[0], it[1], kind=kind)
+            h = 60 if len(it[1]) > 1 else pitch - 6
+            d.card(x + 12, top + 40 + i * pitch, pw - 24, h, it[0], it[1], kind=kind)
     # providers block in traffic plane
-    py = top + 40 + 3 * 54
+    py = top + 40 + 4 * pitch
     d.card(cols[1] + 12, py, pw - 24, 154)
     d.text(cols[1] + 28, py + 27, "Providers", "t")
     d.text(cols[1] + pw - 28, py + 27, "any, with failover", "xs", "end")
@@ -616,7 +623,7 @@ def architecture():
     d.pill(cols[0] + pw + 28, yy - 18, "JWT", mono=True)
     d.path([(cols[1] + pw + 6, yy), (cols[2] - 6, yy)], "line", flow=True)
     d.pill(cols[1] + pw + 28, yy - 18, "OTLP", mono=True)
-    ky = top + 40 + 4 * 54 + 23
+    ky = top + 40 + 4 * pitch + 23
     d.path([(cols[2] - 6, ky), (cols[1] + pw + 6, ky)], "danger", dashed=True)
     d.pill(cols[1] + pw + 28, ky - 18, "kill", "danger")
     d.write()
@@ -2328,8 +2335,8 @@ def how_it_works():
         112,
         "Developer",
         [
-            "runs claude, codex or gemini",
-            "as usual; gets the ring's config",
+            "runs any of six CLIs as usual;",
+            "gets the ring's config",
             "and models automatically",
         ],
     )
@@ -2657,34 +2664,75 @@ def deep_dive():
     d.kicker(24, 34, "kinds · apiVersion halos.dev/v1")
 
     def kind(col, row, k, subs, style="card"):
-        d.card(xs[col], ys[row], wbox, hbox, k, subs, kind=style, mono_sub=True, title_mono=True)
+        d.card(
+            xs[col],
+            ys[row],
+            wbox,
+            hbox,
+            k,
+            subs,
+            kind=style,
+            mono_sub=True,
+            title_mono=True,
+        )
 
     kind(0, 0, "halos.yaml", ["org, identity (OIDC)", "selfService, simple mode"])
     kind(0, 1, "Gateway", ["models{alias: route}", "upstreams{name}, engine"])
-    kind(0, 2, "Toggle", ["rules[rings, groups,", "users, percent]", "client | traffic.routes"])
-    kind(1, 0, "Rollout", ["axis, experiment", "change, baseline", "steps[strategy, gates]"])
-    kind(1, 1, "Experiment", ["type, axis, rings[]", "variants[routes|profile]", "metrics, stopping"], "accent")
+    kind(
+        0,
+        2,
+        "Toggle",
+        ["rules[rings, groups,", "users, percent]", "client | traffic.routes"],
+    )
+    kind(
+        1,
+        0,
+        "Rollout",
+        ["axis, experiment", "change, baseline", "steps[strategy, gates]"],
+    )
+    kind(
+        1,
+        1,
+        "Experiment",
+        ["type, axis, rings[]", "variants[routes|profile]", "metrics, stopping"],
+        "accent",
+    )
     kind(2, 0, "Ring", ["order, profile", "release (pin)", "membership"])
     kind(2, 1, "Profile", ["extends", "harnesses{version}", "models, permissions, mcp"])
     kind(2, 2, "Org", ["policy.Load joins every", "document into one Org"], "ghost")
     m = hbox / 2
     g0, g1 = xs[0] + wbox, xs[1] + wbox  # right edges of columns 0 and 1
     # Rollout -> Experiment, Rollout -> Ring
-    d.path([(xs[1] + wbox / 2, ys[0] + hbox + 6), (xs[1] + wbox / 2, ys[1] - 6)], "accent")
+    d.path(
+        [(xs[1] + wbox / 2, ys[0] + hbox + 6), (xs[1] + wbox / 2, ys[1] - 6)], "accent"
+    )
     d.pill(xs[1] + wbox / 2, ys[0] + hbox + 18, "experiment", "accent", mono=True)
     d.path([(g1 + 6, ys[0] + m - 14), (xs[2] - 6, ys[0] + m - 14)], "line")
     d.pill((g1 + xs[2]) / 2, ys[0] + m - 28, "ring", mono=True)
     # Experiment -> Ring, Profile, Gateway
-    d.path([(g1 + 6, ys[1] + 24), (g1 + 28, ys[1] + 24), (g1 + 28, ys[0] + m + 22), (xs[2] - 6, ys[0] + m + 22)], "line", r=6)
+    d.path(
+        [
+            (g1 + 6, ys[1] + 24),
+            (g1 + 28, ys[1] + 24),
+            (g1 + 28, ys[0] + m + 22),
+            (xs[2] - 6, ys[0] + m + 22),
+        ],
+        "line",
+        r=6,
+    )
     d.pill(g1 + 28, ys[1] - 14, "rings[]", mono=True)
     d.path([(g1 + 6, ys[1] + m + 16), (xs[2] - 6, ys[1] + m + 16)], "line")
     d.pill((g1 + xs[2]) / 2, ys[1] + m + 2, "profile", mono=True)
     d.path([(xs[1] - 6, ys[1] + m), (g0 + 6, ys[1] + m)], "accent")
     d.pill((g0 + xs[1]) / 2, ys[1] + m - 14, "routes", "accent", mono=True)
     # Ring -> Profile, Toggle -> Gateway
-    d.path([(xs[2] + wbox / 2, ys[0] + hbox + 6), (xs[2] + wbox / 2, ys[1] - 6)], "line")
+    d.path(
+        [(xs[2] + wbox / 2, ys[0] + hbox + 6), (xs[2] + wbox / 2, ys[1] - 6)], "line"
+    )
     d.pill(xs[2] + wbox / 2, ys[0] + hbox + 18, "profile", mono=True)
-    d.path([(xs[0] + wbox / 2, ys[2] - 6), (xs[0] + wbox / 2, ys[1] + hbox + 6)], "line")
+    d.path(
+        [(xs[0] + wbox / 2, ys[2] - 6), (xs[0] + wbox / 2, ys[1] + hbox + 6)], "line"
+    )
     d.pill(xs[0] + wbox / 2, ys[1] + hbox + 18, "traffic.routes", mono=True)
     d.write()
 
@@ -2710,23 +2758,68 @@ def deep_dive():
             chip(d, x + 12, y + 40 + i * 28, zw - 24, s, k)
         return h
 
-    hp = zone(zx[0], 24, "Publisher (CI)", [("release key: ed25519", "danger"), ("cosign key (optional)", "chip"),
-                                              ("pointer state file", "chip")])
-    hs = zone(zx[1], 24, "halo-server", [("kill key: ed25519", "danger"), ("gateway token (sha256)", "chip"),
-                                          ("fleet token", "chip"), ("device tokens (hashed)", "chip"),
-                                          ("release pubkey (enroll)", "chip"), ("OIDC client secret", "chip"),
-                                          ("session key", "chip")])
-    hg = zone(zx[2], 24, "Gateways", [("kill pubkey", "chip"), ("gateway token", "chip"),
-                                       ("provider creds (env)", "chip"), ("OTLP gateway token", "chip"),
-                                       ("shadow token", "chip")])
+    hp = zone(
+        zx[0],
+        24,
+        "Publisher (CI)",
+        [
+            ("release key: ed25519", "danger"),
+            ("cosign key (optional)", "chip"),
+            ("pointer state file", "chip"),
+        ],
+    )
+    hs = zone(
+        zx[1],
+        24,
+        "halo-server",
+        [
+            ("kill key: ed25519", "danger"),
+            ("gateway token (sha256)", "chip"),
+            ("fleet token", "chip"),
+            ("device tokens (hashed)", "chip"),
+            ("release pubkey (enroll)", "chip"),
+            ("OIDC client secret", "chip"),
+            ("session key", "chip"),
+        ],
+    )
+    hg = zone(
+        zx[2],
+        24,
+        "Gateways",
+        [
+            ("kill pubkey", "chip"),
+            ("gateway token", "chip"),
+            ("provider creds (env)", "chip"),
+            ("OTLP gateway token", "chip"),
+            ("shadow token", "chip"),
+        ],
+    )
     yr = 24 + hp + 30
     d.card(zx[0], yr, zw, 52, "OCI registry", ["untrusted storage"], kind="ghost")
     yd = yr + 52 + 44
-    hd = zone(zx[0], yd, "Devices (halod)", [("release pubkeys", "chip"), ("revokedKeys", "chip"),
-                                              ("kill pubkey", "chip"), ("device token (0600)", "chip")])
+    hd = zone(
+        zx[0],
+        yd,
+        "Devices (halod)",
+        [
+            ("release pubkeys", "chip"),
+            ("revokedKeys", "chip"),
+            ("kill pubkey", "chip"),
+            ("device token (0600)", "chip"),
+        ],
+    )
     yc = 24 + hg + 52
-    zone(zx[2], yc, "OTel collector", [(":4319 gateway token", "chip"), (":4320 eval token", "chip"),
-                                         (":4317/8 CLI (opt. token)", "chip"), ("-> ClickHouse", "chip")])
+    zone(
+        zx[2],
+        yc,
+        "OTel collector",
+        [
+            (":4319 gateway token", "chip"),
+            (":4320 eval token", "chip"),
+            (":4317/8 CLI (opt. token)", "chip"),
+            ("-> ClickHouse", "chip"),
+        ],
+    )
     yi = 24 + hs + 96
     d.card(zx[1], yi, zw, 56, "OIDC IdP", ["signs developer JWTs"], kind="ghost")
     cx0 = zx[0] + zw / 2
@@ -2737,7 +2830,9 @@ def deep_dive():
     d.badge(cx0 + 18, (yr + 52 + yd) / 2, 2)
     # 3 devices -> halo-server
     ya = yd + 40
-    d.path([(zx[0] + zw + 6, ya), (zx[1] + 60, ya), (zx[1] + 60, 24 + hs + 6)], "line", r=8)
+    d.path(
+        [(zx[0] + zw + 6, ya), (zx[1] + 60, ya), (zx[1] + 60, 24 + hs + 6)], "line", r=8
+    )
     d.badge(zx[1] + 60, (ya + 24 + hs) / 2, 3)
     # 4 gateways -> halo-server
     d.path([(zx[2] - 6, 92), (zx[1] + zw + 6, 92)], "line")
@@ -2747,7 +2842,12 @@ def deep_dive():
     d.badge(zx[2] + zw / 2 + 18, (24 + hg + yc) / 2, 5)
     # 6 IdP -> gateways (JWKS)
     gx6 = (zx[1] + zw + zx[2]) / 2
-    d.path([(zx[1] + zw + 6, yi + 28), (gx6, yi + 28), (gx6, 160), (zx[2] - 6, 160)], "line", r=6, dashed=True)
+    d.path(
+        [(zx[1] + zw + 6, yi + 28), (gx6, yi + 28), (gx6, 160), (zx[2] - 6, 160)],
+        "line",
+        r=6,
+        dashed=True,
+    )
     d.badge(gx6, (yi + 28 + 160) / 2, 6)
     notes = [
         "release + signed ring pointer pushed, signed with the release key",
@@ -2818,7 +2918,9 @@ def deep_dive():
         f'<rect class="ghost" x="{gx}" y="{gy}" width="{n * cell}" height="{n * cell}" rx="2"/>'
     )
     for p in order:
-        for q in sorted(deps[p]):  # sets iterate in hash order; sort so the SVG is reproducible
+        for q in sorted(
+            deps[p]
+        ):  # sets iterate in hash order; sort so the SVG is reproducible
             if q in idx:
                 r, c = idx[p], idx[q]
                 assert c < r, (p, q)
@@ -2915,7 +3017,7 @@ def og_card():
 <text x="80" y="346" fill="url(#tg)" font-size="64" font-weight="700" letter-spacing="-2.4">like software.</text>
 <text x="80" y="414" fill="{c["text2"]}" font-size="24">Signed releases, ring rollouts, evals and</text>
 <text x="80" y="446" fill="{c["text2"]}" font-size="24">automatic rollback for AI coding CLIs.</text>
-<text x="80" y="548" fill="{c["text3"]}" font-size="19" font-family="{MONO}">Claude Code · Codex · Gemini CLI · Copilot CLI</text>
+<text x="80" y="548" fill="{c["text3"]}" font-size="19" font-family="{MONO}">Claude Code · Codex · Gemini · Copilot · Cursor · OpenCode</text>
 </g></svg>
 """
     (DOCS.parent / "og.svg").write_text(svg)
