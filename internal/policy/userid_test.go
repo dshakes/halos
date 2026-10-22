@@ -33,8 +33,9 @@ func TestCanonicalUser(t *testing.T) {
 		if want := tc.lookalike == tc.real; same != want {
 			t.Errorf("%q vs %q: same=%v, want %v", tc.lookalike, tc.real, same, want)
 		}
-		if strings.ToLower(tc.lookalike) == strings.ToLower(tc.real) && tc.lookalike != tc.real && CanonicalUser(tc.lookalike) == CanonicalUser(tc.real) {
-			t.Errorf("%q: folded like strings.ToLower", tc.lookalike)
-		}
+	}
+	// The bug this replaces: strings.ToLower folds the Kelvin sign into k.
+	if k := "Kelly"; strings.ToLower(k) != "kelly" || CanonicalUser(k) == "kelly" {
+		t.Errorf("Kelvin sign: ToLower %q, CanonicalUser %q", strings.ToLower(k), CanonicalUser(k))
 	}
 }
