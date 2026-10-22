@@ -92,14 +92,21 @@ type scimLogStore struct {
 	memberOf map[string]map[string]struct{} // user id -> ids of the groups listing it (Lookup and DeleteUser stay O(user's groups))
 	f        *os.File                       // nil = memory only
 	log      storage.Log                    // HA: the shared "scim" log instead of f (OpenSCIMStoreOn)
+	names    storage.KV                     // HA: userName claims (claimName)
+	cc       storage.Coalescer              // HA: one catch-up serves every concurrent reader
 }
+
+// errSCIMUserNameTaken is PutUser's refusal of a userName another user holds.
+var errSCIMUserNameTaken = errors.New("scim store: userName is already provisioned")
 
 // OpenSCIMStoreOn opens the directory on a shared backend's "scim" log
 // (ADR-0021): every read first applies other replicas' writes, so a
 // deprovisioning on one replica holds on all of them at once. The memberOf
-// index is rebuilt by the same apply on replay and catch-up.
-func OpenSCIMStoreOn(ctx context.Context, o storage.Opener) (SCIMStore, error) {
-	s := &scimLogStore{users: map[string]SCIMUser{}, byName: map[string]string{}, groups: map[string]SCIMGroup{}, memberOf: map[string]map[string]struct{}{}}
+// index is rebuilt by the same apply on replay and catch-up. names holds
+// one claim per canonical userName, so two replicas can never provision the
+// same name twice even if their uniqueness checks race.
+func OpenSCIMStoreOn(ctx context.Context, o storage.Opener, names storage.KV) (SCIMStore, error) {
+	s := &scimLogStore{users: map[string]SCIMUser{}, byName: map[string]string{}, groups: map[string]SCIMGroup{}, memberOf: map[string]map[string]struct{}{}, names: names}
 	log, err := o.OpenLog(ctx, "scim", func(line []byte) {
 		var rec scimRecord
 		if json.Unmarshal(line, &rec) == nil {
@@ -114,16 +121,43 @@ func OpenSCIMStoreOn(ctx context.Context, o storage.Opener) (SCIMStore, error) {
 }
 
 // sync applies other replicas' records; false when the shared log cannot be
-// read (the file and memory stores have no other writer).
+// read (the file and memory stores have no other writer). Concurrent readers
+// share one catch-up (storage.Coalescer) instead of queueing on s.mu for one
+// database round trip each.
 func (s *scimLogStore) sync() bool {
 	if s.log == nil {
 		return true
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	return s.cc.Do(func() error {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		ctx, cancel := storage.Ctx()
+		defer cancel()
+		return s.log.Catchup(ctx)
+	}) == nil
+}
+
+const (
+	kvSCIMName = "scim-username"
+	// scimClaimPending is how long a claim taken before its user is written
+	// lives: a replica that dies between the claim and the write does not
+	// block the name for longer. A written user's claim is then pinned.
+	scimClaimPending = 2 * time.Minute
+	scimClaimPinned  = 100 * 365 * 24 * time.Hour
+)
+
+// claimName takes userName's claim for id on the shared store; false means
+// another user holds it. A claim is re-entrant for its own id.
+func (s *scimLogStore) claimName(userName, id string, ttl time.Duration) (bool, error) {
 	ctx, cancel := storage.Ctx()
 	defer cancel()
-	return s.log.Catchup(ctx) == nil
+	return s.names.TryLock(ctx, kvSCIMName, canonicalUser(userName), id, ttl)
+}
+
+func (s *scimLogStore) releaseName(userName, id string) {
+	ctx, cancel := storage.Ctx()
+	defer cancel()
+	_ = s.names.Unlock(ctx, kvSCIMName, canonicalUser(userName), id) // best effort: a stale claim only blocks reuse of a deleted name until an admin clears it
 }
 
 // OpenSCIMStore opens dir/scim.jsonl, or a memory-only store when dir is "".
@@ -225,7 +259,39 @@ func (s *scimLogStore) PutUser(u SCIMUser) error {
 	if u.ID == "" {
 		return errors.New("scim store: user without id")
 	}
-	return s.write(scimRecord{User: &u})
+	if s.names == nil {
+		return s.write(scimRecord{User: &u})
+	}
+	// Shared store: claim the name first, write, then pin the claim and drop
+	// the old name's. A crash between claim and write leaves a claim that
+	// expires in scimClaimPending.
+	if !s.sync() { // the current name may have been written by another replica
+		return fmt.Errorf("scim store: %w", storage.ErrUnavailable)
+	}
+	s.mu.RLock()
+	old, had := s.users[u.ID]
+	s.mu.RUnlock()
+	renamed := had && canonicalUser(old.UserName) != canonicalUser(u.UserName)
+	ok, err := s.claimName(u.UserName, u.ID, scimClaimPending)
+	if err != nil {
+		return fmt.Errorf("scim store: claim userName: %w", err)
+	}
+	if !ok {
+		return errSCIMUserNameTaken
+	}
+	if err := s.write(scimRecord{User: &u}); err != nil {
+		if !had || renamed {
+			s.releaseName(u.UserName, u.ID)
+		}
+		return err
+	}
+	if _, err := s.claimName(u.UserName, u.ID, scimClaimPinned); err != nil {
+		return fmt.Errorf("scim store: pin userName claim: %w", err) // the user is written; the pending claim still holds it for now
+	}
+	if renamed {
+		s.releaseName(old.UserName, u.ID)
+	}
+	return nil
 }
 
 func (s *scimLogStore) PutGroup(g SCIMGroup) error {
@@ -236,7 +302,24 @@ func (s *scimLogStore) PutGroup(g SCIMGroup) error {
 	return s.write(scimRecord{Group: &g})
 }
 
-func (s *scimLogStore) DeleteUser(id string) error  { return s.write(scimRecord{DelUser: id}) }
+func (s *scimLogStore) DeleteUser(id string) error {
+	if s.names == nil {
+		return s.write(scimRecord{DelUser: id})
+	}
+	if !s.sync() {
+		return fmt.Errorf("scim store: %w", storage.ErrUnavailable)
+	}
+	s.mu.RLock()
+	old, had := s.users[id]
+	s.mu.RUnlock()
+	if err := s.write(scimRecord{DelUser: id}); err != nil {
+		return err
+	}
+	if had {
+		s.releaseName(old.UserName, id)
+	}
+	return nil
+}
 func (s *scimLogStore) DeleteGroup(id string) error { return s.write(scimRecord{DelGroup: id}) }
 
 func (s *scimLogStore) User(id string) (SCIMUser, bool) {

@@ -32,6 +32,8 @@
 {{- $gt := $s.gatewayTokens | default dict }}{{- /* per-capability gateway bearer tokens (one Secret, a key per capability) */}}
 {{- if and $gt.existingSecret (not (or $gt.killswitch $gt.posture $gt.budget $gt.directory)) }}{{ fail "server.gatewayTokens.existingSecret needs at least one of killswitch, posture, budget, directory (the Secret key holding that capability's token)" }}{{ end }}
 {{- $ha := $s.database.existingSecret }}{{- /* shared Postgres state (ADR-0021): replicas may be > 1 */}}
+{{- if and $ha .Values.networkPolicy.enabled (not .Values.networkPolicy.databaseEgress.to) }}{{ fail "server.database.existingSecret with networkPolicy.enabled needs networkPolicy.databaseEgress.to (the Postgres CIDR or peers): default-deny would block every replica from its database" }}{{ end }}
+{{- if and $s.database.migrateJob.enabled (not $ha) }}{{ fail "server.database.migrateJob needs server.database.existingSecret" }}{{ end }}
 {{- if and $ha $s.persistence.enabled }}{{ fail "server.database.existingSecret and server.persistence.enabled are exclusive: state lives in Postgres (move a data dir with `halo-server import`)" }}{{ end }}
 {{- if and (gt (int $s.replicas) 1) (not $ha) }}{{ fail "server.replicas > 1 requires server.database.existingSecret (file state has a single writer)" }}{{ end }}
 {{- if and $ks.existingSecret (not $s.persistence.enabled) (not $ha) }}{{ fail "server.killSwitch.existingSecret requires server.persistence.enabled or server.database (kills must survive a restart)" }}{{ end }}
@@ -167,6 +169,10 @@ spec:
             {{- if $ha }}
             - --database-url-file=/secrets/database-url
             - --leader-lease-ttl={{ $s.database.leaseTTL }}
+            - --database-max-conns={{ $s.database.maxConns | default 16 }}
+            {{- if $s.database.insecureTLS }}
+            - --database-insecure-tls
+            {{- end }}
             {{- if $s.database.autoMigrate }}
             - --auto-migrate
             {{- end }}

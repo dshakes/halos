@@ -3,7 +3,7 @@
 server:
   replicas: 3
   persistence: {enabled: false}
-  database: {existingSecret: halos-postgres, key: url, autoMigrate: true, leaseTTL: 15s}
+  database: {existingSecret: halos-postgres, key: url, autoMigrate: false, leaseTTL: 15s, migrateJob: {enabled: true, existingSecret: halos-postgres-ddl}}
   metrics: {enabled: true}
   audit: # no rotation on Postgres: one table; each sink forwards from one replica under its lease
     export:

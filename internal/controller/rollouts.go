@@ -93,14 +93,20 @@ func (c *Controller) rolloutStep(ctx context.Context, org *policy.Org, r *policy
 		return c.fail(fmt.Errorf("controller: rollout %s: %w", r.Name, err))
 	}
 	dirty := st.Sync(r, now)
-	save := func(errs ...error) error {
+	// persist saves st (fenced by the leader lease on the HA backend). It runs
+	// before every external call to record the intent (rolloutIntend) and at
+	// the end of the step.
+	persist := func() error {
 		// Not ctx alone: state recording actions already taken must outlive the tick deadline.
 		sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), stateSaveTimeout)
 		defer cancel()
 		if err := store.Save(sctx, &st); err != nil {
-			errs = append(errs, c.fail(fmt.Errorf("controller: rollout %s: %w", r.Name, err)))
+			return c.fail(fmt.Errorf("controller: rollout %s: %w", r.Name, err))
 		}
-		return errors.Join(errs...)
+		return nil
+	}
+	save := func(errs ...error) error {
+		return errors.Join(append(errs, persist())...)
 	}
 	if r.EffectiveStatus() != policy.RolloutActive {
 		if dirty {
@@ -116,7 +122,7 @@ func (c *Controller) rolloutStep(ctx context.Context, org *policy.Org, r *policy
 			d := rollout.Decision{Action: rollout.Hold, Step: st.Step, Next: -1,
 				Reasons: []string{fmt.Sprintf("experiment %s is killed; unkill it or roll the rollout back (not evaluated while killed)", r.Experiment)}}
 			st.Last, st.LastAt = &d, now
-			return save(c.rolloutNotify(ctx, r, &st, Event{Verdict: VerdictKilled, Killed: true}, d))
+			return save(c.rolloutNotify(ctx, r, &st, Event{Verdict: VerdictKilled, Killed: true}, d, persist))
 		}
 	}
 
@@ -143,12 +149,12 @@ func (c *Controller) rolloutStep(ctx context.Context, org *policy.Org, r *policy
 				return err
 			}
 		}
-		return save(c.rolloutHalt(ctx, org, r, &st, d))
+		return save(c.rolloutHalt(ctx, org, r, &st, d, persist))
 	case rollout.Advance, rollout.Complete:
-		return save(c.rolloutPropose(ctx, org, r, &st, d))
+		return save(c.rolloutPropose(ctx, org, r, &st, d, persist))
 	default:
 		if d.AwaitingApproval {
-			return save(c.rolloutNotify(ctx, r, &st, Event{Verdict: "awaiting_approval"}, d))
+			return save(c.rolloutNotify(ctx, r, &st, Event{Verdict: "awaiting_approval"}, d, persist))
 		}
 		return save()
 	}
@@ -156,7 +162,7 @@ func (c *Controller) rolloutStep(ctx context.Context, org *policy.Org, r *policy
 
 // rolloutHalt: kill switch first (traffic axis, gateway evidence only), then
 // the PR, then notify; humans are told even if the kill or PR failed.
-func (c *Controller) rolloutHalt(ctx context.Context, org *policy.Org, r *policy.Rollout, st *rollout.State, d rollout.Decision) error {
+func (c *Controller) rolloutHalt(ctx context.Context, org *policy.Org, r *policy.Rollout, st *rollout.State, d rollout.Decision, persist func() error) error {
 	var errs []error
 	ev := Event{Verdict: promote.Verdict(d.Action)}
 	if d.Action == rollout.Rollback && r.Axis == policy.AxisTraffic && r.Experiment != "" {
@@ -172,7 +178,12 @@ func (c *Controller) rolloutHalt(ctx context.Context, org *policy.Org, r *policy
 			ev.KillOutcome, ev.KillError = KillNotConfigured, "kill switch not configured — rollback requires merging the PR"
 			c.log().Error("ROLLOUT ROLLBACK NOT ENFORCED: kill switch not configured", "rollout", r.Name)
 		default:
-			if _, err := c.Kill.Kill(ctx, r.Experiment, Actor, reason); err != nil {
+			if _, _, ierr := c.rolloutIntend(st, persist, "kill"); fenced(ierr) {
+				return ierr // deposed: no kill, PR or notification from this replica
+			} else if ierr != nil {
+				errs = append(errs, ierr)
+			}
+			if _, err := c.Kill.Kill(ctx, r.Experiment, Actor, reason); err != nil { // idempotent across leaders
 				ev.KillOutcome, ev.KillError = KillFailed, err.Error()
 				errs = append(errs, c.fail(fmt.Errorf("controller: kill %s for rollout %s: %w", r.Experiment, r.Name, err)))
 			} else {
@@ -189,32 +200,35 @@ func (c *Controller) rolloutHalt(ctx context.Context, org *policy.Org, r *policy
 	} else if d.Action == rollout.Rollback {
 		intro += " **Merge urgently**: exposure continues until this merges and ships."
 	}
-	url, err := c.rolloutPR(ctx, org, r, st, d.Action, -1, intro, d)
+	url, err := c.rolloutPR(ctx, org, r, st, d.Action, -1, intro, d, persist)
 	ev.PRURL = url
 	if err != nil {
+		if fenced(err) {
+			return errors.Join(append(errs, err)...)
+		}
 		ev.PRError = "PR failed"
 		errs = append(errs, err)
 	}
-	errs = append(errs, c.rolloutNotify(ctx, r, st, ev, d))
+	errs = append(errs, c.rolloutNotify(ctx, r, st, ev, d, persist))
 	return errors.Join(errs...)
 }
 
 // rolloutPropose opens the advance/complete PR once per step, then notifies
 // with its URL; a failed PR is retried next tick before anyone is told.
-func (c *Controller) rolloutPropose(ctx context.Context, org *policy.Org, r *policy.Rollout, st *rollout.State, d rollout.Decision) error {
+func (c *Controller) rolloutPropose(ctx context.Context, org *policy.Org, r *policy.Rollout, st *rollout.State, d rollout.Decision, persist func() error) error {
 	intro := fmt.Sprintf("Automated proposal: rollout `%s` passed every gate of step `%s`. Merging moves it on; the controller never merges.", r.Name, st.StepName)
 	if st.Step < 0 {
 		intro = fmt.Sprintf("Automated proposal: start rollout `%s` with step `%s`.", r.Name, r.Steps[0].Name)
 	}
-	url, err := c.rolloutPR(ctx, org, r, st, d.Action, d.Next, intro, d)
+	url, err := c.rolloutPR(ctx, org, r, st, d.Action, d.Next, intro, d, persist)
 	if err != nil {
 		return err
 	}
-	return c.rolloutNotify(ctx, r, st, Event{Verdict: promote.Verdict(d.Action), PRURL: url}, d)
+	return c.rolloutNotify(ctx, r, st, Event{Verdict: promote.Verdict(d.Action), PRURL: url}, d, persist)
 }
 
 // rolloutPR opens act's PR once per step; later ticks return the recorded URL.
-func (c *Controller) rolloutPR(ctx context.Context, org *policy.Org, r *policy.Rollout, st *rollout.State, act rollout.Action, next int, intro string, d rollout.Decision) (string, error) {
+func (c *Controller) rolloutPR(ctx context.Context, org *policy.Org, r *policy.Rollout, st *rollout.State, act rollout.Action, next int, intro string, d rollout.Decision, persist func() error) (string, error) {
 	key := "pr:" + string(act)
 	if url, done := st.Did(key); done {
 		return url, nil
@@ -224,12 +238,28 @@ func (c *Controller) rolloutPR(ctx context.Context, org *policy.Org, r *policy.R
 		c.log().Warn("no rollout PR writer configured; not opening a PR", "rollout", r.Name, "action", act)
 		return "", nil
 	}
+	ikey, prior, ierr := c.rolloutIntend(st, persist, key)
+	if fenced(ierr) {
+		return "", ierr
+	}
+	if prior { // an earlier attempt, maybe by a deposed leader, may have opened it
+		if f, ok := c.Writer.(PRFinder); ok {
+			url, found, ferr := f.FindPR(ctx, intentMarker(ikey))
+			if ferr != nil {
+				return "", c.fail(fmt.Errorf("controller: find rollout %s %s PR: %w", r.Name, act, ferr))
+			}
+			if found {
+				st.Mark(key, url, c.now())
+				return url, nil
+			}
+		}
+	}
 	manual := rollout.ManualSteps(org, r, act)
 	url, err := w.ProposeRollout(ctx, func(dir string) (*promote.Change, error) { return rollout.Plan(dir, org, r, act, next) },
 		rollout.Branch(r, act, next), rollout.Title(r, act, next),
-		func(patch string) string { return rollout.Body(intro, d, manual, patch) })
+		func(patch string) string { return rollout.Body(intro, d, manual, patch) + "\n\n" + intentMarker(ikey) })
 	if err != nil {
-		return "", c.fail(fmt.Errorf("controller: rollout %s %s PR: %w", r.Name, act, err))
+		return "", errors.Join(ierr, c.fail(fmt.Errorf("controller: rollout %s %s PR: %w", r.Name, act, err)))
 	}
 	c.log().Info("controller opened rollout PR", "rollout", r.Name, "action", act, "pr", url)
 	st.Mark(key, url, c.now())
@@ -237,7 +267,7 @@ func (c *Controller) rolloutPR(ctx context.Context, org *policy.Org, r *policy.R
 }
 
 // rolloutNotify delivers ev once per channel per step and verdict.
-func (c *Controller) rolloutNotify(ctx context.Context, r *policy.Rollout, st *rollout.State, ev Event, d rollout.Decision) error {
+func (c *Controller) rolloutNotify(ctx context.Context, r *policy.Rollout, st *rollout.State, ev Event, d rollout.Decision, persist func() error) error {
 	ev.Rollout, ev.Experiment, ev.Axis, ev.Reason, ev.At = r.Name, r.Experiment, string(r.Axis), strings.Join(d.Reasons, "; "), c.now().UTC()
 	names, ns := channels(c.Notifier)
 	var errs []error
@@ -246,6 +276,12 @@ func (c *Controller) rolloutNotify(ctx context.Context, r *policy.Rollout, st *r
 		if _, done := st.Did(key); done {
 			continue
 		}
+		ikey, _, ierr := c.rolloutIntend(st, persist, key)
+		if fenced(ierr) {
+			return errors.Join(append(errs, ierr)...)
+		}
+		errs = append(errs, ierr)
+		ev.ID = ikey
 		if err := n.Notify(ctx, ev); err != nil {
 			errs = append(errs, c.fail(fmt.Errorf("controller: notify rollout %s (%s) via %s: %w", r.Name, ev.Verdict, names[i], err)))
 			continue
@@ -253,4 +289,15 @@ func (c *Controller) rolloutNotify(ctx context.Context, r *policy.Rollout, st *r
 		st.Mark(key, "", c.now())
 	}
 	return errors.Join(errs...)
+}
+
+// rolloutIntend is intend for rollout state: it marks key's intent in st and
+// persists st (fenced on the HA backend) before the external call.
+func (c *Controller) rolloutIntend(st *rollout.State, persist func() error, key string) (string, bool, error) {
+	if d, ok := st.Did(intentPrefix + key); ok {
+		return d, true, nil
+	}
+	k := newIntentKey()
+	st.Mark(intentPrefix+key, k, c.now())
+	return k, false, persist()
 }

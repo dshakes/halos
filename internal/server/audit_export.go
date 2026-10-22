@@ -517,7 +517,11 @@ func (f *auditForwarder) next() ([]auditEvent, error) {
 	}
 	defer snap.close()
 	cur := f.cur
-	if head := f.log.headSeq(); cur.Seq > head {
+	head, err := f.log.headSeq()
+	if err != nil {
+		return nil, err // the database is unreachable; not a restored log
+	}
+	if cur.Seq > head {
 		return nil, fmt.Errorf("cursor at seq %d is ahead of the log head %d: the data dir was restored or replaced; export halted (see the SIEM export guide)", cur.Seq, head)
 	}
 	var evs []auditEvent
@@ -684,7 +688,7 @@ func (s *Server) WriteMetrics(w io.Writer) {
 	if len(s.forwarders) == 0 {
 		return
 	}
-	head := s.auditLog.headSeq()
+	head, herr := s.auditLog.headSeq() // unreadable: the lag gauge is left out of this scrape, not reported as 0
 	for _, m := range []struct {
 		name, typ string
 		v         func(*auditForwarder) uint64
@@ -694,6 +698,9 @@ func (s *Server) WriteMetrics(w io.Writer) {
 		{"halo_server_audit_forward_lag_entries", "gauge", func(f *auditForwarder) uint64 { return head - min(head, f.acked.Load()) }},
 		{"halo_server_audit_forward_last_success_timestamp_seconds", "gauge", func(f *auditForwarder) uint64 { return uint64(max(0, f.lastOK.Load())) }}, //nolint:gosec // clamped non-negative
 	} {
+		if herr != nil && m.name == "halo_server_audit_forward_lag_entries" {
+			continue
+		}
 		fmt.Fprintf(w, "# TYPE %s %s\n", m.name, m.typ)
 		for _, f := range s.forwarders {
 			fmt.Fprintf(w, "%s{sink=%q} %d\n", m.name, f.name, m.v(f))

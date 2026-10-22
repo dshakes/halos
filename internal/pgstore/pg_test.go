@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -531,7 +532,6 @@ func TestBudgetLedger(t *testing.T) {
 	a, schema := pgtest.OpenTest(t)
 	b, _ := pgtest.OpenTest(t, schema)
 	inc := []pgstore.BudgetCounter{{Budget: "d", Key: "user:x", Bucket: 100, USD: 1.5, Tokens: 10}}
-	keep := map[string]int64{"d": 50}
 	var wg sync.WaitGroup
 	dups := make(chan bool, 6)
 	for i := range 6 {
@@ -540,7 +540,7 @@ func TestBudgetLedger(t *testing.T) {
 			d = b
 		}
 		wg.Go(func() {
-			dup, err := d.ApplyBudget(ctx, "batch-1", inc, keep)
+			dup, err := d.ApplyBudget(ctx, "batch-1", inc)
 			if err != nil {
 				t.Error(err)
 			}
@@ -558,26 +558,70 @@ func TestBudgetLedger(t *testing.T) {
 	if applied != 1 {
 		t.Fatalf("one batch applied %d times across replicas", applied)
 	}
-	if _, err := a.ApplyBudget(ctx, "batch-2", inc, keep); err != nil {
+	if _, err := a.ApplyBudget(ctx, "batch-2", inc); err != nil {
 		t.Fatal(err)
 	}
 	got, err := b.BudgetCounters(ctx, [][2]string{{"d", "user:x"}})
 	if err != nil || len(got) != 1 || got[0].USD != 3 || got[0].Tokens != 20 {
 		t.Fatalf("counters %+v %v", got, err)
 	}
-	// Pruning: buckets before the window and budgets no longer in policy.
-	_, _ = a.ApplyBudget(ctx, "batch-3", []pgstore.BudgetCounter{{Budget: "gone", Key: "org", Bucket: 100, USD: 1}}, nil)
-	if all, _ := a.BudgetCounters(ctx, nil); len(all) != 2 {
-		t.Fatalf("import-style apply (nil keep) must not prune: %+v", all)
-	}
-	if _, err := a.ApplyBudget(ctx, "batch-4", nil, map[string]int64{"d": 200}); err != nil {
-		t.Fatal(err)
-	}
-	if all, _ := a.BudgetCounters(ctx, nil); len(all) != 0 {
-		t.Fatalf("expired bucket and removed budget kept: %+v", all)
-	}
 	if got, err := a.BudgetCounters(ctx, [][2]string{}); got != nil || err != nil {
 		t.Fatalf("empty key list: %v %v", got, err)
+	}
+}
+
+// TestBudgetPruneByAgeOnly: pruning uses only the database clock and the
+// retention bound, never a policy: a budget no replica's policy names yet is
+// kept while recent, and only buckets older than the retention go.
+func TestBudgetPruneByAgeOnly(t *testing.T) {
+	ctx := context.Background()
+	db, _ := pgtest.OpenTest(t)
+	now := time.Now().Unix()
+	_, err := db.ApplyBudget(ctx, "b", []pgstore.BudgetCounter{
+		{Budget: "brand-new", Key: "org", Bucket: now - 60, USD: 1},
+		{Budget: "old", Key: "org", Bucket: now - int64((100 * 24 * time.Hour).Seconds()), USD: 1},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := db.PruneBudgets(ctx, 95*24*time.Hour)
+	if err != nil || n != 1 {
+		t.Fatalf("pruned %d %v, want only the 100-day-old bucket", n, err)
+	}
+	all, _ := db.BudgetCounters(ctx, nil)
+	if len(all) != 1 || all[0].Budget != "brand-new" {
+		t.Fatalf("kept %+v", all)
+	}
+}
+
+// TestApplyBudgetNoDeadlock: two replicas applying overlapping counters in
+// opposite orders, concurrently, never deadlock (increments are sorted).
+func TestApplyBudgetNoDeadlock(t *testing.T) {
+	ctx := context.Background()
+	a, schema := pgtest.OpenTest(t)
+	b, _ := pgtest.OpenTest(t, schema)
+	fwd := make([]pgstore.BudgetCounter, 20)
+	for i := range fwd {
+		fwd[i] = pgstore.BudgetCounter{Budget: "d", Key: fmt.Sprintf("user:%02d", i), Bucket: 100, USD: 1}
+	}
+	rev := slices.Clone(fwd)
+	slices.Reverse(rev)
+	var wg sync.WaitGroup
+	for i := range 20 {
+		d, incs := a, fwd
+		if i%2 == 1 {
+			d, incs = b, rev
+		}
+		wg.Go(func() {
+			if _, err := d.ApplyBudget(ctx, fmt.Sprintf("batch-%d", i), incs); err != nil {
+				t.Error(err) // a deadlock surfaces as SQLSTATE 40P01
+			}
+		})
+	}
+	wg.Wait()
+	got, _ := a.BudgetCounters(ctx, [][2]string{{"d", "user:00"}})
+	if len(got) != 1 || got[0].USD != 20 {
+		t.Fatalf("%+v", got)
 	}
 }
 

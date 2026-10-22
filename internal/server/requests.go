@@ -240,10 +240,11 @@ func (s *Server) listRequests(w http.ResponseWriter, _ *http.Request, p Principa
 
 func (s *Server) decide(approve bool) authedHandler {
 	return func(w http.ResponseWriter, r *http.Request, p Principal) {
-		// One decision at a time per request across replicas; the claim
-		// outlives a hung PR attempt only until it expires.
-		id := r.PathValue("id")
-		if ok, err := s.kv.Add(r.Context(), "request-claim", id, []byte(p.ID), s.cfg.Now().Add(proposeTimeout+time.Minute)); err != nil {
+		// One decision at a time per request across replicas. The claim is a
+		// lock owned by this decision (random token) that expires on the
+		// store's clock after a hung PR attempt, and only its owner releases it.
+		id, owner := r.PathValue("id"), randB64(16)
+		if ok, err := s.kv.TryLock(r.Context(), "request-claim", id, owner, proposeTimeout+time.Minute); err != nil {
 			s.cfg.Log.Error("claim request", "id", id, "err", err)
 			apiErr(w, http.StatusServiceUnavailable, "state store unavailable")
 			return
@@ -254,7 +255,7 @@ func (s *Server) decide(approve bool) authedHandler {
 		defer func() {
 			ctx, cancel := storage.Ctx()
 			defer cancel()
-			if err := s.kv.Delete(ctx, "request-claim", id); err != nil {
+			if err := s.kv.Unlock(ctx, "request-claim", id, owner); err != nil {
 				s.cfg.Log.Warn("release request claim", "id", id, "err", err) // expires on its own
 			}
 		}()

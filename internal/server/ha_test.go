@@ -110,6 +110,21 @@ func (b *memShared) EachAudit(_ context.Context, from uint64, fn func(raw []byte
 	return nil
 }
 
+func (b *memShared) PruneBudgets(context.Context, time.Duration) (int64, error) { return 0, nil }
+
+func (b *memShared) EachAuditDesc(_ context.Context, fn func(raw []byte, e AuditEntry) bool) error {
+	b.mu.Lock()
+	es := append([]AuditEntry(nil), b.audit...)
+	b.mu.Unlock()
+	for i := len(es) - 1; i >= 0; i-- {
+		raw, _ := json.Marshal(es[i])
+		if !fn(raw, es[i]) {
+			return nil
+		}
+	}
+	return nil
+}
+
 func (b *memShared) AuditHead(context.Context) (uint64, string, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -161,7 +176,7 @@ func (b *memShared) Leased(ctx context.Context, name string, fn func(context.Con
 	<-ctx.Done()
 }
 
-func (b *memShared) ApplyBudget(_ context.Context, batch string, incs []pgstore.BudgetCounter, _ map[string]int64) (bool, error) {
+func (b *memShared) ApplyBudget(_ context.Context, batch string, incs []pgstore.BudgetCounter) (bool, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.batches == nil {

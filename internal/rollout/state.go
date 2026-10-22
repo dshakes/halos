@@ -235,21 +235,22 @@ type Docs interface {
 // DocStore keeps each rollout's state as one document, verified on load like a file.
 type DocStore struct{ DB Docs }
 
-const docKind = "rollout-state"
+// DocKind is the document kind DocStore keeps rollout state under.
+const DocKind = "rollout-state"
 
 // Load implements StateStore.
 func (d DocStore) Load(ctx context.Context, name string) (State, error) {
 	if !policy.ValidName(name) {
 		return State{}, fmt.Errorf("rollout state: invalid rollout name %q", name)
 	}
-	b, ok, err := d.DB.GetDoc(ctx, docKind, name)
+	b, ok, err := d.DB.GetDoc(ctx, DocKind, name)
 	if err != nil {
 		return State{}, fmt.Errorf("rollout state: %w", err)
 	}
 	if !ok {
 		return NewState(name), nil
 	}
-	return ParseState(docKind+"/"+name, name, b)
+	return ParseState(DocKind+"/"+name, name, b)
 }
 
 // Save implements StateStore.
@@ -258,7 +259,7 @@ func (d DocStore) Save(ctx context.Context, s *State) error {
 	if err != nil {
 		return fmt.Errorf("rollout state: encode: %w", err)
 	}
-	if err := d.DB.PutDoc(ctx, docKind, s.Rollout, b); err != nil {
+	if err := d.DB.PutDoc(ctx, DocKind, s.Rollout, b); err != nil {
 		return fmt.Errorf("rollout state: %w", err)
 	}
 	return nil

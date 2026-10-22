@@ -51,7 +51,8 @@ type KillStore struct {
 	mu      sync.Mutex
 	path    string
 	f       *os.File
-	log     storage.Log // shared backend; nil = the file (or memory)
+	log     storage.Log       // shared backend; nil = the file (or memory)
+	cc      storage.Coalescer // shared backend: one catch-up serves concurrent polls
 	size    int64
 	version uint64
 	state   map[string]KillRecord
@@ -192,11 +193,21 @@ func (s *KillStore) Unkill(ctx context.Context, experiment, by, reason string) (
 
 // Killed returns the active kills sorted by experiment, and the state version.
 func (s *KillStore) Killed() ([]KillRecord, uint64, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.refresh(); err != nil {
-		return nil, 0, err
+	if s.log != nil {
+		// Gateways poll this on every replica: concurrent polls share one
+		// catch-up, and s.mu is not held while they wait for it.
+		if err := s.cc.Do(func() error { s.mu.Lock(); defer s.mu.Unlock(); return s.refresh() }); err != nil {
+			return nil, 0, err
+		}
+		s.mu.Lock()
+	} else {
+		s.mu.Lock()
+		if err := s.refresh(); err != nil {
+			s.mu.Unlock()
+			return nil, 0, err
+		}
 	}
+	defer s.mu.Unlock()
 	out := []KillRecord{}
 	for _, r := range s.state {
 		if r.Killed {

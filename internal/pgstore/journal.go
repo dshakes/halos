@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/dshakes/halos/internal/storage"
@@ -13,9 +14,10 @@ import (
 // journalLock namespaces the per-stream append locks (two-key advisory lock).
 const journalLock = 0x6a726e6c // "jrnl"
 
-// ErrFenced means a fenced append was refused: the writer no longer holds
-// the lease whose token it was opened with (another replica leads now).
-var ErrFenced = errors.New("pgstore: lease lost: write fenced off")
+// ErrFenced means a fenced write was refused: the writer no longer holds the
+// lease whose token it was opened with (another replica leads now). It is
+// storage.ErrFenced, so callers outside pgstore can test for it.
+var ErrFenced = storage.ErrFenced
 
 // Fence ties a log's appends to a leader lease: an append commits only while
 // lease Name is held with fencing token Token.
@@ -193,6 +195,45 @@ func (d *DB) Take(ctx context.Context, ns, key string) ([]byte, bool, error) {
 func (d *DB) Delete(ctx context.Context, ns, key string) error {
 	if _, err := d.db.ExecContext(ctx, `DELETE FROM halo_kv WHERE ns = $1 AND rkey = $2`, ns, key); err != nil {
 		return d.fail(fmt.Errorf("pgstore: kv delete %s: %w", ns, err))
+	}
+	return nil
+}
+
+// TryLock implements storage.KV: the owner is the value, the expiry is
+// computed by the database (now() + ttl), and the upsert only takes a row that
+// is expired or already the owner's.
+func (d *DB) TryLock(ctx context.Context, ns, key, owner string, ttl time.Duration) (bool, error) {
+	res, err := d.db.ExecContext(ctx, `INSERT INTO halo_kv (ns, rkey, val, expires_at) VALUES ($1, $2, $3, now() + $4 * interval '1 millisecond')
+		ON CONFLICT (ns, rkey) DO UPDATE SET val = EXCLUDED.val, expires_at = EXCLUDED.expires_at
+		WHERE halo_kv.expires_at <= now() OR halo_kv.val = EXCLUDED.val`, ns, key, []byte(owner), ttl.Milliseconds())
+	if err != nil {
+		return false, d.fail(fmt.Errorf("pgstore: lock %s: %w", ns, err))
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, d.fail(fmt.Errorf("pgstore: lock %s: %w", ns, err))
+	}
+	return n == 1, nil
+}
+
+// Unlock implements storage.KV: it deletes only owner's row.
+func (d *DB) Unlock(ctx context.Context, ns, key, owner string) error {
+	if _, err := d.db.ExecContext(ctx, `DELETE FROM halo_kv WHERE ns = $1 AND rkey = $2 AND val = $3`, ns, key, []byte(owner)); err != nil {
+		return d.fail(fmt.Errorf("pgstore: unlock %s: %w", ns, err))
+	}
+	return nil
+}
+
+// Raise implements storage.KV with one upsert: a live row keeps the greater
+// of its value and at, and the later expiry.
+func (d *DB) Raise(ctx context.Context, ns, key string, at int64, exp time.Time) error {
+	v := []byte(strconv.FormatInt(at, 10))
+	if _, err := d.db.ExecContext(ctx, `INSERT INTO halo_kv (ns, rkey, val, expires_at) VALUES ($1, $2, $3, $4)
+		ON CONFLICT (ns, rkey) DO UPDATE SET
+			val = CASE WHEN halo_kv.expires_at > now() AND convert_from(halo_kv.val, 'UTF8')::bigint >= $5 THEN halo_kv.val ELSE EXCLUDED.val END,
+			expires_at = CASE WHEN halo_kv.expires_at > now() THEN GREATEST(halo_kv.expires_at, EXCLUDED.expires_at) ELSE EXCLUDED.expires_at END`,
+		ns, key, v, exp, at); err != nil {
+		return d.fail(fmt.Errorf("pgstore: raise %s: %w", ns, err))
 	}
 	return nil
 }

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -40,8 +41,9 @@ type budgetStore struct {
 	path string  // "" = in-memory only
 	db   Backend // set: counters live in the database; l is unused
 
-	mu    sync.Mutex // serialises saves
-	saved time.Time
+	mu     sync.Mutex // serialises saves (and guards pruned)
+	saved  time.Time
+	pruned time.Time // last shared-ledger prune by this replica
 }
 
 func openBudgetStore(dir string, db Backend) (*budgetStore, error) {
@@ -129,13 +131,31 @@ func (s *budgetStore) apply(budgets []policy.Budget, batch string, recs []budget
 			}
 		}
 	}
-	keep := make(map[string]int64, len(budgets))
-	for i := range budgets {
-		keep[budgets[i].Name] = budget.Cutoff(&budgets[i], now).Unix()
-	}
 	ctx, cancel := storage.Ctx()
 	defer cancel()
-	return s.db.ApplyBudget(ctx, batch, incs, keep)
+	dup, err := s.db.ApplyBudget(ctx, batch, incs)
+	if err == nil {
+		s.prune(ctx)
+	}
+	return dup, err
+}
+
+// budgetPruneEvery bounds how often one replica prunes the shared ledger.
+const budgetPruneEvery = time.Minute
+
+// prune drops shared buckets older than budget.MaxRetention, at most once a
+// minute per replica and never by this replica's policy (pgstore.PruneBudgets).
+// A failure is logged by the caller's next attempt; usage was already counted.
+func (s *budgetStore) prune(ctx context.Context) {
+	s.mu.Lock()
+	due := time.Since(s.pruned) >= budgetPruneEvery
+	if due {
+		s.pruned = time.Now()
+	}
+	s.mu.Unlock()
+	if due {
+		_, _ = s.db.PruneBudgets(ctx, budget.MaxRetention) // best effort: stale rows only cost space
+	}
 }
 
 // load reads counters from the database into a read-only ledger view.

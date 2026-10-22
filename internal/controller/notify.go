@@ -33,6 +33,10 @@ const (
 
 // Event is what the controller tells humans about a verdict it acted on.
 type Event struct {
+	// ID is the delivery's idempotency key: the same for every attempt at one
+	// notification, by any controller replica, so a receiver can drop a
+	// duplicate sent across a leader failover (webhook: X-Halo-Event-Id).
+	ID string `json:"id,omitempty"`
 	// Rollout is set for rollout events; Experiment is then its backing experiment.
 	Rollout     string          `json:"rollout,omitempty"`
 	Experiment  string          `json:"experiment"`
@@ -202,12 +206,18 @@ func Verify(secret []byte, h http.Header, body []byte, now time.Time, tolerance 
 	return nil
 }
 
+// EventIDHeader carries Event.ID on webhook deliveries (also in the body).
+const EventIDHeader = "X-Halo-Event-Id"
+
 func (w Webhook) Notify(ctx context.Context, e Event) error {
 	body, err := json.Marshal(e)
 	if err != nil {
 		return fmt.Errorf("webhook notify: encode: %w", err)
 	}
 	h := http.Header{}
+	if e.ID != "" {
+		h.Set(EventIDHeader, e.ID)
+	}
 	if len(w.Secret) > 0 {
 		now := time.Now
 		if w.Now != nil {

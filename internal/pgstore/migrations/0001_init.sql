@@ -1,3 +1,4 @@
+-- min-binary-schema: 1
 -- 0001: shared state for HA halo-server and halo-shadow (ADR-0021).
 -- Forward-only: never edit a released migration; add the next number.
 

@@ -377,7 +377,11 @@ func (s *Server) rememberSubjectToken(key string, exp, now time.Time) error {
 	ctx, cancel := storage.Ctx()
 	defer cancel()
 	h := sha256.Sum256([]byte(key)) // the key holds NUL separators; the column is text
-	added, err := s.kv.Add(ctx, kvWorkloadJTI, hex.EncodeToString(h[:]), nil, exp)
+	// Kept exchangeIatSkew past exp: the row expires on the database clock, the
+	// token's exp is the issuer's, and a replica's verifier accepts the token
+	// until its own clock passes exp. The skew bound keeps the row alive for as
+	// long as any replica could still accept the token.
+	added, err := s.kv.Add(ctx, kvWorkloadJTI, hex.EncodeToString(h[:]), nil, exp.Add(exchangeIatSkew))
 	switch {
 	case err != nil:
 		s.cfg.Log.Error("workload replay cache", "err", err)

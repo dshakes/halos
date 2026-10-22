@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -27,6 +28,9 @@ type Backend interface {
 	// stored bytes, until fn returns false. A row that does not decode is
 	// passed zero-valued, so verification breaks there.
 	EachAudit(ctx context.Context, from uint64, fn func(raw []byte, e AuditEntry) bool) error
+	// EachAuditDesc streams entries newest first until fn returns false,
+	// reading only as many rows as it is given (paged ORDER BY seq DESC).
+	EachAuditDesc(ctx context.Context, fn func(raw []byte, e AuditEntry) bool) error
 	// AuditHead is the newest entry's seq and hash.
 	AuditHead(ctx context.Context) (uint64, string, error)
 	// RolloutStates is where the controller's rollout state lives.
@@ -36,9 +40,11 @@ type Backend interface {
 	// Leased runs fn on exactly one replica at a time (lease name) until ctx
 	// ends; docs writes through the view fn gets are fenced by that lease.
 	Leased(ctx context.Context, name string, fn func(ctx context.Context, docs rollout.Docs))
-	// ApplyBudget adds usage unless batch was applied before (atomic, any
-	// replica); keep prunes buckets older than each budget's window.
-	ApplyBudget(ctx context.Context, batch string, incs []pgstore.BudgetCounter, keep map[string]int64) (duplicate bool, err error)
+	// ApplyBudget adds usage unless batch was applied before (atomic, any replica).
+	ApplyBudget(ctx context.Context, batch string, incs []pgstore.BudgetCounter) (duplicate bool, err error)
+	// PruneBudgets drops buckets older than retention and stale batch ids,
+	// on the store's clock and independent of any replica's policy.
+	PruneBudgets(ctx context.Context, retention time.Duration) (int64, error)
 	// BudgetCounters reads the given (budget, key) counters; nil = all.
 	BudgetCounters(ctx context.Context, keys [][2]string) ([]pgstore.BudgetCounter, error)
 	// ClaimPending makes requestID the one pending access request for dedupe
@@ -85,6 +91,15 @@ func (b *PGBackend) ImportAuditEntry(ctx context.Context, e AuditEntry) error {
 // EachAudit implements Backend.
 func (b *PGBackend) EachAudit(ctx context.Context, from uint64, fn func(raw []byte, e AuditEntry) bool) error {
 	return b.DB.EachAudit(ctx, from, func(_ uint64, raw []byte) bool {
+		var e AuditEntry
+		_ = json.Unmarshal(raw, &e) // garbage: zero entry, the chain breaks there
+		return fn(raw, e)
+	})
+}
+
+// EachAuditDesc implements Backend.
+func (b *PGBackend) EachAuditDesc(ctx context.Context, fn func(raw []byte, e AuditEntry) bool) error {
+	return b.DB.EachAuditDesc(ctx, func(_ uint64, raw []byte) bool {
 		var e AuditEntry
 		_ = json.Unmarshal(raw, &e) // garbage: zero entry, the chain breaks there
 		return fn(raw, e)
@@ -164,17 +179,20 @@ func kvOf(b Backend) storage.KV {
 }
 
 // clusterMutex is a mutex that, with a shared KV, also holds a cluster-wide
-// lock (an expiring KV entry), so a read-modify-write runs on one replica at
-// a time. If the lock cannot be taken within clusterLockWait the holder is
-// assumed dead or the store down: the caller proceeds under the local mutex
-// only and it is logged (writes are still journaled, so replicas converge;
-// only a uniqueness check could race). Zero value: a plain mutex.
+// lock, so a read-modify-write runs on one replica at a time. The lock is a
+// KV row whose value is a random owner token and whose expiry the database
+// sets (now() + clusterLockTTL): replica clocks play no part, and Unlock
+// deletes only the row this holder owns, so a holder whose lock expired can
+// never release its successor's. If the lock cannot be taken within
+// clusterLockWait, Lock fails (callers answer 503 and the IdP retries); it
+// never proceeds unlocked. Zero value: a plain mutex.
 type clusterMutex struct {
 	local sync.Mutex
 	kv    storage.KV
 	name  string
 	log   *slog.Logger
-	held  bool
+	owner string // the token of the held cluster lock ("" = not held)
+	wait  time.Duration
 }
 
 const (
@@ -182,36 +200,53 @@ const (
 	clusterLockWait = 10 * time.Second
 )
 
-func (m *clusterMutex) Lock() {
+// errClusterLock is Lock's failure: the lock is held elsewhere or the store
+// is unreachable.
+var errClusterLock = errors.New("cluster lock not acquired")
+
+// Lock takes the local mutex and, with a shared KV, the cluster lock; the
+// returned func releases both. On error nothing is held.
+func (m *clusterMutex) Lock() (func(), error) {
 	m.local.Lock()
 	if m.kv == nil {
-		return
+		return m.local.Unlock, nil
 	}
-	deadline := time.Now().Add(clusterLockWait)
+	wait := m.wait
+	if wait <= 0 {
+		wait = clusterLockWait
+	}
+	owner := randB64(16)
+	deadline := time.Now().Add(wait)
+	var lastErr error
 	for {
 		ctx, cancel := storage.Ctx()
-		ok, err := m.kv.Add(ctx, "lock", m.name, nil, time.Now().Add(clusterLockTTL))
+		ok, err := m.kv.TryLock(ctx, "lock", m.name, owner, clusterLockTTL)
 		cancel()
 		if ok && err == nil {
-			m.held = true
-			return
+			m.owner = owner
+			return m.unlock, nil
 		}
+		lastErr = err
 		if time.Now().After(deadline) {
-			orDefault(m.log).Warn("cluster lock not acquired; proceeding under the local lock", "lock", m.name, "err", err)
-			return
+			m.local.Unlock()
+			orDefault(m.log).Error("cluster lock not acquired; refusing the mutation", "lock", m.name, "waited", wait, "err", lastErr)
+			if lastErr != nil {
+				return nil, fmt.Errorf("%w: %s: %w", errClusterLock, m.name, lastErr)
+			}
+			return nil, fmt.Errorf("%w: %s held by another replica for over %s", errClusterLock, m.name, wait)
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
 }
 
-func (m *clusterMutex) Unlock() {
-	if m.held {
+func (m *clusterMutex) unlock() {
+	if m.owner != "" {
 		ctx, cancel := storage.Ctx()
-		if err := m.kv.Delete(ctx, "lock", m.name); err != nil {
+		if err := m.kv.Unlock(ctx, "lock", m.name, m.owner); err != nil {
 			orDefault(m.log).Warn("cluster lock release failed; it expires on its own", "lock", m.name, "err", err)
 		}
 		cancel()
-		m.held = false
+		m.owner = ""
 	}
 	m.local.Unlock()
 }

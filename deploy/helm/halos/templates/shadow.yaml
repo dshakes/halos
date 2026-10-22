@@ -16,6 +16,7 @@
 {{- fail "halo-shadow.budgetUSD must be > 0 (halo-shadow refuses to start otherwise)" }}
 {{- end }}
 {{- $ha := $d.database.existingSecret }}{{- /* shared Postgres pairs + budget (ADR-0021): replicas may be > 1 */}}
+{{- if and $ha .Values.networkPolicy.enabled (not .Values.networkPolicy.databaseEgress.to) }}{{ fail "halo-shadow.database.existingSecret with networkPolicy.enabled needs networkPolicy.databaseEgress.to (the Postgres CIDR or peers)" }}{{ end }}
 {{- if and $ha $d.persistence.enabled }}{{ fail "halo-shadow.database.existingSecret and halo-shadow.persistence.enabled are exclusive: pairs live in Postgres" }}{{ end }}
 {{- if and (gt (int $d.replicas) 1) (not $ha) }}{{ fail "halo-shadow.replicas > 1 requires halo-shadow.database.existingSecret (pairs file and budget are per process)" }}{{ end }}
 {{- if and $d.persistence.enabled (not $d.persistence.existingClaim) }}
@@ -95,6 +96,9 @@ spec:
             {{- if $ha }}
             - --database-url-file=/etc/halo-shadow/db/{{ $d.database.key }}
             - --budget-scope={{ $d.database.budgetScope }}
+            {{- if $d.database.insecureTLS }}
+            - --database-insecure-tls
+            {{- end }}
             {{- if $d.database.autoMigrate }}
             - --auto-migrate
             {{- end }}

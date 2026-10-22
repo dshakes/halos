@@ -58,7 +58,11 @@ type deviceStore struct {
 	byID   map[string]*Device
 	log    storage.Log // nil = memory only
 	saved  map[string]time.Time
-	ttl    time.Duration // for devices persisted without ExpiresAt
+	ttl    time.Duration     // for devices persisted without ExpiresAt
+	cc     storage.Coalescer // shared log: one catch-up serves concurrent lookups
+	// afterMint, when set, runs after a device is minted (test seam: models a
+	// deprovisioning racing an enrollment).
+	afterMint func()
 }
 
 func openDeviceStore(o storage.Opener, ttl time.Duration) (*deviceStore, error) {
@@ -125,6 +129,20 @@ func (d *deviceStore) catchup() error {
 	return nil
 }
 
+// sharedCatchup is catchup for the per-request path: concurrent device
+// authentications share one database round trip (storage.Coalescer) and d.mu
+// is held only while records are applied (caller does not hold mu).
+func (d *deviceStore) sharedCatchup() error {
+	if d.log == nil {
+		return nil
+	}
+	return d.cc.Do(func() error {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		return d.catchup()
+	})
+}
+
 func hashDeviceToken(tok string) string {
 	h := sha256.Sum256([]byte(tok))
 	return hex.EncodeToString(h[:])
@@ -150,6 +168,9 @@ func (d *deviceStore) mint(p Principal, now time.Time) (string, Device, error) {
 		return "", Device{}, err
 	}
 	d.index(v)
+	if d.afterMint != nil {
+		defer d.afterMint() // after mu is released
+	}
 	return tok, *v, nil
 }
 
@@ -160,11 +181,11 @@ func (d *deviceStore) lookup(tok string, now time.Time) (Device, error) {
 	if tok == "" {
 		return Device{}, errNoDevice
 	}
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if err := d.catchup(); err != nil { // a revocation on another replica must count: fail closed
+	if err := d.sharedCatchup(); err != nil { // a revocation on another replica must count: fail closed
 		return Device{}, err
 	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	v := d.byHash[hashDeviceToken(tok)]
 	if v == nil || v.Revoked {
 		return Device{}, errNoDevice

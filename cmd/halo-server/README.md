@@ -24,6 +24,8 @@ loop (`--controller`) and the gateway kill switch.
 | `--database-url-file` | | File holding a Postgres URL. State (devices, requests, session revocations, audit chain, kill list, controller log, rollout state, reports, enrollment tokens, login states) lives there instead of `--data-dir` (the two are exclusive), so several replicas can serve. The controller runs on the replica holding the leader lease. |
 | `--auto-migrate` | off | Apply pending schema migrations at start; otherwise the schema must already be current. |
 | `--leader-lease-ttl` | 15s | Controller lease length (>= 3s); a failed leader is replaced within about this long. |
+| `--database-max-conns` | 16 | Connection pool size per replica; replicas x this must stay under the server's `max_connections`. |
+| `--database-insecure-tls` | off | Accept a URL that does not verify the server certificate and host name (below `sslmode=verify-full`) to a non-loopback host. Test environments only; loopback and Unix sockets never need it. |
 
 ```
 halo-server migrate --database-url-file F                       # apply migrations, print the schema version

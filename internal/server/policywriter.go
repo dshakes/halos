@@ -181,6 +181,13 @@ func (w *GitPolicyWriter) ProposeStatus(ctx context.Context, experiment, status,
 	return gw.ProposeStatus(ctx, experiment, status, title, body)
 }
 
+// FindPR implements controller.PRFinder through the opener. It only queries
+// the forge, so it does not take the clone lock.
+func (w *GitPolicyWriter) FindPR(ctx context.Context, marker string) (string, bool, error) {
+	gw := controller.GitWriter{RepoDir: w.RepoDir, Subdir: w.Subdir, Opener: w.Opener}
+	return gw.FindPR(ctx, marker)
+}
+
 // ProposeRollout implements controller.RolloutWriter on this clone (same
 // lock and sync as ProposeStatus).
 func (w *GitPolicyWriter) ProposeRollout(ctx context.Context, plan func(string) (*promote.Change, error), branch, title string, body func(string) string) (string, error) {

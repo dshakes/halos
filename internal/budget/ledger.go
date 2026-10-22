@@ -112,6 +112,13 @@ func (l *Ledger) prune(budgets []policy.Budget, now time.Time) {
 	}
 }
 
+// MaxRetention is how far back any budget policy can still count: the
+// longest rolling period policy accepts (90 days) plus one of its buckets
+// (period/48, under 2 days), and it covers any calendar window (a month is at
+// most 31 days). A shared ledger drops buckets older than this regardless of
+// which budgets a replica's policy names (TestMaxRetentionCoversPolicy).
+const MaxRetention = 95 * 24 * time.Hour
+
 // Cutoff is the oldest moment b still counts at now: buckets starting before
 // it are outside every window and can be dropped.
 func Cutoff(b *policy.Budget, now time.Time) time.Time {

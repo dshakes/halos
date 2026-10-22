@@ -66,11 +66,11 @@ func TestDocStoreVerifies(t *testing.T) {
 	if err := store.Save(ctx, &st); err != nil {
 		t.Fatal(err)
 	}
-	docs.m[docKind+"/r"] = []byte(strings.ReplaceAll(string(docs.m[docKind+"/r"]), `"x"`, `"y"`))
+	docs.m[DocKind+"/r"] = []byte(strings.ReplaceAll(string(docs.m[DocKind+"/r"]), `"x"`, `"y"`))
 	if _, err := store.Load(ctx, "r"); !errors.Is(err, ErrTampered) {
 		t.Fatalf("tampered document loaded: %v", err)
 	}
-	docs.m[docKind+"/r"] = []byte(`{"rollout":"other"}`)
+	docs.m[DocKind+"/r"] = []byte(`{"rollout":"other"}`)
 	if _, err := store.Load(ctx, "r"); err == nil || !strings.Contains(err.Error(), "belongs to") {
 		t.Fatalf("misfiled document loaded: %v", err)
 	}

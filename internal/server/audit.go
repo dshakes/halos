@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -288,21 +289,22 @@ func (l *auditLog) changed() <-chan struct{} {
 	return l.wake
 }
 
-// headSeq is the seq of the newest entry (0 if the shared head is unreadable:
-// a forwarder then fails its read, never skips).
-func (l *auditLog) headSeq() uint64 {
+// headSeq is the seq of the newest entry. A shared head that cannot be read
+// is an error, never 0: a 0 would make every forwarder's cursor look "ahead
+// of the log" and report a restored database that never happened.
+func (l *auditLog) headSeq() (uint64, error) {
 	if l.shared != nil {
 		ctx, cancel := storage.Ctx()
 		defer cancel()
 		seq, _, err := l.shared.AuditHead(ctx)
 		if err != nil {
-			return 0
+			return 0, fmt.Errorf("audit: read head: %w", err)
 		}
-		return seq
+		return seq, nil
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return l.seq
+	return l.seq, nil
 }
 
 func (l *auditLog) rotateDue(t time.Time, n int) bool {
@@ -468,6 +470,21 @@ func (s *auditSnap) from(seq uint64, fn func(raw []byte, e AuditEntry) bool) err
 // segments newest first and holding at most 2n entries.
 func (s *auditSnap) tail(n int, match func(AuditEntry) bool) ([]AuditEntry, error) {
 	var out []AuditEntry
+	if s.shared != nil { // newest first, paged by seq: reads only what it returns (plus filtered-out rows)
+		ctx, cancel := context.WithTimeout(context.Background(), auditReadTimeout)
+		defer cancel()
+		err := s.shared.EachAuditDesc(ctx, func(_ []byte, e AuditEntry) bool {
+			if match(e) {
+				out = append(out, e)
+			}
+			return len(out) < n
+		})
+		if err != nil {
+			return nil, fmt.Errorf("audit: read: %w", err)
+		}
+		slices.Reverse(out)
+		return out, nil
+	}
 	for i := len(s.segs); i >= 0 && len(out) < n; i-- {
 		var ring []AuditEntry
 		if _, err := s.segment(i, func(_ []byte, e AuditEntry) bool {

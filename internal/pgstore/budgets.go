@@ -1,11 +1,13 @@
 package pgstore
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
-	"sort"
+	"math"
+	"slices"
 	"time"
 )
 
@@ -23,10 +25,15 @@ const budgetBatchMemory = time.Hour
 
 // ApplyBudget adds incs to the counters unless batch was already applied, in
 // one transaction: the batch id's primary key decides, so of two replicas
-// receiving the same retry exactly one counts it. keep maps each budget still
-// in policy to the oldest bucket start still inside its window; other buckets
-// and budgets are pruned in the same transaction.
-func (d *DB) ApplyBudget(ctx context.Context, batch string, incs []BudgetCounter, keep map[string]int64) (duplicate bool, err error) {
+// receiving the same retry exactly one counts it. The upserts run in
+// (budget, key, bucket) order, so two transactions touching the same rows
+// lock them in the same order and cannot deadlock. Nothing is pruned here:
+// see PruneBudgets.
+func (d *DB) ApplyBudget(ctx context.Context, batch string, incs []BudgetCounter) (duplicate bool, err error) {
+	incs = slices.Clone(incs)
+	slices.SortFunc(incs, func(a, b BudgetCounter) int {
+		return cmp.Or(cmp.Compare(a.Budget, b.Budget), cmp.Compare(a.Key, b.Key), cmp.Compare(a.Bucket, b.Bucket))
+	})
 	err = d.tx(ctx, func(t *sql.Tx) error {
 		if batch != "" {
 			res, err := t.ExecContext(ctx, `INSERT INTO halo_budget_batches (batch) VALUES ($1) ON CONFLICT (batch) DO NOTHING`, batch)
@@ -45,30 +52,27 @@ func (d *DB) ApplyBudget(ctx context.Context, batch string, incs []BudgetCounter
 				return fmt.Errorf("pgstore: budget %s/%s: %w", c.Budget, c.Key, err)
 			}
 		}
-		return pruneBudgets(ctx, t, keep)
+		return nil
 	})
 	return duplicate, err
 }
 
-func pruneBudgets(ctx context.Context, t *sql.Tx, keep map[string]int64) error {
-	if _, err := t.ExecContext(ctx, `DELETE FROM halo_budget_batches WHERE applied_at < now() - $1 * interval '1 second'`, int64(budgetBatchMemory.Seconds())); err != nil {
-		return fmt.Errorf("pgstore: prune budget batches: %w", err)
+// PruneBudgets drops what no budget can still count, judged on the database
+// clock and nothing else: buckets that started more than retention ago (the
+// caller passes the longest window policy allows), and batch ids older than
+// budgetBatchMemory. It never consults a replica's policy, so a replica on a
+// stale policy cannot delete the counters of a budget it does not know yet; a
+// removed budget's rows simply age out. Safe on any replica, any number of times.
+func (d *DB) PruneBudgets(ctx context.Context, retention time.Duration) (int64, error) {
+	if _, err := d.db.ExecContext(ctx, `DELETE FROM halo_budget_batches WHERE applied_at < now() - $1 * interval '1 second'`, int64(budgetBatchMemory.Seconds())); err != nil {
+		return 0, d.fail(fmt.Errorf("pgstore: prune budget batches: %w", err))
 	}
-	if keep == nil { // no policy view (import): prune nothing else
-		return nil
+	res, err := d.db.ExecContext(ctx, `DELETE FROM halo_budget_buckets WHERE bucket < extract(epoch FROM now())::bigint - $1`, int64(retention.Seconds()))
+	if err != nil {
+		return 0, d.fail(fmt.Errorf("pgstore: prune budget buckets: %w", err))
 	}
-	names := make([]string, 0, len(keep))
-	for name, oldest := range keep {
-		names = append(names, name)
-		if _, err := t.ExecContext(ctx, `DELETE FROM halo_budget_buckets WHERE budget = $1 AND bucket < $2`, name, oldest); err != nil {
-			return fmt.Errorf("pgstore: prune budget %s: %w", name, err)
-		}
-	}
-	sort.Strings(names)
-	if _, err := t.ExecContext(ctx, `DELETE FROM halo_budget_buckets WHERE NOT (budget = ANY($1))`, names); err != nil {
-		return fmt.Errorf("pgstore: prune removed budgets: %w", err)
-	}
-	return nil
+	n, err := res.RowsAffected()
+	return n, d.fail(err)
 }
 
 // BudgetCounters returns the buckets of the given (budget, key) counters, or
@@ -192,6 +196,44 @@ func (d *DB) EachAudit(ctx context.Context, from uint64, fn func(seq uint64, ent
 		}
 	}
 	return d.fail(rows.Err())
+}
+
+// auditDescPage is how many rows one backwards page of EachAuditDesc reads.
+const auditDescPage = 500
+
+// EachAuditDesc streams stored audit entries newest first, in pages of
+// auditDescPage keyed on seq (ORDER BY seq DESC LIMIT), until fn returns
+// false: a tail read touches only the rows it returns, not the whole table.
+func (d *DB) EachAuditDesc(ctx context.Context, fn func(seq uint64, entry []byte) bool) error {
+	before := int64(math.MaxInt64)
+	for {
+		rows, err := d.db.QueryContext(ctx, `SELECT seq, entry FROM halo_audit WHERE seq < $1 ORDER BY seq DESC LIMIT $2`, before, auditDescPage)
+		if err != nil {
+			return d.fail(fmt.Errorf("pgstore: read audit: %w", err))
+		}
+		n, stop := 0, false
+		for rows.Next() {
+			var seq int64
+			var b []byte
+			if err := rows.Scan(&seq, &b); err != nil {
+				_ = rows.Close() // already failing
+				return d.fail(fmt.Errorf("pgstore: read audit: %w", err))
+			}
+			n, before = n+1, seq
+			if !fn(uint64(seq), b) { //nolint:gosec // seq is positive
+				stop = true
+				break
+			}
+		}
+		err = rows.Err()
+		_ = rows.Close() // read-only
+		if err != nil {
+			return d.fail(fmt.Errorf("pgstore: read audit: %w", err))
+		}
+		if stop || n < auditDescPage {
+			return nil
+		}
+	}
 }
 
 // AuditHead returns the chain head (seq 0 and "" when empty).

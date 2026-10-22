@@ -18,17 +18,20 @@ import (
 	"github.com/dshakes/halos/internal/server"
 )
 
+// insecureTLSUsage documents --database-insecure-tls everywhere it exists.
+const insecureTLSUsage = "accept a database URL that does not verify the server certificate and host name (sslmode below verify-full) to a non-loopback host; for test environments only"
+
 // controllerLease is the leader lease the experiment controller runs under.
 const controllerLease = "controller"
 
 // openDB connects to the URL in urlFile and checks (or, with migrate,
 // brings) the schema to this binary's version.
-func openDB(ctx context.Context, urlFile string, migrate bool) (*pgstore.DB, error) {
+func openDB(ctx context.Context, urlFile string, migrate bool, o pgstore.Options) (*pgstore.DB, error) {
 	b, err := os.ReadFile(urlFile)
 	if err != nil {
 		return nil, fmt.Errorf("--database-url-file: %w", err)
 	}
-	db, err := pgstore.Open(ctx, strings.TrimSpace(string(b)))
+	db, err := pgstore.OpenWith(ctx, strings.TrimSpace(string(b)), o)
 	if err != nil {
 		return nil, err // never echo the URL: it carries the password
 	}
@@ -52,14 +55,15 @@ func openDB(ctx context.Context, urlFile string, migrate bool) (*pgstore.DB, err
 // runMigrate is `halo-server migrate --database-url-file F`.
 func runMigrate(ctx context.Context, args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("halo-server migrate", flag.ContinueOnError)
-	urlFile := fs.String("database-url-file", "", "file holding the Postgres URL (required)")
+	urlFile := fs.String("database-url-file", "", "file holding the Postgres URL (required); the role needs DDL rights (CREATE on the database/schema)")
+	insecure := fs.Bool("database-insecure-tls", false, insecureTLSUsage)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if *urlFile == "" || fs.NArg() > 0 {
-		return errors.New("usage: halo-server migrate --database-url-file FILE")
+		return errors.New("usage: halo-server migrate --database-url-file FILE [--database-insecure-tls]")
 	}
-	db, err := openDB(ctx, *urlFile, true)
+	db, err := openDB(ctx, *urlFile, true, pgstore.Options{InsecureTLS: *insecure, MaxConns: 2})
 	if err != nil {
 		return err
 	}
@@ -75,6 +79,7 @@ func runImport(ctx context.Context, args []string, out io.Writer) error {
 	from := fs.String("from-data-dir", "", "the --data-dir of a STOPPED halo-server (only read)")
 	urlFile := fs.String("database-url-file", "", "file holding the Postgres URL (required)")
 	migrate := fs.Bool("auto-migrate", false, "apply pending migrations first")
+	insecure := fs.Bool("database-insecure-tls", false, insecureTLSUsage)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -84,7 +89,7 @@ func runImport(ctx context.Context, args []string, out io.Writer) error {
 	if st, err := os.Stat(*from); err != nil || !st.IsDir() {
 		return fmt.Errorf("--from-data-dir %s: not a directory", *from)
 	}
-	db, err := openDB(ctx, *urlFile, *migrate)
+	db, err := openDB(ctx, *urlFile, *migrate, pgstore.Options{InsecureTLS: *insecure, MaxConns: 2})
 	if err != nil {
 		return err
 	}

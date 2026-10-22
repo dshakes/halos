@@ -59,7 +59,19 @@ server:
   # Postgres (HA). existingSecret holds the URL under `key`, e.g. postgres://halos:PASS@pg:5432/halos?sslmode=verify-full.
   # autoMigrate: apply schema migrations on start (else run `halo-server migrate --database-url-file F` first; see the
   # operations guide). leaseTTL: controller leader lease; a dead leader is replaced within about this long.
-  database: {existingSecret: "", key: url, autoMigrate: false, leaseTTL: 15s}
+  # autoMigrate runs migrations from the serving role, which then needs DDL rights (CREATE on the database/schema).
+  # Least privilege instead: leave it false, give the serving role only DML (SELECT/INSERT/UPDATE/DELETE on the halo_*
+  # tables, USAGE on their sequences), and enable migrateJob: a pre-install/pre-upgrade hook Job that runs
+  # `halo-server migrate` with a separate DDL-capable URL (migrateJob.existingSecret; empty = the serving Secret).
+  # insecureTLS adds --database-insecure-tls: accepts a URL without sslmode=verify-full to a remote host (test only).
+  database:
+    existingSecret: ""
+    key: url
+    autoMigrate: false
+    leaseTTL: 15s
+    maxConns: 16
+    insecureTLS: false
+    migrateJob: {enabled: false, existingSecret: "", key: url}
   port: 8080
   args: []                         # extra halo-server flags
   extraEnv: []
@@ -258,7 +270,7 @@ shadow:
   # budget across all replicas (database.budgetScope names it; a new name starts a fresh budget). Losing halo-shadow only
   # loses mirrored evidence; client traffic is unaffected.
   replicas: 1
-  database: {existingSecret: "", key: url, autoMigrate: false, budgetScope: default}
+  database: {existingSecret: "", key: url, autoMigrate: false, budgetScope: default, insecureTLS: false}
   port: 8090
   # Listens on 0.0.0.0 in-cluster (binary default is 127.0.0.1); NetworkPolicy restricts ingress to
   # halo-proxy (+ networkPolicy.ingressFrom.halo-shadow, e.g. Kong pods).
