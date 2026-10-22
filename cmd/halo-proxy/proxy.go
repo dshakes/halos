@@ -221,6 +221,7 @@ func (p *Proxy) AdminHandler() http.Handler {
 			rep, fail, drop = p.bc.Counters()
 		}
 		p.m.writeBudget(w, rep, fail, drop)
+		//nolint:gosec // G705 false positive: a uint64 counter rendered with %d into a text/plain response
 		fmt.Fprintf(w, "# HELP halo_proxy_policy_refused_total Policy snapshots refused for security validation errors (the last good policy keeps serving).\n# TYPE halo_proxy_policy_refused_total counter\nhalo_proxy_policy_refused_total %d\n", p.snap.Refused())
 		var ms runtime.MemStats
 		runtime.ReadMemStats(&ms)

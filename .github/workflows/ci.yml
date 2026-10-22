@@ -78,9 +78,12 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./
         with: {version: v0.1.1}
+      # The example policy as of the pinned release: HEAD's examples may use schema the old CLI predates.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with: {ref: v0.1.1, path: pinned, sparse-checkout: examples/acme-corp}
       - run: |
           halo version
-          halo validate examples/acme-corp
+          halo validate pinned/examples/acme-corp
         shell: bash
       - name: with-agent installs halod too
         if: runner.os != 'Windows'

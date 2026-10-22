@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -64,7 +65,7 @@ func TestEvalHarvest(t *testing.T) {
 	if len(files) != 1 {
 		t.Fatalf("files %v", files)
 	}
-	if st, _ := os.Stat(files[0]); st.Mode().Perm() != 0o600 {
+	if st, _ := os.Stat(files[0]); runtime.GOOS != "windows" && st.Mode().Perm() != 0o600 { // no POSIX mode bits on Windows
 		t.Fatalf("mode %v", st.Mode().Perm())
 	}
 }
