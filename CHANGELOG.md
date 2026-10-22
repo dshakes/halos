@@ -60,6 +60,14 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
   - `halo telemetry collector-config` gains a `traces/gateway` pipeline.
 
 ### Security
+- Workload token exchange matches a rule before recording the subject token's `jti`, so tokens anyone can mint from a shared CI issuer can no longer fill the replay cache and refuse every tenant; `workload.token.denied` is audited at most once per issuer and client IP per minute, the rest counted in `halo_server_workload_denied_audit_suppressed_total`.
+- A login right after a session revocation is stamped a whole second past the revocation epoch, so credentials delegated from it are no longer refused as revoked; sessions issued before the revocation stay dead.
+- A workload rule removed by a refused policy stays in place as a deny tombstone, so its tokens never fall through to a broader rule below it.
+- `halo admin` vendor API clients never follow redirects (net/http would resend `Authorization` over http or to a subdomain); a 3xx is an error.
+- Units can no longer set any `GIT_*` env key except commit identity, nor `CC`, `CXX`, `CGO_*`, Go module sources (`GOPROXY`, `GOSUMDB`, `GONOSUMDB`, `GONOSUMCHECK`, `GOINSECURE`, `GOPRIVATE`, `GONOPROXY`), `GOENV`, `GOTOOLCHAIN`, `PIP_*`, `UV_*`, `YARN_*`, `BUNDLE_*`, `GEM_*`, `MAVEN_OPTS`, `GRADLE_OPTS`, `JAVA_OPTS`, `CLASSPATH`, `GCONV_PATH`, `LUA_INIT*`, `PHPRC`, `PHP_INI_SCAN_DIR`, `SUDO_ASKPASS`, `BROWSER`, `MAKEFLAGS`, `MAKEFILES` or `DOCKER_HOST`.
+- Gateway tokens must look random: hex or base64/base64url only, at least 32 characters and 128 bits, no long repeated or consecutive runs; passphrases are refused at startup (use `openssl rand -hex 32`).
+- Cached OIDC JWKS key sets are refetched after 24 hours, so a withdrawn key stops verifying; requests from a blocked IP never trigger a fetch, and a stale set keeps serving through an issuer outage.
+- A full gateway directory cache evicts active entries only, so fail open can no longer re-admit a deactivated user after the cache fills.
 - HA (ADR-0021, amended): cluster locks and claims are owned and expire on the database clock; a SCIM mutation that can't take the lock answers 503, and a userName is provisioned once across replicas.
 - HA: the leader fence check is race-free (`FOR SHARE`, `clock_timestamp()`); the controller records a fenced intent before every kill, PR and notification; a new leader finds an existing PR by its `halos-intent` marker, and webhook notifications carry `X-Halo-Event-Id`.
 - HA: budget buckets are pruned by age on the database clock, never by a replica's policy; session revocations and enrollment voids are padded for clock skew; an enrollment racing a deprovisioning is undone.
