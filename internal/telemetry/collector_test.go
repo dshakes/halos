@@ -268,3 +268,59 @@ func TestGenerateEvalReceiver(t *testing.T) {
 		}
 	}
 }
+
+// Per-CLI normalisation: what each newer CLI is, and is not, mapped to. Cursor
+// CLI and OpenCode emit no usable OTel, so they have no mapping and no harness
+// stamp (nothing invented); Copilot CLI maps its documented metrics and claims
+// the shared gen_ai.client.* names by service.name before Gemini can.
+func TestNewCLIMappings(t *testing.T) {
+	got, err := Generate(Options{ClickHouseEndpoint: "tcp://ch:9000"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(got)
+	tests := []struct {
+		name    string
+		harness string
+		from    string
+		to      string // "" = must not be mapped
+	}{
+		{"copilot tool calls", "copilot-cli", "github.copilot.tool.call.count", "halo.tool.calls"},
+		{"copilot tokens via shared gen_ai name", "gemini-cli", "gen_ai.client.token.usage", "halo.tokens"},
+		{"copilot duration via shared gen_ai name", "gemini-cli", "gen_ai.client.operation.duration", "halo.operation.duration"},
+		{"copilot lines added not mapped", "copilot-cli", "github.copilot.code.lines_added", ""},
+		{"cursor has no OTel", "cursor-agent", "cursor.", ""},
+		{"opencode has no OTLP metrics", "opencode", "opencode.", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var found *Mapping
+			for i := range Mappings {
+				if Mappings[i].From == tt.from {
+					found = &Mappings[i]
+				}
+			}
+			if tt.to == "" {
+				if found != nil || strings.Contains(s, `"`+tt.from) {
+					t.Fatalf("%s must not be mapped (found %+v)", tt.from, found)
+				}
+				if tt.harness != "copilot-cli" && strings.Contains(s, `"`+tt.harness+`"`) {
+					t.Fatalf("harness %s must not be stamped", tt.harness)
+				}
+				return
+			}
+			if found == nil || found.To != tt.to || found.Harness != tt.harness {
+				t.Fatalf("mapping for %s = %+v, want %s -> %s", tt.from, found, tt.harness, tt.to)
+			}
+		})
+	}
+	// Copilot's service.name claim must come before the Gemini stamp, and keep a client-set harness.
+	iCop := strings.Index(s, `"copilot-cli") where IsMatch(name, "^gen_ai`)
+	iGem := strings.Index(s, `"gemini-cli") where name == "gen_ai.client.token.usage"`)
+	if iCop < 0 || iGem < 0 || iCop > iGem {
+		t.Fatalf("copilot service.name stamp (%d) must precede the gemini stamp (%d)", iCop, iGem)
+	}
+	if !strings.Contains(s, `service.name"] == "github-copilot" and resource.attributes["halo.harness"] == nil`) {
+		t.Error("copilot stamp must keep a client-set halo.harness")
+	}
+}
