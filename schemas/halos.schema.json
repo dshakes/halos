@@ -455,6 +455,37 @@
       ],
       "description": "Simple mode: rollout preset (rings and step template; default standard)."
     },
+    "vendorAdmin": {
+      "type": "object",
+      "description": "Vendor admin sync (ADR-0025): drive the vendors' cloud admin consoles from one ring's profile with `halo admin plan|apply|export`. A vendor is managed when its key is present. Credentials never live here.",
+      "additionalProperties": false,
+      "properties": {
+        "ring": {
+          "type": "string",
+          "description": "Ring whose profile the consoles get; console settings are org-wide (default: the last ring, GA)."
+        },
+        "claude": {
+          "$ref": "#/$defs/vendorTarget",
+          "description": "Claude for Teams/Enterprise server-managed settings (no API: exported for the claude.ai console)."
+        },
+        "codex": {
+          "$ref": "#/$defs/vendorTarget",
+          "description": "ChatGPT workspace Agent security requirements (no documented API: exported as requirements.toml)."
+        },
+        "gemini": {
+          "$ref": "#/$defs/vendorTarget",
+          "description": "Gemini Code Assist settings through the Gemini for Google Cloud API (read and write). project is required."
+        },
+        "copilot": {
+          "$ref": "#/$defs/vendorTarget",
+          "description": "GitHub Copilot org content exclusion (read and write) and CLI policy (read). org is required."
+        },
+        "cursor": {
+          "$ref": "#/$defs/vendorTarget",
+          "description": "Cursor team model allowlist (exported for the dashboard)."
+        }
+      }
+    },
     "agents": {
       "type": "object",
       "description": "Agent identity and delegation (ADR-0024): which agents may act for a principal (RFC 8693 act chain), how deep and for how long, what delegated agents may not do, and the allowlist of remote A2A agents.",
@@ -613,5 +644,34 @@
   "required": [
     "org"
   ],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "vendorTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "org": {
+          "type": "string",
+          "pattern": "^[^/?#% ]*$",
+          "description": "Tenant: the GitHub organization login (copilot, required), or the Claude organization / ChatGPT workspace / Cursor team id recorded in exports."
+        },
+        "project": {
+          "type": "string",
+          "pattern": "^[^/?#% ]*$",
+          "description": "Google Cloud project holding the Gemini Code Assist settings (gemini only, required)."
+        },
+        "location": {
+          "type": "string",
+          "description": "Location of the Gemini settings resources (gemini only; default global)."
+        },
+        "releaseChannel": {
+          "enum": [
+            "stable",
+            "experimental"
+          ],
+          "description": "Gemini Code Assist release channel (gemini only); unset leaves it unmanaged."
+        }
+      }
+    }
+  }
 }

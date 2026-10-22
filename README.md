@@ -33,6 +33,7 @@
 - Releases roll out ring by ring, behind A/B tests, canaries, shadows and feature toggles.
 - Each step can be gated on evals and live telemetry.
 - A human-merged PR promotes. A regression measured at the gateway is killed automatically when halo-server serves a signed kill list; any other regression opens a rollback PR.
+- The same policy drives the vendors' cloud admin consoles: `halo admin plan` fails CI on drift, and `halo admin apply` writes the settings that have a public API ([vendor admin sync](https://dshakes.github.io/halos/guides/vendor-admin-sync/)).
 
 | Today | With Halos |
 |---|---|

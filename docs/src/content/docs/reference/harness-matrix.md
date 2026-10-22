@@ -122,6 +122,19 @@ Fields the adapters cannot render are listed by `halo render` and `halo release 
 | User-Agent | None documented, so the gateway cannot map it |
 | Headless (verify) | `cursor-agent -p "<message>"` (never `--force`, `--yolo` or `--trust`) |
 
+## Vendor admin consoles
+
+The org-wide cloud console of each vendor, driven by `halo admin` from the GA ring's profile ([guide](/halos/guides/vendor-admin-sync/), [ADR-0025](/halos/adr/0025-vendor-admin-sync/)). These settings are separate from the machine files above, and rings do not reach them.
+
+| Vendor | Console | Write | Read | Otherwise |
+|---|---|---|---|---|
+| Claude Code | Server-managed settings | none | none | export `managed-settings.json`. Replaces the file for sessions that fetch it. Gateway (`apiKeyHelper`) sessions do not fetch it |
+| Codex | ChatGPT Agent Security | none documented | none | export `requirements.toml` and `config.toml` |
+| Gemini Code Assist | logging, release channel | `cloudaicompanion` v1 | `cloudaicompanion` v1 | logging covers IDE use, not Gemini CLI |
+| Copilot | content exclusion | `PUT /orgs/{org}/copilot/content_exclusion` | `GET` of the same path | not applied by Copilot CLI or agent mode |
+| Copilot | CLI policy | none | `GET /orgs/{org}/copilot/billing` | set by hand |
+| Cursor | model allowlist | preview only, not used | not used | export the alias list |
+
 ## Kong notes
 
 - `ai-proxy` supports `llm_format: anthropic` passthrough.

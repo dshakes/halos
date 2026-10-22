@@ -30,6 +30,7 @@
         "internal/telemetry",
         "internal/toggle",
         "internal/upgrade",
+        "internal/vendoradmin",
         "internal/yamledit"
       ]
     },
@@ -297,6 +298,7 @@
         "internal/shadow",
         "internal/toggle",
         "internal/upgrade",
+        "internal/vendoradmin",
         "internal/yamledit"
       ]
     },
@@ -434,6 +436,15 @@
         "internal/promote",
         "internal/release",
         "internal/yamledit"
+      ]
+    },
+    {
+      "path": "internal/vendoradmin",
+      "imports": [
+        "internal/harness",
+        "internal/harness/all",
+        "internal/harness/hutil",
+        "internal/policy"
       ]
     },
     {
