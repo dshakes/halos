@@ -306,9 +306,118 @@ func TestServerStateInput(t *testing.T) {
 		{ProtoResponses, `{"model":"m","previous_response_id":"","conversation":null,"prompt":{}}`, false},
 		{ProtoResponses, `not json`, false},
 		{ProtoAnthropic, `{"previous_response_id":"resp_1"}`, false},
+		// Inputs the provider fetches or stores, billed as input the body never carries.
+		{ProtoResponses, `{"input":[{"role":"user","content":[{"type":"input_file","file_id":"file-1"}]}]}`, true},
+		{ProtoResponses, `{"input":[{"role":"user","content":[{"type":"input_file","file_url":"https://x/a.pdf"}]}]}`, true},
+		{ProtoResponses, `{"input":[{"role":"user","content":[{"type":"input_file","file_data":"data:application/pdf;base64,AA"}]}]}`, false},
+		{ProtoResponses, `{"input":[{"role":"user","content":[{"type":"input_image","file_id":"file-2"}]}]}`, true},
+		{ProtoResponses, `{"input":[{"role":"user","content":[{"type":"input_image","image_url":"HTTPS://x/a.png"}]}]}`, true},
+		{ProtoResponses, `{"input":[{"role":"user","content":[{"type":"input_image","image_url":"data:image/png;base64,AA"}]}]}`, false},
+		{ProtoResponses, `{"input":[{"type":"item_reference","id":"msg_1"}]}`, true},
+		{ProtoResponses, `{"input":"hi","tools":[{"type":"file_search","vector_store_ids":["vs_1"]}]}`, true},
+		{ProtoResponses, `{"input":"hi","tools":[{"type":"web_search_preview"}]}`, true},
+		{ProtoResponses, `{"input":"hi","tools":[{"type":"mcp","server_url":"https://m"}]}`, true},
+		{ProtoResponses, `{"input":"hi","tools":[{"type":"code_interpreter"}]}`, true},
+		{ProtoResponses, `{"input":"hi","tools":[{"type":"function","name":"f"}]}`, false},
+		{ProtoResponses, `{"input":"hi","background":true}`, true},
+		{ProtoAnthropic, `{"messages":[{"role":"user","content":"hi"}],"tools":[{"type":"web_search_20250305","name":"web_search"}]}`, true},
+		{ProtoAnthropic, `{"messages":[],"tools":[{"type":"web_fetch_20250910","name":"web_fetch"}]}`, true},
+		{ProtoBedrock, `{"messages":[],"tools":[{"type":"code_execution_20250825","name":"code_execution"}]}`, true},
+		{ProtoAnthropic, `{"messages":[],"tools":[{"name":"get_weather","input_schema":{}}]}`, false},
+		{ProtoAnthropic, `{"messages":[],"mcp_servers":[{"type":"url","url":"https://m","name":"m"}]}`, true},
+		{ProtoAnthropic, `{"messages":[{"role":"user","content":[{"type":"document","source":{"type":"file","file_id":"file_1"}}]}]}`, true},
+		{ProtoAnthropic, `{"messages":[{"role":"user","content":[{"type":"image","source":{"type":"url","url":"https://x/a.png"}}]}]}`, true},
+		{ProtoAnthropic, `{"messages":[{"role":"user","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"AA"}}]}]}`, false},
+		{ProtoAnthropic, `{"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"t","content":[{"type":"document","source":{"type":"url","url":"https://x"}}]}]}]}`, true},
 	} {
 		if got := ServerStateInput(tc.proto, []byte(tc.body)); got != tc.want {
 			t.Errorf("%s %s: %v, want %v", tc.proto, tc.body, got, tc.want)
+		}
+	}
+}
+
+// A client that hangs up before the final usage event (or a background
+// request answered with usage null) is charged what the provider bills but
+// the gateway never saw: the server-state input floor for remote inputs and
+// server tools, the thinking budget (or the output limit) for hidden
+// reasoning, and the output limit for background mode. End to end: cut
+// response through the tap, then RequestEstimate and EstimateUsage.
+func TestEstimateChargesUnseenTokens(t *testing.T) {
+	const floor, ceiling = 150_000, 32_000
+	cut := "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":20,\"output_tokens\":1}}}\n\n" +
+		"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"hi there\"}}\n\n"
+	for _, tc := range []struct {
+		name, proto, ct, resp, body string
+		want                        budget.Usage
+	}{
+		{"anthropic web_search, cut", ProtoAnthropic, "text/event-stream", cut,
+			`{"max_tokens":4000,"messages":[{"role":"user","content":"q"}],"tools":[{"type":"web_search_20250305","name":"web_search"}]}`,
+			budget.Usage{Input: floor, Output: 2}},
+		{"anthropic thinking budget, cut", ProtoAnthropic, "text/event-stream", cut,
+			`{"max_tokens":20000,"thinking":{"type":"enabled","budget_tokens":16000},"messages":[{"role":"user","content":"q"}]}`,
+			budget.Usage{Input: 20, Output: 16000}},
+		{"anthropic thinking budget over max_tokens is capped", ProtoAnthropic, "text/event-stream", cut,
+			`{"max_tokens":2000,"thinking":{"type":"enabled","budget_tokens":16000},"messages":[]}`,
+			budget.Usage{Input: 20, Output: 2000}},
+		{"anthropic adaptive thinking, no max: ceiling", ProtoAnthropic, "text/event-stream", cut,
+			`{"thinking":{"type":"adaptive"},"messages":[]}`,
+			budget.Usage{Input: 20, Output: ceiling}},
+		{"anthropic effort, cut", ProtoAnthropic, "text/event-stream", cut,
+			`{"max_tokens":9000,"output_config":{"effort":"high"},"messages":[]}`,
+			budget.Usage{Input: 20, Output: 9000}},
+		{"no reasoning, cut: text only", ProtoAnthropic, "text/event-stream", cut,
+			`{"max_tokens":9000,"messages":[]}`,
+			budget.Usage{Input: 20, Output: 2}},
+		{"responses reasoning, cut", ProtoResponses, "text/event-stream",
+			"data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}\n\n",
+			`{"input":"hi","max_output_tokens":12000,"reasoning":{"effort":"high"}}`,
+			budget.Usage{Input: -1, Output: 12000}},
+		{"responses reasoning effort none: text only", ProtoResponses, "text/event-stream",
+			"data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}\n\n",
+			`{"input":"hi","max_output_tokens":12000,"reasoning":{"effort":"none"}}`,
+			budget.Usage{Input: -1, Output: 1}},
+		{"responses input_file, cut", ProtoResponses, "text/event-stream",
+			"data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}\n\n",
+			`{"input":[{"role":"user","content":[{"type":"input_file","file_id":"file-1"}]}],"max_output_tokens":500}`,
+			budget.Usage{Input: floor, Output: 1}},
+		{"responses background, usage null", ProtoResponses, "application/json",
+			`{"id":"resp_1","status":"queued","background":true,"usage":null}`,
+			`{"input":"hi","background":true}`,
+			budget.Usage{Input: floor, Output: ceiling}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var r UsageResult
+			rc := UsageTap(tc.proto, tc.ct, "", io.NopCloser(strings.NewReader(tc.resp)), func(u UsageResult) { r = u })
+			_, _ = io.Copy(io.Discard, io.LimitReader(rc, int64(len(tc.resp))))
+			_ = rc.Close()
+			if r.Complete {
+				t.Fatalf("fixture reports complete usage: %+v", r)
+			}
+			if tc.want.Input == -1 { // nothing reported: request bytes / 3
+				tc.want.Input = int64(len(tc.body)) / 3
+			}
+			e := RequestEstimate(tc.proto, []byte(tc.body), floor, ceiling)
+			if got := EstimateUsage(r, e); got != tc.want {
+				t.Fatalf("%+v (estimate %+v), want %+v", got, e, tc.want)
+			}
+		})
+	}
+	for _, tc := range []struct {
+		proto, body string
+		on          bool
+		budget      int64
+	}{
+		{ProtoGemini, `{"generationConfig":{"thinkingConfig":{"thinkingBudget":8192}}}`, true, 8192},
+		{ProtoGemini, `{"generationConfig":{"thinkingConfig":{"thinkingBudget":-1}}}`, true, 0},
+		{ProtoGemini, `{"generationConfig":{"thinkingConfig":{"thinkingBudget":0}}}`, false, 0},
+		{ProtoGemini, `{"generationConfig":{"maxOutputTokens":10}}`, false, 0},
+		{ProtoBedrock, `{"additionalModelRequestFields":{"thinking":{"type":"enabled","budget_tokens":4000}}}`, true, 4000},
+		{ProtoAnthropic, `{"thinking":{"type":"disabled"}}`, false, 0},
+		{ProtoResponses, `{"reasoning":null}`, false, 0},
+		{ProtoResponses, `{"reasoning":{}}`, true, 0},
+	} {
+		if on, b := ReasoningBudget(tc.proto, []byte(tc.body)); on != tc.on || b != tc.budget {
+			t.Errorf("ReasoningBudget(%s, %s) = %v %d, want %v %d", tc.proto, tc.body, on, b, tc.on, tc.budget)
 		}
 	}
 }

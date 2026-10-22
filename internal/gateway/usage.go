@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"bytes"
+	"cmp"
 	"compress/gzip"
 	"compress/zlib"
 	"encoding/binary"
@@ -208,16 +209,37 @@ const (
 	DefaultServerStateInputTokens = 200_000
 )
 
-// Estimate is what EstimateUsage knows about the request.
+// Estimate is what EstimateUsage knows about the request (RequestEstimate).
 type Estimate struct {
 	RequestBytes int
 	// MaxOutput is the request's maximum output tokens (MaxOutputTokens); 0 = none.
 	MaxOutput int64
 	// OutputCeiling caps the output estimate when MaxOutput is 0 (0 = DefaultOutputCeiling).
 	OutputCeiling int64
-	// ServerStateInput is the input to charge when the request names
-	// server-side state (ServerStateInput true); 0 = it does not.
+	// ServerStateInput is the input to charge when the request makes the
+	// provider bill input its bytes do not show (ServerStateInput true); 0 = it does not.
 	ServerStateInput int64
+	// Reasoning: the request enables hidden reasoning (ReasoningBudget), so
+	// the output estimate is at least ThinkingBudget, or the output limit when
+	// ThinkingBudget is 0: reasoning tokens are billed as output but never
+	// streamed, so a stream cut before the final usage event shows none of them.
+	Reasoning      bool
+	ThinkingBudget int64
+	// Background: an OpenAI Responses background request; its response is
+	// queued (usage null), so the output is charged at the limit.
+	Background bool
+}
+
+// RequestEstimate is the Estimate for a metered request body: maximum output,
+// server-side state (charged serverStateInput, else
+// DefaultServerStateInputTokens), reasoning and background mode.
+func RequestEstimate(proto string, body []byte, serverStateInput, outputCeiling int64) Estimate {
+	e := Estimate{RequestBytes: len(body), MaxOutput: MaxOutputTokens(body), OutputCeiling: outputCeiling, Background: Background(proto, body)}
+	if ServerStateInput(proto, body) {
+		e.ServerStateInput = cmp.Or(serverStateInput, DefaultServerStateInputTokens)
+	}
+	e.Reasoning, e.ThinkingBudget = ReasoningBudget(proto, body)
+	return e
 }
 
 // EstimateUsage is the pessimistic charge for a metered 2xx response whose
@@ -230,8 +252,9 @@ type Estimate struct {
 //   - output the larger of the output reported so far and a measure of what
 //     was generated: for a decoded stream the delta payload text / 4 (at least
 //     one token per delta event), so SSE framing and JSON escaping are not
-//     charged; otherwise response bytes / 4. Capped at the request's maximum
-//     output tokens, else e.OutputCeiling;
+//     charged; otherwise response bytes / 4. With reasoning on, at least the
+//     thinking budget (else the limit); in background mode the limit. Capped
+//     at the request's maximum output tokens, else e.OutputCeiling;
 //   - never zero.
 func EstimateUsage(r UsageResult, e Estimate) budget.Usage {
 	u := r.Usage
@@ -252,6 +275,14 @@ func EstimateUsage(r UsageResult, e Estimate) budget.Usage {
 	if limit <= 0 {
 		limit = DefaultOutputCeiling
 	}
+	switch {
+	case e.Background:
+		gen = limit
+	case e.Reasoning && e.ThinkingBudget > 0:
+		gen = max(gen, e.ThinkingBudget)
+	case e.Reasoning:
+		gen = limit
+	}
 	u.Output = max(min(gen, limit), u.Output)
 	if u.Tokens() == 0 {
 		u.Input = 1
@@ -259,32 +290,216 @@ func EstimateUsage(r UsageResult, e Estimate) budget.Usage {
 	return u
 }
 
-// ServerStateInput reports whether a request names server-side state whose
-// tokens the provider bills as input but the request body does not carry: an
-// OpenAI Responses previous_response_id, conversation, or stored prompt id.
+// ServerStateInput reports whether a request makes the provider bill input
+// tokens the request body does not carry, so request bytes underestimate it:
+//
+//   - OpenAI Responses: previous_response_id, conversation, a stored prompt
+//     id, background mode, input_file by file_id or file_url, input_image by
+//     file_id or an http(s) URL, item_reference, and the file_search,
+//     web_search*, mcp and code_interpreter tools;
+//   - Anthropic Messages (and Bedrock invoke): server tools (web_search,
+//     web_fetch, code_execution, tool_search), MCP servers, container
+//     uploads, and document or image blocks whose source is a file or a URL.
 func ServerStateInput(proto string, body []byte) bool {
-	if proto != ProtoResponses {
-		return false
+	switch proto {
+	case ProtoResponses:
+		return responsesServerState(body)
+	case ProtoAnthropic, ProtoBedrock:
+		return anthropicServerState(body)
 	}
+	return false
+}
+
+// setJSON reports whether a raw JSON value is present and not empty.
+func setJSON(m json.RawMessage) bool {
+	s := string(bytes.TrimSpace(m))
+	return s != "" && s != "null" && s != `""` && s != "{}" && s != "[]"
+}
+
+type typed struct {
+	Type string `json:"type"`
+}
+
+func responsesServerState(body []byte) bool {
 	var r struct {
 		Previous     string          `json:"previous_response_id"`
 		Conversation json.RawMessage `json:"conversation"`
 		Prompt       json.RawMessage `json:"prompt"`
+		Background   bool            `json:"background"`
+		Input        json.RawMessage `json:"input"`
+		Tools        []typed         `json:"tools"`
 	}
 	if json.Unmarshal(body, &r) != nil {
 		return false
 	}
-	set := func(m json.RawMessage) bool {
-		s := string(bytes.TrimSpace(m))
-		return s != "" && s != "null" && s != `""` && s != "{}"
-	}
-	if r.Previous != "" || set(r.Conversation) {
+	if r.Previous != "" || setJSON(r.Conversation) || r.Background {
 		return true
 	}
 	var p struct {
 		ID string `json:"id"`
 	}
-	return set(r.Prompt) && json.Unmarshal(r.Prompt, &p) == nil && p.ID != ""
+	if setJSON(r.Prompt) && json.Unmarshal(r.Prompt, &p) == nil && p.ID != "" {
+		return true
+	}
+	for _, t := range r.Tools {
+		if t.Type == "file_search" || t.Type == "mcp" || t.Type == "code_interpreter" || strings.HasPrefix(t.Type, "web_search") {
+			return true
+		}
+	}
+	return anyObject(r.Input, func(o map[string]any) bool {
+		str := func(k string) string { s, _ := o[k].(string); return s }
+		switch str("type") {
+		case "input_file":
+			return str("file_id") != "" || str("file_url") != ""
+		case "input_image":
+			u := strings.ToLower(str("image_url"))
+			return str("file_id") != "" || strings.HasPrefix(u, "https://") || strings.HasPrefix(u, "http://")
+		case "item_reference":
+			return true
+		}
+		return false
+	})
+}
+
+func anthropicServerState(body []byte) bool {
+	var r struct {
+		Tools      []typed         `json:"tools"`
+		MCPServers json.RawMessage `json:"mcp_servers"`
+		Messages   json.RawMessage `json:"messages"`
+		System     json.RawMessage `json:"system"`
+	}
+	if json.Unmarshal(body, &r) != nil {
+		return false
+	}
+	if setJSON(r.MCPServers) {
+		return true
+	}
+	for _, t := range r.Tools {
+		for _, p := range []string{"web_search", "web_fetch", "code_execution", "tool_search"} {
+			if strings.HasPrefix(t.Type, p) {
+				return true
+			}
+		}
+	}
+	remote := func(o map[string]any) bool {
+		if t, _ := o["type"].(string); t == "container_upload" {
+			return true
+		}
+		src, _ := o["source"].(map[string]any)
+		st, _ := src["type"].(string)
+		return st == "file" || st == "url"
+	}
+	return anyObject(r.Messages, remote) || anyObject(r.System, remote)
+}
+
+// anyObject reports whether fn holds for any JSON object within raw.
+func anyObject(raw json.RawMessage, fn func(map[string]any) bool) bool {
+	if !setJSON(raw) {
+		return false
+	}
+	var v any
+	if json.Unmarshal(raw, &v) != nil {
+		return false
+	}
+	var walk func(any) bool
+	walk = func(v any) bool {
+		switch x := v.(type) {
+		case map[string]any:
+			if fn(x) {
+				return true
+			}
+			for _, e := range x {
+				if walk(e) {
+					return true
+				}
+			}
+		case []any:
+			for _, e := range x {
+				if walk(e) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	return walk(v)
+}
+
+// Background reports an OpenAI Responses background request.
+func Background(proto string, body []byte) bool {
+	if proto != ProtoResponses {
+		return false
+	}
+	var r struct {
+		Background bool `json:"background"`
+	}
+	return json.Unmarshal(body, &r) == nil && r.Background
+}
+
+// ReasoningBudget reports whether a request enables hidden reasoning, and the
+// token budget it sets (0 = none): OpenAI Responses reasoning (unless effort
+// "none"); Anthropic thinking enabled or adaptive (budget_tokens) or an
+// output_config effort, also under Bedrock Converse
+// additionalModelRequestFields; Gemini generationConfig.thinkingConfig.
+func ReasoningBudget(proto string, body []byte) (bool, int64) {
+	type thinking struct {
+		Type   string `json:"type"`
+		Budget int64  `json:"budget_tokens"`
+	}
+	type effort struct {
+		Effort string `json:"effort"`
+	}
+	var r struct {
+		Reasoning json.RawMessage `json:"reasoning"` // Responses
+		Thinking  thinking        `json:"thinking"`  // Anthropic, Bedrock invoke
+		Output    effort          `json:"output_config"`
+		Extra     struct {
+			Thinking thinking `json:"thinking"`
+			Output   effort   `json:"output_config"`
+		} `json:"additionalModelRequestFields"` // Bedrock Converse
+		Generation struct {
+			Thinking *struct {
+				Budget  *int64 `json:"thinkingBudget"`
+				Include bool   `json:"includeThoughts"`
+				Level   string `json:"thinkingLevel"`
+			} `json:"thinkingConfig"`
+		} `json:"generationConfig"` // Gemini
+	}
+	if json.Unmarshal(body, &r) != nil {
+		return false, 0
+	}
+	switch proto {
+	case ProtoResponses:
+		if s := string(bytes.TrimSpace(r.Reasoning)); s == "" || s == "null" {
+			return false, 0
+		}
+		var e effort
+		_ = json.Unmarshal(r.Reasoning, &e) // a non-object reasoning value: on, no effort
+		return e.Effort != "none", 0
+	case ProtoGemini:
+		tc := r.Generation.Thinking
+		switch {
+		case tc == nil:
+			return false, 0
+		case tc.Budget != nil && *tc.Budget > 0:
+			return true, *tc.Budget
+		case tc.Budget != nil && *tc.Budget == 0 && !tc.Include && tc.Level == "":
+			return false, 0
+		}
+		return true, 0 // dynamic (-1), includeThoughts or a thinkingLevel
+	}
+	for _, c := range []struct {
+		t thinking
+		e effort
+	}{{r.Thinking, r.Output}, {r.Extra.Thinking, r.Extra.Output}} {
+		if c.t.Type == "enabled" || c.t.Type == "adaptive" {
+			return true, max(c.t.Budget, 0)
+		}
+		if c.e.Effort != "" && c.e.Effort != "none" {
+			return true, 0
+		}
+	}
+	return false, 0
 }
 
 // MaxOutputTokens is a model request's output token limit on any supported
