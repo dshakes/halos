@@ -177,7 +177,13 @@ func (c *Controller) step(ctx context.Context, e *policy.Experiment) error {
 	}
 	switch rep.Verdict {
 	case promote.Rollback:
-		errs = append(errs, c.record(e, rep.Verdict, ActionRollback, encodeReport(rep)), c.rollback(ctx, e, rep))
+		if err := c.record(e, rep.Verdict, ActionRollback, encodeReport(rep)); err != nil {
+			errs = append(errs, err)
+			if fenced(err) { // no longer the leader: the new one acts on its own evaluation
+				return errors.Join(errs...)
+			}
+		}
+		errs = append(errs, c.rollback(ctx, e, rep))
 	case promote.Promote, promote.Expired:
 		errs = append(errs, c.conclude(ctx, e, rep))
 	}
@@ -221,10 +227,13 @@ func (c *Controller) rollback(ctx context.Context, e *policy.Experiment, rep pro
 		ev.KillOutcome = KillNotConfigured
 		ev.KillError = "kill switch not configured — rollback requires merging the pause PR"
 		c.log().Error("ROLLBACK NOT ENFORCED: kill switch not configured; traffic keeps flowing to the treatment until the pause PR merges", "experiment", e.Name)
-	} else if _, err := c.Kill.Kill(ctx, e.Name, Actor, "rollback: "+rep.Reason); err != nil {
+	} else if _, _, ierr := c.intend(e.Name, string(v), ActionKill); fenced(ierr) {
+		return errors.Join(append(errs, ierr)...) // deposed: no kill, PR or notification from this replica
+	} else if _, err := c.Kill.Kill(ctx, e.Name, Actor, "rollback: "+rep.Reason); err != nil { // idempotent: a repeat across leaders is harmless
 		ev.KillOutcome, ev.KillError = KillFailed, err.Error()
-		errs = append(errs, c.fail(fmt.Errorf("controller: kill %s: %w", e.Name, err)))
+		errs = append(errs, ierr, c.fail(fmt.Errorf("controller: kill %s: %w", e.Name, err)))
 	} else {
+		errs = append(errs, ierr)
 		ev.Killed, ev.KillError, recorded = c.KillCaveat == "", c.KillCaveat, c.KillCaveat != ""
 		ev.KillOutcome = killOutcome(ev.Killed)
 		c.log().Warn("kill switch tripped", "experiment", e.Name, "reason", rep.Reason, "caveat", c.KillCaveat)
@@ -243,6 +252,9 @@ func (c *Controller) rollback(ctx context.Context, e *policy.Experiment, rep pro
 	url, err := c.pr(ctx, e, rep, "paused", fmt.Sprintf("Pause experiment %s: rollback verdict", e.Name), intro)
 	ev.PRURL = url
 	if err != nil {
+		if fenced(err) {
+			return errors.Join(append(errs, err)...)
+		}
 		ev.PRError = "PR failed"
 		errs = append(errs, err)
 	}
@@ -278,12 +290,28 @@ func (c *Controller) pr(ctx context.Context, e *policy.Experiment, rep promote.R
 		c.log().Warn("no policy writer configured; not opening a PR", "experiment", e.Name, "verdict", v)
 		return "", nil
 	}
-	url, err := c.Writer.ProposeStatus(ctx, e.Name, status, title, intro+"\n\n"+Evidence(rep))
-	if err != nil {
+	key, prior, err := c.intend(e.Name, v, ActionPR)
+	if fenced(err) {
+		return "", err
+	}
+	if prior { // an earlier attempt, maybe by a deposed leader, may have opened it
+		if f, ok := c.Writer.(PRFinder); ok {
+			url, found, ferr := f.FindPR(ctx, intentMarker(key))
+			if ferr != nil {
+				return "", c.fail(fmt.Errorf("controller: find PR for %s (%s): %w", e.Name, v, ferr)) // retry next tick rather than risk a duplicate
+			}
+			if found {
+				c.log().Info("controller found the PR an earlier attempt opened", "experiment", e.Name, "verdict", v, "pr", url)
+				return url, c.record(e, rep.Verdict, ActionPR, url)
+			}
+		}
+	}
+	url, perr := c.Writer.ProposeStatus(ctx, e.Name, status, title, intro+"\n\n"+Evidence(rep)+"\n\n"+intentMarker(key))
+	if err = errors.Join(err, perr); perr != nil {
 		return "", c.fail(fmt.Errorf("controller: PR for %s (%s): %w", e.Name, v, err))
 	}
 	c.log().Info("controller opened PR", "experiment", e.Name, "verdict", v, "pr", url)
-	return url, c.record(e, rep.Verdict, ActionPR, url)
+	return url, errors.Join(err, c.record(e, rep.Verdict, ActionPR, url))
 }
 
 // notify delivers ev once per channel: a channel that failed is retried on
@@ -300,6 +328,12 @@ func (c *Controller) notify(ctx context.Context, e *policy.Experiment, ev Event)
 		if _, done := c.State.Done(e.Name, v, action); done {
 			continue
 		}
+		key, _, ierr := c.intend(e.Name, v, action)
+		if fenced(ierr) {
+			return errors.Join(append(errs, ierr)...)
+		}
+		errs = append(errs, ierr)
+		ev.ID = key // the same id on every attempt, by any leader: receivers can dedupe
 		if err := n.Notify(ctx, ev); err != nil {
 			errs = append(errs, c.fail(fmt.Errorf("controller: notify %s (%s) via %s: %w", e.Name, v, names[i], err)))
 			continue

@@ -2,6 +2,7 @@ package server
 
 import (
 	"cmp"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -552,38 +553,47 @@ func (e *enrollments) issue(p Principal, ttl time.Duration, now time.Time) (stri
 }
 
 // consume burns the token (even if expired) and returns the principal it was
-// issued to. Of concurrent consumes, on any replica, at most one succeeds. A
-// token issued before its user was deprovisioned (dropUser) is refused; so is
-// any token when the store cannot be read.
-func (e *enrollments) consume(tok string) (Principal, bool) {
+// issued to and when. Of concurrent consumes, on any replica, at most one
+// succeeds. A token issued before its user was deprovisioned (dropUser) is
+// refused; so is any token when the store cannot be read.
+func (e *enrollments) consume(tok string) (Principal, int64, bool) {
 	ctx, cancel := storage.Ctx()
 	defer cancel()
 	h := hashTok(tok)
 	b, ok, err := e.kv.Take(ctx, kvEnroll, hex.EncodeToString(h[:]))
 	var t enrollToken
 	if err != nil || !ok || json.Unmarshal(b, &t) != nil {
-		return Principal{}, false
+		return Principal{}, 0, false
 	}
-	drop, dropped, err := e.kv.Get(ctx, kvEnrollDrop, canonicalUser(t.User.ID))
+	if e.voided(ctx, t.User.ID, t.Issued) {
+		return Principal{}, 0, false
+	}
+	return t.User, t.Issued, true
+}
+
+// voided reports whether user's tokens issued at issued are void: dropped at
+// or after it, or unknown because the store cannot be read (fail closed).
+func (e *enrollments) voided(ctx context.Context, user string, issued int64) bool {
+	drop, dropped, err := e.kv.Get(ctx, kvEnrollDrop, canonicalUser(user))
 	if err != nil {
-		return Principal{}, false
+		return true
 	}
-	if dropped {
-		if at, err := strconv.ParseInt(string(drop), 10, 64); err != nil || t.Issued <= at {
-			return Principal{}, false
-		}
+	if !dropped {
+		return false
 	}
-	return t.User, true
+	at, err := strconv.ParseInt(string(drop), 10, 64)
+	return err != nil || issued <= at
 }
 
 // dropUser voids every unconsumed enrollment token of user (case-insensitive)
 // issued up to now, on every replica: tokens are keyed by hash, so the void is
-// a per-user epoch that consume checks.
+// a per-user epoch that consume checks. The epoch only ever moves forward
+// (KV.Raise): two concurrent deprovisionings cannot leave the earlier one.
 func (e *enrollments) dropUser(user string, now time.Time) error {
 	ctx, cancel := storage.Ctx()
 	defer cancel()
 	at := now.Add(enrollDropSkew)
-	return e.kv.Put(ctx, kvEnrollDrop, canonicalUser(user), []byte(strconv.FormatInt(at.UnixNano(), 10)), at.Add(enrollDropTTL))
+	return e.kv.Raise(ctx, kvEnrollDrop, canonicalUser(user), at.UnixNano(), at.Add(enrollDropTTL))
 }
 
 func (s *Server) postEnroll(w http.ResponseWriter, r *http.Request) {
@@ -601,7 +611,7 @@ func (s *Server) postEnroll(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, http.StatusTooManyRequests, "too many failed attempts")
 		return
 	}
-	p, ok := s.enroll.consume(body.Token)
+	p, issued, ok := s.enroll.consume(body.Token)
 	if !ok {
 		s.authFails.fail(ip)
 		s.cfg.Log.Warn("enrollment rejected", "remote", r.RemoteAddr)
@@ -621,6 +631,22 @@ func (s *Server) postEnroll(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.cfg.Log.Error("persist device", "user", p.ID, "err", err)
 		apiErr(w, http.StatusInternalServerError, "store failed")
+		return
+	}
+	// A deprovisioning that ran between consume and mint (it voids tokens
+	// first, then revokes the devices it can see) may have missed this device:
+	// re-read the void and undo the enrollment if it covers this token.
+	vctx, vcancel := storage.Ctx()
+	void := s.enroll.voided(vctx, p.ID, issued)
+	vcancel()
+	if void {
+		if _, err := s.devices.revoke(dev.ID); err != nil {
+			s.cfg.Log.Error("revoke device enrolled during deprovisioning", "device", dev.ID, "err", err)
+			apiErr(w, http.StatusInternalServerError, "store failed")
+			return
+		}
+		s.cfg.Log.Warn("enrollment raced a deprovisioning; device revoked", "device", dev.ID, "user", p.ID)
+		apiErr(w, http.StatusUnauthorized, "invalid, expired or already used token")
 		return
 	}
 	base := s.baseURL(r)

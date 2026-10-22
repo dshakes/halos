@@ -66,6 +66,9 @@ type options struct {
 	dbURLFile   string
 	autoMigrate bool
 	leaseTTL    time.Duration
+	// dbInsecureTLS accepts sslmode below verify-full to a remote host; dbMaxConns sizes the pool.
+	dbInsecureTLS bool
+	dbMaxConns    int
 }
 
 func parseFlags(args []string) (options, error) {
@@ -110,6 +113,8 @@ func parseFlags(args []string) (options, error) {
 	fs.StringVar(&o.scimTokenHashFile, "scim-token-sha256-file", "", "file holding the hex SHA-256 of each accepted SCIM bearer token, one per line (two while rotating); enables /scim/v2")
 	fs.BoolVar(&o.scimAuthoritative, "scim-authoritative", false, "the SCIM directory decides who is active and their groups (console, devices); unprovisioned users are refused")
 	fs.StringVar(&o.dbURLFile, "database-url-file", "", "file holding a Postgres URL: shared state for running several replicas (replaces --data-dir state; see `halo-server migrate`)")
+	fs.BoolVar(&o.dbInsecureTLS, "database-insecure-tls", false, insecureTLSUsage)
+	fs.IntVar(&o.dbMaxConns, "database-max-conns", pgstore.DefaultMaxConns, "with --database-url-file: connection pool size per replica (replicas x this must stay under the server's max_connections)")
 	fs.BoolVar(&o.autoMigrate, "auto-migrate", false, "apply pending database migrations on start (else the schema must already be current)")
 	fs.DurationVar(&o.leaseTTL, "leader-lease-ttl", 15*time.Second, "with --database-url-file: controller and audit-export lease length; a failed leader is replaced within about this long")
 	fs.Usage = func() {
@@ -148,6 +153,9 @@ func parseFlags(args []string) (options, error) {
 	durable := o.dataDir != "" || o.dbURLFile != ""
 	if o.dbURLFile != "" && o.dataDir != "" {
 		return o, errors.New("--data-dir and --database-url-file are exclusive: state lives in one place (move a data dir with `halo-server import`)")
+	}
+	if o.dbURLFile != "" && o.dbMaxConns < 2 {
+		return o, errors.New("--database-max-conns must be at least 2")
 	}
 	if o.dbURLFile != "" && o.leaseTTL < 3*time.Second {
 		return o, errors.New("--leader-lease-ttl must be at least 3s")
@@ -318,7 +326,7 @@ func run(ctx context.Context, args []string) error {
 	}
 	var db *pgstore.DB
 	if o.dbURLFile != "" {
-		if db, err = openDB(ctx, o.dbURLFile, o.autoMigrate); err != nil {
+		if db, err = openDB(ctx, o.dbURLFile, o.autoMigrate, pgstore.Options{InsecureTLS: o.dbInsecureTLS, MaxConns: o.dbMaxConns}); err != nil {
 			return err
 		}
 		defer func() { _ = db.Close() }()

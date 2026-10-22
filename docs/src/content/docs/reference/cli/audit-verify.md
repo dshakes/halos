@@ -22,6 +22,7 @@ halo audit verify [flags]
 | Flag | Shorthand | Type | Default | Description |
 |---|---|---|---|---|
 | `--data-dir` |  | string |  | halo-server --data-dir holding audit.jsonl |
+| `--database-insecure-tls` |  | bool | false | accept a database URL that does not verify the server certificate and host name (sslmode below verify-full) to a non-loopback host |
 | `--database-url-file` |  | string |  | file holding the Postgres URL of an HA halo-server (instead of --data-dir) |
 
 ## Global flags

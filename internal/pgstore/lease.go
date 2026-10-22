@@ -54,15 +54,20 @@ func (d *DB) Release(ctx context.Context, name, holder string) error {
 	return nil
 }
 
-// checkFence fails with ErrFenced unless f's lease is held, unexpired, at f.Token.
+// checkFence fails with ErrFenced unless f's lease is held, unexpired, at
+// f.Token. It reads the lease row FOR SHARE, so a takeover (Acquire's UPDATE
+// of that row) waits until this transaction ends: a fenced write either
+// commits while its token still owns the lease, or the takeover commits first
+// and the write sees the new token. Expiry is checked against
+// clock_timestamp() (the time of the check), not now() (the transaction's start).
 func checkFence(ctx context.Context, t *sql.Tx, f Fence) error {
-	var ok bool
-	err := t.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM halo_leases WHERE name = $1 AND token = $2 AND expires_at > now())`, f.Name, f.Token).Scan(&ok)
+	var one int
+	err := t.QueryRowContext(ctx, `SELECT 1 FROM halo_leases WHERE name = $1 AND token = $2 AND expires_at > clock_timestamp() FOR SHARE`, f.Name, f.Token).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("%w (lease %s token %d)", ErrFenced, f.Name, f.Token)
+	}
 	if err != nil {
 		return fmt.Errorf("pgstore: check lease %s: %w", f.Name, err)
-	}
-	if !ok {
-		return fmt.Errorf("%w (lease %s token %d)", ErrFenced, f.Name, f.Token)
 	}
 	return nil
 }

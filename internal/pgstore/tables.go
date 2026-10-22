@@ -280,36 +280,51 @@ func (v *Fenced) PutDoc(ctx context.Context, kind, name string, body []byte) err
 // Counts returns row counts: "journal/<stream>" per log stream, "audit",
 // "reports" and "docs/<kind>".
 func (d *DB) Counts(ctx context.Context) (map[string]int64, error) {
+	out, err := counts(ctx, d.db)
+	return out, d.fail(err)
+}
+
+// rowQuerier is *sql.DB or *sql.Tx.
+type rowQuerier interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
+func counts(ctx context.Context, q rowQuerier) (map[string]int64, error) {
 	out := map[string]int64{}
-	for _, q := range []struct{ prefix, sql string }{
+	for _, c := range []struct{ prefix, sql string }{
 		{"journal/", `SELECT stream, count(*) FROM halo_journal GROUP BY stream`},
 		{"", `SELECT 'audit', count(*) FROM halo_audit`},
 		{"", `SELECT 'reports', count(*) FROM halo_reports`},
 		{"docs/", `SELECT kind, count(*) FROM halo_docs GROUP BY kind`},
 		{"", `SELECT 'budget-buckets', count(*) FROM halo_budget_buckets`},
+		{"", `SELECT 'budget-batches', count(*) FROM halo_budget_batches`},
+		{"", `SELECT 'kv', count(*) FROM halo_kv`},
+		{"", `SELECT 'leases', count(*) FROM halo_leases`},
+		{"", `SELECT 'request-pending', count(*) FROM halo_request_pending`},
+		{"", `SELECT 'shadow-pairs', count(*) FROM halo_shadow_pairs`},
 	} {
-		if err := d.count(ctx, q.prefix, q.sql, out); err != nil {
+		if err := count(ctx, q, c.prefix, c.sql, out); err != nil {
 			return nil, err
 		}
 	}
 	return out, nil
 }
 
-func (d *DB) count(ctx context.Context, prefix, q string, out map[string]int64) error {
-	rows, err := d.db.QueryContext(ctx, q)
+func count(ctx context.Context, db rowQuerier, prefix, q string, out map[string]int64) error {
+	rows, err := db.QueryContext(ctx, q)
 	if err != nil {
-		return d.fail(fmt.Errorf("pgstore: count: %w", err))
+		return fmt.Errorf("pgstore: count: %w", err)
 	}
 	defer func() { _ = rows.Close() }() // read-only
 	for rows.Next() {
 		var k string
 		var n int64
 		if err := rows.Scan(&k, &n); err != nil {
-			return d.fail(fmt.Errorf("pgstore: count: %w", err))
+			return fmt.Errorf("pgstore: count: %w", err)
 		}
 		out[prefix+k] = n
 	}
-	return d.fail(rows.Err())
+	return rows.Err()
 }
 
 // Spent returns scope's settled spend.

@@ -131,7 +131,7 @@ func TestSharedWorkloadReplay(t *testing.T) {
 		}
 		// An expired record no longer blocks (the token itself is expired by then).
 		old := "jti\x00iss\x00old"
-		if err := a.s.rememberSubjectToken(old, time.Now().Add(-time.Second), time.Now()); err != nil {
+		if err := a.s.rememberSubjectToken(old, time.Now().Add(-exchangeIatSkew-time.Second), time.Now()); err != nil {
 			t.Fatal(err)
 		}
 		if err := c.s.rememberSubjectToken(old, time.Now().Add(time.Minute), time.Now()); err != nil {

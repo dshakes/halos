@@ -71,7 +71,7 @@ Prefer External Secrets or your secret manager over shell history for real value
 
 [ADR-0021](/halos/adr/0021-ha-control-plane-on-postgres/) is the design; [Operations](/halos/guides/operations/#ha-on-postgres) is the runbook. The install:
 
-1. **A database.** Postgres 13 or newer (tested with 15), a dedicated database and role that owns it. Managed Postgres with automated backups and point-in-time recovery is the recommendation. Use TLS: `sslmode=verify-full` in the URL.
+1. **A database.** Postgres 13 or newer (tested with 15), a dedicated database and role that owns it. Managed Postgres with automated backups and point-in-time recovery is the recommendation. Use TLS: `sslmode=verify-full` (with `sslrootcert`) in the URL; anything weaker to a non-loopback host is refused unless `server.database.insecureTLS` (test environments only). With NetworkPolicy on, set `networkPolicy.databaseEgress.to`: the chart refuses to render HA without it.
 2. **The Secret** (a human runs this; prefer External Secrets):
 
    ```bash
@@ -79,7 +79,7 @@ Prefer External Secrets or your secret manager over shell history for real value
      --from-literal=url='postgres://halos:PASSWORD@pg.internal:5432/halos?sslmode=verify-full'
    ```
 
-3. **The schema.** `halo-server migrate --database-url-file /path/to/url` from a workstation or a Job with the release image, or set `server.database.autoMigrate: true`.
+3. **The schema.** Preferred: `server.database.migrateJob.enabled: true` with a DDL-capable URL in `migrateJob.existingSecret`; the chart runs `halo-server migrate` as a pre-install/pre-upgrade hook and the serving role needs only DML on the `halo_*` tables. Alternatives: `halo-server migrate --database-url-file /path/to/url` by hand, or `server.database.autoMigrate: true` (the serving role then needs DDL rights).
 4. **Existing data.** Moving from the file backend: scale `halo-server` to 0, copy the data dir out of the PVC, then
    `halo-server import --from-data-dir ./data --database-url-file ./url`. It only reads the directory, refuses a non-empty database and a source whose audit chain does not verify, and prints per-log counts and the verified audit head. halo-shadow's pair file is evidence, not state: keep it as a file archive.
 5. **Values** (`deploy/helm/halos/ci/ha-values.yaml` is a complete example):

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dshakes/halos/internal/pgstore"
 	"github.com/dshakes/halos/internal/pgstore/pgtest"
 	"github.com/dshakes/halos/internal/server"
 )
@@ -37,7 +38,7 @@ func TestSubcommandUsage(t *testing.T) {
 	if err := os.WriteFile(empty, []byte("\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := openDB(ctx, empty, false); err == nil || !strings.Contains(err.Error(), "empty database URL") {
+	if _, err := openDB(ctx, empty, false, pgstore.Options{}); err == nil || !strings.Contains(err.Error(), "empty database URL") {
 		t.Fatalf("empty URL file: %v", err)
 	}
 }

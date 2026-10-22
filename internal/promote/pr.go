@@ -3,6 +3,7 @@ package promote
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -306,6 +307,36 @@ func prEdit(r PRRequest) func(ReadFunc) (map[string][]byte, error) {
 		return r.Edit
 	}
 	return func(ReadFunc) (map[string][]byte, error) { return r.Files, nil }
+}
+
+// PRFinder finds a pull request whose body contains marker (an opener that
+// can, implements it). The controller embeds an intent key in every PR it
+// opens, so a new leader can tell whether a deposed one already opened it.
+type PRFinder interface {
+	FindPR(ctx context.Context, dir, marker string) (url string, found bool, err error)
+}
+
+// FindPR implements PRFinder with `gh pr list` (any state), matching the
+// marker exactly in the returned bodies: the search narrows, the check decides.
+func (g GHOpener) FindPR(ctx context.Context, dir, marker string) (string, bool, error) {
+	term := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(marker), "<!--"), "-->"))
+	out, err := g.run(ctx, dir, "gh", "pr", "list", "--state", "all", "--search", term+" in:body", "--json", "url,body", "--limit", "20")
+	if err != nil {
+		return "", false, fmt.Errorf("promote: gh pr list: %w", err)
+	}
+	var prs []struct {
+		URL  string `json:"url"`
+		Body string `json:"body"`
+	}
+	if err := json.Unmarshal(out, &prs); err != nil {
+		return "", false, fmt.Errorf("promote: gh pr list: %w", err)
+	}
+	for _, p := range prs {
+		if strings.Contains(p.Body, marker) {
+			return p.URL, true, nil
+		}
+	}
+	return "", false, nil
 }
 
 func (g GHOpener) OpenPR(ctx context.Context, r PRRequest) (string, error) {

@@ -56,3 +56,13 @@ func (w *GitWriter) ProposeStatus(ctx context.Context, experiment, status, title
 	}
 	return url, nil
 }
+
+// FindPR implements PRFinder when the opener is a promote.PRFinder; with
+// another opener it reports not found (the controller then opens anew).
+func (w *GitWriter) FindPR(ctx context.Context, marker string) (string, bool, error) {
+	f, ok := w.Opener.(promote.PRFinder)
+	if !ok {
+		return "", false, nil
+	}
+	return f.FindPR(ctx, filepath.Join(w.RepoDir, w.Subdir), marker)
+}

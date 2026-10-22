@@ -53,7 +53,7 @@ OIDC issuer/audience live in the policy repo (halo-server) and `proxy.config.ide
   controller runs on the replica holding the leader lease (`database.leaseTTL`); `/readyz` fails while Postgres is unreachable
   (liveness does not); a PDB (`maxUnavailable: 1`) is rendered when `replicas > 1`; `halo_leader` and `halo_db_errors_total` on
   `/metrics`. halo-shadow: stateless workers, pairs in Postgres (sealed with `pairKey` as in the file), one global `budgetUSD`
-  named by `database.budgetScope`. `database.autoMigrate` adds `--auto-migrate`; otherwise run `halo-server migrate` before the
+  named by `database.budgetScope`. `database.autoMigrate` adds `--auto-migrate` (the serving role then needs DDL rights); `database.migrateJob` runs migrations as a hook Job with a separate DDL role instead; otherwise run `halo-server migrate` before the
   upgrade. `networkPolicy.databaseEgress` opens 5432 to your Postgres. See the operations guide for backup and failover.
 - NetworkPolicy: default deny for all chart pods + DNS + proxy->halo-shadow. Everything else (IdP, model upstreams, git host,
   registry, ClickHouse, ingress controller, Prometheus) must be granted through `networkPolicy.ingressFrom.*`,
@@ -130,7 +130,8 @@ OIDC issuer/audience live in the policy repo (halo-server) and `proxy.config.ide
 | `server.controller.{enabled,interval,clickhouse,notify,policyRepo}` | off, `5m` | automated experiment loop (see design notes) |
 | `server.proposals.enabled` | `false` | writable clone for self-service proposals |
 | `server.persistence.*` | 5Gi RWO | `--data-dir`; `existingClaim` supported; disabled = in-memory store (or Postgres with `server.database`) |
-| `server.database.{existingSecret,key,autoMigrate,leaseTTL}` | off, `url`, `false`, `15s` | HA: Postgres state, `replicas > 1` allowed |
+| `server.database.{existingSecret,key,autoMigrate,leaseTTL,maxConns,insecureTLS}` | off, `url`, `false`, `15s`, 16, `false` | HA: Postgres state, `replicas > 1` allowed; the URL must be `sslmode=verify-full` unless `insecureTLS` (test only); `autoMigrate` needs DDL rights on the serving role |
+| `server.database.migrateJob.{enabled,existingSecret,key}` | off | pre-install/pre-upgrade hook Job running `halo-server migrate` with a separate DDL-capable URL (empty = the serving Secret), so the serving role needs only DML; brings its own NetworkPolicy (DNS + `databaseEgress`) |
 | `server.gatewayTokens.{existingSecret,killswitch,posture,budget,directory}` | off | per-capability gateway tokens: each set key -> `--gateway-<cap>-token-file` (that capability then accepts only its token) |
 | `server.{service,resources,pdb,ingress,nodeSelector,tolerations,affinity,podAnnotations}` | | |
 | `proxy.enabled` | `true` | |
@@ -149,7 +150,7 @@ OIDC issuer/audience live in the policy repo (halo-server) and `proxy.config.ide
 | `halo-shadow.policy.*` | inherit `proxy.policy` | compiled snapshot source |
 | `server.trustedProxyCIDRs` | `""` | `--trusted-proxy-cidrs` |
 | `halo-shadow.persistence.*` | 10Gi RWO | pairs JSONL; disabled = emptyDir (or Postgres with `halo-shadow.database`) |
-| `halo-shadow.database.{existingSecret,key,autoMigrate,budgetScope}` | off, `url`, `false`, `default` | HA: pairs and one global budget in Postgres |
+| `halo-shadow.database.{existingSecret,key,autoMigrate,budgetScope,insecureTLS}` | off, `url`, `false`, `default`, `false` | HA: pairs and one global budget in Postgres |
 | `otel.enabled` | `false` | |
 | `otel.{image,replicas,existingConfigMap,config,clickhouse,service,resources,pdb}` | | see design notes |
 | `networkPolicy.{enabled,dnsNamespaceSelector,ingressFrom,egress,metricsFrom}` | on, deny by default | |

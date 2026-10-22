@@ -1,3 +1,4 @@
+-- min-binary-schema: 1
 -- 0002: gateway budget ledger (ADR-0017) and the pending access-request
 -- uniqueness claim, shared by every halo-server replica (ADR-0021).
 

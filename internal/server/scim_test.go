@@ -241,8 +241,10 @@ func TestSCIMDeprovisionRevokesSessions(t *testing.T) {
 			if a.Actor != scimActor || a.Target != dev.ID || a.Details["sessionsRevoked"] != "true" || a.Details["devicesRevoked"] != "1" {
 				t.Fatalf("deprovision audit: %+v", a)
 			}
-			// A later login (a session issued after the revocation) works only if the user is active again.
-			later := e.now.Add(time.Second)
+			// A later login (a session issued after the revocation, stamped as the
+			// OIDC callback does) works only if the user is active again.
+			iat, _ := e.s.revoked.issueAt(dev.ID, e.now.Add(time.Second))
+			later := time.Unix(0, iat)
 			if how != "delete" {
 				if c := e.sessionAt(dev, later, "GET", "/api/v1/me").Code; c != 401 {
 					t.Fatalf("new session of an inactive user: %d, want 401", c)

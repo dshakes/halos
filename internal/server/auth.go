@@ -390,7 +390,12 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 	p = newPrincipal(p.ID, g, rolesFor(id, g))
 	org, _, _ := s.pol.Get()
 	exp := s.cfg.Now().Add(sessionTTL)
-	sess := cookiePayload{Sub: p.ID, Groups: policyGroups(org, p.Groups), Exp: exp.Unix(), Iat: s.cfg.Now().UnixNano()}
+	iat, ok := s.revoked.issueAt(p.ID, s.cfg.Now()) // past a (padded) revocation epoch: this is a fresh login
+	if !ok {
+		apiErr(w, http.StatusServiceUnavailable, "login unavailable")
+		return
+	}
+	sess := cookiePayload{Sub: p.ID, Groups: policyGroups(org, p.Groups), Exp: exp.Unix(), Iat: iat}
 	if v := s.seal(sess); len(v) > maxCookie {
 		sid, err := s.oidc.newSession(sess.Groups, exp)
 		if err != nil {

@@ -27,7 +27,7 @@ func TestAuditVerifyDatabase(t *testing.T) {
 	if err := os.WriteFile(url, []byte(pgtest.URL(schema)), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	r, err := verifyAudit(ctx, "", url)
+	r, err := verifyAudit(ctx, "", url, false)
 	if err != nil || r.Error != "" || r.Entries != 3 {
 		t.Fatalf("verify: %+v %v", r, err)
 	}
@@ -39,7 +39,7 @@ func TestAuditVerifyDatabase(t *testing.T) {
 	if _, err := raw.ExecContext(ctx, `UPDATE halo_audit SET entry = convert_to(replace(convert_from(entry, 'UTF8'), '"ops"', '"mallory"'), 'UTF8') WHERE seq = 2`); err != nil {
 		t.Fatal(err)
 	}
-	if r, err := verifyAudit(ctx, "", url); err != nil || r.Error == "" {
+	if r, err := verifyAudit(ctx, "", url, false); err != nil || r.Error == "" {
 		t.Fatalf("tampered chain verified: %+v %v", r, err)
 	}
 }

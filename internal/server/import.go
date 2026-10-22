@@ -30,72 +30,113 @@ type ImportReport struct {
 // ImportDataDir copies a stopped single-replica server's data dir into an
 // empty Postgres database, then verifies it: per-log record counts, report
 // and rollout counts, and the whole audit chain (which must verify in the
-// source too, and end at the same head). The source is only read.
+// source too, and end at the same head). The source is only read. The copy
+// and the verification run in one transaction, so an import that fails at
+// any step leaves the database empty and can simply be run again.
 func ImportDataDir(ctx context.Context, dir string, b *PGBackend) (ImportReport, error) {
 	rep := ImportReport{Copied: map[string]int64{}, Skipped: map[string]int{}}
-	before, err := b.Counts(ctx)
+	src, err := readDataDir(dir, &rep)
 	if err != nil {
 		return rep, err
 	}
-	for k, n := range before {
-		if n > 0 {
-			return rep, fmt.Errorf("import: target database is not empty (%s has %d rows): import into a freshly migrated database", k, n)
+	err = b.Import(ctx, func(im *pgstore.Importer) error {
+		for _, e := range src.audit {
+			body, err := json.Marshal(e)
+			if err != nil {
+				return fmt.Errorf("import: audit seq %d: %w", e.Seq, err)
+			}
+			if err := im.AppendAudit(pgstore.AuditLink{Seq: e.Seq, Hash: e.Hash, Prev: e.Prev, Entry: body, At: e.Time}); err != nil {
+				return fmt.Errorf("import: audit seq %d: %w", e.Seq, err)
+			}
 		}
-	}
+		for _, name := range importLogs {
+			for _, l := range src.logs[name] {
+				if err := im.AppendJournal(name, l); err != nil { // unkeyed: an exact copy, history included
+					return fmt.Errorf("import: %w", err)
+				}
+			}
+		}
+		for _, h := range src.reports {
+			body, err := json.Marshal(h)
+			if err != nil {
+				return fmt.Errorf("import: report %s: %w", h.Hostname, err)
+			}
+			if err := im.PutReport(h.key(), h.Hostname, body); err != nil {
+				return fmt.Errorf("import: %w", err)
+			}
+		}
+		if err := im.AddBudget(src.budgets); err != nil {
+			return fmt.Errorf("import: %w", err)
+		}
+		for name, raw := range src.cursors {
+			if err := im.PutDoc(kindAuditCursor, name, raw); err != nil {
+				return fmt.Errorf("import: %w", err)
+			}
+		}
+		for name, raw := range src.rollouts {
+			if err := im.PutDoc(rollout.DocKind, name, raw); err != nil {
+				return fmt.Errorf("import: %w", err)
+			}
+		}
+		return verifyImport(im, src, &rep)
+	})
+	return rep, err
+}
 
+// dataDir is everything ImportDataDir copies, read and checked up front.
+type dataDir struct {
+	audit    []AuditEntry
+	logs     map[string][]json.RawMessage
+	reports  []Host
+	budgets  []pgstore.BudgetCounter
+	cursors  map[string]json.RawMessage
+	rollouts map[string][]byte
+}
+
+func readDataDir(dir string, rep *ImportReport) (dataDir, error) {
+	src := dataDir{logs: map[string][]json.RawMessage{}, cursors: map[string]json.RawMessage{}, rollouts: map[string][]byte{}}
 	// Audit first: refuse a source whose chain is already broken.
 	// Rotated segments (ADR-0016) oldest first, then the active one: one chain.
 	segs, err := listAuditSegs(dir)
 	if err != nil {
-		return rep, fmt.Errorf("import: %w", err)
+		return src, fmt.Errorf("import: %w", err)
 	}
-	var entries []AuditEntry
 	for _, p := range append(segPaths(segs), filepath.Join(dir, auditActive)) {
 		es, skipped, err := readJSONL[AuditEntry](p, func(e AuditEntry) bool { return e.Hash != "" })
 		if err != nil {
-			return rep, err
+			return src, err
 		}
 		if skipped > 0 {
 			rep.Skipped[filepath.Base(p)] = skipped
 		}
-		entries = append(entries, es...)
+		src.audit = append(src.audit, es...)
 	}
-	if err := VerifyAuditChain(entries); err != nil {
-		return rep, fmt.Errorf("import: source audit chain does not verify, not importing: %w", err)
+	if len(src.audit) > 0 && src.audit[0].Seq != 1 {
+		return src, fmt.Errorf("import: the source audit chain starts at seq %d, not 1: its oldest segments were removed (archived after rotation). "+
+			"Copy the archived audit-*.jsonl segments back into %s and import again; the database chain must start at genesis", src.audit[0].Seq, dir)
 	}
-	for _, e := range entries {
-		if err := b.ImportAuditEntry(ctx, e); err != nil {
-			return rep, fmt.Errorf("import: audit seq %d: %w", e.Seq, err)
-		}
+	if err := VerifyAuditChain(src.audit); err != nil {
+		return src, fmt.Errorf("import: source audit chain does not verify, not importing: %w", err)
 	}
-	rep.Copied["audit"] = int64(len(entries))
+	rep.Copied["audit"] = int64(len(src.audit))
 
 	for _, name := range importLogs {
 		lines, skipped, err := readJSONL[json.RawMessage](filepath.Join(dir, name+".jsonl"), func(json.RawMessage) bool { return true })
 		if err != nil {
-			return rep, err
+			return src, err
 		}
 		if skipped > 0 {
 			rep.Skipped[name+".jsonl"] = skipped
 		}
-		if len(lines) == 0 {
-			continue
+		if len(lines) > 0 {
+			src.logs[name] = lines
+			rep.Copied["journal/"+name] = int64(len(lines))
 		}
-		log, err := b.OpenLog(ctx, name, func([]byte) {})
-		if err != nil {
-			return rep, fmt.Errorf("import: %s: %w", name, err)
-		}
-		for _, l := range lines {
-			if err := log.Append(ctx, "", l); err != nil { // unkeyed: an exact copy, history included
-				return rep, fmt.Errorf("import: %s: %w", name, err)
-			}
-		}
-		rep.Copied["journal/"+name] = int64(len(lines))
 	}
 
 	hosts, skipped, err := readJSONL[Host](filepath.Join(dir, "reports.jsonl"), func(h Host) bool { return h.Hostname != "" })
 	if err != nil {
-		return rep, err
+		return src, err
 	}
 	if skipped > 0 {
 		rep.Skipped["reports.jsonl"] = skipped
@@ -104,68 +145,92 @@ func ImportDataDir(ctx context.Context, dir string, b *PGBackend) (ImportReport,
 	for _, h := range hosts {
 		latest[h.key()] = h
 	}
-	reports := NewPGStore(b.DB)
 	for _, h := range latest {
-		if err := reports.Put(h); err != nil {
-			return rep, fmt.Errorf("import: report %s: %w", h.Hostname, err)
-		}
+		src.reports = append(src.reports, h)
 	}
 	if len(latest) > 0 {
 		rep.Copied["reports"] = int64(len(latest))
 	}
 
-	if err := importBudgets(ctx, dir, b, &rep); err != nil {
-		return rep, err
+	if src.budgets, err = readBudgets(dir); err != nil {
+		return src, err
 	}
-	if err := importCursors(ctx, dir, b, &rep); err != nil {
-		return rep, err
+	if len(src.budgets) > 0 {
+		rep.Copied["budget-buckets"] = int64(len(src.budgets))
+	}
+
+	paths, err := filepath.Glob(filepath.Join(dir, "audit-forward", "*.json"))
+	if err != nil {
+		return src, fmt.Errorf("import: %w", err)
+	}
+	for _, p := range paths {
+		raw, err := os.ReadFile(p)
+		if err != nil {
+			return src, fmt.Errorf("import: %w", err)
+		}
+		var c auditCursor
+		if err := json.Unmarshal(raw, &c); err != nil {
+			return src, fmt.Errorf("import: cursor %s: %w", p, err)
+		}
+		src.cursors[strings.TrimSuffix(filepath.Base(p), ".json")] = raw
+		rep.Copied["docs/"+kindAuditCursor]++
 	}
 
 	names, err := rolloutNames(filepath.Join(dir, "rollouts"))
 	if err != nil {
-		return rep, err
+		return src, err
 	}
-	states := b.RolloutStates()
 	for _, n := range names {
 		st, err := rollout.LoadState(filepath.Join(dir, "rollouts"), n) // verifies the history chain
 		if err != nil {
-			return rep, fmt.Errorf("import: %w", err)
+			return src, fmt.Errorf("import: %w", err)
 		}
-		if err := states.Save(ctx, &st); err != nil {
-			return rep, fmt.Errorf("import: rollout %s: %w", n, err)
+		b, err := json.Marshal(&st)
+		if err != nil {
+			return src, fmt.Errorf("import: rollout %s: %w", n, err)
 		}
+		src.rollouts[n] = b
 	}
 	if len(names) > 0 {
-		rep.Copied["docs/rollout-state"] = int64(len(names))
+		rep.Copied["docs/"+rollout.DocKind] = int64(len(names))
 	}
+	return src, nil
+}
 
-	// Verify what landed.
-	after, err := b.Counts(ctx)
+// verifyImport checks, inside the import transaction, that the database holds
+// exactly what was read and that the copied chain verifies to the source head.
+func verifyImport(im *pgstore.Importer, src dataDir, rep *ImportReport) error {
+	after, err := im.Counts()
 	if err != nil {
-		return rep, err
+		return err
 	}
 	for k, n := range rep.Copied {
 		if after[k] != n {
-			return rep, fmt.Errorf("import: verify %s: copied %d, database has %d", k, n, after[k])
+			return fmt.Errorf("import: verify %s: copied %d, database has %d", k, n, after[k])
 		}
 	}
 	for k, n := range after {
 		if _, ok := rep.Copied[k]; !ok && n > 0 {
-			return rep, fmt.Errorf("import: verify: unexpected %d rows in %s", n, k)
+			return fmt.Errorf("import: verify: unexpected %d rows in %s", n, k)
 		}
 	}
-	vr, err := VerifyAuditBackend(ctx, b)
-	if err != nil {
-		return rep, err
+	var c chainCheck
+	if err := im.EachAudit(func(_ uint64, raw []byte) bool {
+		var e AuditEntry
+		_ = json.Unmarshal(raw, &e) // garbage: zero entry, the chain breaks there
+		c.add(e)
+		return true
+	}); err != nil {
+		return fmt.Errorf("import: verify: %w", err)
 	}
-	if vr.Error != "" {
-		return rep, fmt.Errorf("import: verify: imported audit chain: %s", vr.Error)
+	if c.err != nil {
+		return fmt.Errorf("import: verify: imported audit chain: %w", c.err)
 	}
-	rep.Head = vr.Head
-	if len(entries) > 0 && rep.Head != entries[len(entries)-1].Hash {
-		return rep, errors.New("import: verify: imported audit head differs from the source head")
+	rep.Head = c.last
+	if len(src.audit) > 0 && rep.Head != src.audit[len(src.audit)-1].Hash {
+		return errors.New("import: verify: imported audit head differs from the source head")
 	}
-	return rep, nil
+	return nil
 }
 
 func segPaths(segs []auditSeg) []string {
@@ -176,24 +241,24 @@ func segPaths(segs []auditSeg) []string {
 	return out
 }
 
-// importBudgets copies budgets.json's counters (ADR-0017), bucket for bucket.
+// readBudgets reads budgets.json's counters (ADR-0017), bucket for bucket.
 // Remembered batch ids are not copied: they expire within the hour.
-func importBudgets(ctx context.Context, dir string, b *PGBackend, rep *ImportReport) error {
+func readBudgets(dir string) ([]pgstore.BudgetCounter, error) {
 	raw, err := os.ReadFile(filepath.Join(dir, "budgets.json"))
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil
+		return nil, nil
 	}
 	if err != nil {
-		return fmt.Errorf("import: %w", err)
+		return nil, fmt.Errorf("import: %w", err)
 	}
 	if _, err := budget.LoadLedger(raw); err != nil { // the version check the server applies
-		return fmt.Errorf("import: budgets.json: %w", err)
+		return nil, fmt.Errorf("import: budgets.json: %w", err)
 	}
 	var f struct {
 		Counters budget.Counters `json:"counters"`
 	}
 	if err := json.Unmarshal(raw, &f); err != nil {
-		return fmt.Errorf("import: budgets.json: %w", err)
+		return nil, fmt.Errorf("import: budgets.json: %w", err)
 	}
 	var incs []pgstore.BudgetCounter
 	for name, byKey := range f.Counters {
@@ -203,38 +268,7 @@ func importBudgets(ctx context.Context, dir string, b *PGBackend, rep *ImportRep
 			}
 		}
 	}
-	if len(incs) == 0 {
-		return nil
-	}
-	if _, err := b.ApplyBudget(ctx, "", incs, nil); err != nil {
-		return fmt.Errorf("import: budgets: %w", err)
-	}
-	rep.Copied["budget-buckets"] = int64(len(incs))
-	return nil
-}
-
-// importCursors copies the SIEM export cursors (audit-forward/<sink>.json)
-// so each sink resumes where it was instead of re-sending the whole log.
-func importCursors(ctx context.Context, dir string, b *PGBackend, rep *ImportReport) error {
-	paths, err := filepath.Glob(filepath.Join(dir, "audit-forward", "*.json"))
-	if err != nil {
-		return fmt.Errorf("import: %w", err)
-	}
-	for _, p := range paths {
-		raw, err := os.ReadFile(p)
-		if err != nil {
-			return fmt.Errorf("import: %w", err)
-		}
-		var c auditCursor
-		if err := json.Unmarshal(raw, &c); err != nil {
-			return fmt.Errorf("import: cursor %s: %w", p, err)
-		}
-		if err := b.PutDoc(ctx, kindAuditCursor, strings.TrimSuffix(filepath.Base(p), ".json"), raw); err != nil {
-			return fmt.Errorf("import: cursor %s: %w", p, err)
-		}
-		rep.Copied["docs/"+kindAuditCursor]++
-	}
-	return nil
+	return incs, nil
 }
 
 // readJSONL decodes every line of path (missing = empty), counting lines that

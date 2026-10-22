@@ -15,6 +15,7 @@ import (
 func (a *app) cmdAudit() *cobra.Command {
 	c := &cobra.Command{Use: "audit", Short: "Inspect halo-server's hash-chained audit log"}
 	var dataDir, dbURLFile string
+	var insecureTLS bool
 	verify := &cobra.Command{
 		Use:   "verify",
 		Short: "Verify the audit hash chain across every segment (exit 2 if broken)",
@@ -25,7 +26,7 @@ func (a *app) cmdAudit() *cobra.Command {
 			"Entries cut from the end leave a valid chain; compare the head with the newest hash your SIEM holds.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			r, err := verifyAudit(cmd.Context(), dataDir, dbURLFile)
+			r, err := verifyAudit(cmd.Context(), dataDir, dbURLFile, insecureTLS)
 			if err != nil {
 				return err
 			}
@@ -46,13 +47,14 @@ func (a *app) cmdAudit() *cobra.Command {
 	}
 	verify.Flags().StringVar(&dataDir, "data-dir", "", "halo-server --data-dir holding audit.jsonl")
 	verify.Flags().StringVar(&dbURLFile, "database-url-file", "", "file holding the Postgres URL of an HA halo-server (instead of --data-dir)")
+	verify.Flags().BoolVar(&insecureTLS, "database-insecure-tls", false, "accept a database URL that does not verify the server certificate and host name (sslmode below verify-full) to a non-loopback host")
 	verify.MarkFlagsOneRequired("data-dir", "database-url-file")
 	verify.MarkFlagsMutuallyExclusive("data-dir", "database-url-file")
 	c.AddCommand(verify)
 	return c
 }
 
-func verifyAudit(ctx context.Context, dataDir, dbURLFile string) (server.AuditVerifyResult, error) {
+func verifyAudit(ctx context.Context, dataDir, dbURLFile string, insecureTLS bool) (server.AuditVerifyResult, error) {
 	if dbURLFile == "" {
 		return server.VerifyAuditDir(dataDir)
 	}
@@ -63,7 +65,7 @@ func verifyAudit(ctx context.Context, dataDir, dbURLFile string) (server.AuditVe
 	if err != nil {
 		return server.AuditVerifyResult{}, fmt.Errorf("--database-url-file: %w", err)
 	}
-	db, err := pgstore.Open(ctx, strings.TrimSpace(string(b)))
+	db, err := pgstore.OpenWith(ctx, strings.TrimSpace(string(b)), pgstore.Options{InsecureTLS: insecureTLS, MaxConns: 2})
 	if err != nil {
 		return server.AuditVerifyResult{}, err // never echo the URL: it carries the password
 	}

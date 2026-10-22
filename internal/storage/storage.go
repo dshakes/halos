@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -115,11 +116,27 @@ type KV interface {
 	Take(ctx context.Context, ns, key string) ([]byte, bool, error)
 	// Delete removes ns/key (no error if absent).
 	Delete(ctx context.Context, ns, key string) error
+	// TryLock takes ns/key for owner until ttl from now on the store's own
+	// clock (for Postgres the database's, never a replica's). It succeeds when
+	// the key is absent, expired, or already owner's (which extends it).
+	TryLock(ctx context.Context, ns, key, owner string, ttl time.Duration) (bool, error)
+	// Unlock releases ns/key only if owner still holds it: a holder whose
+	// lock expired and was taken over cannot release the new holder's.
+	Unlock(ctx context.Context, ns, key, owner string) error
+	// Raise sets ns/key to the decimal at unless a live entry already holds a
+	// larger value (an epoch that never moves backwards); the entry lives
+	// until exp, or longer if it already did.
+	Raise(ctx context.Context, ns, key string, at int64, exp time.Time) error
 }
 
 // ErrUnavailable wraps shared-backend failures that a handler reports as
 // 503 rather than as a client error.
 var ErrUnavailable = errors.New("state store unavailable")
+
+// ErrFenced means a write was refused because the writer no longer holds the
+// lease it was fenced by (another replica leads now). Shared backends wrap it;
+// callers skip the side effect the write was guarding.
+var ErrFenced = errors.New("lease lost: write fenced off")
 
 type memEntry struct {
 	val []byte
@@ -207,6 +224,94 @@ func (m *MemKV) Delete(_ context.Context, ns, key string) error {
 	defer m.mu.Unlock()
 	delete(m.m, memKey(ns, key))
 	return nil
+}
+
+// TryLock implements KV.
+func (m *MemKV) TryLock(_ context.Context, ns, key, owner string, ttl time.Duration) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := m.now()
+	m.sweep(now)
+	k := memKey(ns, key)
+	if e, ok := m.m[k]; ok && string(e.val) != owner {
+		return false, nil
+	}
+	m.m[k] = memEntry{[]byte(owner), now.Add(ttl)}
+	return true, nil
+}
+
+// Unlock implements KV.
+func (m *MemKV) Unlock(_ context.Context, ns, key, owner string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	k := memKey(ns, key)
+	if e, ok := m.m[k]; ok && string(e.val) == owner {
+		delete(m.m, k)
+	}
+	return nil
+}
+
+// Raise implements KV.
+func (m *MemKV) Raise(_ context.Context, ns, key string, at int64, exp time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.sweep(m.now())
+	k := memKey(ns, key)
+	if e, ok := m.m[k]; ok {
+		if cur, err := strconv.ParseInt(string(e.val), 10, 64); err == nil && cur >= at {
+			if exp.After(e.exp) {
+				e.exp = exp
+				m.m[k] = e
+			}
+			return nil
+		}
+		if e.exp.After(exp) {
+			exp = e.exp
+		}
+	}
+	m.m[k] = memEntry{[]byte(strconv.FormatInt(at, 10)), exp}
+	return nil
+}
+
+// Coalescer merges concurrent catch-ups of one shared log: a caller is
+// satisfied by a catch-up that started after it arrived (so it sees every
+// write committed before it asked), and every caller waiting meanwhile
+// shares the same one. N concurrent requests cost about two database round
+// trips, not N, and no store lock is held while they wait. Zero value ready.
+type Coalescer struct {
+	mu      sync.Mutex
+	cond    *sync.Cond
+	running bool
+	started uint64 // catch-ups started
+	done    uint64 // start number of the last finished catch-up
+	err     error  // its result
+}
+
+// Do runs fn (or waits for a run that started after this call) and returns its error.
+func (c *Coalescer) Do(fn func() error) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.cond == nil {
+		c.cond = sync.NewCond(&c.mu)
+	}
+	need := c.started + 1 // a run that starts after now
+	for {
+		if c.done >= need {
+			return c.err
+		}
+		if !c.running {
+			c.running = true
+			c.started++
+			mine := c.started
+			c.mu.Unlock()
+			err := fn()
+			c.mu.Lock()
+			c.running, c.done, c.err = false, mine, err
+			c.cond.Broadcast()
+			continue
+		}
+		c.cond.Wait()
+	}
 }
 
 // ValidName reports whether name is usable as a log or KV namespace:

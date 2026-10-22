@@ -29,7 +29,7 @@
     "server": {"type": "object", "allOf": [{"$ref": "#/definitions/haWhenDatabase"}], "properties": {
       "enabled": {"type": "boolean"}, "image": {"$ref": "#/definitions/image"},
       "replicas": {"type": "integer", "minimum": 1, "description": "1 unless database.existingSecret is set (file-backed store: single writer)"},
-      "database": {"allOf": [{"$ref": "#/definitions/database"}], "properties": {"leaseTTL": {"type": "string", "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h))+$"}}},
+      "database": {"allOf": [{"$ref": "#/definitions/database"}], "properties": {"leaseTTL": {"type": "string", "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h))+$"}, "maxConns": {"type": "integer", "minimum": 2}, "insecureTLS": {"type": "boolean"}, "migrateJob": {"type": "object", "properties": {"enabled": {"type": "boolean"}, "existingSecret": {"type": "string"}, "key": {"type": "string", "minLength": 1}}}}},
       "port": {"$ref": "#/definitions/port"},
       "fleetToken": {"$ref": "#/definitions/secretRef"}, "sessionKey": {"$ref": "#/definitions/secretRef"}, "oidcClientSecret": {"$ref": "#/definitions/secretRef"},
       "gatewayTokens": {"type": "object", "additionalProperties": false, "properties": {"existingSecret": {"type": "string"}, "killswitch": {"type": "string"}, "posture": {"type": "string"}, "budget": {"type": "string"}, "directory": {"type": "string"}}},
@@ -56,7 +56,7 @@
     "shadow": {"type": "object", "allOf": [{"$ref": "#/definitions/haWhenDatabase"}], "properties": {
       "enabled": {"type": "boolean"}, "image": {"$ref": "#/definitions/image"}, "port": {"$ref": "#/definitions/port"},
       "replicas": {"type": "integer", "minimum": 1, "description": "1 unless database.existingSecret is set (pairs file and budget are per process)"},
-      "database": {"allOf": [{"$ref": "#/definitions/database"}], "properties": {"budgetScope": {"type": "string", "minLength": 1}}},
+      "database": {"allOf": [{"$ref": "#/definitions/database"}], "properties": {"budgetScope": {"type": "string", "minLength": 1}, "insecureTLS": {"type": "boolean"}}},
       "token": {"$ref": "#/definitions/secretRef"}, "persistence": {"$ref": "#/definitions/pvc"},
       "budgetUSD": {"type": "number", "exclusiveMinimum": 0}, "upstreamHeaders": {"$ref": "#/definitions/secretRef"}, "pairKey": {"$ref": "#/definitions/secretRef"}}},
     "otel": {"type": "object", "properties": {"enabled": {"type": "boolean"}, "image": {"$ref": "#/definitions/image"}}},

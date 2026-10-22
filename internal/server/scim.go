@@ -73,7 +73,7 @@ func newSCIM(cfg Config) (*scimService, error) {
 	sc.mu = clusterMutex{kv: kvOf(cfg.Backend), name: "scim", log: cfg.Log}
 	if sc.store = cfg.SCIMStore; sc.store == nil && cfg.Backend != nil {
 		ctx, cancel := storage.Ctx()
-		st, err := OpenSCIMStoreOn(ctx, cfg.Backend)
+		st, err := OpenSCIMStoreOn(ctx, cfg.Backend, cfg.Backend)
 		cancel()
 		if err != nil {
 			return nil, err
@@ -87,6 +87,16 @@ func newSCIM(cfg Config) (*scimService, error) {
 		sc.store, sc.owned = st, true
 	}
 	return sc, nil
+}
+
+// lock serialises a SCIM mutation across replicas (clusterMutex). A lock
+// that cannot be taken is a 503 the IdP retries, never an unlocked write.
+func (sc *scimService) lock() (func(), error) {
+	unlock, err := sc.mu.Lock()
+	if err != nil {
+		return nil, &scimFail{http.StatusServiceUnavailable, "", "directory busy or unavailable; retry"}
+	}
+	return unlock, nil
 }
 
 func (sc *scimService) close() error {
@@ -118,16 +128,20 @@ func (s *Server) directoryGroups(user string, groups []string) ([]string, bool) 
 
 // deprovision ends everything userName holds on halo-server: every session
 // (epoch), every device token, every unconsumed enrollment token. Idempotent.
+//
+// Enrollment tokens are voided first: an enrollment racing this (on any
+// replica) either mints after the void, sees it on postEnroll's re-check and
+// revokes its own device, or minted before it, and revokeUser below sees it.
 func (s *Server) deprovision(userName string) (devices int, err error) {
+	if err := s.enroll.dropUser(userName, s.cfg.Now()); err != nil {
+		return 0, fmt.Errorf("drop enrollments of %q: %w", userName, err)
+	}
 	if err := s.revoked.revoke(userName, s.cfg.Now()); err != nil {
 		return 0, fmt.Errorf("revoke sessions of %q: %w", userName, err)
 	}
 	n, err := s.devices.revokeUser(userName)
 	if err != nil {
 		return n, fmt.Errorf("revoke devices of %q: %w", userName, err)
-	}
-	if err := s.enroll.dropUser(userName, s.cfg.Now()); err != nil {
-		return n, fmt.Errorf("drop enrollments of %q: %w", userName, err)
 	}
 	return n, nil
 }
@@ -659,8 +673,12 @@ func (s *Server) scimCreateUser(w http.ResponseWriter, r *http.Request) {
 	now := s.cfg.Now().UTC()
 	u := SCIMUser{ID: newUUID(), ExternalID: in.ExternalID, UserName: in.UserName, DisplayName: in.DisplayName, Name: in.Name,
 		Emails: emails(in.Emails), Active: in.Active == nil || bool(*in.Active), Created: now, Modified: now}
-	s.scim.mu.Lock()
-	defer s.scim.mu.Unlock()
+	unlock, err := s.scim.lock()
+	if err != nil {
+		writeFail(w, err)
+		return
+	}
+	defer unlock()
 	if err := s.commitUser(r, "scim.user.create", nil, u, nil); err != nil {
 		writeFail(w, err)
 		return
@@ -683,8 +701,12 @@ func (s *Server) loadUser(r *http.Request) (SCIMUser, error) {
 // scimPutUser replaces the user (Okta updates users with PUT). An absent
 // "active" keeps the current state: a partial PUT never reactivates anyone.
 func (s *Server) scimPutUser(w http.ResponseWriter, r *http.Request) {
-	s.scim.mu.Lock()
-	defer s.scim.mu.Unlock()
+	unlock, err := s.scim.lock()
+	if err != nil {
+		writeFail(w, err)
+		return
+	}
+	defer unlock()
 	old, err := s.loadUser(r)
 	if err != nil {
 		writeFail(w, err)
@@ -708,8 +730,12 @@ func (s *Server) scimPutUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) scimPatchUser(w http.ResponseWriter, r *http.Request) {
-	s.scim.mu.Lock()
-	defer s.scim.mu.Unlock()
+	unlock, err := s.scim.lock()
+	if err != nil {
+		writeFail(w, err)
+		return
+	}
+	defer unlock()
 	old, err := s.loadUser(r)
 	if err != nil {
 		writeFail(w, err)
@@ -741,8 +767,12 @@ func (s *Server) scimPatchUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) scimDeleteUser(w http.ResponseWriter, r *http.Request) {
-	s.scim.mu.Lock()
-	defer s.scim.mu.Unlock()
+	unlock, err := s.scim.lock()
+	if err != nil {
+		writeFail(w, err)
+		return
+	}
+	defer unlock()
 	u, err := s.loadUser(r)
 	if err != nil {
 		writeFail(w, err)
@@ -804,6 +834,9 @@ func (s *Server) commitUser(r *http.Request, action string, old *SCIMUser, u SCI
 		details["ignoredAttributes"] = strings.Join(ignored, ",")
 	}
 	if err := s.scim.store.PutUser(u); err != nil {
+		if errors.Is(err, errSCIMUserNameTaken) { // another replica provisioned the name concurrently
+			return &scimFail{http.StatusConflict, "uniqueness", "userName is already provisioned"}
+		}
 		s.cfg.Log.Error("scim store", "user", u.UserName, "err", err)
 		return err
 	}
@@ -1122,8 +1155,12 @@ func (s *Server) scimCreateGroup(w http.ResponseWriter, r *http.Request) {
 	}
 	now := s.cfg.Now().UTC()
 	g := SCIMGroup{ID: newUUID(), ExternalID: in.ExternalID, DisplayName: in.DisplayName, Members: memberIDs(in.Members), Created: now, Modified: now}
-	s.scim.mu.Lock()
-	defer s.scim.mu.Unlock()
+	unlock, err := s.scim.lock()
+	if err != nil {
+		writeFail(w, err)
+		return
+	}
+	defer unlock()
 	if err := s.commitGroup(r, "scim.group.create", nil, g, nil); err != nil {
 		writeFail(w, err)
 		return
@@ -1143,8 +1180,12 @@ func (s *Server) loadGroup(r *http.Request) (SCIMGroup, error) {
 }
 
 func (s *Server) scimPutGroup(w http.ResponseWriter, r *http.Request) {
-	s.scim.mu.Lock()
-	defer s.scim.mu.Unlock()
+	unlock, err := s.scim.lock()
+	if err != nil {
+		writeFail(w, err)
+		return
+	}
+	defer unlock()
 	old, err := s.loadGroup(r)
 	if err != nil {
 		writeFail(w, err)
@@ -1166,8 +1207,12 @@ func (s *Server) scimPutGroup(w http.ResponseWriter, r *http.Request) {
 // scimPatchGroup: Okta and Entra ID both change membership with PATCH
 // (add/remove "members", remove `members[value eq "id"]`).
 func (s *Server) scimPatchGroup(w http.ResponseWriter, r *http.Request) {
-	s.scim.mu.Lock()
-	defer s.scim.mu.Unlock()
+	unlock, err := s.scim.lock()
+	if err != nil {
+		writeFail(w, err)
+		return
+	}
+	defer unlock()
 	old, err := s.loadGroup(r)
 	if err != nil {
 		writeFail(w, err)
@@ -1198,8 +1243,12 @@ func (s *Server) scimPatchGroup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) scimDeleteGroup(w http.ResponseWriter, r *http.Request) {
-	s.scim.mu.Lock()
-	defer s.scim.mu.Unlock()
+	unlock, err := s.scim.lock()
+	if err != nil {
+		writeFail(w, err)
+		return
+	}
+	defer unlock()
 	g, err := s.loadGroup(r)
 	if err != nil {
 		writeFail(w, err)

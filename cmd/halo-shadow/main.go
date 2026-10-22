@@ -60,21 +60,22 @@ func run(ctx context.Context, args []string, getenv func(string) string) error {
 	}
 	fs := flag.NewFlagSet("halo-shadow", flag.ContinueOnError)
 	var (
-		listen    = fs.String("listen", env("HALO_SHADOW_LISTEN", "127.0.0.1:8090"), "listen address (loopback by default)")
-		metricsLn = fs.String("metrics-listen", env("HALO_SHADOW_METRICS_LISTEN", ""), "extra address serving only GET /metrics WITHOUT the token, for Prometheus (counters only; guard with a NetworkPolicy); empty disables")
-		pol       = fs.String("policy", env("HALO_SHADOW_POLICY", ""), "compiled policy snapshot (hot-reloaded); upstreams are resolved from it")
-		hdrs      = fs.String("upstream-headers", env("HALO_SHADOW_UPSTREAM_HEADERS", ""), "YAML/JSON file: {upstreamName: {Header: value}}; values expand ${ENV}")
-		out       = fs.String("out", env("HALO_SHADOW_OUT", "pairs.jsonl"), "JSONL pair file (mode 0600)")
-		keyFile   = fs.String("pair-key-file", env("HALO_SHADOW_PAIR_KEY_FILE", ""), "base64 32-byte key: encrypt pairs at rest (AES-256-GCM)")
-		retention = fs.Duration("retention", 30*24*time.Hour, "prune pairs older than this (0 = keep forever)")
-		queue     = fs.Int("queue", 64, "bounded queue length; excess is dropped")
-		workers   = fs.Int("workers", 4, "replay workers")
-		budget    = fs.Float64("budget-usd", shadow.DefaultBudgetUSD, "stop accepting jobs at this estimated spend (must be > 0)")
-		priceIn   = fs.Float64("price-in", 3, "USD per million input tokens (spend estimate)")
-		priceOut  = fs.Float64("price-out", 15, "USD per million output tokens (spend estimate)")
-		dbURLFile = fs.String("database-url-file", env("HALO_SHADOW_DATABASE_URL_FILE", ""), "file holding a Postgres URL: pairs and the budget are shared, so several replicas can run (replaces -out)")
-		migrate   = fs.Bool("auto-migrate", false, "with -database-url-file: apply pending database migrations on start")
-		scope     = fs.String("budget-scope", env("HALO_SHADOW_BUDGET_SCOPE", "default"), "with -database-url-file: name of the shared budget -budget-usd caps; a new name starts a fresh budget")
+		listen     = fs.String("listen", env("HALO_SHADOW_LISTEN", "127.0.0.1:8090"), "listen address (loopback by default)")
+		metricsLn  = fs.String("metrics-listen", env("HALO_SHADOW_METRICS_LISTEN", ""), "extra address serving only GET /metrics WITHOUT the token, for Prometheus (counters only; guard with a NetworkPolicy); empty disables")
+		pol        = fs.String("policy", env("HALO_SHADOW_POLICY", ""), "compiled policy snapshot (hot-reloaded); upstreams are resolved from it")
+		hdrs       = fs.String("upstream-headers", env("HALO_SHADOW_UPSTREAM_HEADERS", ""), "YAML/JSON file: {upstreamName: {Header: value}}; values expand ${ENV}")
+		out        = fs.String("out", env("HALO_SHADOW_OUT", "pairs.jsonl"), "JSONL pair file (mode 0600)")
+		keyFile    = fs.String("pair-key-file", env("HALO_SHADOW_PAIR_KEY_FILE", ""), "base64 32-byte key: encrypt pairs at rest (AES-256-GCM)")
+		retention  = fs.Duration("retention", 30*24*time.Hour, "prune pairs older than this (0 = keep forever)")
+		queue      = fs.Int("queue", 64, "bounded queue length; excess is dropped")
+		workers    = fs.Int("workers", 4, "replay workers")
+		budget     = fs.Float64("budget-usd", shadow.DefaultBudgetUSD, "stop accepting jobs at this estimated spend (must be > 0)")
+		priceIn    = fs.Float64("price-in", 3, "USD per million input tokens (spend estimate)")
+		priceOut   = fs.Float64("price-out", 15, "USD per million output tokens (spend estimate)")
+		dbURLFile  = fs.String("database-url-file", env("HALO_SHADOW_DATABASE_URL_FILE", ""), "file holding a Postgres URL: pairs and the budget are shared, so several replicas can run (replaces -out)")
+		migrate    = fs.Bool("auto-migrate", false, "with -database-url-file: apply pending database migrations on start")
+		dbInsecure = fs.Bool("database-insecure-tls", false, insecureTLSUsage)
+		scope      = fs.String("budget-scope", env("HALO_SHADOW_BUDGET_SCOPE", "default"), "with -database-url-file: name of the shared budget -budget-usd caps; a new name starts a fresh budget")
 	)
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -107,7 +108,7 @@ func run(ctx context.Context, args []string, getenv func(string) string) error {
 		ping   func(context.Context) error
 	)
 	if *dbURLFile != "" {
-		db, err := openDB(ctx, *dbURLFile, *migrate)
+		db, err := openDB(ctx, *dbURLFile, *migrate, pgstore.Options{InsecureTLS: *dbInsecure})
 		if err != nil {
 			return err
 		}
@@ -266,12 +267,12 @@ type pairStore interface {
 
 // openDB connects to the URL in urlFile and checks (or, with migrate, brings)
 // the schema to this binary's version.
-func openDB(ctx context.Context, urlFile string, migrate bool) (*pgstore.DB, error) {
+func openDB(ctx context.Context, urlFile string, migrate bool, o pgstore.Options) (*pgstore.DB, error) {
 	b, err := os.ReadFile(urlFile)
 	if err != nil {
 		return nil, fmt.Errorf("halo-shadow: -database-url-file: %w", err)
 	}
-	db, err := pgstore.Open(ctx, strings.TrimSpace(string(b)))
+	db, err := pgstore.OpenWith(ctx, strings.TrimSpace(string(b)), o)
 	if err != nil {
 		return nil, fmt.Errorf("halo-shadow: %w", err) // never echo the URL: it carries the password
 	}
@@ -294,13 +295,14 @@ func openDB(ctx context.Context, urlFile string, migrate bool) (*pgstore.DB, err
 func exportPairs(ctx context.Context, args []string, w io.Writer) error {
 	fs := flag.NewFlagSet("export-pairs", flag.ContinueOnError)
 	urlFile := fs.String("database-url-file", "", "file holding the Postgres URL (required)")
+	insecure := fs.Bool("database-insecure-tls", false, insecureTLSUsage)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if *urlFile == "" || fs.NArg() > 0 {
 		return errors.New("halo-shadow: export-pairs: usage: halo-shadow export-pairs -database-url-file FILE")
 	}
-	db, err := openDB(ctx, *urlFile, false)
+	db, err := openDB(ctx, *urlFile, false, pgstore.Options{InsecureTLS: *insecure, MaxConns: 2})
 	if err != nil {
 		return err
 	}
@@ -329,3 +331,6 @@ func prune(ctx context.Context, s pruner, every time.Duration, log *slog.Logger)
 		}
 	}
 }
+
+// insecureTLSUsage documents -database-insecure-tls.
+const insecureTLSUsage = "accept a database URL that does not verify the server certificate and host name (sslmode below verify-full) to a non-loopback host; for test environments only"

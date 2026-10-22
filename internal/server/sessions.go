@@ -20,6 +20,7 @@ type sessionRevocations struct {
 	mu     sync.Mutex
 	before map[string]int64 // canonicalUser(user) -> unix nanos
 	log    storage.Log      // nil = memory only
+	cc     storage.Coalescer
 }
 
 type revocation struct {
@@ -61,7 +62,14 @@ func openSessionRevocations(o storage.Opener) (*sessionRevocations, error) {
 	return r, nil
 }
 
-// revoke kills every session of user issued up to now.
+// revocationSkew pads every revocation epoch. Replicas compare a cookie's
+// issue time (one replica's clock) with the epoch (another's): without the
+// pad, a session minted on a replica whose clock runs behind the revoking one
+// would outlive the revocation. A login after a revocation stamps its cookie
+// past the epoch instead (issueAt), so the pad never locks anyone out.
+const revocationSkew = time.Minute
+
+// revoke kills every session of user issued up to now (+revocationSkew).
 func (r *sessionRevocations) revoke(user string, now time.Time) error {
 	if user == "" {
 		return errors.New("empty user")
@@ -76,7 +84,7 @@ func (r *sessionRevocations) revoke(user string, now time.Time) error {
 			return err
 		}
 	}
-	at := max(now.UnixNano(), r.before[user])
+	at := max(now.Add(revocationSkew).UnixNano(), r.before[user])
 	if r.log != nil {
 		b, _ := json.Marshal(revocation{user, at}) // plain struct: cannot fail
 		ctx, cancel := storage.Ctx()
@@ -89,18 +97,43 @@ func (r *sessionRevocations) revoke(user string, now time.Time) error {
 	return nil
 }
 
-func (r *sessionRevocations) valid(user string, issuedAt int64) bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.log != nil { // another replica may have revoked: fail closed if we cannot tell
+// catchup applies other replicas' revocations. Concurrent callers share one
+// database round trip (storage.Coalescer) and r.mu is held only while
+// records are applied, not while every request waits for its own query.
+func (r *sessionRevocations) catchup() error {
+	if r.log == nil {
+		return nil
+	}
+	return r.cc.Do(func() error {
+		r.mu.Lock()
+		defer r.mu.Unlock()
 		ctx, cancel := storage.Ctx()
 		defer cancel()
-		if r.log.Catchup(ctx) != nil {
-			return false
-		}
+		return r.log.Catchup(ctx)
+	})
+}
+
+func (r *sessionRevocations) valid(user string, issuedAt int64) bool {
+	if r.catchup() != nil { // another replica may have revoked: fail closed if we cannot tell
+		return false
 	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	b, ok := r.before[canonicalUser(user)]
 	return !ok || issuedAt > b
+}
+
+// issueAt is the issue time to stamp on a new session for user: now, or just
+// past user's revocation epoch when that is later (a fresh login right after
+// a padded revocation must not be born dead). ok=false: the store is
+// unreadable, so the epoch is unknown.
+func (r *sessionRevocations) issueAt(user string, now time.Time) (int64, bool) {
+	if r.catchup() != nil {
+		return 0, false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return max(now.UnixNano(), r.before[canonicalUser(user)]+1), true
 }
 
 // revokeSessions (admin): POST /api/v1/users/{id}/revoke-sessions logs the user out everywhere.
