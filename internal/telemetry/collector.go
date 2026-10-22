@@ -1,7 +1,33 @@
 // Package telemetry generates the OpenTelemetry Collector configuration that
-// receives OTLP from Claude Code, Codex and Gemini CLI, normalises their
-// harness-specific metrics into the halo.* schema, and exports to ClickHouse and
-// Prometheus.
+// receives OTLP from Claude Code, Codex, Gemini CLI and Copilot CLI, normalises
+// their harness-specific metrics into the halo.* schema, and exports to
+// ClickHouse and Prometheus.
+//
+// Normalised CLIs, exactly:
+//   - Claude Code: metrics and log events.
+//   - Gemini CLI: metrics and log events.
+//   - Codex: log events only (its native metrics are not mapped, see below).
+//   - Copilot CLI: metrics only (gen_ai.client.token.usage,
+//     gen_ai.client.operation.duration, github.copilot.tool.call.count). It
+//     emits spans and span events but no OTel log records, so it produces no
+//     halo.api.request / halo.tool.call rows. Not mapped: its
+//     github.copilot.code.lines_added/_removed counters (separate counters, where
+//     halo.loc is one counter split by a type attribute) and the other
+//     github.copilot.* / gen_ai.invoke_agent.* metrics.
+//     https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference
+//
+// Not normalised, on purpose (nothing is invented for them):
+//   - Cursor CLI: no OTel export is documented for the CLI; telemetry is a
+//     dashboard/server-side team setting (internal/harness/FACTS.md).
+//   - OpenCode: no OTLP setting; experimental.openTelemetry only switches on
+//     AI SDK spans and the exporter comes from OTEL_EXPORTER_OTLP_* environment,
+//     which a managed file cannot set (internal/harness/FACTS.md).
+//
+// For Cursor CLI, OpenCode and any other CLI without native OTel, the honest
+// per-request source is halo-proxy: it exports gen_ai.* GenAI semantic-convention
+// metrics and opt-in spans on otlp/gateway for all traffic that passes through
+// it (see below). That is request-level evidence only (no session, tool or edit
+// signals), and only for traffic routed through the gateway.
 //
 // Verified end to end by `make obs-e2e` (scripts/obs-e2e.sh): the config loads
 // in otelcol-contrib 0.161.0 (`validate`), the transform renames metrics and
@@ -71,6 +97,9 @@ var Mappings = []Mapping{
 	{"gemini-cli", "gen_ai.client.operation.duration", "halo.operation.duration"},
 	{"gemini-cli", "gemini_cli.session.count", "halo.sessions"},
 	{"gemini-cli", "gemini_cli.tool.call.count", "halo.tool.calls"},
+	// Copilot CLI emits the same gen_ai.client.* names as Gemini CLI (mapped
+	// above); statements() claims them for copilot-cli by service.name first.
+	{"copilot-cli", "github.copilot.tool.call.count", "halo.tool.calls"},
 }
 
 // Options configures the generated collector.
@@ -129,7 +158,13 @@ func (o *Options) defaults() error {
 // resource attributes halo.ring / halo.release / halo.experiment / halo.variant come
 // from OTEL_RESOURCE_ATTRIBUTES on the client and are left untouched.
 func statements() []string {
-	var out []string
+	// Copilot CLI's gen_ai.client.* metrics are indistinguishable by name from
+	// Gemini CLI's. Stamp them by Copilot's default service.name before the loop
+	// below, or the Gemini mapping would claim them wherever the adapter could
+	// not set halo.harness (no profile.d off Linux). A client-set harness wins.
+	out := []string{
+		`set(resource.attributes["halo.harness"], "copilot-cli") where IsMatch(name, "^gen_ai\\.client\\.") and resource.attributes["service.name"] == "github-copilot" and resource.attributes["halo.harness"] == nil`,
+	}
 	for _, m := range Mappings {
 		out = append(out, fmt.Sprintf(
 			`set(resource.attributes["halo.harness"], %q) where name == %q and resource.attributes["halo.harness"] == nil`,

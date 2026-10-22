@@ -108,6 +108,9 @@ WHERE startsWith(MetricName, 'halo.');
 --   Claude Code: claude_code.api_request (success) / claude_code.api_error, claude_code.tool_result{success}
 --   Gemini CLI:  gemini_cli.api_response (error if status_code >= 400) / gemini_cli.api_error, gemini_cli.tool_call{success}
 --   Codex:       codex.api_request (error unless 2xx and no error.message), codex.tool_result{success}
+-- Copilot CLI emits no OTel log records (spans and metrics only) and Cursor CLI
+-- and OpenCode emit no usable OTel, so none has a row here; for traffic through
+-- halo-proxy see its gen_ai.* spans/metrics (halo.source = 'gateway').
 -- Claude Code's event.name is unprefixed ("api_request"); its Body carries the
 -- full name. Gemini/Codex put the full name in event.name.
 CREATE MATERIALIZED VIEW IF NOT EXISTS halo.halo_metrics_from_logs TO halo.halo_metrics AS
