@@ -60,6 +60,7 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
   - `halo telemetry collector-config` gains a `traces/gateway` pipeline.
 
 ### Security
+- Bump golang.org/x/text to v0.41.0 (GO-2026-6629, GO-2026-5970, reachable via the Postgres store); halo-server closes its data-dir files when startup fails part way.
 - Workload token exchange matches a rule before recording the subject token's `jti`, so tokens anyone can mint from a shared CI issuer can no longer fill the replay cache and refuse every tenant; `workload.token.denied` is audited at most once per issuer and client IP per minute, the rest counted in `halo_server_workload_denied_audit_suppressed_total`.
 - A login right after a session revocation is stamped a whole second past the revocation epoch, so credentials delegated from it are no longer refused as revoked; sessions issued before the revocation stay dead.
 - A workload rule removed by a refused policy stays in place as a deny tombstone, so its tokens never fall through to a broader rule below it.
