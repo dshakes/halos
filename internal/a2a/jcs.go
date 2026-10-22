@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf16"
+	"unicode/utf8"
 )
 
 // Canonicalize returns the RFC 8785 JSON Canonicalization Scheme form of the
@@ -31,6 +32,9 @@ func Canonicalize(b []byte) ([]byte, error) {
 // decodeJSON decodes exactly one JSON value, keeping numbers exact and
 // refusing duplicate object keys (RFC 8785 requires I-JSON, RFC 7493).
 func decodeJSON(b []byte) (any, error) {
+	if err := checkUnicode(b); err != nil {
+		return nil, err
+	}
 	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.UseNumber()
 	v, err := decodeValue(dec, 0)
@@ -41,6 +45,50 @@ func decodeJSON(b []byte) (any, error) {
 		return nil, errors.New("a2a: trailing data after the JSON value")
 	}
 	return v, nil
+}
+
+// checkUnicode refuses what encoding/json would silently turn into U+FFFD:
+// invalid UTF-8 bytes and \u escapes of lone surrogates. Both are outside
+// I-JSON (RFC 7493 section 2.1), and accepting them would let different
+// cards ("\ud800", "\udfff", a raw 0xff byte, a literal U+FFFD) share one
+// canonical form and so one pinned digest.
+func checkUnicode(b []byte) error {
+	if !utf8.Valid(b) {
+		return errors.New("a2a: JSON is not valid UTF-8")
+	}
+	hex4 := func(i int) (rune, bool) {
+		if i+6 > len(b) || b[i] != '\\' || b[i+1] != 'u' {
+			return 0, false
+		}
+		n, err := strconv.ParseUint(string(b[i+2:i+6]), 16, 16)
+		return rune(n), err == nil
+	}
+	inString := false
+	for i := 0; i < len(b); i++ {
+		switch c := b[i]; {
+		case c == '"':
+			inString = !inString
+		case inString && c == '\\':
+			r, ok := hex4(i)
+			if !ok {
+				i++ // a two-character escape such as \" or \\
+				continue
+			}
+			switch {
+			case utf16.IsSurrogate(r) && r < 0xdc00: // high: a low must follow
+				lo, ok := hex4(i + 6)
+				if !ok || lo < 0xdc00 || lo > 0xdfff {
+					return fmt.Errorf("a2a: lone surrogate \\u%04x in a JSON string", r)
+				}
+				i += 11
+			case utf16.IsSurrogate(r):
+				return fmt.Errorf("a2a: lone surrogate \\u%04x in a JSON string", r)
+			default:
+				i += 5
+			}
+		}
+	}
+	return nil
 }
 
 const maxDepth = 64

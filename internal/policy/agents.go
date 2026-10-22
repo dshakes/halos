@@ -57,6 +57,9 @@ type DelegationChain struct {
 	Models []string
 	// ID is the delegated credential's jti (audit correlation).
 	ID string
+	// AuthTime is when the root authenticated (unix seconds, the signed
+	// auth_time claim): a human root's session revocation after it kills the chain.
+	AuthTime int64
 }
 
 // Depth is the number of agents in the chain.
@@ -102,9 +105,11 @@ type Agents struct {
 	// AllowedModels are the gateway model aliases any delegated actor may call;
 	// empty = every alias the root may call.
 	AllowedModels []string `yaml:"allowedModels,omitempty" json:"allowedModels,omitempty"`
-	// DeniedTools are tool names a delegated actor's model call may not declare
-	// (the tools[] of the request: Anthropic and OpenAI name, Gemini function
-	// declaration name). Matching ignores case.
+	// DeniedTools are tools a delegated actor's model call may not declare:
+	// function names (matched ignoring case) and hosted tool identifiers such
+	// as web_search, code_execution or mcp:<server> (matched as a prefix,
+	// ignoring case and underscores; see DeniesTool). With any set, the
+	// gateway refuses an agent call whose tools it cannot read.
 	DeniedTools []string `yaml:"deniedTools,omitempty" json:"deniedTools,omitempty"`
 	// Actors are the agents that may act. A name not listed is refused.
 	Actors []AgentActor `yaml:"actors" json:"actors"`
@@ -233,17 +238,75 @@ func IntersectScope(a, b []string) []string {
 	return out
 }
 
-// ToolDenied returns the first of tools that agents.deniedTools lists ("" if none).
-func (a *Agents) ToolDenied(tools []string) string {
+// DeniesTool reports whether agents.deniedTools denies one tool a model call
+// declares. A function tool (run by the client, named in the request) matches
+// an entry ignoring case. A hosted tool (run by the provider or built in,
+// identified by its type, its Gemini or Bedrock tool key, or mcp:<label>)
+// matches an entry when, ignoring case and underscores, its identifier starts
+// with the entry: web_search denies web_search_20250305 and
+// web_search_preview, code_execution denies codeExecution, and mcp denies
+// every mcp:<label>. Hosted identifiers carry versions and vendor spellings,
+// so an exact match would let the next version through.
+func (a *Agents) DeniesTool(name string, hosted bool) bool {
 	if a == nil {
-		return ""
+		return false
 	}
-	for _, t := range tools {
-		if slices.ContainsFunc(a.DeniedTools, func(d string) bool { return strings.EqualFold(d, t) }) {
-			return t
+	norm := func(s string) string { return strings.ToLower(strings.ReplaceAll(s, "_", "")) }
+	for _, d := range a.DeniedTools {
+		if strings.EqualFold(d, name) || (hosted && norm(d) != "" && strings.HasPrefix(norm(name), norm(d))) {
+			return true
 		}
 	}
-	return ""
+	return false
+}
+
+// AdmitChain re-checks a delegation chain against the current policy for a
+// root holding rootGroups: every actor, not only the current one, must still
+// be in agents.actors and, when the actor lists groups, the root must hold one
+// of them; the chain must be within agents.maxDepth. The credential says what
+// policy allowed at issuance, not what it allows now.
+func (a *Agents) AdmitChain(rootGroups []string, d *DelegationChain) error {
+	if a == nil {
+		return errors.New("delegated agent credentials are not accepted: the policy declares no agents")
+	}
+	for _, ac := range d.actors() {
+		actor := a.Actor(ac.Agent)
+		switch {
+		case actor == nil:
+			return fmt.Errorf("agent %q is not in agents.actors", ac.Agent)
+		case len(actor.Groups) > 0 && !slices.ContainsFunc(actor.Groups, func(g string) bool { return slices.Contains(rootGroups, g) }):
+			return fmt.Errorf("agent %q may act only for members of %v", ac.Agent, actor.Groups)
+		}
+	}
+	if d.Depth() > a.Depth() {
+		return fmt.Errorf("delegation depth %d exceeds agents.maxDepth %d", d.Depth(), a.Depth())
+	}
+	return nil
+}
+
+// ChainModelLimit is a delegation chain's model allowlist under the current
+// policy: the credential's scope narrowed by agents.allowedModels and by the
+// models of every actor along the chain. nil = unrestricted; a non-nil empty
+// slice allows nothing.
+func (a *Agents) ChainModelLimit(d *DelegationChain) []string {
+	var lim []string
+	if d != nil {
+		lim = d.Models
+	}
+	lim = IntersectScope(lim, a.ModelLimit(nil))
+	for _, ac := range d.actors() {
+		if actor := a.Actor(ac.Agent); actor != nil && len(actor.Models) > 0 {
+			lim = IntersectScope(lim, actor.Models)
+		}
+	}
+	return lim
+}
+
+func (d *DelegationChain) actors() []Actor {
+	if d == nil {
+		return nil
+	}
+	return d.Actors
 }
 
 // agentDepth is p's effective maximum delegation depth under o.
@@ -268,20 +331,30 @@ type AgentScope struct {
 // agent limits. An error means the effective profile could not be computed
 // (a policy that Validate rejects); callers must fail closed.
 func (o *Org) AgentScopeFor(s Subject) (AgentScope, error) {
-	sc := AgentScope{MaxDepth: o.Agents.Depth()}
-	var prof *Profile
+	var ring, unit string
 	if r := o.ResolveRing(s); r != nil {
-		sc.Ring = r.Name
-		base, err := o.ResolveProfile(r.Profile)
+		ring = r.Name
+	}
+	if u := o.ResolveUnit(s); u != nil {
+		unit = u.Name
+	}
+	return o.AgentScopeIn(ring, unit)
+}
+
+// AgentScopeIn is AgentScopeFor for a caller already resolved to ring and
+// unit ("" = none). It depends only on the policy and the two names, so a
+// caller may memoise it per policy snapshot.
+func (o *Org) AgentScopeIn(ring, unit string) (AgentScope, error) {
+	sc := AgentScope{Ring: ring, Unit: unit}
+	var prof *Profile
+	if i := slices.IndexFunc(o.Rings, func(r *Ring) bool { return r.Name == ring }); ring != "" && i >= 0 {
+		base, err := o.ResolveProfile(o.Rings[i].Profile)
 		if err != nil {
 			return AgentScope{}, err
 		}
 		prof = base
-	}
-	if u := o.ResolveUnit(s); u != nil {
-		sc.Unit = u.Name
-		if prof != nil {
-			eff, err := o.EffectiveProfile(prof, u.Name)
+		if unit != "" {
+			eff, err := o.EffectiveProfile(prof, unit)
 			if err != nil {
 				return AgentScope{}, err
 			}
@@ -349,16 +422,16 @@ func (o *Org) DecideRemote(s Subject, d *DelegationChain, name, target, skill st
 		return RemoteDecision{Reason: "not an allowlisted remote agent (agents.remote)"}
 	}
 	if d.Depth() > 0 {
-		if o.Agents.Actor(d.Current().Agent) == nil {
-			return RemoteDecision{Reason: fmt.Sprintf("agent %q is no longer in agents.actors", d.Current().Agent)}
-		}
-		if d.Depth() > o.Agents.Depth() {
-			return RemoteDecision{Reason: fmt.Sprintf("delegation depth %d exceeds agents.maxDepth %d", d.Depth(), o.Agents.Depth())}
+		if err := o.Agents.AdmitChain(s.Groups, d); err != nil {
+			return RemoteDecision{Reason: err.Error()}
 		}
 	}
 	sc, err := o.AgentScopeFor(s)
 	if err != nil {
 		return RemoteDecision{Reason: "policy cannot be resolved for this caller: " + err.Error()}
+	}
+	if d.Depth() > sc.MaxDepth {
+		return RemoteDecision{Ring: sc.Ring, Unit: sc.Unit, Reason: fmt.Sprintf("delegation depth %d exceeds the maximum %d (agents.maxDepth, profile and unit agents.maxDepth)", d.Depth(), sc.MaxDepth)}
 	}
 	dec := RemoteDecision{Ring: sc.Ring, Unit: sc.Unit, Reason: "the caller's ring and unit may not call it (agents.remote rings/units, profile agents.remote)"}
 	for _, ra := range cands {

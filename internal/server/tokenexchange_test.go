@@ -413,6 +413,18 @@ func TestWorkloadRulesSkippedIsPerLoad(t *testing.T) {
 // replay protection still holds. The same holds for delegation exchanges.
 func TestExchangeLimiterCountsOnlyForgeries(t *testing.T) {
 	e := newWorkloadEnv(t, true)
+	pf := filepath.Join(e.dir, "halos.yaml")
+	pb, err := os.ReadFile(pf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pf, append(pb, agentsYAML...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e.s.ReloadPolicy()
+	if org, _, err := e.s.pol.Get(); err != nil || org.Agents == nil {
+		t.Fatalf("fixture with agents: %v", err)
+	}
 	var jwksFetches atomic.Int64
 	inner := e.isrv.Config.Handler
 	e.isrv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -477,38 +489,44 @@ func TestExchangeLimiterCountsOnlyForgeries(t *testing.T) {
 		t.Fatalf("forged token from a fresh IP: %d, fetches %d, want 400 after a JWKS refetch", w.Code, jwksFetches.Load()-before)
 	}
 
-	// Delegation: a Halos credential passes from the blocked IP (it then
-	// fails on policy, not on the limiter); garbage counts.
-	del := url.Values{"grant_type": {grantTokenExchange}, "subject_token": {resp.AccessToken}, "subject_token_type": {tokenTypeJWT}, "actor_id": {"planner"}}
-	if w := e.post(del, ip); w.Code == http.StatusTooManyRequests {
-		t.Fatalf("delegation with a valid credential from the blocked IP: %d %s", w.Code, w.Body)
-	}
+	// Delegation has its own budget (agentFails): CI failures that blocked
+	// ip do not block agent delegation from it, and the reverse.
 	garbage := url.Values{"grant_type": {grantTokenExchange}, "subject_token": {"x"}, "subject_token_type": {tokenTypeSession}, "actor_id": {"planner"}}
-	if w := e.post(garbage, ip); w.Code != http.StatusTooManyRequests {
-		t.Fatalf("garbage delegation from the blocked IP: %d, want 429", w.Code)
+	if w := e.post(garbage, ip); w.Code != http.StatusBadRequest {
+		t.Fatalf("garbage delegation from the CI-blocked IP: %d, want 400 (agentFails, not exchangeFails)", w.Code)
 	}
 	const ip2 = "203.0.113.8"
-	for i := 0; i < authFailBurst; i++ {
+	for i := 0; i < authFailBurst-1; i++ {
 		if w := e.post(garbage, ip2); w.Code != http.StatusBadRequest {
 			t.Fatalf("garbage delegation %d: %d", i, w.Code)
 		}
 	}
+	// Signed but unusable parents (an expired workload credential) do not count.
+	expired, err := identity.SignWorkloadToken(e.s.cfg.WorkloadKey, identity.WorkloadClaims{Issuer: identity.WorkloadIssuer, Subject: "workload:gh:acme/app",
+		Audience: identity.WorkloadAudience, Kind: policy.SubjectWorkload, IssuedAt: time.Now().Add(-2 * time.Hour).Unix(), NotBefore: time.Now().Add(-2 * time.Hour).Unix(),
+		Expiry: time.Now().Add(-time.Hour).Unix(), ID: "old"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < authFailBurst; i++ {
+		if w := e.post(url.Values{"grant_type": {grantTokenExchange}, "subject_token": {expired}, "subject_token_type": {tokenTypeJWT}, "actor_id": {"planner"}}, ip2); w.Code != http.StatusBadRequest {
+			t.Fatalf("expired signed parent %d: %d %s", i, w.Code, w.Body)
+		}
+	}
+	if w := e.post(garbage, ip2); w.Code != http.StatusBadRequest {
+		t.Fatalf("last garbage delegation before the burst: %d, want 400 (expired parents were counted)", w.Code)
+	}
 	if w := e.post(garbage, ip2); w.Code != http.StatusTooManyRequests {
 		t.Fatalf("garbage delegation after the burst: %d, want 429", w.Code)
 	}
-	// Agent egress shares the bucket and the rule.
-	egress := func(bearer string) int {
-		r := httptest.NewRequest("POST", "/api/v1/agents/egress", strings.NewReader(`{"agent":"x"}`))
-		r.Header.Set("Authorization", "Bearer "+bearer)
-		r.RemoteAddr = ip + ":5555"
-		w := httptest.NewRecorder()
-		e.h.ServeHTTP(w, r)
-		return w.Code
+	// A Halos credential still passes from the agent-blocked IP (it then
+	// fails on the agent policy, not on the limiter).
+	del := url.Values{"grant_type": {grantTokenExchange}, "subject_token": {resp.AccessToken}, "subject_token_type": {tokenTypeJWT}, "actor_id": {"planner"}}
+	if w := e.post(del, ip2); w.Code == http.StatusTooManyRequests {
+		t.Fatalf("delegation with a valid credential from the agent-blocked IP: %d %s", w.Code, w.Body)
 	}
-	if c := egress(resp.AccessToken); c == http.StatusTooManyRequests || c == http.StatusUnauthorized {
-		t.Fatalf("egress with a valid credential from the blocked IP: %d", c)
-	}
-	if c := egress("a.b.c"); c != http.StatusTooManyRequests {
-		t.Fatalf("egress with garbage from the blocked IP: %d, want 429", c)
+	// Agent failures do not block the CI exchange.
+	if w := e.post(exchangeForm(e.mint(t)), ip2); w.Code != http.StatusOK {
+		t.Fatalf("CI exchange from the agent-blocked IP: %d %s, want 200", w.Code, w.Body)
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -126,17 +127,27 @@ func tooManyFailures(w http.ResponseWriter) {
 	oauthErr(w, http.StatusTooManyRequests, "slow_down", "too many failed attempts")
 }
 
-// postTokenExchange: POST /api/v1/token/exchange. Its failed-attempt budget
-// (exchangeFails) counts only subject tokens that are malformed or whose
-// signature does not verify: a token signed by a trusted issuer that matches
-// no rule, is replayed, expired or for another audience costs nothing,
-// because anyone on a shared CI runner (one egress IP for many tenants) can
-// mint those. A client IP that is blocked still has its subject token
-// verified, from cached keys only (identity.CacheOnly), and a signed token
-// bypasses the block, so garbage from a shared IP cannot lock out the jobs
-// behind it. Anything else from a blocked IP is 429.
+// postTokenExchange: POST /api/v1/token/exchange. A delegation exchange
+// (ADR-0024) is dispatched before anything else touches a limiter: it has
+// its own budget (agentFails, see delegate), so CI failures from an IP never
+// block agent delegation from it. The CI exchange's budget (exchangeFails)
+// counts only subject tokens that are malformed or whose signature does not
+// verify: a token signed by a trusted issuer that matches no rule, is
+// replayed, expired or for another audience costs nothing, because anyone on
+// a shared CI runner (one egress IP for many tenants) can mint those. A
+// client IP that is blocked still has its subject token verified, from
+// cached keys only (identity.CacheOnly), and a signed token bypasses the
+// block, so garbage from a shared IP cannot lock out the jobs behind it.
+// Anything else from a blocked IP is 429.
 func (s *Server) postTokenExchange(w http.ResponseWriter, r *http.Request) {
 	ip := s.clientIP(r)
+	r.Body = http.MaxBytesReader(w, r.Body, maxExchangeBody)
+	formErr := r.ParseForm()
+	f := r.PostForm
+	if formErr == nil && isDelegation(f) && f.Get("grant_type") == grantTokenExchange {
+		s.postDelegation(w, r, f, ip)
+		return
+	}
 	blocked := s.exchangeFails.blocked(ip)
 	bad := func(code int, kind, desc string) { // a request with no verifiable credential
 		if blocked {
@@ -155,31 +166,12 @@ func (s *Server) postTokenExchange(w http.ResponseWriter, r *http.Request) {
 		bad(http.StatusServiceUnavailable, "temporarily_unavailable", errPolicyUnavailable)
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxExchangeBody)
-	if err := r.ParseForm(); err != nil {
+	if formErr != nil {
 		bad(http.StatusBadRequest, "invalid_request", "body must be application/x-www-form-urlencoded under 16KB")
 		return
 	}
-	f := r.PostForm
-	switch {
-	case f.Get("grant_type") != grantTokenExchange:
-		bad(http.StatusBadRequest, "unsupported_grant_type", "grant_type must be "+grantTokenExchange)
-		return
-	case f.Get("subject_token") == "":
-		bad(http.StatusBadRequest, "invalid_request", "subject_token is required")
-		return
-	case f.Get("requested_token_type") != "" && f.Get("requested_token_type") != tokenTypeJWT && f.Get("requested_token_type") != tokenTypeAccess:
-		bad(http.StatusBadRequest, "invalid_request", "requested_token_type must be "+tokenTypeJWT)
-		return
-	case f.Get("audience") != "" && f.Get("audience") != identity.WorkloadAudience:
-		bad(http.StatusBadRequest, "invalid_target", "audience must be "+identity.WorkloadAudience)
-		return
-	case f.Has("actor_token"):
-		bad(http.StatusBadRequest, "invalid_request", "actor_token is not supported: name the agent with actor_id (ADR-0024)")
-		return
-	}
-	if isDelegation(f) { // a Halos credential for an agent credential (ADR-0024)
-		s.delegate(w, r, org, f, ip, blocked)
+	if code, kind, desc := checkExchangeForm(f); code != 0 {
+		bad(code, kind, desc)
 		return
 	}
 	if org.Workloads == nil {
@@ -191,6 +183,52 @@ func (s *Server) postTokenExchange(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.exchange(w, r, org, f.Get("subject_token"), ip, blocked)
+}
+
+// postDelegation is the delegation branch of postTokenExchange; every
+// refusal before the credential is verified answers 429 when agentFails
+// blocks the IP, and the credential itself is judged in delegate.
+func (s *Server) postDelegation(w http.ResponseWriter, r *http.Request, f url.Values, ip string) {
+	bad := func(code int, kind, desc string) {
+		if s.agentFails.blocked(ip) {
+			tooManyFailures(w)
+			return
+		}
+		oauthErr(w, code, kind, desc)
+	}
+	if len(s.cfg.WorkloadKey) == 0 {
+		bad(http.StatusNotFound, "unsupported_grant_type", "workload federation is not enabled on this server (--workload-key-file)")
+		return
+	}
+	org, _, err := s.pol.Get()
+	if org == nil {
+		s.cfg.Log.Error("token exchange: policy unavailable", "err", err)
+		bad(http.StatusServiceUnavailable, "temporarily_unavailable", errPolicyUnavailable)
+		return
+	}
+	if code, kind, desc := checkExchangeForm(f); code != 0 {
+		bad(code, kind, desc)
+		return
+	}
+	s.delegate(w, r, org, f, ip)
+}
+
+// checkExchangeForm validates the RFC 8693 parameters both exchanges share;
+// code 0 = valid.
+func checkExchangeForm(f url.Values) (code int, kind, desc string) {
+	switch {
+	case f.Get("grant_type") != grantTokenExchange:
+		return http.StatusBadRequest, "unsupported_grant_type", "grant_type must be " + grantTokenExchange
+	case f.Get("subject_token") == "":
+		return http.StatusBadRequest, "invalid_request", "subject_token is required"
+	case f.Get("requested_token_type") != "" && f.Get("requested_token_type") != tokenTypeJWT && f.Get("requested_token_type") != tokenTypeAccess:
+		return http.StatusBadRequest, "invalid_request", "requested_token_type must be " + tokenTypeJWT
+	case f.Get("audience") != "" && f.Get("audience") != identity.WorkloadAudience:
+		return http.StatusBadRequest, "invalid_target", "audience must be " + identity.WorkloadAudience
+	case f.Has("actor_token"):
+		return http.StatusBadRequest, "invalid_request", "actor_token is not supported: name the agent with actor_id (ADR-0024)"
+	}
+	return 0, "", ""
 }
 
 // signedOnly reports whether err (from verifying a subject token) still

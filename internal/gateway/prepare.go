@@ -186,7 +186,7 @@ func PrepareVerified(org *policy.Org, sub *policy.Subject, h http.Header, path s
 		return res
 	}
 	if req.Agent && req.Protocol != "" {
-		if res.Reject = admitAgent(org, dlg, req, body); res.Reject != nil {
+		if res.Reject = admitAgent(org, sub, req, path, body); res.Reject != nil {
 			return res
 		}
 	}

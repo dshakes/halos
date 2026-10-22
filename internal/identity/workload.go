@@ -153,7 +153,7 @@ func (c WorkloadClaims) check(now time.Time) error {
 	case c.Expiry == 0 || c.IssuedAt == 0 || c.NotBefore == 0 || c.ID == "":
 		return errors.New("exp, iat, nbf and jti are required")
 	case !now.Before(exp):
-		return fmt.Errorf("expired at %s", exp.UTC().Format(time.RFC3339))
+		return fmt.Errorf("%w at %s", ErrTokenExpired, exp.UTC().Format(time.RFC3339))
 	case nbf.After(now.Add(workloadSkew)), iat.After(now.Add(workloadSkew)):
 		return errors.New("not yet valid (nbf/iat in the future)")
 	case exp.Sub(iat) > policy.MaxWorkloadTTL:

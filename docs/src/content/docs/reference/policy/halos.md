@@ -21,7 +21,7 @@ Generated from `schemas/halos.schema.json`; do not edit. Nested fields use dotte
 | `agents.actors[].name` | string | yes |  |  | pattern ^[a-z0-9][a-z0-9._-]&#123;0,62}$ | The actor_id an exchange names. |
 | `agents.allowedModels` | array of string |  |  |  |  | Gateway model aliases any delegated agent may call; empty = every alias the root may. |
 | `agents.allowedModels[]` | string |  |  |  | minLength 1 |  |
-| `agents.deniedTools` | array of string |  |  |  |  | Tool names a delegated agent's model call may not declare (tools[].name; Gemini functionDeclarations[].name). Case-insensitive. |
+| `agents.deniedTools` | array of string |  |  |  |  | Tools a delegated agent's model call may not declare: function names (case-insensitive) and hosted tool identifiers such as web_search, code_execution or mcp:&lt;server> (prefix match ignoring case and underscores). With any set, an agent call whose tools the gateway cannot read is refused. |
 | `agents.deniedTools[]` | string |  |  |  | minLength 1 |  |
 | `agents.experiments` | boolean |  |  |  |  | Enroll delegated callers in experiments with their root (default false: control routing, no shadow). |
 | `agents.maxDepth` | integer |  |  |  | minimum 1; maximum 5 | Longest delegation chain (default 2). |
