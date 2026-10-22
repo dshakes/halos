@@ -207,7 +207,8 @@ func (e *Elector) Run(ctx context.Context, lead func(ctx context.Context, token 
 		lctx, c := context.WithCancel(ctx)
 		cancel, done, running = c, make(chan struct{}), tok
 		d := done
-		go func() { defer close(d); lead(lctx, tok) }()
+		// c on exit releases lctx even when lead returns by itself.
+		go func() { defer close(d); defer c(); lead(lctx, tok) }()
 	}
 	for {
 		leading, tok, wait := e.tick(ctx)

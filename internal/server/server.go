@@ -182,32 +182,45 @@ func New(cfg Config) (*Server, error) {
 	if cfg.Backend != nil {
 		logs, kv, auditDir = cfg.Backend, cfg.Backend, ""
 	}
+	// On any failure below, close what was already opened: a leaked handle
+	// keeps the data dir's files locked (on Windows they cannot be removed).
+	var closers []func() error
+	ok := false
+	defer func() {
+		if !ok {
+			for _, c := range closers {
+				_ = c() // already failing
+			}
+		}
+	}()
 	reqs, err := openRequestLog(logs)
 	if err != nil {
 		return nil, err
 	}
+	closers = append(closers, reqs.close)
 	devs, err := openDeviceStore(logs, cfg.DeviceTTL)
 	if err != nil {
 		return nil, err
 	}
+	closers = append(closers, devs.close)
 	revoked, err := openSessionRevocations(logs)
 	if err != nil {
 		return nil, err
 	}
+	closers = append(closers, revoked.close)
 	al, err := openAuditLog(auditDir)
 	if err != nil {
 		return nil, err
 	}
+	closers = append(closers, al.close)
 	al.shared = cfg.Backend
 	al.rot, al.log = cfg.Audit.Rotation, cfg.Log
 	fwds, err := newAuditForwarders(cfg.Audit.Export, cfg.DataDir, al, cfg.Log)
 	if err != nil {
-		_ = al.close() // already failing
 		return nil, err
 	}
 	bs, err := openBudgetStore(cfg.DataDir, cfg.Backend)
 	if err != nil {
-		_ = al.close() // already failing
 		return nil, err
 	}
 	if cfg.gatewayToken(capBudget) != "" && cfg.DataDir == "" && cfg.Backend == nil {
@@ -228,11 +241,15 @@ func New(cfg Config) (*Server, error) {
 		if err != nil {
 			return nil, err
 		}
+		if cfg.KillStore == nil {
+			closers = append(closers, s.kills.Close)
+		}
 	}
 	s.gwSums = gatewaySums(cfg)
 	if s.scim, err = newSCIM(cfg); err != nil {
 		return nil, err
 	}
+	ok = true
 	return s, nil
 }
 

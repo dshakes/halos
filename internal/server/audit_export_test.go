@@ -566,7 +566,7 @@ func TestSecretRefResolve(t *testing.T) {
 		{SecretRef{Env: "HALO_TEST_EMPTY"}, "", "empty"},
 		{SecretRef{File: empty}, "", "empty"},
 		{SecretRef{Env: "HALO_TEST_NOPE"}, "", "not set"},
-		{SecretRef{File: filepath.Join(dir, "missing")}, "", "no such file"},
+		{SecretRef{File: filepath.Join(dir, "missing")}, "", "missing"}, // the PathError names the file; its text is OS-specific
 	} {
 		got, err := c.ref.resolve("token")
 		if got != c.want || (err == nil) != (c.err == "") || (err != nil && !strings.Contains(err.Error(), c.err)) {

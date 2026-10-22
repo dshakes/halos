@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -373,7 +374,8 @@ func TestHarvestRunRoundTrip(t *testing.T) {
 	if err := WriteStepCases(dir, res.Cases); err != nil {
 		t.Fatal(err)
 	}
-	if st, err := os.Stat(dir); err != nil || st.Mode().Perm() != 0o700 {
+	posix := runtime.GOOS != "windows" // Windows has no POSIX mode bits to assert
+	if st, err := os.Stat(dir); err != nil || (posix && st.Mode().Perm() != 0o700) {
 		t.Fatalf("suite dir mode %v %v", st.Mode(), err)
 	}
 	files, _ := filepath.Glob(filepath.Join(dir, "*.json"))
@@ -382,7 +384,7 @@ func TestHarvestRunRoundTrip(t *testing.T) {
 	}
 	for _, f := range files {
 		st, _ := os.Stat(f)
-		if st.Mode().Perm() != 0o600 {
+		if posix && st.Mode().Perm() != 0o600 {
 			t.Errorf("%s mode %v, want 0600", f, st.Mode().Perm())
 		}
 		b, _ := os.ReadFile(f)

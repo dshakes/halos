@@ -9,7 +9,9 @@ halo-validate:
   image: buildpack-deps:bookworm-curl
   script:
     - halo version
-    - halo validate examples/acme-corp
+    # The example policy as of the pinned release: HEAD's examples may use schema the old CLI predates.
+    - curl -fsSL --proto '=https' --tlsv1.2 "https://codeload.github.com/dshakes/halos/tar.gz/refs/tags/${HALOS_VERSION}" | tar xz -C /tmp
+    - halo validate "/tmp/halos-${HALOS_VERSION#v}/examples/acme-corp"
 unpinned-is-refused:
   extends: .halos
   image: buildpack-deps:bookworm-curl
