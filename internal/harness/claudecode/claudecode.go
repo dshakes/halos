@@ -69,6 +69,9 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 		"extensions.skills.deny", "extensions.skills.pluginOnly", "extensions.subagents.deny", "extensions.subagents.pluginOnly",
 		"extensions.outputStyle", "extensions.statusLine", "login")
 
+	// The profile's env goes in first: every key Halos sets below (gateway
+	// routing, model pins, telemetry's OTEL_*) is written after it and wins,
+	// so an env key (a unit's, say) can never override them.
 	env := map[string]any{}
 	for k, v := range p.Env {
 		env[k] = v

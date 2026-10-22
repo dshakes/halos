@@ -58,8 +58,10 @@ type Delegation struct {
 }
 
 // UnitForbiddenEnv reports why a unit may never set env key k ("" when it
-// may): it would redirect model traffic or credentials, or inject code into
-// the harness runtime. Matching ignores case.
+// may): it would redirect model traffic, credentials or telemetry, or run
+// code in the harness, its shell or the tools it calls (git, pagers,
+// editors, compilers, language runtimes). Matching ignores case; families
+// are prefixes.
 func UnitForbiddenEnv(k string) string {
 	u := strings.ToUpper(k)
 	for _, s := range []string{"_BASE_URL", "_API_KEY"} {
@@ -67,37 +69,72 @@ func UnitForbiddenEnv(k string) string {
 			return "*" + s + " names a provider endpoint or credential"
 		}
 	}
-	// CLAUDE_CODE_* covers CLAUDE_CODE_USE_BEDROCK/VERTEX and every other
-	// harness switch; AWS_*, GOOGLE_* and CLOUD_ML_REGION pick the cloud
-	// account, endpoint (AWS_ENDPOINT_URL*) and region model calls go to.
-	for _, p := range []string{"ANTHROPIC_", "OPENAI_", "GEMINI_", "CLAUDE_CODE_", "AWS_", "GOOGLE_"} {
-		if strings.HasPrefix(u, p) {
-			return p + "* configures the model provider or harness"
-		}
+	if why, ok := forbiddenEnvExact[u]; ok {
+		return u + " " + why
 	}
-	switch u {
-	case "CLOUD_ML_REGION":
-		return u + " configures the model provider"
-	case "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY":
-		return u + " reroutes traffic around the gateway"
-	case "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "NODE_EXTRA_CA_CERTS":
-		return u + " trusts another CA, so TLS to the gateway can be intercepted"
-	case "PATH", "BASH_ENV", "ENV", "GIT_SSH_COMMAND", "GIT_EXEC_PATH", "JAVA_TOOL_OPTIONS", "_JAVA_OPTIONS", "PERL5OPT", "RUBYOPT":
-		return u + " injects code into the harness runtime or its tools"
-	}
-	if strings.HasPrefix(u, "OTEL_EXPORTER_OTLP_") {
-		return "OTEL_EXPORTER_OTLP_* redirects telemetry (prompts and tool calls) to another collector"
-	}
-	// LD_* and DYLD_* cover LD_PRELOAD, LD_AUDIT, LD_LIBRARY_PATH and their
-	// macOS forms; NODE_* covers NODE_OPTIONS; GIT_CONFIG_* covers
-	// GIT_CONFIG_GLOBAL and GIT_CONFIG_COUNT/KEY_n/VALUE_n (core.sshCommand,
-	// core.hooksPath); NPM_CONFIG_* matches npm's case-insensitive npm_config_*.
-	for _, p := range []string{"NODE_", "LD_", "DYLD_", "PYTHON", "GIT_CONFIG_", "NPM_CONFIG_"} {
-		if strings.HasPrefix(u, p) {
-			return p + "* injects code into the harness runtime or its tools"
+	for _, f := range forbiddenEnvPrefixes {
+		if strings.HasPrefix(u, f.prefix) {
+			return f.prefix + "* " + f.why
 		}
 	}
 	return ""
+}
+
+const (
+	envProvider = "configures the model provider or harness"
+	envReroute  = "reroutes traffic around the gateway"
+	envCA       = "trusts another CA, so TLS to the gateway can be intercepted"
+	envInject   = "runs code in the harness, its shell or the tools it calls"
+	envConfig   = "moves the harness or shell configuration, so a unit's file replaces the policy-rendered one"
+)
+
+// forbiddenEnvExact is every single name UnitForbiddenEnv refuses (upper case).
+var forbiddenEnvExact = map[string]string{
+	"CLOUD_ML_REGION": envProvider,
+	"HTTP_PROXY":      envReroute, "HTTPS_PROXY": envReroute, "ALL_PROXY": envReroute, "NO_PROXY": envReroute,
+	"SSL_CERT_FILE": envCA, "SSL_CERT_DIR": envCA, "REQUESTS_CA_BUNDLE": envCA, "CURL_CA_BUNDLE": envCA, "NODE_EXTRA_CA_CERTS": envCA,
+	"GIT_SSL_CAINFO": envCA, "GIT_SSL_NO_VERIFY": "turns off TLS verification for git",
+	// Shell start-up and prompt hooks.
+	"PATH": envInject, "BASH_ENV": envInject, "ENV": envInject, "PROMPT_COMMAND": envInject, "SHELLOPTS": envInject,
+	"BASHOPTS": envInject, "PS4": envInject, "ZDOTDIR": envConfig, "HOME": envConfig, "XDG_CONFIG_HOME": envConfig,
+	// Programs tools start for the user.
+	"PAGER": envInject, "GIT_PAGER": envInject, "MANPAGER": envInject, "LESSOPEN": envInject, "LESSCLOSE": envInject,
+	"EDITOR": envInject, "VISUAL": envInject, "GIT_EDITOR": envInject,
+	// git.
+	"GIT_SSH": envInject, "GIT_SSH_COMMAND": envInject, "GIT_ASKPASS": envInject, "GIT_PROXY_COMMAND": envInject,
+	"GIT_TEMPLATE_DIR": envInject, "GIT_EXEC_PATH": envInject,
+	// Compilers and language runtimes.
+	"GOFLAGS": envInject, "RUSTC": envInject, "PERL5LIB": envInject, "PERL5OPT": envInject, "RUBYLIB": envInject, "RUBYOPT": envInject,
+	"JDK_JAVA_OPTIONS": envInject, "JAVA_TOOL_OPTIONS": envInject, "_JAVA_OPTIONS": envInject, "DOTNET_STARTUP_HOOKS": envInject,
+	"ELECTRON_RUN_AS_NODE": envInject,
+	// Harness configuration directories.
+	"CLAUDE_CONFIG_DIR": envConfig, "CODEX_HOME": envConfig,
+}
+
+// forbiddenEnvPrefixes are the families UnitForbiddenEnv refuses.
+var forbiddenEnvPrefixes = []struct{ prefix, why string }{
+	// CLAUDE_CODE_* covers CLAUDE_CODE_USE_BEDROCK/VERTEX and every other
+	// harness switch; GEMINI_* covers the Gemini CLI's settings and config
+	// dirs; AWS_* and GOOGLE_* pick the cloud account, endpoint
+	// (AWS_ENDPOINT_URL*) and region model calls go to.
+	{"ANTHROPIC_", envProvider}, {"OPENAI_", envProvider}, {"GEMINI_", envProvider}, {"CLAUDE_CODE_", envProvider},
+	{"AWS_", envProvider}, {"GOOGLE_", envProvider},
+	// Every OTEL_* setting: exporters, endpoints, headers, resource
+	// attributes, sampling. Telemetry carries prompts and tool calls and is
+	// the evidence experiments and budgets rest on.
+	{"OTEL_", "changes telemetry (prompts and tool calls, experiment evidence), which only the policy sets"},
+	// BASH_FUNC_* exports shell functions (BASH_FUNC_git%%) that shadow commands.
+	{"BASH_FUNC_", envInject},
+	// LD_* and DYLD_* cover LD_PRELOAD, LD_AUDIT, LD_LIBRARY_PATH and their
+	// macOS forms; NODE_* covers NODE_OPTIONS; PYTHON* covers PYTHONPATH and
+	// PYTHONSTARTUP; GIT_CONFIG_* covers GIT_CONFIG_GLOBAL and
+	// GIT_CONFIG_COUNT/KEY_n/VALUE_n (core.sshCommand, core.hooksPath);
+	// NPM_CONFIG_* matches npm's case-insensitive npm_config_*; CARGO_* covers
+	// CARGO_BUILD_RUSTC_WRAPPER, CARGO_TARGET_<triple>_LINKER and RUNNER;
+	// RUSTC_* covers RUSTC_WRAPPER and RUSTC_WORKSPACE_WRAPPER; SSH_ASKPASS*
+	// covers SSH_ASKPASS and SSH_ASKPASS_REQUIRE.
+	{"NODE_", envInject}, {"LD_", envInject}, {"DYLD_", envInject}, {"PYTHON", envInject}, {"GIT_CONFIG_", envInject},
+	{"NPM_CONFIG_", envInject}, {"CARGO_", envInject}, {"RUSTC_", envInject}, {"SSH_ASKPASS", envInject},
 }
 
 // UnitMembers selects users by IdP group or user id (any match).

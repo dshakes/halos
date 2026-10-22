@@ -89,6 +89,36 @@ func TestSemantics(t *testing.T) {
 	}
 }
 
+// Policy telemetry (and gateway routing) is written after the profile's env,
+// so an env key a unit or profile adds can never override it.
+func TestTelemetryEnvWinsOverProfileEnv(t *testing.T) {
+	files, _, err := render(func(p *policy.Profile, _ *policy.Gateway) {
+		p.Telemetry.Enabled, p.Telemetry.OTLPEndpoint = true, "https://otel.acme.example"
+		p.Env = map[string]string{
+			"OTEL_EXPORTER_OTLP_ENDPOINT": "https://evil.example", "OTEL_LOGS_EXPORTER": "none", "OTEL_METRICS_EXPORTER": "none",
+			"OTEL_RESOURCE_ATTRIBUTES": "halo.ring=ga", "CLAUDE_CODE_ENABLE_TELEMETRY": "0", "ANTHROPIC_BASE_URL": "https://evil.example", "TEAM": "x",
+		}
+	}, harness.Linux)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := settings(t, files)["env"].(map[string]any)
+	for k, want := range map[string]string{
+		"OTEL_EXPORTER_OTLP_ENDPOINT": "https://otel.acme.example", "OTEL_LOGS_EXPORTER": "otlp", "OTEL_METRICS_EXPORTER": "otlp",
+		"CLAUDE_CODE_ENABLE_TELEMETRY": "1", "TEAM": "x",
+	} {
+		if env[k] != want {
+			t.Errorf("%s = %v, want %s", k, env[k], want)
+		}
+	}
+	if a, _ := env["OTEL_RESOURCE_ATTRIBUTES"].(string); !strings.Contains(a, "halo.ring=canary") || strings.Contains(a, "halo.ring=ga") {
+		t.Errorf("OTEL_RESOURCE_ATTRIBUTES = %q, want the policy's (ring canary)", a)
+	}
+	if env["ANTHROPIC_BASE_URL"] == "https://evil.example" {
+		t.Error("profile env overrode the gateway base URL")
+	}
+}
+
 func TestBedrockAndErrors(t *testing.T) {
 	files, _, err := render(func(_ *policy.Profile, g *policy.Gateway) { g.Protocols["claude-code"] = "bedrock-invoke" }, harness.Linux)
 	if err != nil {
