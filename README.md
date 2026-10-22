@@ -195,7 +195,7 @@ Traffic goes through `halo-proxy` to Anthropic, Bedrock (SigV4), Vertex, OpenAI,
 | Extension governance | Marketplace, plugin, skill and subagent policy, rendered where the vendor documents a key and warned elsewhere | [harness reference](https://dshakes.github.io/halos/reference/harness-matrix/) |
 | OTel GenAI | `gen_ai.*` semantic-convention metrics and opt-in content-free spans from the gateway | [evidence plane](https://dshakes.github.io/halos/concepts/evidence-plane/) |
 | HA on Postgres | Several `halo-server` replicas behind one load balancer with a fenced controller lease | [production deployment](https://dshakes.github.io/halos/guides/production-deployment/) |
-<!-- VENDOR-ADMIN-SYNC (ADR-0025): add one table row here when the feature ships. -->
+| Vendor admin sync | One policy drives the vendors' cloud admin consoles; `halo admin plan` fails CI on drift, `apply` writes what has a public API and never loosens | [vendor admin sync](https://dshakes.github.io/halos/guides/vendor-admin-sync/) |
 
 ## Runs everywhere
 

@@ -64,6 +64,10 @@ type Org struct {
 	// unset, like Toggles.
 	Agents *Agents `json:",omitempty"`
 
+	// VendorAdmin drives the vendors' cloud admin consoles (ADR-0025); omitted
+	// when unset, like Toggles.
+	VendorAdmin *VendorAdmin `json:",omitempty"`
+
 	// Deprecations are load-time warnings (one per file still on a deprecated
 	// apiVersion) that Validate reports. Not part of the snapshot.
 	Deprecations []Issue `json:"-"`
