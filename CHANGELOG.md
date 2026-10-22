@@ -60,6 +60,12 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
   - `halo telemetry collector-config` gains a `traces/gateway` pipeline.
 
 ### Security
+- Vendor admin sync (ADR-0025, amended): `halo admin apply` re-reads every console before writing and aborts with nothing written if it changed since the confirmed plan; Copilot writes are also conditional on GitHub's ETag when one is returned.
+- Copilot content exclusion keeps object rules (`{"if-any-match": [...]}`) under `"*"`; a path string the policy lacks is a loosening that apply refuses.
+- The Claude console export no longer contains machine config (`apiKeyHelper`, hooks, `env.ANTHROPIC_*`, ring stamps); each removed key is warned, and the Claude and Codex steps reconcile rather than paste.
+- MCP `admin_plan` renders from policy only unless `halo mcp serve --admin-read`, which reads `HALO_MCP_ADMIN_<VENDOR>_TOKEN`.
+- `vendorAdmin` org, project and location are strictly validated; plan output and STEPS.md strip control characters; API base URLs must be https (http only to loopback).
+- `halo admin plan --offline` exits 3; manual vendors report `not checked (manual)`; the apply record has a result per change; Gemini rebinding and an unspecified-to-experimental channel change count as loosenings, and a conflicting Gemini binding blocks apply.
 - Gateway directory: fails open only on transport errors or 5xx. Any other non-200 refuses the caller (403), a cached inactive entry stays refused through an outage, and halo-server answers an oversized subject as inactive instead of 400.
 - halo-server refuses to start with a gateway token (shared or per capability) under 32 characters or 128 bits of estimated entropy; generate one with `openssl rand -hex 32`.
 - Workload exchange: a known issuer's non-tenant `tenantClaim` (e.g. GitHub `ref`) is ignored at runtime as well as refused by validation.
