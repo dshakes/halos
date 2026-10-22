@@ -128,7 +128,7 @@ func (s *Server) toggleKills() (map[string]ToggleKill, error) {
 func (s *Server) listToggles(w http.ResponseWriter, _ *http.Request, _ Principal) {
 	org, _, err := s.pol.Get()
 	if org == nil {
-		apiErr(w, http.StatusServiceUnavailable, "policy not loaded: "+err.Error())
+		s.policyUnavailable(w, err)
 		return
 	}
 	kills, err := s.toggleKills()
@@ -157,7 +157,7 @@ type TogglePreview struct {
 func (s *Server) getToggle(w http.ResponseWriter, r *http.Request, _ Principal) {
 	org, _, err := s.pol.Get()
 	if org == nil {
-		apiErr(w, http.StatusServiceUnavailable, "policy not loaded: "+err.Error())
+		s.policyUnavailable(w, err)
 		return
 	}
 	name := r.PathValue("name")
@@ -239,7 +239,7 @@ func (s *Server) postToggleProposal(w http.ResponseWriter, r *http.Request, p Pr
 	name := r.PathValue("name")
 	org, _, err := s.pol.Get()
 	if org == nil {
-		apiErr(w, http.StatusServiceUnavailable, "policy not loaded: "+err.Error())
+		s.policyUnavailable(w, err)
 		return
 	}
 	if !slices.ContainsFunc(org.Toggles, func(t *policy.Toggle) bool { return t.Name == name }) {

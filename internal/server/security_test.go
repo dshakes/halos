@@ -2,8 +2,11 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/hex"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -130,9 +133,8 @@ func TestEnrollRateLimited(t *testing.T) {
 	if c := enroll(good); c != http.StatusTooManyRequests {
 		t.Fatalf("blocked IP with a valid token: %d, want 429", c)
 	}
-	e.s.enroll.mu.Lock()
-	_, kept := e.s.enroll.m[hashTok(good)]
-	e.s.enroll.mu.Unlock()
+	gh := hashTok(good)
+	_, kept, _ := e.s.kv.Get(context.Background(), kvEnroll, hex.EncodeToString(gh[:]))
 	if !kept {
 		t.Fatal("a rate-limited attempt burned a valid enrollment token")
 	}
@@ -240,8 +242,11 @@ func TestPolicyLoadRefusesSecurityErrors(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "pins no tenant") {
 		t.Fatalf("unpinned workload rule activated: err %v", err)
 	}
-	if org == nil || org.Workloads.Rules[0].Match["repository"] != "acme/*" {
-		t.Fatalf("last good policy not kept: %+v", org)
+	// The last good policy keeps serving, minus the rule the refused policy
+	// changed: a modification is never applied, but the old rule is gone from
+	// it, so it stops matching (TestRefusedPolicyStillRemovesWorkloadRules).
+	if org == nil || org.Workloads == nil || len(org.Workloads.Rules) != 0 || org.Gateway == nil {
+		t.Fatalf("last good policy not kept, or the changed rule still in effect: %+v", org)
 	}
 	var m bytes.Buffer
 	e.s.WriteMetrics(&m)
@@ -256,6 +261,133 @@ func TestPolicyLoadRefusesSecurityErrors(t *testing.T) {
 	t.Cleanup(func() { _ = s.Close() })
 	if org, _, err := s.pol.Get(); org != nil || err == nil {
 		t.Fatalf("bad policy activated on a fresh server: %v", err)
+	}
+}
+
+// With no policy loaded, unauthenticated endpoints answer a generic error:
+// the load error quotes policy content (rule names, match values, paths),
+// which an anonymous caller must not read. It is logged instead.
+func TestPolicyLoadErrorNotLeaked(t *testing.T) {
+	e := newWorkloadEnv(t, true)
+	f := filepath.Join(e.dir, "halos.yaml")
+	b, err := os.ReadFile(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret := "refs/heads/secret-release-train"
+	bad := strings.Replace(string(b), `match: {repository: "acme/*", ref: refs/heads/main}`, `match: {ref: `+secret+`}`, 1)
+	if err := os.WriteFile(f, []byte(bad), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var logs bytes.Buffer
+	_, key, _ := ed25519.GenerateKey(rand.Reader)
+	s, err := New(Config{PolicyDir: e.dir, Token: tok, SessionKey: []byte(strings.Repeat("k", 32)), WorkloadKey: key,
+		Log: slog.New(slog.NewTextHandler(&logs, nil)), Portal: Portal{BaseURL: "https://halo.example"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	h := s.Handler()
+	for _, c := range []struct{ method, path, body, ctype string }{
+		{"GET", "/readyz", "", ""},
+		{"GET", "/auth/login", "", ""},
+		{"POST", "/api/v1/token/exchange", exchangeForm("a.b.c").Encode(), "application/x-www-form-urlencoded"},
+		{"POST", "/api/v1/agents/egress", `{"agent":"x"}`, "application/json"},
+	} {
+		r := httptest.NewRequest(c.method, c.path, strings.NewReader(c.body))
+		if c.ctype != "" {
+			r.Header.Set("Content-Type", c.ctype)
+		}
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != http.StatusServiceUnavailable && w.Code != http.StatusUnauthorized {
+			t.Errorf("%s %s: %d %s, want 503 (or 401 before the policy is read)", c.method, c.path, w.Code, w.Body)
+		}
+		for _, leak := range []string{secret, "pins no tenant", "main-branch", e.dir} {
+			if strings.Contains(w.Body.String(), leak) {
+				t.Errorf("%s %s leaks %q: %s", c.method, c.path, leak, w.Body)
+			}
+		}
+	}
+	if !strings.Contains(logs.String(), "pins no tenant") {
+		t.Errorf("the load error is not logged:\n%s", logs.String())
+	}
+}
+
+// An unrelated security error (a unit typo) refuses the policy, but cannot
+// block the emergency removal of a compromised workload rule: the rules in
+// effect become the last good rules still present, unchanged, in the refused
+// policy. Its additions and modifications are not applied. Logged, counted,
+// and seen by Server.Policy (the HA controller's path) as well as the API.
+func TestRefusedPolicyStillRemovesWorkloadRules(t *testing.T) {
+	e := newWorkloadEnv(t, true)
+	f := filepath.Join(e.dir, "halos.yaml")
+	write := func(rules string) {
+		t.Helper()
+		root := fmt.Sprintf(`org: acme-corp
+workloads:
+  audience: halos
+  issuers:
+    - {name: github, url: %q, tenantClaim: repository}
+  rules:
+%s`, e.iss.URL, rules)
+		if err := os.WriteFile(f, []byte(root), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		e.s.ReloadPolicy()
+	}
+	const compromised = `    - {name: compromised, issuer: github, match: {repository: "acme/app"}, subject: "workload:gh:{repository}"}
+`
+	const kept = `    - {name: kept, issuer: github, match: {repository: "acme/tools"}, subject: "workload:gh:{repository}"}
+`
+	write(compromised + kept)
+	if org, _, err := e.s.pol.Get(); err != nil || len(org.Workloads.Rules) != 2 {
+		t.Fatalf("fixture: %v", err)
+	}
+	// The emergency change removes "compromised", adds "new" and widens
+	// "kept"; an unrelated unit typo makes the whole policy fail validation.
+	unit := filepath.Join(e.dir, "units", "payments", "checkout", "unit.yaml")
+	ub, err := os.ReadFile(unit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(unit, bytes.Replace(ub, []byte("parent: payments"), []byte("parent: paymnets"), 1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	write(`    - {name: kept, issuer: github, match: {repository: "acme/*"}, subject: "workload:gh:{repository}"}
+    - {name: new, issuer: github, match: {repository: "acme/new"}, subject: "workload:gh:{repository}"}
+`)
+	org, _, err := e.s.pol.Get()
+	if err == nil || !strings.Contains(err.Error(), "units") {
+		t.Fatalf("policy with a unit typo was not refused: %v", err)
+	}
+	if org == nil || org.Workloads == nil || len(org.Workloads.Rules) != 0 {
+		t.Fatalf("rules in effect %+v, want none: compromised removed, kept changed (not applied), new added (not applied)", org.Workloads)
+	}
+	// The exchange stops minting for the removed rule at once.
+	if w := e.post(exchangeForm(e.mint(t)), ""); w.Code != http.StatusBadRequest {
+		t.Fatalf("exchange for the removed rule: %d %s, want 400", w.Code, w.Body)
+	}
+	if hp, err := e.s.Policy(); err != nil || len(hp.Workloads.Rules) != 0 {
+		t.Fatalf("Server.Policy (controller path) still has the removed rule: %+v %v", hp, err)
+	}
+
+	// Removing only "compromised" keeps "kept" unchanged in effect.
+	write(compromised + kept)
+	if org, _, err := e.s.pol.Get(); err == nil || len(org.Workloads.Rules) != 2 {
+		t.Fatalf("still refused (unit typo), back to the last good rules: %+v %v", org.Workloads, err)
+	}
+	write(kept)
+	org, _, _ = e.s.pol.Get()
+	if len(org.Workloads.Rules) != 1 || org.Workloads.Rules[0].Name != "kept" {
+		t.Fatalf("rules in effect %+v, want only kept", org.Workloads.Rules)
+	}
+	var m bytes.Buffer
+	e.s.WriteMetrics(&m)
+	for _, want := range []string{"halo_server_policy_tightened_total 2\n", "halo_server_policy_refused_total 3\n", "halo_server_workload_rules_skipped 0\n"} {
+		if !strings.Contains(m.String(), want) {
+			t.Fatalf("metrics missing %q:\n%s", want, m.String())
+		}
 	}
 }
 

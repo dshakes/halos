@@ -55,6 +55,8 @@ Chosen: **option 1**. Option 3 still works (the files are plain JSONL) for teams
 
 **Reads.** `GET /api/v1/audit`, toggle history and the forwarder stream from a snapshot (rotated segments by name, the active segment by its own handle and size), so memory is bounded by the page size. Whole-chain verification streams too, and caches the state after the rotated segments keyed by their names, sizes and mtimes.
 
+**On the Postgres backend** ([ADR-0021](/halos/adr/0021-ha-control-plane-on-postgres/)) the chain is one table with `seq` as its primary key, appended under a head-row lock, so segments and rotation do not apply (the server and the chart refuse `rotation` there). Each sink forwards from exactly one replica at a time, under lease `audit-export-<sink>`; its cursor is a document (`halo_docs`, kind `audit-cursor`) written through that lease's fence, so N replicas do not deliver N copies and a deposed forwarder cannot move the cursor. Delivery stays at-least-once: a batch sent right before a failover is resent by the next holder. `GET /api/v1/audit` pages by `seq` over the table and caches the verified prefix while its last hash reads back unchanged; `halo audit verify --database-url-file` re-reads everything.
+
 **Metrics** (on `--metrics-listen`, now served without `--controller`): `halo_server_audit_forward_sent_total`, `_failed_total`, `_lag_entries` and `_last_success_timestamp_seconds` per `sink`, and `halo_server_audit_rotate_errors_total`.
 
 ## Consequences

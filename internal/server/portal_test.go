@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -22,6 +23,7 @@ import (
 	"github.com/dshakes/halos/internal/harness"
 	"github.com/dshakes/halos/internal/policy"
 	"github.com/dshakes/halos/internal/promote"
+	"github.com/dshakes/halos/internal/storage"
 )
 
 var sha = strings.Repeat("ab", 32)
@@ -293,10 +295,9 @@ func TestEnrollmentToken(t *testing.T) {
 
 	tok := issue()
 	// hash at rest: the store is keyed by SHA-256 of the token and holds no copy of the raw token.
-	e.s.enroll.mu.Lock()
-	_, hashed := e.s.enroll.m[sha256.Sum256([]byte(tok))]
-	e.s.enroll.mu.Unlock()
-	if !hashed || len(e.s.enroll.m) != 1 {
+	h := sha256.Sum256([]byte(tok))
+	_, hashed, _ := e.s.kv.Get(context.Background(), kvEnroll, hex.EncodeToString(h[:]))
+	if !hashed {
 		t.Fatal("token not stored under its sha256")
 	}
 
@@ -482,7 +483,7 @@ func TestRequestsFlow(t *testing.T) {
 
 func TestRequestLogPersists(t *testing.T) {
 	dir := t.TempDir()
-	l, err := openRequestLog(dir)
+	l, err := openRequestLog(storage.Dir(dir))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -491,7 +492,7 @@ func TestRequestLogPersists(t *testing.T) {
 	_ = l.save(r)
 	r.Status = StatusApproved
 	_ = l.save(r)
-	l2, err := openRequestLog(dir)
+	l2, err := openRequestLog(storage.Dir(dir))
 	if err == nil {
 		t.Cleanup(func() { _ = l2.close() })
 	}

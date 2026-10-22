@@ -12,13 +12,13 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 	"unicode"
 
 	"github.com/dshakes/halos/internal/gateway"
 	"github.com/dshakes/halos/internal/identity"
 	"github.com/dshakes/halos/internal/policy"
+	"github.com/dshakes/halos/internal/storage"
 )
 
 // SCIM 2.0 service provider (RFC 7643/7644) at /scim/v2, ADR-0022. The IdP
@@ -46,7 +46,7 @@ const (
 
 // scimService is the SCIM state; nil on a Server without SCIM.
 type scimService struct {
-	mu    sync.Mutex // serialises mutations: read-modify-write and uniqueness checks
+	mu    clusterMutex // serialises mutations across replicas: read-modify-write and uniqueness checks
 	sums  [][32]byte
 	store SCIMStore
 	owned bool // opened by New, so Close closes it
@@ -70,7 +70,16 @@ func newSCIM(cfg Config) (*scimService, error) {
 		}
 		sc.sums = append(sc.sums, [32]byte(b))
 	}
-	if sc.store = cfg.SCIMStore; sc.store == nil {
+	sc.mu = clusterMutex{kv: kvOf(cfg.Backend), name: "scim", log: cfg.Log}
+	if sc.store = cfg.SCIMStore; sc.store == nil && cfg.Backend != nil {
+		ctx, cancel := storage.Ctx()
+		st, err := OpenSCIMStoreOn(ctx, cfg.Backend)
+		cancel()
+		if err != nil {
+			return nil, err
+		}
+		sc.store, sc.owned = st, true
+	} else if sc.store == nil {
 		st, err := OpenSCIMStore(cfg.DataDir)
 		if err != nil {
 			return nil, err
@@ -117,7 +126,9 @@ func (s *Server) deprovision(userName string) (devices int, err error) {
 	if err != nil {
 		return n, fmt.Errorf("revoke devices of %q: %w", userName, err)
 	}
-	s.enroll.dropUser(userName)
+	if err := s.enroll.dropUser(userName, s.cfg.Now()); err != nil {
+		return n, fmt.Errorf("drop enrollments of %q: %w", userName, err)
+	}
 	return n, nil
 }
 
@@ -125,6 +136,9 @@ func (s *Server) deprovision(userName string) (devices int, err error) {
 func (d *deviceStore) revokeUser(user string) (int, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if err := d.catchup(); err != nil { // devices enrolled on other replicas too
+		return 0, err
+	}
 	n := 0
 	for _, v := range d.byID {
 		if v.Revoked || !sameUser(v.UserID, user) {
@@ -138,16 +152,6 @@ func (d *deviceStore) revokeUser(user string) (int, error) {
 		n++
 	}
 	return n, nil
-}
-
-func (e *enrollments) dropUser(user string) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	for h, v := range e.m {
-		if sameUser(v.user.ID, user) {
-			delete(e.m, h)
-		}
-	}
 }
 
 // ---- routes and auth ----

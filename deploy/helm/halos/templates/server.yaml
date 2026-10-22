@@ -29,12 +29,18 @@
 {{- $wr := or $s.proposals.enabled $pr }}
 {{- $wsub := trimAll "/" (default $s.policySubdir $c.policyRepo.subdir) }}
 {{- $wbase := default "main" $c.policyRepo.base }}
-{{- if and $ks.existingSecret (not $s.persistence.enabled) }}{{ fail "server.killSwitch.existingSecret requires server.persistence.enabled (--data-dir: kills must survive a restart)" }}{{ end }}
+{{- $gt := $s.gatewayTokens | default dict }}{{- /* per-capability gateway bearer tokens (one Secret, a key per capability) */}}
+{{- if and $gt.existingSecret (not (or $gt.killswitch $gt.posture $gt.budget $gt.directory)) }}{{ fail "server.gatewayTokens.existingSecret needs at least one of killswitch, posture, budget, directory (the Secret key holding that capability's token)" }}{{ end }}
+{{- $ha := $s.database.existingSecret }}{{- /* shared Postgres state (ADR-0021): replicas may be > 1 */}}
+{{- if and $ha $s.persistence.enabled }}{{ fail "server.database.existingSecret and server.persistence.enabled are exclusive: state lives in Postgres (move a data dir with `halo-server import`)" }}{{ end }}
+{{- if and (gt (int $s.replicas) 1) (not $ha) }}{{ fail "server.replicas > 1 requires server.database.existingSecret (file state has a single writer)" }}{{ end }}
+{{- if and $ks.existingSecret (not $s.persistence.enabled) (not $ha) }}{{ fail "server.killSwitch.existingSecret requires server.persistence.enabled or server.database (kills must survive a restart)" }}{{ end }}
 {{- $audit := $s.audit | default dict }}
-{{- if and $audit (not $s.persistence.enabled) }}{{ fail "server.audit requires server.persistence.enabled (--data-dir: audit segments and export cursors must survive a restart)" }}{{ end }}
+{{- if and $audit (not $s.persistence.enabled) (not $ha) }}{{ fail "server.audit requires server.persistence.enabled or server.database (export cursors must survive a restart)" }}{{ end }}
+{{- if and $ha $audit.rotation }}{{ fail "server.audit.rotation is for the file backend; on Postgres the audit chain is one table (ADR-0021)" }}{{ end }}
 {{- if $c.enabled }}
 {{- if not $c.clickhouse.url }}{{ fail "server.controller.clickhouse.url is required when server.controller.enabled" }}{{ end }}
-{{- if not $s.persistence.enabled }}{{ fail "server.controller.enabled requires server.persistence.enabled (--data-dir action log)" }}{{ end }}
+{{- if and (not $s.persistence.enabled) (not $ha) }}{{ fail "server.controller.enabled requires server.persistence.enabled or server.database (action log)" }}{{ end }}
 {{- end }}
 {{- $srvImg := $s.image }}
 {{- if and $pr $c.policyRepo.image.repository }}{{ $srvImg = $c.policyRepo.image }}{{ end }}
@@ -158,6 +164,13 @@ spec:
             {{- if $s.persistence.enabled }}
             - --data-dir=/data
             {{- end }}
+            {{- if $ha }}
+            - --database-url-file=/secrets/database-url
+            - --leader-lease-ttl={{ $s.database.leaseTTL }}
+            {{- if $s.database.autoMigrate }}
+            - --auto-migrate
+            {{- end }}
+            {{- end }}
             {{- if $audit }}
             - --audit-config=/etc/halos/audit.json
             {{- end }}
@@ -170,6 +183,13 @@ spec:
             {{- if $ks.existingSecret }}
             - --killswitch-key-file=/secrets/killswitch-key
             - --gateway-token-file=/secrets/gateway-token
+            {{- end }}
+            {{- if $gt.existingSecret }}
+            {{- range $cap := list "killswitch" "posture" "budget" "directory" }}
+            {{- if index $gt $cap }}
+            - --gateway-{{ $cap }}-token-file=/secrets/gateway-{{ $cap }}-token
+            {{- end }}
+            {{- end }}
             {{- end }}
             {{- if $c.enabled }}
             - --controller
@@ -223,8 +243,11 @@ spec:
             {{- if $s.metrics.enabled }}
             - {name: metrics, containerPort: {{ $s.metrics.port }}}
             {{- end }}
-          readinessProbe: {httpGet: {path: /readyz, port: http}, periodSeconds: 10}
+          # /readyz fails while the policy is not loaded or (HA) Postgres is unreachable: the pod leaves the
+          # Service, its peers keep serving. /healthz never checks the database: an outage must not restart pods.
+          readinessProbe: {httpGet: {path: /readyz, port: http}, periodSeconds: 10, timeoutSeconds: 3, failureThreshold: 2}
           livenessProbe: {httpGet: {path: /healthz, port: http}, initialDelaySeconds: 10, periodSeconds: 20}
+          startupProbe: {httpGet: {path: /healthz, port: http}, periodSeconds: 2, failureThreshold: 30}
           securityContext: {{- toYaml .Values.securityContext | nindent 12 }}
           resources: {{- toYaml $s.resources | nindent 12 }}
           volumeMounts:
@@ -280,10 +303,25 @@ spec:
                   name: {{ $s.oidcClientSecret.existingSecret }}
                   items: [{key: {{ $s.oidcClientSecret.key }}, path: oidc-client-secret}]
               {{- end }}
+              {{- if $ha }}
+              - secret:
+                  name: {{ $ha }}
+                  items: [{key: {{ $s.database.key }}, path: database-url}]
+              {{- end }}
               {{- if $ks.existingSecret }}
               - secret:
                   name: {{ $ks.existingSecret }}
                   items: [{key: {{ $ks.signingKey }}, path: killswitch-key}, {key: {{ $ks.gatewayToken }}, path: gateway-token}]
+              {{- end }}
+              {{- if $gt.existingSecret }}
+              - secret:
+                  name: {{ $gt.existingSecret }}
+                  items:
+                    {{- range $cap := list "killswitch" "posture" "budget" "directory" }}
+                    {{- with index $gt $cap }}
+                    - {key: {{ . }}, path: gateway-{{ $cap }}-token}
+                    {{- end }}
+                    {{- end }}
               {{- end }}
               {{- if and $c.enabled $c.clickhouse.existingSecret }}
               - secret:
@@ -307,7 +345,7 @@ spec:
         {{- end }}
         {{- include "halo.gitsyncVolume" . | nindent 8 }}
         {{- with $s.extraVolumes }}{{ toYaml . | nindent 8 }}{{ end }}
-{{- if $s.pdb.enabled }}
+{{- if or $s.pdb.enabled (and $ha (gt (int $s.replicas) 1)) }}
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget

@@ -17,6 +17,16 @@ type verdictRow struct {
 	EvaluatedAt time.Time `json:"evaluatedAt"`
 }
 
+// VerdictRow encodes one experiment's entry exactly as UpsertVerdict writes
+// it, for stores that keep one document per experiment (HA backend).
+func VerdictRow(experiment string, rep Report, at time.Time) ([]byte, error) {
+	b, err := json.Marshal(verdictRow{experiment, rep, at})
+	if err != nil {
+		return nil, fmt.Errorf("encode verdict %s: %w", experiment, err)
+	}
+	return b, nil
+}
+
 // UpsertVerdict replaces (or appends) the experiment's entry in the JSON array
 // at path, atomically. Other entries are kept verbatim.
 // ponytail: read-modify-write without a lock; run one writer (controller or

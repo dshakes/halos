@@ -62,7 +62,9 @@ func (s *Server) workloadPub() []ed25519.PublicKey {
 // verifyParent verifies subject_token as a Halos credential: a halo_session
 // cookie value, a workload credential or a delegated credential, all signed by
 // this server. A human root must still have a live session epoch and be
-// provisioned in the SCIM directory.
+// provisioned in the SCIM directory. A credential that is ours but no longer
+// usable (expired, revoked, deprovisioned) fails with
+// identity.ErrClaimsRejected; anything else failed to verify.
 func (s *Server) verifyParent(raw, typ string, now time.Time) (parentCred, error) {
 	switch {
 	case typ == tokenTypeSession:
@@ -70,20 +72,21 @@ func (s *Server) verifyParent(raw, typ string, now time.Time) (parentCred, error
 		if err != nil || p.Sub == "" || p.State != "" {
 			return parentCred{}, errors.New("not a valid session")
 		}
+		// The session is ours (sealed): what fails from here is not a forgery.
 		if !s.revoked.valid(p.Sub, p.Iat) {
-			return parentCred{}, errors.New("session revoked")
+			return parentCred{}, signedButRejected(errors.New("session revoked"))
 		}
 		groups := p.Groups
 		if p.SID != "" {
-			g, ok := s.oidc.session(p.SID, now)
+			g, ok := s.oidc.session(p.SID)
 			if !ok {
-				return parentCred{}, errors.New("session expired")
+				return parentCred{}, signedButRejected(errors.New("session expired"))
 			}
 			groups = g
 		}
 		g, ok := s.directoryGroups(p.Sub, groups)
 		if !ok {
-			return parentCred{}, errDeprovisioned
+			return parentCred{}, signedButRejected(errDeprovisioned)
 		}
 		return parentCred{sub: policy.Subject{ID: p.Sub, Groups: g}, exp: time.Unix(p.Exp, 0), authTime: p.Iat / int64(time.Second), via: "session"}, nil
 	case typ != tokenTypeJWT && typ != tokenTypeAccess:
@@ -104,11 +107,11 @@ func (s *Server) verifyParent(raw, typ string, now time.Time) (parentCred, error
 		sub := c.AsSubject()
 		if c.RootKind == "" { // a human root: revoked or deprovisioned since kills the whole chain
 			if !s.revoked.valid(c.Subject, c.AuthTime*int64(time.Second)) {
-				return parentCred{}, errors.New("root session revoked")
+				return parentCred{}, signedButRejected(errors.New("root session revoked"))
 			}
 			g, ok := s.directoryGroups(c.Subject, c.Groups)
 			if !ok {
-				return parentCred{}, errDeprovisioned
+				return parentCred{}, signedButRejected(errDeprovisioned)
 			}
 			sub.Groups = intersect(c.Groups, g) // groups only ever narrow down the chain
 		}
@@ -118,6 +121,10 @@ func (s *Server) verifyParent(raw, typ string, now time.Time) (parentCred, error
 }
 
 var errDeprovisioned = errors.New("root principal is deactivated or not provisioned in the directory")
+
+// signedButRejected marks err as a failure of a credential this server
+// signed: it is not counted against the client IP (see postTokenExchange).
+func signedButRejected(err error) error { return fmt.Errorf("%w: %w", identity.ErrClaimsRejected, err) }
 
 func intersect(a, b []string) []string {
 	var out []string
@@ -130,8 +137,25 @@ func intersect(a, b []string) []string {
 }
 
 // delegate mints a delegated agent credential (see ADR-0024 for each rule).
-func (s *Server) delegate(w http.ResponseWriter, r *http.Request, org *policy.Org, f url.Values, ip string) {
+// Like the CI exchange, only an unverifiable subject_token counts against the
+// client IP, and a verified one passes even when the IP is blocked.
+func (s *Server) delegate(w http.ResponseWriter, r *http.Request, org *policy.Org, f url.Values, ip string, blocked bool) {
 	now := s.cfg.Now()
+	parent, err := s.verifyParent(f.Get("subject_token"), f.Get("subject_token_type"), now)
+	switch {
+	case !signedOnly(err) && blocked:
+		tooManyFailures(w)
+		return
+	case !signedOnly(err):
+		s.exchangeFails.fail(ip)
+		s.cfg.Log.Info("delegation subject token rejected", "err", err.Error(), "remote", ip)
+		oauthErr(w, http.StatusBadRequest, "invalid_grant", "subject_token rejected")
+		return
+	case err != nil: // ours, but expired, revoked or deprovisioned: not counted
+		s.cfg.Log.Info("delegation subject token no longer valid", "err", err.Error(), "remote", ip)
+		oauthErr(w, http.StatusBadRequest, "invalid_grant", "subject_token rejected")
+		return
+	}
 	if org.Agents == nil {
 		oauthErr(w, http.StatusNotFound, "unsupported_grant_type", "policy declares no agents")
 		return
@@ -139,13 +163,6 @@ func (s *Server) delegate(w http.ResponseWriter, r *http.Request, org *policy.Or
 	agent, harness, session := f.Get(paramActorID), f.Get(paramActorHarness), f.Get(paramActorSession)
 	if agent == "" {
 		oauthErr(w, http.StatusBadRequest, "invalid_request", "actor_id is required: the agents.actors name of the agent that will act")
-		return
-	}
-	parent, err := s.verifyParent(f.Get("subject_token"), f.Get("subject_token_type"), now)
-	if err != nil {
-		s.exchangeFails.fail(ip)
-		s.cfg.Log.Info("delegation subject token rejected", "err", err.Error(), "remote", ip)
-		oauthErr(w, http.StatusBadRequest, "invalid_grant", "subject_token rejected")
 		return
 	}
 	root := parent.sub
@@ -158,8 +175,7 @@ func (s *Server) delegate(w http.ResponseWriter, r *http.Request, org *policy.Or
 	if parent.jti != "" {
 		details["parentJti"] = parent.jti
 	}
-	deny := func(code, reason string) {
-		s.exchangeFails.fail(ip)
+	deny := func(code, reason string) { // a verified credential: audited, never counted against the IP
 		d := map[string]string{"reason": reason}
 		for k, v := range details {
 			d[k] = v
@@ -337,28 +353,30 @@ type EgressRequest struct {
 // caller's cohort comes from the verified credential only.
 func (s *Server) postAgentEgress(w http.ResponseWriter, r *http.Request) {
 	ip := s.clientIP(r)
-	if s.exchangeFails.blocked(ip) {
-		w.Header().Set("Retry-After", "60")
-		apiErr(w, http.StatusTooManyRequests, "too many failed attempts")
-		return
-	}
+	blocked := s.exchangeFails.blocked(ip)
 	if len(s.cfg.WorkloadKey) == 0 {
 		apiErr(w, http.StatusNotFound, "agent egress decisions need --workload-key-file")
 		return
 	}
-	org, _, err := s.pol.Get()
-	if org == nil {
-		msg := "policy not loaded"
-		if err != nil {
-			msg += ": " + err.Error()
-		}
-		apiErr(w, http.StatusServiceUnavailable, msg)
-		return
-	}
+	// The credential is checked first (a local ed25519 verify): one this
+	// server signed passes even from an IP blocked for failed attempts, as on
+	// the token exchange, and only an unverifiable one counts against the IP.
 	v := &identity.WorkloadJWT{Keys: s.workloadPub(), Next: noCredentials{}, Now: s.cfg.Now}
 	sub, err := v.Verify(r)
+	if err != nil && blocked && !errors.Is(err, identity.ErrClaimsRejected) {
+		w.Header().Set("Retry-After", "60")
+		apiErr(w, http.StatusTooManyRequests, "too many failed attempts")
+		return
+	}
+	org, _, perr := s.pol.Get()
+	if org == nil {
+		s.policyUnavailable(w, perr)
+		return
+	}
 	if err != nil {
-		s.exchangeFails.fail(ip)
+		if !errors.Is(err, identity.ErrClaimsRejected) {
+			s.exchangeFails.fail(ip)
+		}
 		w.Header().Set("WWW-Authenticate", `Bearer realm="halos"`)
 		apiErr(w, http.StatusUnauthorized, "a Halos workload or delegated agent credential is required")
 		return

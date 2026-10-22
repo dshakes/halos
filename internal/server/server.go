@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -21,6 +22,7 @@ import (
 	"github.com/dshakes/halos/internal/harness"
 	_ "github.com/dshakes/halos/internal/harness/all" // register adapters for the capability matrix
 	"github.com/dshakes/halos/internal/policy"
+	"github.com/dshakes/halos/internal/storage"
 	"github.com/dshakes/halos/web"
 )
 
@@ -44,9 +46,12 @@ type Config struct {
 	SessionKey       []byte
 	OIDCClientSecret string
 	Portal           Portal
-	DataDir          string        // request/device/session-revocation logs ("" = in-memory)
-	DeviceTTL        time.Duration // device token lifetime after enrollment (0 = DefaultDeviceTTL)
-	Writer           PolicyWriter  // nil: approvals are recorded but need manual policy changes
+	DataDir          string // request/device/session-revocation logs ("" = in-memory)
+	// Backend, when set, replaces DataDir and in-process state with shared
+	// state so several replicas can serve (ADR-0021).
+	Backend   Backend
+	DeviceTTL time.Duration // device token lifetime after enrollment (0 = DefaultDeviceTTL)
+	Writer    PolicyWriter  // nil: approvals are recorded but need manual policy changes
 
 	// Kill switch. KillStore nil = opened from DataDir. GET
 	// /api/v1/gateway/killswitch is served only when both KillKey (signs the
@@ -120,6 +125,7 @@ type Server struct {
 	scim          *scimService            // nil = SCIM off
 	budgets       *budgetStore
 	wl            workloadExchange
+	kv            storage.KV // ephemeral state: Backend, else in process
 }
 
 // New validates cfg and returns a Server. It does not require the policy dir to load yet.
@@ -159,44 +165,64 @@ func New(cfg Config) (*Server, error) {
 	if err := cfg.Audit.Validate(); err != nil {
 		return nil, err
 	}
-	if cfg.DataDir == "" && cfg.Audit.Rotation != (AuditRotation{}) {
-		return nil, errors.New("server: audit rotation needs a data dir")
+	if cfg.Audit.Rotation != (AuditRotation{}) {
+		switch {
+		case cfg.Backend != nil:
+			return nil, errors.New("server: audit rotation is for the file backend; on Postgres the chain is one table (ADR-0021)")
+		case cfg.DataDir == "":
+			return nil, errors.New("server: audit rotation needs a data dir")
+		}
 	}
-	reqs, err := openRequestLog(cfg.DataDir)
+	var logs storage.Opener = storage.Dir(cfg.DataDir)
+	var kv storage.KV = &storage.MemKV{Now: cfg.Now}
+	auditDir := cfg.DataDir
+	if cfg.Backend != nil {
+		logs, kv, auditDir = cfg.Backend, cfg.Backend, ""
+	}
+	reqs, err := openRequestLog(logs)
 	if err != nil {
 		return nil, err
 	}
-	devs, err := openDeviceStore(cfg.DataDir, cfg.DeviceTTL)
+	devs, err := openDeviceStore(logs, cfg.DeviceTTL)
 	if err != nil {
 		return nil, err
 	}
-	revoked, err := openSessionRevocations(cfg.DataDir)
+	revoked, err := openSessionRevocations(logs)
 	if err != nil {
 		return nil, err
 	}
-	al, err := openAuditLog(cfg.DataDir)
+	al, err := openAuditLog(auditDir)
 	if err != nil {
 		return nil, err
 	}
+	al.shared = cfg.Backend
 	al.rot, al.log = cfg.Audit.Rotation, cfg.Log
 	fwds, err := newAuditForwarders(cfg.Audit.Export, cfg.DataDir, al, cfg.Log)
 	if err != nil {
 		_ = al.close() // already failing
 		return nil, err
 	}
-	bs, err := openBudgetStore(cfg.DataDir)
+	bs, err := openBudgetStore(cfg.DataDir, cfg.Backend)
 	if err != nil {
 		_ = al.close() // already failing
 		return nil, err
 	}
-	if cfg.gatewayToken(capBudget) != "" && cfg.DataDir == "" {
+	if cfg.gatewayToken(capBudget) != "" && cfg.DataDir == "" && cfg.Backend == nil {
 		cfg.Log.Warn("no --data-dir: gateway budget counters are in memory and reset on restart")
 	}
 	s := &Server{cfg: cfg, tokSum: sha256.Sum256([]byte(cfg.Token)), pol: &policyHolder{dir: cfg.PolicyDir, log: cfg.Log}, reqs: reqs, devices: devs, revoked: revoked,
-		auditLog: al, forwarders: fwds, relCache: &releaseCache{byKey: map[string]cachedPointer{}, chans: map[string][]string{}}, budgets: bs}
+		auditLog: al, forwarders: fwds, relCache: &releaseCache{byKey: map[string]cachedPointer{}, chans: map[string][]string{}}, budgets: bs, kv: kv}
+	s.oidc.kv, s.enroll.kv = kv, kv
 	s.relFetch, s.relChannels = s.registryFetch, s.registryChannels
 	if s.kills = cfg.KillStore; s.kills == nil {
-		if s.kills, err = controller.OpenKillStore(cfg.DataDir); err != nil {
+		if cfg.Backend != nil {
+			ctx, cancel := storage.Ctx()
+			s.kills, err = controller.NewKillStore(ctx, cfg.Backend)
+			cancel()
+		} else {
+			s.kills, err = controller.OpenKillStore(cfg.DataDir)
+		}
+		if err != nil {
 			return nil, err
 		}
 	}
@@ -227,6 +253,22 @@ func orDefault(l *slog.Logger) *slog.Logger {
 // ReloadPolicy forces a policy reload on next read (wire to SIGHUP).
 func (s *Server) ReloadPolicy() { s.pol.Invalidate() }
 
+// Policy is the policy this server serves: the last load that passed
+// policy.SecurityIssues (a refused or broken reload keeps the previous one),
+// with the workload rule removals of a refused load applied
+// (policy.TightenWorkloads). The in-process controller acts on it, so the
+// leader never acts on a policy its own API, or any replica's, refuses.
+func (s *Server) Policy() (*policy.Org, error) {
+	org, _, err := s.pol.Get()
+	if org == nil {
+		if err == nil {
+			err = errors.New("policy not loaded")
+		}
+		return nil, err
+	}
+	return org, nil
+}
+
 // Handler returns the full mux with security headers and request logging.
 func (s *Server) Handler() http.Handler {
 	return s.logging(secure(s.mux().ServeMux))
@@ -238,15 +280,21 @@ func (s *Server) mux() *routeMux {
 	m := &routeMux{ServeMux: http.NewServeMux()}
 	// /healthz: liveness — process is alive. Always 200.
 	m.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "ok\n") })
-	// /readyz: readiness — policy loaded. 503 until the first successful policy load.
+	// /readyz: readiness — policy loaded and, with a shared Backend, the
+	// database reachable. 503 until the first successful policy load.
 	m.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
-		org, _, err := s.pol.Get()
-		if org == nil {
-			msg := "policy not loaded"
+		if b := s.cfg.Backend; b != nil {
+			ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+			err := b.Ping(ctx)
+			cancel()
 			if err != nil {
-				msg += ": " + err.Error()
+				s.cfg.Log.Warn("readyz: database unreachable", "err", err)
+				apiErr(w, http.StatusServiceUnavailable, "database unreachable")
+				return
 			}
-			apiErr(w, http.StatusServiceUnavailable, msg)
+		}
+		if org, _, err := s.pol.Get(); org == nil {
+			s.policyUnavailable(w, err) // public endpoint: the load error stays in the log
 			return
 		}
 		_, _ = io.WriteString(w, "ok\n")
@@ -377,6 +425,18 @@ func decodeBody(w http.ResponseWriter, r *http.Request, limit int64, v any) erro
 
 func apiErr(w http.ResponseWriter, code int, msg string) {
 	writeJSON(w, code, map[string]string{"error": msg})
+}
+
+// errPolicyUnavailable is all a client learns when no policy is loaded: the
+// load error quotes policy content (paths, names, validation findings), so it
+// is logged, never returned, and unauthenticated callers cannot read policy
+// through it. Admins see it in the logs and in `halo validate`.
+const errPolicyUnavailable = "policy not loaded"
+
+// policyUnavailable logs err and answers a generic 503.
+func (s *Server) policyUnavailable(w http.ResponseWriter, err error) {
+	s.cfg.Log.Error("policy unavailable", "err", err)
+	apiErr(w, http.StatusServiceUnavailable, errPolicyUnavailable)
 }
 
 // ---- fleet ----
@@ -534,7 +594,7 @@ func (s *Server) getPolicy(w http.ResponseWriter, _ *http.Request, _ Principal) 
 	org, view, err := s.pol.Get()
 	if org == nil {
 		s.cfg.Log.Error("policy unavailable", "err", err)
-		apiErr(w, http.StatusServiceUnavailable, "policy not loaded: "+err.Error())
+		s.policyUnavailable(w, err)
 		return
 	}
 	if err != nil { // stale-but-serving: tell the console
@@ -552,10 +612,10 @@ type ExperimentDetail struct {
 func (s *Server) experiments(w http.ResponseWriter) ([]ExperimentDetail, bool) {
 	org, view, err := s.pol.Get()
 	if org == nil {
-		apiErr(w, http.StatusServiceUnavailable, "policy not loaded: "+err.Error())
+		s.policyUnavailable(w, err)
 		return nil, false
 	}
-	vs, verr := LoadVerdicts(s.cfg.VerdictsPath)
+	vs, verr := s.verdicts()
 	if verr != nil {
 		s.cfg.Log.Warn("verdicts unreadable", "path", s.cfg.VerdictsPath, "err", verr)
 	}
@@ -633,7 +693,7 @@ func (s *Server) whoami(w http.ResponseWriter, r *http.Request, p Principal) {
 	}
 	org, _, err := s.pol.Get()
 	if org == nil {
-		apiErr(w, http.StatusServiceUnavailable, "policy not loaded: "+err.Error())
+		s.policyUnavailable(w, err)
 		return
 	}
 	sub := policy.Subject{ID: user, Groups: groups}

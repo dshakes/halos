@@ -56,6 +56,11 @@ type Config struct {
 	PriceOutPerMTok float64
 	HTTP            *http.Client // default: NewHTTPClient()
 	Log             *slog.Logger
+	// Budget, when set, replaces the per-process budget (BudgetUSD) with a
+	// shared one (SharedBudget), so the cap holds across replicas.
+	Budget Budget
+	// Ping, when set, gates /readyz on the shared store being reachable.
+	Ping func(context.Context) error
 }
 
 // NewHTTPClient never follows redirects (a 3xx is recorded as the response:
@@ -82,8 +87,7 @@ type Server struct {
 	wg    sync.WaitGroup
 
 	mirrored, dropped, errors atomic.Int64
-	mu                        sync.Mutex
-	spent, reserved           float64
+	budget                    Budget
 }
 
 // side is one fully resolved call target.
@@ -94,6 +98,7 @@ type side struct {
 }
 
 type task struct {
+	id        string // reservation and pair id
 	j         Job
 	ctl, cand side
 	reserve   float64
@@ -118,7 +123,11 @@ func New(cfg Config, store Store) *Server {
 	if cfg.Policy == nil {
 		cfg.Policy = func() (*policy.Org, error) { return nil, errors.New("shadow: no policy source configured") }
 	}
-	return &Server{cfg: cfg, store: store, q: make(chan task, cfg.Queue)}
+	s := &Server{cfg: cfg, store: store, q: make(chan task, cfg.Queue), budget: cfg.Budget}
+	if s.budget == nil {
+		s.budget = &localBudget{limit: cfg.BudgetUSD}
+	}
+	return s
 }
 
 // Start launches workers; they exit when ctx is cancelled after finishing
@@ -142,27 +151,45 @@ func (s *Server) Start(ctx context.Context) {
 
 func (s *Server) Wait() { s.wg.Wait() }
 
-// Spent is the running estimated spend in USD (settled jobs only).
-func (s *Server) Spent() float64 { s.mu.Lock(); defer s.mu.Unlock(); return s.spent }
+// budgetTimeout bounds one budget call against a shared store.
+const budgetTimeout = 5 * time.Second
 
-// reserve atomically books est against the budget; false = over budget.
-func (s *Server) reserve(est float64) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.spent+s.reserved+est > s.cfg.BudgetUSD {
-		return false
+// Spent is the running estimated spend in USD (settled jobs only); with a
+// shared budget, every replica's. A store error reads as 0 and is logged.
+func (s *Server) Spent() float64 {
+	ctx, cancel := context.WithTimeout(context.Background(), budgetTimeout)
+	defer cancel()
+	v, err := s.budget.Spent(ctx)
+	if err != nil {
+		s.cfg.Log.Error("read spend", "err", err)
 	}
-	s.reserved += est
-	return true
+	return v
 }
 
-// settle swaps a reservation for the charged cost (see process: never less
+// reserve atomically books t's estimate against the budget; false = over
+// budget, or the shared budget is unreachable (nothing is spent unbooked).
+func (s *Server) reserve(ctx context.Context, t task) bool {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), budgetTimeout)
+	defer cancel()
+	ok, err := s.budget.Reserve(ctx, t.id, t.reserve)
+	if err != nil {
+		s.errors.Add(1)
+		s.cfg.Log.Error("reserve budget", "err", err)
+		return false
+	}
+	return ok
+}
+
+// settle swaps t's reservation for the charged cost (see process: never less
 // than the estimate, so unparseable usage can't zero the spend).
-func (s *Server) settle(est, actual float64) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.reserved -= est
-	s.spent += actual
+func (s *Server) settle(t task, actual float64) {
+	ctx, cancel := context.WithTimeout(context.Background(), budgetTimeout)
+	defer cancel()
+	if err := s.budget.Settle(ctx, t.id, t.reserve, actual); err != nil {
+		// A shared reservation left behind is reaped and charged in full at expiry.
+		s.errors.Add(1)
+		s.cfg.Log.Error("settle budget", "id", t.id, "err", err)
+	}
 }
 
 func (s *Server) authorized(r *http.Request) bool {
@@ -176,7 +203,17 @@ func (s *Server) Handler() http.Handler {
 	// /healthz: liveness — process is alive. Always 200.
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "ok\n") })
 	// /readyz: readiness — policy snapshot loaded. 503 until the snapshot is readable.
-	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
+		if s.cfg.Ping != nil {
+			ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+			err := s.cfg.Ping(ctx)
+			cancel()
+			if err != nil {
+				s.cfg.Log.Warn("readyz: database unreachable", "err", err)
+				http.Error(w, "database unreachable", http.StatusServiceUnavailable)
+				return
+			}
+		}
 		if org, err := s.cfg.Policy(); org == nil {
 			msg := "policy not loaded"
 			if err != nil {
@@ -217,7 +254,7 @@ func (s *Server) handleMirror(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), status)
 		return
 	}
-	if !s.reserve(t.reserve) {
+	if !s.reserve(r.Context(), t) {
 		s.dropped.Add(1)
 		http.Error(w, "budget exhausted", http.StatusServiceUnavailable)
 		return
@@ -226,7 +263,7 @@ func (s *Server) handleMirror(w http.ResponseWriter, r *http.Request) {
 	case s.q <- t:
 		w.WriteHeader(http.StatusAccepted)
 	default:
-		s.settle(t.reserve, 0)
+		s.settle(t, 0)
 		s.dropped.Add(1)
 		http.Error(w, "queue full", http.StatusTooManyRequests)
 	}
@@ -287,7 +324,7 @@ func (s *Server) resolve(j Job) (task, int, error) {
 	if err != nil {
 		return task{}, http.StatusInternalServerError, err
 	}
-	return task{j: j, ctl: ctl, cand: cand, reserve: 2 * s.estimate(j.Body)}, 0, nil
+	return task{id: newID(), j: j, ctl: ctl, cand: cand, reserve: 2 * s.estimate(j.Body)}, 0, nil
 }
 
 func (s *Server) side(org *policy.Org, variant string, r policy.ModelRoute) (side, error) {
@@ -329,10 +366,10 @@ func (s *Server) process(ctx context.Context, t task) {
 	cost := s.cost(ctl) + s.cost(cand)
 	// Missing or unparseable usage must not zero the spend: charge at least
 	// the reservation, which is a deliberate over-estimate.
-	s.settle(t.reserve, max(cost, t.reserve))
+	s.settle(t, max(cost, t.reserve))
 
 	j := t.j
-	p := Pair{ID: newID(), Time: time.Now().UTC(), Experiment: j.Experiment, Ring: j.Ring, SessionID: j.SessionID,
+	p := Pair{ID: t.id, Time: time.Now().UTC(), Experiment: j.Experiment, Ring: j.Ring, SessionID: j.SessionID,
 		Protocol: j.Protocol, Request: j.Body, Control: ctl, Candidate: cand, CostUSD: cost}
 	// The upstream calls are already paid for: a shutdown (ctx cancelled)
 	// must not lose the pair, so the store gets its own short deadline.

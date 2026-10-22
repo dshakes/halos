@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/dshakes/halos/internal/gateway"
+	"github.com/dshakes/halos/internal/storage"
 )
 
 const (
@@ -744,7 +745,7 @@ func TestSCIMDeprovisionIgnoresCase(t *testing.T) {
 	if c := do(e.h, "POST", "/api/v1/enroll", "", `{"token":"`+pending+`"}`).Code; c != 401 {
 		t.Fatalf("pending enrollment after delete: %d, want 401", c)
 	}
-	r, err := openSessionRevocations(dir) // replay
+	r, err := openSessionRevocations(storage.Dir(dir)) // replay
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -761,7 +762,7 @@ func TestSessionRevocationReplayCanonical(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "session-revocations.jsonl"), []byte(`{"user":"Alice@Corp.com","at":100}`+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	r, err := openSessionRevocations(dir)
+	r, err := openSessionRevocations(storage.Dir(dir))
 	if err != nil {
 		t.Fatal(err)
 	}

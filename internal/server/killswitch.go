@@ -74,7 +74,7 @@ func (s *Server) killHandler(kill bool, kind string) authedHandler {
 		}
 		org, _, err := s.pol.Get()
 		if org == nil {
-			apiErr(w, http.StatusServiceUnavailable, "policy not loaded: "+err.Error())
+			s.policyUnavailable(w, err)
 			return
 		}
 		// Unkill is allowed for names no longer in policy, so stale kills can be cleared.

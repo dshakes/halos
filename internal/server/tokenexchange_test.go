@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/ed25519"
 	"crypto/hmac"
@@ -18,7 +19,9 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -369,5 +372,143 @@ func TestReplayCacheBounded(t *testing.T) {
 	}
 	if len(x.seen) != 1 {
 		t.Fatalf("pruned to %d", len(x.seen))
+	}
+}
+
+// halo_server_workload_rules_skipped is a gauge of the rules in effect that
+// pin no tenant, set once per policy load: failed exchanges do not inflate it.
+func TestWorkloadRulesSkippedIsPerLoad(t *testing.T) {
+	e := newWorkloadEnv(t, true)
+	org, _, err := e.s.pol.Get()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A policy that skipped validation (unreachable after SecurityIssues; the
+	// gauge is defence in depth): one rule pins no tenant.
+	cp, wl := *org, *org.Workloads
+	wl.Rules = append(slices.Clone(wl.Rules), policy.WorkloadRule{Name: "any-main", Issuer: "github", Match: map[string]string{"ref": "refs/heads/main"}, Subject: "workload:gh:{repository}"})
+	cp.Workloads = &wl
+	e.s.pol.mu.Lock()
+	e.s.pol.org = &cp
+	e.s.pol.activate()
+	e.s.pol.mu.Unlock()
+	for i := 0; i < 3; i++ {
+		if w := e.post(exchangeForm(e.mint(t, "repository", "evil/x")), ""); w.Code != http.StatusBadRequest {
+			t.Fatalf("exchange %d: %d %s", i, w.Code, w.Body)
+		}
+	}
+	var m bytes.Buffer
+	e.s.WriteMetrics(&m)
+	if !strings.Contains(m.String(), "# TYPE halo_server_workload_rules_skipped gauge\nhalo_server_workload_rules_skipped 1\n") {
+		t.Fatalf("want the gauge at 1 after 3 failed exchanges:\n%s", m.String())
+	}
+}
+
+// Shared CI egress (GitHub-hosted runners, NAT) puts many tenants behind one
+// IP, so the exchange's failed-attempt budget counts only subject tokens that
+// are malformed or not signed by a trusted issuer. Tokens a neighbour can
+// mint (signed, but matching no rule, expired, for another audience) cost
+// nothing; a signed token passes even once the IP is blocked, verified from
+// cached keys only (a blocked IP never makes halo-server fetch the JWKS);
+// replay protection still holds. The same holds for delegation exchanges.
+func TestExchangeLimiterCountsOnlyForgeries(t *testing.T) {
+	e := newWorkloadEnv(t, true)
+	var jwksFetches atomic.Int64
+	inner := e.isrv.Config.Handler
+	e.isrv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/jwks" {
+			jwksFetches.Add(1)
+		}
+		inner.ServeHTTP(w, r)
+	})
+	const ip = "203.0.113.7"
+	// A neighbour's signed tokens that match no rule or fail claim checks.
+	for i := 0; i < authFailBurst+2; i++ {
+		for _, kv := range [][]any{{"repository", "evil/x"}, {"exp", time.Now().Add(-time.Hour).Unix()}, {"aud", "other"}} {
+			if w := e.post(exchangeForm(e.mint(t, kv...)), ip); w.Code != http.StatusBadRequest {
+				t.Fatalf("signed but unusable token %v: %d %s, want 400", kv, w.Code, w.Body)
+			}
+		}
+	}
+	if w := e.post(exchangeForm(e.mint(t)), ip); w.Code != http.StatusOK {
+		t.Fatalf("victim after a neighbour's signed-but-unmatched tokens: %d %s, want 200 (not counted)", w.Code, w.Body)
+	}
+	// Forgeries count, and block the IP.
+	for i := 0; i < authFailBurst; i++ {
+		if w := e.post(exchangeForm("a.b.c"), ip); w.Code != http.StatusBadRequest {
+			t.Fatalf("garbage %d: %d", i, w.Code)
+		}
+	}
+	if w := e.post(exchangeForm("a.b.c"), ip); w.Code != http.StatusTooManyRequests {
+		t.Fatalf("garbage after the burst: %d, want 429", w.Code)
+	}
+	// A signed token still passes from the blocked IP.
+	ci := e.mint(t)
+	w := e.post(exchangeForm(ci), ip)
+	if w.Code != http.StatusOK {
+		t.Fatalf("signed token from the blocked IP: %d %s, want 200", w.Code, w.Body)
+	}
+	var resp TokenExchangeResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if w := e.post(exchangeForm(ci), ip); w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "replay") {
+		t.Fatalf("replay from the blocked IP: %d %s, want 400 replay", w.Code, w.Body)
+	}
+	// A token signed by a key the issuer never published: from the blocked
+	// IP it is refused from cache, without a JWKS fetch.
+	rogue, err := identitytest.NewIssuer("rogue")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rogue.URL = e.iss.URL
+	forged, err := rogue.Mint(e.ghClaims())
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := jwksFetches.Load()
+	if w := e.post(exchangeForm(forged), ip); w.Code != http.StatusTooManyRequests {
+		t.Fatalf("forged token from the blocked IP: %d, want 429", w.Code)
+	}
+	if n := jwksFetches.Load(); n != before {
+		t.Fatalf("a blocked IP made halo-server fetch the JWKS (%d fetches)", n-before)
+	}
+	if w := e.post(exchangeForm(forged), ""); w.Code != http.StatusBadRequest || jwksFetches.Load() == before {
+		t.Fatalf("forged token from a fresh IP: %d, fetches %d, want 400 after a JWKS refetch", w.Code, jwksFetches.Load()-before)
+	}
+
+	// Delegation: a Halos credential passes from the blocked IP (it then
+	// fails on policy, not on the limiter); garbage counts.
+	del := url.Values{"grant_type": {grantTokenExchange}, "subject_token": {resp.AccessToken}, "subject_token_type": {tokenTypeJWT}, "actor_id": {"planner"}}
+	if w := e.post(del, ip); w.Code == http.StatusTooManyRequests {
+		t.Fatalf("delegation with a valid credential from the blocked IP: %d %s", w.Code, w.Body)
+	}
+	garbage := url.Values{"grant_type": {grantTokenExchange}, "subject_token": {"x"}, "subject_token_type": {tokenTypeSession}, "actor_id": {"planner"}}
+	if w := e.post(garbage, ip); w.Code != http.StatusTooManyRequests {
+		t.Fatalf("garbage delegation from the blocked IP: %d, want 429", w.Code)
+	}
+	const ip2 = "203.0.113.8"
+	for i := 0; i < authFailBurst; i++ {
+		if w := e.post(garbage, ip2); w.Code != http.StatusBadRequest {
+			t.Fatalf("garbage delegation %d: %d", i, w.Code)
+		}
+	}
+	if w := e.post(garbage, ip2); w.Code != http.StatusTooManyRequests {
+		t.Fatalf("garbage delegation after the burst: %d, want 429", w.Code)
+	}
+	// Agent egress shares the bucket and the rule.
+	egress := func(bearer string) int {
+		r := httptest.NewRequest("POST", "/api/v1/agents/egress", strings.NewReader(`{"agent":"x"}`))
+		r.Header.Set("Authorization", "Bearer "+bearer)
+		r.RemoteAddr = ip + ":5555"
+		w := httptest.NewRecorder()
+		e.h.ServeHTTP(w, r)
+		return w.Code
+	}
+	if c := egress(resp.AccessToken); c == http.StatusTooManyRequests || c == http.StatusUnauthorized {
+		t.Fatalf("egress with a valid credential from the blocked IP: %d", c)
+	}
+	if c := egress("a.b.c"); c != http.StatusTooManyRequests {
+		t.Fatalf("egress with garbage from the blocked IP: %d, want 429", c)
 	}
 }

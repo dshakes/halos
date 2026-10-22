@@ -48,13 +48,18 @@ policy:
 server:
   enabled: true
   image: {repository: dshakes/halo-server, tag: "", digest: ""}
-  # STATE MODEL: halo-server is a SINGLE WRITER. Devices, requests, reports, audit, session revocations, kills and
-  # controller state are append-only JSONL files in --data-dir, replayed into process memory at start (only the kill
-  # store re-reads on external appends); there is no locking, no leader election and no replication, and the
-  # controller loop would run once per replica. Hence replicas is pinned to 1 (values.schema.json) with a Recreate
-  # strategy on the RWO volume: an upgrade or reschedule means a short outage of the console/enrollment/kill-list
-  # endpoints (gateways keep their last-known kill list). Do NOT work around the pin.
+  # STATE MODEL (ADR-0021). Default: a SINGLE WRITER. Devices, requests, reports, audit, session revocations, kills and
+  # controller state are append-only JSONL files in --data-dir (persistence), replayed into memory at start; replicas is
+  # pinned to 1 (values.schema.json) with a Recreate strategy on the RWO volume, so an upgrade or reschedule is a short
+  # outage of the console/enrollment/kill-list endpoints (gateways keep their last-known kill list).
+  # HA: set database.existingSecret (and persistence.enabled: false). State then lives in Postgres, every replica serves,
+  # the experiment controller runs on the one replica holding the leader lease, /readyz fails while Postgres is
+  # unreachable, and a PodDisruptionBudget is rendered. Move an existing data dir with `halo-server import`.
   replicas: 1
+  # Postgres (HA). existingSecret holds the URL under `key`, e.g. postgres://halos:PASS@pg:5432/halos?sslmode=verify-full.
+  # autoMigrate: apply schema migrations on start (else run `halo-server migrate --database-url-file F` first; see the
+  # operations guide). leaseTTL: controller leader lease; a dead leader is replaced within about this long.
+  database: {existingSecret: "", key: url, autoMigrate: false, leaseTTL: 15s}
   port: 8080
   args: []                         # extra halo-server flags
   extraEnv: []
@@ -84,6 +89,10 @@ server:
   # The gateways (halo-proxy / halo-kong) poll GET /api/v1/gateway/killswitch with that token and verify the signature.
   # Requires persistence.enabled (kills live in --data-dir/killswitch.jsonl and must survive a restart).
   killSwitch: {existingSecret: "", signingKey: signing-key, gatewayToken: gateway-token}
+  # Per-capability gateway tokens (recommended): one Secret, a key per capability -> --gateway-<cap>-token-file. A capability
+  # with a key accepts only that token; one without falls back to killSwitch.gatewayToken. Give each gateway only the
+  # tokens it needs (e.g. proxy.killSwitch.token -> the killswitch key). Empty key = not set.
+  gatewayTokens: {existingSecret: "", killswitch: "", posture: "", budget: "", directory: ""}
   # Metrics listener (--metrics-listen, controller /metrics, UNAUTHENTICATED: keep internal). Adds a `metrics`
   # container/Service port; NetworkPolicy admits only networkPolicy.metricsFrom. ServiceMonitor scrapes it.
   metrics: {enabled: false, port: 9092}
@@ -134,7 +143,7 @@ server:
   resources:
     requests: {cpu: 100m, memory: 128Mi}
     limits: {memory: 512Mi}
-  pdb: {enabled: false, maxUnavailable: 1}   # single replica: a PDB would block node drains
+  pdb: {enabled: false, maxUnavailable: 1}   # single replica: a PDB would block node drains (always rendered for HA replicas > 1)
   nodeSelector: {}
   tolerations: []
   affinity: {}
@@ -243,10 +252,13 @@ proxy:
 shadow:
   enabled: false
   image: {repository: dshakes/halo-shadow, tag: "", digest: ""}
-  # STATE MODEL: NOT stateless. Pairs are appended to one JSONL file and the spend budget is an in-process counter
-  # (resets on restart), so a second replica would split pairs across files and multiply the budget. Pinned to 1
-  # (values.schema.json). Losing halo-shadow only loses mirrored evidence; client traffic is unaffected.
+  # STATE MODEL. Default: pairs are appended to one JSONL file and the spend budget is an in-process counter (resets on
+  # restart), so replicas is pinned to 1 (values.schema.json). HA: set database.existingSecret (and persistence.enabled:
+  # false): workers are stateless, pairs go to Postgres (sealed with pairKey exactly as in the file) and budgetUSD is ONE
+  # budget across all replicas (database.budgetScope names it; a new name starts a fresh budget). Losing halo-shadow only
+  # loses mirrored evidence; client traffic is unaffected.
   replicas: 1
+  database: {existingSecret: "", key: url, autoMigrate: false, budgetScope: default}
   port: 8090
   # Listens on 0.0.0.0 in-cluster (binary default is 127.0.0.1); NetworkPolicy restricts ingress to
   # halo-proxy (+ networkPolicy.ingressFrom.halo-shadow, e.g. Kong pods).
@@ -283,7 +295,7 @@ shadow:
   resources:
     requests: {cpu: 100m, memory: 128Mi}
     limits: {memory: 512Mi}
-  pdb: {enabled: false, maxUnavailable: 1}
+  pdb: {enabled: false, maxUnavailable: 1}   # always rendered for HA replicas > 1
   nodeSelector: {}
   tolerations: []
   affinity: {}
@@ -343,6 +355,8 @@ networkPolicy:
     otel: []                       # ClickHouse
   # Values-driven egress (raw NetworkPolicyPeer list in `to`; empty `to` = rule not rendered). Plain NetworkPolicy has
   # NO FQDN matching: use CIDRs / VPC-endpoint IPs, or a CNI-specific policy via egress.* (Cilium/Calico FQDN).
+  # Postgres for HA halo-server / halo-shadow (rendered for a component whose database.existingSecret is set).
+  databaseEgress: {to: [], ports: [5432]}  # e.g. [{ipBlock: {cidr: 10.20.0.0/24}}] (managed Postgres subnet)
   # halo-server controller (rendered only when server.controller.enabled):
   controllerEgress:
     clickhouse: {to: [], ports: [8123]}    # e.g. [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: data}}}]
