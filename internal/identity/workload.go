@@ -134,7 +134,7 @@ func VerifyWorkloadToken(keys []ed25519.PublicKey, tok string, now time.Time) (W
 		return WorkloadClaims{}, fmt.Errorf("identity: workload token payload: %w", err)
 	}
 	if err := c.check(now); err != nil {
-		return WorkloadClaims{}, fmt.Errorf("identity: workload token rejected: %w", err)
+		return WorkloadClaims{}, fmt.Errorf("identity: workload token rejected: %w", claimsError{err})
 	}
 	return c, nil
 }

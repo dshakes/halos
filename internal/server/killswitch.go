@@ -178,9 +178,10 @@ func (s *Server) gatewayEnabled(cp gatewayCap) bool {
 // budget (gwFails), and a valid token is accepted even from a blocked IP: a
 // gateway sharing an egress IP with someone sending garbage is never locked
 // out of its directory, posture, budget or kill list. The cost is that a
-// blocked guesser still learns when a guess is right; gateway tokens are at
-// least 16 characters (halo-server refuses shorter), so guessing stays
-// infeasible for a random token.
+// blocked guesser still learns when a guess is right; halo-server refuses
+// to start with a gateway token under 32 characters or 128 bits of
+// estimated entropy (cmd/halo-server checkGatewayToken), so guessing is
+// infeasible.
 func (s *Server) gatewayAuth(w http.ResponseWriter, r *http.Request, cp gatewayCap) bool {
 	tok, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	sum := sha256.Sum256([]byte(tok)) // hash first: constant-time regardless of length

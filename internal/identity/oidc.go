@@ -24,8 +24,8 @@ var AllowedAlgs = []string{"RS256", "ES256", "EdDSA"}
 var ErrDiscovery = errors.New("identity: oidc discovery")
 
 // OIDCJWT verifies a bearer JWT issued by the org's IdP: discovery + JWKS
-// (cached, refetched on unknown kid so key rotation works), then iss / aud /
-// exp / nbf and the alg allowlist.
+// (cached, refetched when no cached key verifies so key rotation works; never
+// fetched under CacheOnly), then iss / aud / exp / nbf and the alg allowlist.
 type OIDCJWT struct {
 	Issuer, Audience       string
 	UserClaim, GroupsClaim string
@@ -35,6 +35,7 @@ type OIDCJWT struct {
 	client               *http.Client
 	mu                   sync.Mutex
 	verifier             *oidc.IDTokenVerifier
+	keys                 *jwksKeySet
 }
 
 // NewOIDCJWT never touches the network; discovery happens on first Verify (and
@@ -56,20 +57,30 @@ func NewOIDCJWT(issuer, audience, userClaim, groupsClaim string, client *http.Cl
 	return &OIDCJWT{Issuer: issuer, Audience: audience, UserClaim: userClaim, GroupsClaim: groupsClaim, client: client}, nil
 }
 
-func (o *OIDCJWT) idVerifier() (*oidc.IDTokenVerifier, error) {
+func (o *OIDCJWT) idVerifier(ctx context.Context) (*oidc.IDTokenVerifier, *jwksKeySet, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	if o.verifier != nil {
-		return o.verifier, nil
+		return o.verifier, o.keys, nil
 	}
-	// Background ctx on purpose: the provider keeps it for later JWKS fetches,
-	// so it must outlive the first request. The client carries the timeout.
+	if cacheOnly(ctx) {
+		return nil, nil, fmt.Errorf("%w for %s: not yet discovered and the request may not trigger it", ErrDiscovery, o.Issuer)
+	}
+	// Background ctx on purpose: discovery must not die with one request.
+	// The client carries the timeout.
 	p, err := oidc.NewProvider(oidc.ClientContext(context.Background(), o.client), o.Issuer)
 	if err != nil {
-		return nil, fmt.Errorf("%w for %s: %w", ErrDiscovery, o.Issuer, err)
+		return nil, nil, fmt.Errorf("%w for %s: %w", ErrDiscovery, o.Issuer, err)
 	}
-	o.verifier = p.Verifier(&oidc.Config{ClientID: o.Audience, SupportedSigningAlgs: AllowedAlgs})
-	return o.verifier, nil
+	var meta struct {
+		JWKS string `json:"jwks_uri"`
+	}
+	if err := p.Claims(&meta); err != nil || meta.JWKS == "" {
+		return nil, nil, fmt.Errorf("%w for %s: no jwks_uri", ErrDiscovery, o.Issuer)
+	}
+	o.keys = &jwksKeySet{url: meta.JWKS, client: o.client}
+	o.verifier = oidc.NewVerifier(o.Issuer, o.keys, &oidc.Config{ClientID: o.Audience, SupportedSigningAlgs: AllowedAlgs})
+	return o.verifier, o.keys, nil
 }
 
 func (o *OIDCJWT) Verify(r *http.Request) (policy.Subject, error) {
@@ -85,16 +96,22 @@ func (o *OIDCJWT) Verify(r *http.Request) (policy.Subject, error) {
 }
 
 // Claims verifies tok (signature via JWKS, alg allowlist, iss, aud, exp, nbf)
-// and returns its claims.
+// and returns its claims. A token whose signature verified but whose claims
+// failed is reported with ErrClaimsRejected. Under CacheOnly(ctx) nothing is
+// fetched: no discovery, no JWKS refetch.
 func (o *OIDCJWT) Claims(ctx context.Context, tok string) (map[string]any, error) {
-	v, err := o.idVerifier()
+	v, _, err := o.idVerifier(ctx)
 	if err != nil {
 		return nil, err
 	}
 	// ctx bounds the JWKS fetch on unknown kid (with the client timeout);
 	// verification itself is local.
-	idt, err := v.Verify(oidc.ClientContext(ctx, o.client), tok)
+	sig := &sigVerified{}
+	idt, err := v.Verify(context.WithValue(ctx, sigVerifiedKey{}, sig), tok)
 	if err != nil {
+		if sig.ok { // go-oidc checks the signature before any claim
+			err = claimsError{err}
+		}
 		return nil, fmt.Errorf("identity: jwt rejected: %w", err)
 	}
 	var claims map[string]any

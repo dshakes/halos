@@ -233,8 +233,12 @@ func (s *Server) getGatewayDirectory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sub := r.URL.Query().Get("subject")
-	if sub == "" || len(sub) > 256 {
-		apiErr(w, http.StatusBadRequest, "subject required (<=256 chars)")
+	if sub == "" {
+		apiErr(w, http.StatusBadRequest, "subject required")
+		return
+	}
+	if len(sub) > 256 { // no SCIM userName is this long: inactive, never an error a gateway could fail open on
+		writeJSON(w, http.StatusOK, gateway.DirectoryEntry{})
 		return
 	}
 	u, groups, ok := s.scim.store.Lookup(sub)

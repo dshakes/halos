@@ -189,7 +189,7 @@ func newLoopRig(t *testing.T, exp string, cand *upstream) *loopRig {
 	r.data, r.keys, r.verdicts = filepath.Join(r.dir, "data"), filepath.Join(r.dir, "keys"), filepath.Join(r.dir, "verdicts.json")
 	must(t, nil, "halo", "keys", "generate", "--name", "killswitch", "--out", r.keys)
 	writeFile(t, filepath.Join(r.dir, "fleet.token"), "e2e-fleet-token\n")
-	writeFile(t, filepath.Join(r.dir, "gateway.token"), "e2e-gateway-token-0123456789\n")
+	writeFile(t, filepath.Join(r.dir, "gateway.token"), "7c1e94a2f05b3d68e7c194a2f05b3d68e2a4c6e8f0b1d3a5\n")
 	writeFile(t, filepath.Join(r.dir, "ch.pass"), chPass+"\n")
 	writeFile(t, filepath.Join(r.dir, "otlp.token"), gatewayToken+"\n")
 	writeFile(t, filepath.Join(r.dir, "unit.salt"), "closed-loop-e2e\n")

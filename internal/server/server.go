@@ -15,7 +15,6 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/dshakes/halos/internal/controller"
@@ -121,7 +120,6 @@ type Server struct {
 	scim          *scimService            // nil = SCIM off
 	budgets       *budgetStore
 	wl            workloadExchange
-	wlSkipped     atomic.Uint64 // unpinned workload rules skipped at exchange
 }
 
 // New validates cfg and returns a Server. It does not require the policy dir to load yet.

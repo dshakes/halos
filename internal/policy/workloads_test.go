@@ -81,6 +81,49 @@ func TestMatchWorkloadSkipsUnpinnedRules(t *testing.T) {
 	}
 }
 
+// A known issuer's tenantClaim that is not one of its tenant claims (GitHub
+// plus tenantClaim: ref) cannot make "ref: refs/heads/main" a tenant pin:
+// that rule would mint for every repository on GitHub. MatchWorkload and
+// Validate (hence SecurityIssues) both ignore the bogus tenantClaim.
+func TestKnownIssuerIgnoresForeignTenantClaim(t *testing.T) {
+	// "repository" is a real tenant claim, but the rule does not match it.
+	for _, claim := range []string{"ref", "environment", "sub", "repository"} {
+		t.Run(claim, func(t *testing.T) {
+			w := ghWorkloads()
+			w.Issuers[0].TenantClaim = claim
+			w.Rules = []WorkloadRule{{Name: "main", Issuer: "github", Match: map[string]string{"ref": "refs/heads/main", "sub": "*", "environment": "prod"}, Subject: "workload:gh:{repository}"}}
+			evil := map[string]any{"repository_owner": "evil", "repository": "evil/x", "ref": "refs/heads/main", "sub": "repo:evil/x", "environment": "prod"}
+			if r, sub, ok := w.MatchWorkload("github", evil); ok {
+				t.Fatalf("tenantClaim %s: another tenant's job matched rule %s as %s", claim, r.Name, sub)
+			}
+			if got := strings.Join(w.UnpinnedRules(), ","); got != "main" {
+				t.Fatalf("UnpinnedRules = %q, want main", got)
+			}
+			o := &Org{Workloads: w}
+			sec := SecurityIssues(o)
+			if !hasIssue(sec, "workloads.rules[0].match", "pins no tenant") {
+				t.Fatalf("SecurityIssues does not refuse the rule: %v", sec)
+			}
+		})
+	}
+	// A real tenant claim still narrows: repository_owner pinned is enough.
+	w := ghWorkloads()
+	w.Issuers[0].TenantClaim = "repository_owner"
+	w.Rules = []WorkloadRule{{Name: "owner", Issuer: "github", Match: map[string]string{"repository_owner": "acme"}, Subject: "workload:gh:{repository}"}}
+	if _, _, ok := w.MatchWorkload("github", map[string]any{"repository_owner": "acme", "repository": "acme/app"}); !ok {
+		t.Fatal("rule pinned by the issuer's narrowed tenant claim did not match")
+	}
+}
+
+func hasIssue(iss []Issue, path, msg string) bool {
+	for _, i := range iss {
+		if i.Path == path && strings.Contains(i.Message, msg) {
+			return true
+		}
+	}
+	return false
+}
+
 func TestWorkloadSubjectExpansion(t *testing.T) {
 	r := WorkloadRule{Name: "r", Issuer: "i", Match: map[string]string{"sub": "x"}}
 	for _, tc := range []struct {

@@ -56,7 +56,7 @@ func TestGatewayEnforcement(t *testing.T) {
 	addr := freeAddr(t)
 	base := "http://" + addr
 	writeFile(t, filepath.Join(dir, "fleet.token"), "e2e-fleet-token\n")
-	writeFile(t, filepath.Join(dir, "gateway.token"), "e2e-gateway-token-0123456789\n")
+	writeFile(t, filepath.Join(dir, "gateway.token"), "7c1e94a2f05b3d68e7c194a2f05b3d68e2a4c6e8f0b1d3a5\n")
 	writeFile(t, filepath.Join(dir, "session.key"), "e2e-session-key-0123456789abcdef0123456789abcdef\n")
 	pc, _ := json.Marshal(map[string]any{
 		"baseURL": base, "registry": repo, "registryPlainHTTP": true, "pubKeyFile": filepath.Join(keys, "halo.pub"),

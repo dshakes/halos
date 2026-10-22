@@ -138,7 +138,12 @@ func TestReadGatewayTokens(t *testing.T) {
 		}
 		return p
 	}
-	shared, budget, short := file("s", "shared-token-0123456789"), file("b", "budget-token-0123456789"), file("x", "short")
+	const sharedTok, budgetTok = "5f0c9e2a7b14d863a1c0e9f2b7d4a6185f0c9e2a7b14d863", "c3a81f6e29d07b45e8f1a2c6d9b03e74c3a81f6e29d07b45"
+	shared, budget, short := file("s", sharedTok), file("b", budgetTok), file("x", "short")
+	// 40 characters but a repeated pattern: long enough, guessable.
+	weak := file("w", strings.Repeat("ab", 20))
+	// 32 characters over 8 symbols: 96 bits.
+	lowEntropy := file("l", strings.Repeat("abcdefgh", 4))
 	for _, c := range []struct {
 		name   string
 		o      options
@@ -147,11 +152,17 @@ func TestReadGatewayTokens(t *testing.T) {
 		err    string
 	}{
 		{"none", options{}, "", [4]string{}, ""},
-		{"shared only", options{gatewayTokenFile: shared}, "shared-token-0123456789", [4]string{}, ""},
-		{"budget only", options{gatewayCapTokenFiles: [4]string{2: budget}}, "", [4]string{2: "budget-token-0123456789"}, ""},
-		{"shared and budget", options{gatewayTokenFile: shared, gatewayCapTokenFiles: [4]string{2: budget}}, "shared-token-0123456789", [4]string{2: "budget-token-0123456789"}, ""},
-		{"short shared", options{gatewayTokenFile: short}, "", [4]string{}, "--gateway-token-file: token must be at least 16"},
-		{"short directory", options{gatewayCapTokenFiles: [4]string{3: short}}, "", [4]string{}, "--gateway-directory-token-file: token must be at least 16"},
+		{"shared only", options{gatewayTokenFile: shared}, sharedTok, [4]string{}, ""},
+		{"budget only", options{gatewayCapTokenFiles: [4]string{2: budget}}, "", [4]string{2: budgetTok}, ""},
+		{"shared and budget", options{gatewayTokenFile: shared, gatewayCapTokenFiles: [4]string{2: budget}}, sharedTok, [4]string{2: budgetTok}, ""},
+		{"short shared", options{gatewayTokenFile: short}, "", [4]string{}, "--gateway-token-file: token is 5 characters, want at least 32; generate one with: openssl rand -hex 32"},
+		{"short directory", options{gatewayCapTokenFiles: [4]string{3: short}}, "", [4]string{}, "--gateway-directory-token-file: token is 5 characters"},
+		{"repeated pattern shared", options{gatewayTokenFile: weak}, "", [4]string{}, "--gateway-token-file: token has about 40 bits of entropy"},
+		{"low entropy killswitch", options{gatewayCapTokenFiles: [4]string{0: lowEntropy}}, "", [4]string{}, "--gateway-killswitch-token-file: token has about 96 bits"},
+		{"low entropy posture", options{gatewayCapTokenFiles: [4]string{1: weak}}, "", [4]string{}, "openssl rand -hex 32"},
+		{"low entropy budget", options{gatewayCapTokenFiles: [4]string{2: lowEntropy}}, "", [4]string{}, "--gateway-budget-token-file"},
+		// 31 distinct characters (153 bits) but one short of the minimum length.
+		{"31 characters", options{gatewayTokenFile: file("31", "0123456789abcdefghijklmnopqrstu")}, "", [4]string{}, "token is 31 characters, want at least 32"},
 		{"same as shared", options{gatewayTokenFile: shared, gatewayCapTokenFiles: [4]string{1: shared}}, "", [4]string{}, "--gateway-posture-token-file: must differ"},
 		{"missing file", options{gatewayCapTokenFiles: [4]string{0: filepath.Join(dir, "nope")}}, "", [4]string{}, "--gateway-killswitch-token-file"},
 	} {
@@ -253,7 +264,7 @@ func TestRun(t *testing.T) {
 		return p
 	}
 	tokFile := write("tok", "fleet-token\n")
-	gwFile := write("gw", "gateway-token-0123456789")
+	gwFile := write("gw", "0d9f3b7e1a6c4528e0d9f3b7e1a6c452")
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -278,7 +289,7 @@ func TestRun(t *testing.T) {
 		{"missing portal config", append(common, "--portal-config", filepath.Join(dir, "missing")), notExist},
 		{"unknown portal key", append(common, "--portal-config", write("portal.json", `{"nope":1}`)), "portal config"},
 		{"bad kill key", append(common, "--data-dir", t.TempDir(), "--killswitch-key-file", tokFile, "--gateway-token-file", gwFile), "--killswitch-key-file"},
-		{"short gateway token", append(common, "--data-dir", t.TempDir(), "--killswitch-key-file", keyFile, "--gateway-token-file", tokFile), "at least 16"},
+		{"short gateway token", append(common, "--data-dir", t.TempDir(), "--killswitch-key-file", keyFile, "--gateway-token-file", tokFile), "want at least 32"},
 		{"serves until cancelled", append(common, "--data-dir", t.TempDir(), "--killswitch-key-file", keyFile, "--gateway-token-file", gwFile), ""},
 		{"missing audit config", append(common, "--data-dir", t.TempDir(), "--audit-config", filepath.Join(dir, "missing")), notExist},
 		{"unknown audit key", append(common, "--data-dir", t.TempDir(), "--audit-config", write("audit.json", `{"rotation":{"maxbytes":1}}`)), "--audit-config"},
