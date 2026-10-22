@@ -218,7 +218,7 @@ var allLaunchers = []string{"devcontainer", "codespaces", "coder", "laptop"}
 func (s *Server) me(w http.ResponseWriter, r *http.Request, p Principal) {
 	org, _, err := s.pol.Get()
 	if org == nil {
-		apiErr(w, http.StatusServiceUnavailable, "policy not loaded: "+err.Error())
+		s.policyUnavailable(w, err)
 		return
 	}
 	ring := org.ResolveRing(p.subject())
@@ -251,7 +251,7 @@ func (s *Server) selfService(w http.ResponseWriter) *policy.Org {
 	org, _, err := s.pol.Get()
 	switch {
 	case org == nil:
-		apiErr(w, http.StatusServiceUnavailable, "policy not loaded: "+err.Error())
+		s.policyUnavailable(w, err)
 	case !org.SelfService.Enabled:
 		apiErr(w, http.StatusForbidden, "self-service is disabled")
 	default:

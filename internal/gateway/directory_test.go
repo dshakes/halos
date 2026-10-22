@@ -155,3 +155,55 @@ func TestNewDirectoryClient(t *testing.T) {
 		}
 	}
 }
+
+// TestDirectoryClientNeverFailsOpenOnInactiveOrRefusal: fail open is for an
+// outage only. A cached inactive entry stays refused past Grace while
+// halo-server is down, and a non-200 answer below 500 (an oversized subject,
+// a rejected token) is a refusal, not an outage to fail open on.
+func TestDirectoryClientNeverFailsOpenOnInactiveOrRefusal(t *testing.T) {
+	var status atomic.Int32
+	status.Store(http.StatusOK)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if s := int(status.Load()); s != http.StatusOK {
+			http.Error(w, "no", s)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(DirectoryEntry{}) // inactive
+	}))
+	t.Cleanup(srv.Close)
+	ctx := context.Background()
+
+	t.Run("cached inactive past grace", func(t *testing.T) {
+		c, err := NewDirectoryClient(srv.URL, "tok", time.Minute, 5*time.Minute, nil, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		now := time.Unix(1_000_000, 0)
+		c.Now = func() time.Time { return now }
+		mallory := &policy.Subject{ID: "mallory@acme.com"}
+		if _, err := c.Resolve(ctx, mallory); !errors.Is(err, ErrNotProvisioned) {
+			t.Fatalf("inactive: %v", err)
+		}
+		status.Store(http.StatusServiceUnavailable)
+		t.Cleanup(func() { status.Store(http.StatusOK) })
+		for _, age := range []time.Duration{2 * time.Minute, 10 * time.Minute, 24 * time.Hour} {
+			now = time.Unix(1_000_000, 0).Add(age)
+			if got, err := c.Resolve(ctx, mallory); got != nil || !errors.Is(err, ErrNotProvisioned) {
+				t.Fatalf("server down, cached inactive entry %s old: %+v %v, want ErrNotProvisioned", age, got, err)
+			}
+		}
+	})
+	for _, code := range []int{http.StatusBadRequest, http.StatusUnauthorized, http.StatusTooManyRequests, http.StatusFound} {
+		t.Run(http.StatusText(code), func(t *testing.T) {
+			status.Store(int32(code))
+			t.Cleanup(func() { status.Store(http.StatusOK) })
+			c, err := NewDirectoryClient(srv.URL, "tok", time.Minute, 5*time.Minute, nil, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, err := c.Resolve(ctx, &policy.Subject{ID: "x@acme.com"}); got != nil || !errors.Is(err, ErrNotProvisioned) {
+				t.Fatalf("HTTP %d: %+v %v, want ErrNotProvisioned (never fail open)", code, got, err)
+			}
+		})
+	}
+}

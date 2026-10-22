@@ -10,6 +10,8 @@ date: 2026-10-21
 - Status: accepted (extends ADR-0011)
 - Date: 2026-10-21
 
+> **Amended 2026-10-21 (third security review).** Fail open is for an outage only. A gateway fails open on a transport error or a 5xx; any other non-200 answer refuses the caller as not provisioned, and a cached inactive entry stays refused however old it is while `halo-server` is down. `halo-server` answers a subject over 256 characters as inactive (200) instead of 400, which a gateway had read as an outage (tests: `TestDirectoryClientNeverFailsOpenOnInactiveOrRefusal`, `TestGatewayDirectoryEndpoint`). Gateway tokens must have 32 characters and 128 bits of estimated entropy (ADR-0009).
+
 ## Context and problem statement
 
 Halos learns who a user is from OIDC: the console reads the `groups` claim at login, enrolled devices keep the groups they had at enrollment, and the gateways read groups from the caller's JWT or a trusted header. Nothing tells Halos that a user left. A console session lives until it expires (12h), a device token until its TTL (90d), and a removed group only disappears at the next login. Enterprises expect the IdP's deprovisioning to take effect immediately, and expect group membership to be managed in one place.

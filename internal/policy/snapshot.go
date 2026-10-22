@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"slices"
 )
 
 // SnapshotVersion identifies the envelope format written by Compile.
@@ -62,7 +63,37 @@ func ParseSnapshot(b []byte) (*Org, error) {
 	if err := json.Unmarshal(raw, &o); err != nil {
 		return nil, fmt.Errorf("policy: parse snapshot org: %w", err)
 	}
+	if err := o.nilEntry(); err != nil {
+		return nil, fmt.Errorf("policy: parse snapshot org: %w", err)
+	}
 	return &o, nil
+}
+
+// nilEntry reports a null among o's documents ("Rings": [null], a null
+// profile): JSON decodes it to a nil pointer that Validate and the gateways
+// would dereference. Load cannot produce one (every document is allocated
+// before it is added); a snapshot is any file on the gateway's disk.
+func (o *Org) nilEntry() error {
+	for name, p := range o.Profiles {
+		if p == nil {
+			return fmt.Errorf("profile %q is null", name)
+		}
+	}
+	for _, c := range []struct {
+		kind string
+		null int
+	}{
+		{"Rings", slices.Index(o.Rings, nil)},
+		{"Experiments", slices.Index(o.Experiments, nil)},
+		{"Toggles", slices.Index(o.Toggles, nil)},
+		{"Rollouts", slices.Index(o.Rollouts, nil)},
+		{"Units", slices.Index(o.Units, nil)},
+	} {
+		if c.null >= 0 {
+			return fmt.Errorf("%s[%d] is null", c.kind, c.null)
+		}
+	}
+	return nil
 }
 
 func digest(b []byte) string {

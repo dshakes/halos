@@ -34,7 +34,7 @@ func (s *Server) rolloutStates() rollout.StateStore {
 func (s *Server) rollouts(ctx context.Context, w http.ResponseWriter) ([]RolloutView, bool) {
 	org, _, err := s.pol.Get()
 	if org == nil {
-		apiErr(w, http.StatusServiceUnavailable, "policy not loaded: "+err.Error())
+		s.policyUnavailable(w, err)
 		return nil, false
 	}
 	out := make([]RolloutView, 0, len(org.Rollouts))

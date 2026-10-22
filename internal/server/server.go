@@ -127,7 +127,6 @@ type Server struct {
 	scim          *scimService            // nil = SCIM off
 	budgets       *budgetStore
 	wl            workloadExchange
-	wlSkipped     atomic.Uint64 // unpinned workload rules skipped at exchange
 	kv            storage.KV    // ephemeral state: Backend, else in process
 	auditFails    atomic.Uint64 // audit appends that failed (strict and best-effort)
 }
@@ -258,9 +257,10 @@ func orDefault(l *slog.Logger) *slog.Logger {
 func (s *Server) ReloadPolicy() { s.pol.Invalidate() }
 
 // Policy is the policy this server serves: the last load that passed
-// policy.SecurityIssues (a refused or broken reload keeps the previous one).
-// The in-process controller acts on it, so the leader never acts on a policy
-// its own API, or any replica's, refuses.
+// policy.SecurityIssues (a refused or broken reload keeps the previous one),
+// with the workload rule removals of a refused load applied
+// (policy.TightenWorkloads). The in-process controller acts on it, so the
+// leader never acts on a policy its own API, or any replica's, refuses.
 func (s *Server) Policy() (*policy.Org, error) {
 	org, _, err := s.pol.Get()
 	if org == nil {
@@ -296,13 +296,8 @@ func (s *Server) mux() *routeMux {
 				return
 			}
 		}
-		org, _, err := s.pol.Get()
-		if org == nil {
-			msg := "policy not loaded"
-			if err != nil {
-				msg += ": " + err.Error()
-			}
-			apiErr(w, http.StatusServiceUnavailable, msg)
+		if org, _, err := s.pol.Get(); org == nil {
+			s.policyUnavailable(w, err) // public endpoint: the load error stays in the log
 			return
 		}
 		_, _ = io.WriteString(w, "ok\n")
@@ -433,6 +428,18 @@ func decodeBody(w http.ResponseWriter, r *http.Request, limit int64, v any) erro
 
 func apiErr(w http.ResponseWriter, code int, msg string) {
 	writeJSON(w, code, map[string]string{"error": msg})
+}
+
+// errPolicyUnavailable is all a client learns when no policy is loaded: the
+// load error quotes policy content (paths, names, validation findings), so it
+// is logged, never returned, and unauthenticated callers cannot read policy
+// through it. Admins see it in the logs and in `halo validate`.
+const errPolicyUnavailable = "policy not loaded"
+
+// policyUnavailable logs err and answers a generic 503.
+func (s *Server) policyUnavailable(w http.ResponseWriter, err error) {
+	s.cfg.Log.Error("policy unavailable", "err", err)
+	apiErr(w, http.StatusServiceUnavailable, errPolicyUnavailable)
 }
 
 // ---- fleet ----
@@ -590,7 +597,7 @@ func (s *Server) getPolicy(w http.ResponseWriter, _ *http.Request, _ Principal) 
 	org, view, err := s.pol.Get()
 	if org == nil {
 		s.cfg.Log.Error("policy unavailable", "err", err)
-		apiErr(w, http.StatusServiceUnavailable, "policy not loaded: "+err.Error())
+		s.policyUnavailable(w, err)
 		return
 	}
 	if err != nil { // stale-but-serving: tell the console
@@ -608,7 +615,7 @@ type ExperimentDetail struct {
 func (s *Server) experiments(w http.ResponseWriter) ([]ExperimentDetail, bool) {
 	org, view, err := s.pol.Get()
 	if org == nil {
-		apiErr(w, http.StatusServiceUnavailable, "policy not loaded: "+err.Error())
+		s.policyUnavailable(w, err)
 		return nil, false
 	}
 	vs, verr := s.verdicts()
@@ -689,7 +696,7 @@ func (s *Server) whoami(w http.ResponseWriter, r *http.Request, p Principal) {
 	}
 	org, _, err := s.pol.Get()
 	if org == nil {
-		apiErr(w, http.StatusServiceUnavailable, "policy not loaded: "+err.Error())
+		s.policyUnavailable(w, err)
 		return
 	}
 	sub := policy.Subject{ID: user, Groups: groups}

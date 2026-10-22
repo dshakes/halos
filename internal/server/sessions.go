@@ -4,10 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
+	"github.com/dshakes/halos/internal/policy"
 	"github.com/dshakes/halos/internal/storage"
 )
 
@@ -27,14 +27,13 @@ type revocation struct {
 	At   int64  `json:"at"`
 }
 
-// canonicalUser is the one form in which halo-server compares or keys a
-// human user id: sessions, devices, enrollments, posture, SCIM userName,
-// access-request self-approval and the whoami self check. It lowercases and
-// trims surrounding space. Not strings.EqualFold: map keys need a canonical
-// string, and EqualFold's Unicode folding (the Kelvin sign K matches k, long
-// s matches s) is not what ToLower produces, so a fold-equal pair could match
-// in one place and miss in another.
-func canonicalUser(id string) string { return strings.ToLower(strings.TrimSpace(id)) }
+// canonicalUser is policy.CanonicalUser, the one form in which halo-server
+// compares or keys a human user id (sessions, devices, enrollments, posture,
+// SCIM userName, access-request self-approval, the whoami self check) and in
+// which per-user budgets are keyed. Never strings.EqualFold or
+// strings.ToLower: both fold lookalikes such as the Kelvin sign into ASCII
+// letters, which would let "Kelly" share kelly's sessions and budget.
+func canonicalUser(id string) string { return policy.CanonicalUser(id) }
 
 // sameUser reports whether a and b name the same user (canonicalUser).
 func sameUser(a, b string) bool { return canonicalUser(a) == canonicalUser(b) }

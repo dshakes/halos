@@ -677,6 +677,8 @@ func TestGatewayDirectoryEndpoint(t *testing.T) {
 		{"inactive", "off@x.example", "Bearer " + gwTok, 200, gateway.DirectoryEntry{}},
 		{"unknown", "who@x.example", "Bearer " + gwTok, 200, gateway.DirectoryEntry{}},
 		{"no subject", "", "Bearer " + gwTok, 400, gateway.DirectoryEntry{}},
+		// An oversized subject is inactive, not a 400 a gateway could fail open on.
+		{"oversized subject", strings.Repeat("a", 257) + "@x.example", "Bearer " + gwTok, 200, gateway.DirectoryEntry{}},
 		{"SCIM token is not the gateway token", "a@x.example", "Bearer " + scimTok, 401, gateway.DirectoryEntry{}},
 		{"no token", "a@x.example", "", 401, gateway.DirectoryEntry{}},
 	} {

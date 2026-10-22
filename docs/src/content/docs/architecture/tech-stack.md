@@ -77,6 +77,7 @@ Signing itself uses the standard library: ed25519 primary signatures in [`intern
 | Module | Version | Used for | Used by |
 | --- | --- | --- | --- |
 | `github.com/coreos/go-oidc/v3` | `v3.21.0` | OIDC discovery and JWT / ID-token verification against the issuer's JWKS: gateway callers ([`internal/identity/oidc.go:71-91`](https://github.com/dshakes/halos/blob/main/internal/identity/oidc.go#L71-L91)) and console login. | `internal/identity`, `internal/server` |
+| `github.com/go-jose/go-jose/v4` | `v4.1.4` | Halos's own JWKS cache for OIDC verification ([`internal/identity/jwks.go`](https://github.com/dshakes/halos/blob/main/internal/identity/jwks.go)), which can verify from cached keys only, so a client IP blocked for failed token exchanges cannot make `halo-server` fetch the issuer's JWKS. Already required by go-oidc. | `internal/identity` |
 | `golang.org/x/oauth2` | `v0.36.0` | The console's OIDC authorization-code flow. | `internal/server` |
 | `golang.org/x/time` | `v0.15.0` | Per-IP rate limiting of failed token attempts. | `internal/server` |
 <!-- /check -->

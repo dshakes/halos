@@ -294,7 +294,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	oc, _, _, err := s.oidcConfig(r.Context())
 	if err != nil {
 		s.cfg.Log.Error("login unavailable", "err", err)
-		apiErr(w, http.StatusServiceUnavailable, "login unavailable: "+err.Error())
+		apiErr(w, http.StatusServiceUnavailable, "login unavailable") // public: the cause (policy, IdP) is logged above
 		return
 	}
 	st, nonce, verifier := randB64(16), randB64(16), oauth2.GenerateVerifier()

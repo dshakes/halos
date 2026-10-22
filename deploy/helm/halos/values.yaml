@@ -85,7 +85,7 @@ server:
   # Gateway kill switch (--killswitch-key-file + --gateway-token-file, set together). Enabled when
   # existingSecret is set. Create the Secret yourself (human runs):
   #   halo keys generate --name killswitch        # PKCS#8 PEM private key -> key `signingKey`; public half -> proxy pubkey Secret
-  #   openssl rand -hex 32                        # >= 16 chars -> key `gatewayToken`
+  #   openssl rand -hex 32                        # >= 32 chars, >= 128 bits -> key `gatewayToken`
   # The gateways (halo-proxy / halo-kong) poll GET /api/v1/gateway/killswitch with that token and verify the signature.
   # Requires persistence.enabled (kills live in --data-dir/killswitch.jsonl and must survive a restart).
   killSwitch: {existingSecret: "", signingKey: signing-key, gatewayToken: gateway-token}

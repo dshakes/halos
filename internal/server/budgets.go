@@ -192,7 +192,7 @@ func (s *Server) gatewayBudgetOK(w http.ResponseWriter, r *http.Request) ([]poli
 	}
 	org, _, err := s.pol.Get()
 	if org == nil {
-		apiErr(w, http.StatusServiceUnavailable, "policy not loaded: "+err.Error())
+		s.policyUnavailable(w, err)
 		return nil, false
 	}
 	return budgetsOf(org), true
@@ -283,7 +283,7 @@ type BudgetsResponse struct {
 func (s *Server) getBudgets(w http.ResponseWriter, r *http.Request, _ Principal) {
 	org, _, err := s.pol.Get()
 	if org == nil {
-		apiErr(w, http.StatusServiceUnavailable, "policy not loaded: "+err.Error())
+		s.policyUnavailable(w, err)
 		return
 	}
 	now := s.cfg.Now()

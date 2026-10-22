@@ -192,7 +192,7 @@ type ReleasesResponse struct {
 func (s *Server) getReleases(w http.ResponseWriter, r *http.Request, _ Principal) {
 	org, _, err := s.pol.Get()
 	if org == nil {
-		apiErr(w, http.StatusServiceUnavailable, "policy not loaded: "+err.Error())
+		s.policyUnavailable(w, err)
 		return
 	}
 	var names []string

@@ -99,12 +99,26 @@ func TestUnitForbiddenEnv(t *testing.T) {
 		"GIT_SSH_COMMAND", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_COUNT", "GIT_EXEC_PATH", "npm_config_registry", "NPM_CONFIG_USERCONFIG",
 		"JAVA_TOOL_OPTIONS", "_JAVA_OPTIONS", "PERL5OPT", "RUBYOPT", "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE",
 		"CURL_CA_BUNDLE", "NODE_EXTRA_CA_CERTS", "LD_PRELOAD", "HTTPS_PROXY", "FOO_BASE_URL",
+		// Shell start-up, prompt hooks and exported functions.
+		"BASH_FUNC_git%%", "bash_func_ls%%", "PROMPT_COMMAND", "SHELLOPTS", "PS4", "ZDOTDIR", "HOME", "XDG_CONFIG_HOME",
+		// Programs tools start for the user.
+		"PAGER", "GIT_PAGER", "MANPAGER", "LESSOPEN", "LESSCLOSE", "EDITOR", "visual",
+		// git.
+		"GIT_SSH", "GIT_ASKPASS", "SSH_ASKPASS", "SSH_ASKPASS_REQUIRE", "GIT_PROXY_COMMAND", "GIT_TEMPLATE_DIR",
+		"GIT_SSL_NO_VERIFY", "GIT_SSL_CAINFO", "GIT_CONFIG_KEY_0", "GIT_CONFIG_PARAMETERS",
+		// Compilers and runtimes.
+		"GOFLAGS", "RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER", "RUSTC", "CARGO_BUILD_RUSTC_WRAPPER", "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER",
+		"PERL5LIB", "RUBYLIB", "JDK_JAVA_OPTIONS", "DOTNET_STARTUP_HOOKS", "ELECTRON_RUN_AS_NODE", "PYTHONSTARTUP",
+		// Harness configuration directories.
+		"CLAUDE_CONFIG_DIR", "CODEX_HOME", "GEMINI_CLI_HOME", "gemini_config_dir",
+		// Every OTEL_* setting.
+		"OTEL_RESOURCE_ATTRIBUTES", "OTEL_SERVICE_NAME", "OTEL_METRICS_EXPORTER", "OTEL_LOGS_EXPORTER", "OTEL_TRACES_SAMPLER", "otel_sdk_disabled",
 	} {
 		if UnitForbiddenEnv(k) == "" {
 			t.Errorf("%s: allowed, want forbidden", k)
 		}
 	}
-	for _, k := range []string{"TEAM", "OTEL_RESOURCE_ATTRIBUTES", "GIT_AUTHOR_NAME", "PATHS_TEAM", "ENVIRONMENT", "MY_AWS_THING"} {
+	for _, k := range []string{"TEAM", "GIT_AUTHOR_NAME", "PATHS_TEAM", "ENVIRONMENT", "MY_AWS_THING", "HOMEPAGE_URL", "MY_OTEL_TEAM", "RUSTFLAGS_NOTE"} {
 		if why := UnitForbiddenEnv(k); why != "" {
 			t.Errorf("%s: forbidden (%s), want allowed", k, why)
 		}

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/netip"
 	"os"
@@ -19,6 +20,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/dshakes/halos/internal/bundle"
 	"github.com/dshakes/halos/internal/controller"
@@ -193,8 +195,44 @@ func policyWriter(portal server.Portal, policyDir string) (server.PolicyWriter, 
 // in options.gatewayCapTokenFiles order.
 var gatewayCapFlags = [4]string{"killswitch", "posture", "budget", "directory"}
 
+// Gateway token strength. halo-server accepts a valid gateway token even
+// from an IP blocked for failed attempts (so a gateway sharing an egress IP
+// with a guesser is never locked out), which tells a blocked guesser when a
+// guess is right; only a token nobody can guess keeps that safe.
+const (
+	minGatewayTokenLen  = 32
+	minGatewayTokenBits = 128
+)
+
+// tokenEntropyBits estimates t's entropy as its length times log2 of the
+// number of distinct characters in it: what a random token over that
+// charset would carry, and near zero for "aaaa..." or "abab...".
+func tokenEntropyBits(t string) float64 {
+	seen := map[rune]bool{}
+	for _, r := range t {
+		seen[r] = true
+	}
+	if len(seen) < 2 {
+		return 0
+	}
+	return float64(utf8.RuneCountInString(t)) * math.Log2(float64(len(seen)))
+}
+
+// checkGatewayToken refuses a gateway token shorter than minGatewayTokenLen
+// characters or with less than minGatewayTokenBits of estimated entropy.
+func checkGatewayToken(t string) error {
+	const fix = "generate one with: openssl rand -hex 32"
+	if n := utf8.RuneCountInString(t); n < minGatewayTokenLen {
+		return fmt.Errorf("token is %d characters, want at least %d; %s", n, minGatewayTokenLen, fix)
+	}
+	if bits := tokenEntropyBits(t); bits < minGatewayTokenBits {
+		return fmt.Errorf("token has about %.0f bits of entropy (length x log2 of its distinct characters), want at least %d; %s", bits, minGatewayTokenBits, fix)
+	}
+	return nil
+}
+
 // readGatewayTokens reads the shared gateway token and the per-capability
-// ones. Each must be at least 16 characters, and a per-capability token must
+// ones. Each must pass checkGatewayToken, and a per-capability token must
 // differ from the shared one (otherwise it separates nothing).
 func readGatewayTokens(o options) (shared string, caps [4]string, err error) {
 	read := func(flag, path string) (string, error) {
@@ -206,8 +244,8 @@ func readGatewayTokens(o options) (shared string, caps [4]string, err error) {
 			return "", fmt.Errorf("--%s: %w", flag, err)
 		}
 		t := strings.TrimSpace(string(b))
-		if len(t) < 16 {
-			return "", fmt.Errorf("--%s: token must be at least 16 characters", flag)
+		if err := checkGatewayToken(t); err != nil {
+			return "", fmt.Errorf("--%s: %w", flag, err)
 		}
 		return t, nil
 	}

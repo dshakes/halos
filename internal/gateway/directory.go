@@ -122,8 +122,10 @@ func CheckDirectoryFailMode(m string) error {
 
 // Resolve returns sub with the directory's groups. It returns nil, nil
 // (unknown caller) only when sub is nil, and ErrNotProvisioned when the
-// directory does not list sub as active. When halo-server cannot be asked and
-// no entry younger than Grace is cached it returns sub with no groups
+// directory does not list sub as active, when halo-server answers the lookup
+// with a non-200 status below 500, or when the last cached answer for sub was
+// inactive, however old. When halo-server cannot be asked (transport error or
+// 5xx) and no entry younger than Grace is cached it returns sub with no groups
 // (fail open), or ErrDirectoryUnavailable under FailClosed: never nil, which
 // would let an outage turn a deactivated user into an anonymous caller that
 // skips the posture gate and per-user budgets. Workload subjects (ADR-0023)
@@ -151,6 +153,17 @@ func (c *DirectoryClient) Resolve(ctx context.Context, sub *policy.Subject) (*po
 		case err == nil:
 			e = got
 			c.store(sub.ID, got, now)
+		case errors.Is(err, errDirectoryRefused):
+			// halo-server answered and did not list sub: never an outage, so
+			// never fail open. Not cached: a misconfigured token heals at once.
+			if c.Log != nil {
+				c.Log.Warn("directory refused the lookup; caller refused as not provisioned", "err", err)
+			}
+			return nil, ErrNotProvisioned
+		case ok && !ce.e.Active:
+			// The last answer was inactive: an outage, however long, never
+			// re-admits a deactivated user (fail open included).
+			return nil, ErrNotProvisioned
 		case ok && now.Sub(ce.at) < c.Grace:
 			if c.Log != nil {
 				c.Log.Warn("directory lookup failed; serving cached entry", "err", err)
@@ -192,6 +205,13 @@ func (c *DirectoryClient) store(subject string, e DirectoryEntry, now time.Time)
 	c.cache[subject] = directoryEntry{e: e, at: now}
 }
 
+// errDirectoryRefused: halo-server answered a lookup with a non-200 status
+// below 500 (a subject it will not look up, a rejected token, a redirect).
+// Only transport errors and 5xx are an outage that may fail open; anything
+// else is refused as not provisioned, so a request halo-server rejects can
+// never be turned into a fail-open admission.
+var errDirectoryRefused = errors.New("directory: lookup refused")
+
 func (c *DirectoryClient) fetch(ctx context.Context, subject string) (DirectoryEntry, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -209,8 +229,11 @@ func (c *DirectoryClient) fetch(ctx context.Context, subject string) (DirectoryE
 		return DirectoryEntry{}, err
 	}
 	defer func() { _ = resp.Body.Close() }() // read-only response
-	if resp.StatusCode != http.StatusOK {
+	switch {
+	case resp.StatusCode >= 500:
 		return DirectoryEntry{}, fmt.Errorf("directory: HTTP %d", resp.StatusCode)
+	case resp.StatusCode != http.StatusOK:
+		return DirectoryEntry{}, fmt.Errorf("%w: HTTP %d", errDirectoryRefused, resp.StatusCode)
 	}
 	var e DirectoryEntry
 	if err := json.NewDecoder(io.LimitReader(resp.Body, maxDirectoryBody)).Decode(&e); err != nil {

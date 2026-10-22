@@ -44,7 +44,7 @@ func Charges(budgets []policy.Budget, p Principal) []Charge {
 		switch b.Scope {
 		case policy.ScopeUser:
 			if p.Subject != "" {
-				out = append(out, Charge{b, "user:" + p.Subject})
+				out = append(out, Charge{b, "user:" + policy.CanonicalUser(p.Subject)}) // one counter however the IdP cases the id
 			}
 		case policy.ScopeGroup:
 			if p.Subject == "" {

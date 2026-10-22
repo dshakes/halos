@@ -46,6 +46,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -439,6 +440,16 @@ func main() { _ = server.StartServer(New, version, priority) }
 func (c Config) Access(kong *pdk.PDK) { c.access(pdkAPI{kong}) }
 
 func (c Config) access(kong kongAPI) {
+	// go-pdk runs each event in its own goroutine with no recover, so a panic
+	// here would kill the plugin server and every route behind it. Refuse
+	// this request instead (500, never forwarded) and log the panic.
+	defer func() {
+		if p := recover(); p != nil {
+			_ = kong.Err("halo-kong: access phase panic (request refused): ", fmt.Sprint(p), "\n", string(debug.Stack()))
+			kong.Exit(http.StatusInternalServerError, []byte(`{"error":{"type":"halos_internal_error","message":"halos: internal error in the gateway plugin"}}`),
+				map[string][]string{"Content-Type": {"application/json"}})
+		}
+	}()
 	org, err := snapshot(c.PolicyPath).Get()
 	if err != nil {
 		// Fail open on routing (Kong's default service), never on header hygiene.

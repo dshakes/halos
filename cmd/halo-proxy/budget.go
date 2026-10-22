@@ -1,7 +1,6 @@
 package main
 
 import (
-	"cmp"
 	"context"
 	"fmt"
 	"log/slog"
@@ -31,9 +30,10 @@ type BudgetConfig struct {
 	// open (default) lets the request through and counts it; closed answers 503.
 	FailMode string `yaml:"failMode"`
 	// ServerStateInputTokens is the input charged when a response's final
-	// usage is missing and the request named server-side state (an OpenAI
-	// Responses previous_response_id, conversation or stored prompt id), whose
-	// tokens the request bytes do not show. Default 200000.
+	// usage is missing and the request makes the provider bill input its
+	// bytes do not show (gateway.ServerStateInput: previous responses,
+	// conversations, stored prompts, files and images by id or URL, server
+	// tools, background mode). Default 200000.
 	ServerStateInputTokens int64 `yaml:"serverStateInputTokens"`
 	// MaxEstimatedOutputTokens caps the output estimate of a request that sets
 	// no maximum output tokens. Default 128000.
@@ -183,10 +183,7 @@ func (p *Proxy) meterResponse(resp *http.Response, rc *routeCtx) func(gateway.Us
 	return func(r gateway.UsageResult) {
 		u, outcome := r.Usage, "metered"
 		if !r.Complete {
-			e := gateway.Estimate{RequestBytes: len(m.request), MaxOutput: gateway.MaxOutputTokens(m.request), OutputCeiling: p.cfg.Budgets.MaxEstimatedOutputTokens}
-			if gateway.ServerStateInput(m.proto, m.request) {
-				e.ServerStateInput = cmp.Or(p.cfg.Budgets.ServerStateInputTokens, gateway.DefaultServerStateInputTokens)
-			}
+			e := gateway.RequestEstimate(m.proto, m.request, p.cfg.Budgets.ServerStateInputTokens, p.cfg.Budgets.MaxEstimatedOutputTokens)
 			u, outcome = gateway.EstimateUsage(r, e), "estimated"
 		}
 		usd, priced := budget.Cost(m.prices, model, u)

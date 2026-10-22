@@ -113,7 +113,7 @@ func VerifyDelegatedToken(keys []ed25519.PublicKey, tok string, now time.Time) (
 		return DelegatedClaims{}, err
 	}
 	if err := c.check(now); err != nil {
-		return DelegatedClaims{}, fmt.Errorf("identity: delegated token rejected: %w", err)
+		return DelegatedClaims{}, fmt.Errorf("identity: delegated token rejected: %w", claimsError{err})
 	}
 	return c, nil
 }

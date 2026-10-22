@@ -10,6 +10,8 @@ date: 2026-10-21
 - Status: accepted
 - Date: 2026-10-21
 
+> **Amended 2026-10-21 (third security review).** A delegation exchange is dispatched before the CI exchange's limiter is consulted, so it depends on `agentFails` alone. At the exchange only an unverifiable parent counts; a parent this server signed that has expired passes uncounted, and a signed parent is accepted even from an IP `agentFails` blocks (`TestExchangeLimiterCountsOnlyForgeries`).
+
 ## Context and problem statement
 
 Coding agents spawn subagents, call remote agents over Agent2Agent (A2A), and run as background or cloud agents. Halos sees a human (OIDC) or a CI workload (ADR-0023), never "agent X acting for human Y via agent Z". That leaves four risks:

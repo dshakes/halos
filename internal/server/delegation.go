@@ -62,7 +62,9 @@ func (s *Server) workloadPub() []ed25519.PublicKey {
 // verifyParent verifies subject_token as a Halos credential: a halo_session
 // cookie value, a workload credential or a delegated credential, all signed by
 // this server. A human root must still have a live session epoch and be
-// provisioned in the SCIM directory.
+// provisioned in the SCIM directory. A credential that is ours but no longer
+// usable (expired, revoked, deprovisioned) fails with
+// identity.ErrClaimsRejected; anything else failed to verify.
 func (s *Server) verifyParent(raw, typ string, now time.Time) (parentCred, error) {
 	switch {
 	case typ == tokenTypeSession:
@@ -70,6 +72,7 @@ func (s *Server) verifyParent(raw, typ string, now time.Time) (parentCred, error
 		if err != nil || p.Sub == "" || p.State != "" {
 			return parentCred{}, errors.New("not a valid session")
 		}
+		// The session is ours (sealed): what fails from here is not a forgery.
 		if !s.revoked.valid(p.Sub, p.Iat) {
 			return parentCred{sub: policy.Subject{ID: p.Sub}, via: "session"}, fmt.Errorf("%w: session revoked", errParentRefused)
 		}
@@ -77,7 +80,7 @@ func (s *Server) verifyParent(raw, typ string, now time.Time) (parentCred, error
 		if p.SID != "" {
 			g, ok := s.oidc.session(p.SID)
 			if !ok {
-				return parentCred{}, errors.New("session expired")
+				return parentCred{}, signedButRejected(errors.New("session expired"))
 			}
 			groups = g
 		}
@@ -139,6 +142,10 @@ func (s *Server) liveHumanRoot(root string, groups []string, authTime int64) ([]
 	return intersect(groups, g), nil
 }
 
+// signedButRejected marks err as a failure of a credential this server
+// signed: it is not counted against the client IP (see postTokenExchange).
+func signedButRejected(err error) error { return fmt.Errorf("%w: %w", identity.ErrClaimsRejected, err) }
+
 func intersect(a, b []string) []string {
 	var out []string
 	for _, x := range a {
@@ -150,29 +157,37 @@ func intersect(a, b []string) []string {
 }
 
 // delegate mints a delegated agent credential (see ADR-0024 for each rule).
+// Its failed-attempt budget is agentFails, never the CI exchange's. Only a
+// subject_token that does not verify (malformed, forged, not ours) counts;
+// a credential this server signed passes even when the IP is blocked, so
+// garbage from a shared egress IP cannot lock out the agents behind it.
 func (s *Server) delegate(w http.ResponseWriter, r *http.Request, org *policy.Org, f url.Values, ip string) {
 	now := s.cfg.Now()
-	if s.agentFails.blocked(ip) {
-		w.Header().Set("Retry-After", "60")
-		oauthErr(w, http.StatusTooManyRequests, "slow_down", "too many failed attempts")
-		return
+	blocked := s.agentFails.blocked(ip)
+	bad := func(code int, kind, desc string) { // no verified credential yet
+		if blocked {
+			tooManyFailures(w)
+			return
+		}
+		oauthErr(w, code, kind, desc)
 	}
 	if org.Agents == nil {
-		oauthErr(w, http.StatusNotFound, "unsupported_grant_type", "policy declares no agents")
+		bad(http.StatusNotFound, "unsupported_grant_type", "policy declares no agents")
 		return
 	}
 	agent, harness, session := f.Get(paramActorID), f.Get(paramActorHarness), f.Get(paramActorSession)
 	if agent == "" {
-		oauthErr(w, http.StatusBadRequest, "invalid_request", "actor_id is required: the agents.actors name of the agent that will act")
+		bad(http.StatusBadRequest, "invalid_request", "actor_id is required: the agents.actors name of the agent that will act")
 		return
 	}
 	// Unverified labels reach the audit log below: check their shape first.
 	if err := identity.CheckChain([]policy.Actor{{Agent: agent, Harness: harness, Session: session}}); err != nil {
-		oauthErr(w, http.StatusBadRequest, "invalid_request", err.Error())
+		bad(http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
 	parent, err := s.verifyParent(f.Get("subject_token"), f.Get("subject_token_type"), now)
-	if errors.Is(err, errParentRefused) {
+	switch {
+	case errors.Is(err, errParentRefused):
 		// The credential verified: an authenticated refusal, audited and not
 		// counted against the client's failed-authentication budget.
 		d := map[string]string{"reason": err.Error(), "via": parent.via}
@@ -182,10 +197,16 @@ func (s *Server) delegate(w http.ResponseWriter, r *http.Request, org *policy.Or
 		s.Audit(r.Context(), parent.sub.ID, "agent.token.denied", agent, d)
 		oauthErr(w, http.StatusBadRequest, "invalid_grant", "subject_token rejected")
 		return
-	}
-	if err != nil {
-		s.agentFails.fail(ip) // bad, expired or unverifiable: an authentication failure
+	case !signedOnly(err) && blocked:
+		tooManyFailures(w)
+		return
+	case !signedOnly(err):
+		s.agentFails.fail(ip) // malformed, forged or not ours: an authentication failure
 		s.cfg.Log.Info("delegation subject token rejected", "err", err.Error(), "remote", ip)
+		oauthErr(w, http.StatusBadRequest, "invalid_grant", "subject_token rejected")
+		return
+	case err != nil: // ours, but expired or its session gone: not counted
+		s.cfg.Log.Info("delegation subject token no longer valid", "err", err.Error(), "remote", ip)
 		oauthErr(w, http.StatusBadRequest, "invalid_grant", "subject_token rejected")
 		return
 	}
@@ -396,24 +417,21 @@ func (s *Server) postAgentEgress(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, http.StatusNotFound, "agent egress decisions need --workload-key-file")
 		return
 	}
-	org, _, err := s.pol.Get()
-	if org == nil {
-		msg := "policy not loaded"
-		if err != nil {
-			msg += ": " + err.Error()
-		}
-		apiErr(w, http.StatusServiceUnavailable, msg)
-		return
-	}
 	v := &identity.WorkloadJWT{Keys: s.workloadPub(), Next: noCredentials{}, Now: s.cfg.Now}
 	sub, err := v.Verify(r)
+	org, _, perr := s.pol.Get()
+	if org == nil {
+		s.policyUnavailable(w, perr)
+		return
+	}
 	if err != nil {
 		// An expired credential whose signature verified is routine here: a
 		// long agent run outlives its credential, and a fleet behind one NAT
 		// must not lock itself out of egress decisions. Nobody without the
-		// signing key can produce one, so it is no guessing signal. Every
-		// other failure (bad, forged, unverifiable) counts.
-		if !errors.Is(err, identity.ErrTokenExpired) {
+		// signing key can produce one (identity.ErrClaimsRejected covers
+		// ErrTokenExpired), so it is no guessing signal. Every other failure
+		// (bad, forged, unverifiable) counts.
+		if !errors.Is(err, identity.ErrClaimsRejected) {
 			s.agentFails.fail(ip)
 		}
 		w.Header().Set("WWW-Authenticate", `Bearer realm="halos"`)

@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/url"
 	"path"
+	"reflect"
 	"slices"
 	"strings"
 	"time"
@@ -96,10 +97,13 @@ func knownIssuerFor(u string) (knownIssuer, bool) {
 
 // TenantClaims returns the provider name ("" for an issuer Halos does not
 // know) and the claims a rule of issuer i may pin its tenant with (none for
-// an unknown issuer without tenantClaim).
+// an unknown issuer without tenantClaim). For a known issuer tenantClaim
+// only narrows the provider's own tenant claims: a tenantClaim that is not
+// one of them (ref, environment, ...) names no tenant and is ignored, so a
+// rule pinning only it never counts as pinned (Validate reports it).
 func (i WorkloadIssuer) TenantClaims() (provider string, claims []string) {
 	if k, ok := knownIssuerFor(i.URL); ok {
-		if i.TenantClaim != "" {
+		if slices.Contains(k.claims, i.TenantClaim) {
 			return k.provider, []string{i.TenantClaim}
 		}
 		return k.provider, k.claims
@@ -202,6 +206,43 @@ func (w *Workloads) tenantPinned(r WorkloadRule) bool {
 		}
 	}
 	return false
+}
+
+// TightenWorkloads is the part of a refused policy next (SecurityIssues
+// found errors) that still applies over good, the last policy that passed:
+// workload rule removals, so an unrelated error elsewhere cannot block the
+// emergency removal of a compromised rule. The result is good's rules that
+// next still has unchanged (equal, under an issuer of the same name);
+// additions and modifications are not applied, nor is anything else in next.
+// It returns good itself when no rule is dropped, else a shallow copy of good
+// with its own Workloads, plus the names of the dropped rules. Neither input
+// is modified.
+func TightenWorkloads(good, next *Org) (*Org, []string) {
+	if good == nil || good.Workloads == nil || len(good.Workloads.Rules) == 0 {
+		return good, nil
+	}
+	var nw *Workloads
+	if next != nil {
+		nw = next.Workloads
+	}
+	var keep []WorkloadRule
+	var dropped []string
+	for _, r := range good.Workloads.Rules {
+		still := nw != nil && slices.ContainsFunc(nw.Rules, func(n WorkloadRule) bool { return reflect.DeepEqual(n, r) }) &&
+			slices.ContainsFunc(nw.Issuers, func(i WorkloadIssuer) bool { return i.Name == r.Issuer })
+		if still {
+			keep = append(keep, r)
+		} else {
+			dropped = append(dropped, r.Name)
+		}
+	}
+	if len(dropped) == 0 {
+		return good, nil
+	}
+	cp, wl := *good, *good.Workloads
+	wl.Rules = keep
+	cp.Workloads = &wl
+	return &cp, dropped
 }
 
 // MatchWorkload returns the first rule for issuer whose match entries all

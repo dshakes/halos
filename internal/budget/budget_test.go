@@ -37,6 +37,11 @@ func TestCharges(t *testing.T) {
 			[]string{"per-user=user:c", "contractors=user:c", "teams=group:platform", "teams=group:ml", "rings=ring:ring1", "canary=ring:ring1", "org=org", "org-ring1=org"}},
 		{"anonymous: no user or group counters", Principal{Ring: "ga", Groups: []string{"platform"}}, []string{"rings=ring:ga", "org=org"}},
 		{"no ring", Principal{Subject: "a"}, []string{"per-user=user:a", "org=org"}},
+		// One person is one counter however the IdP cases the id, so a user
+		// cannot get a fresh budget by changing case; a lookalike id (Kelvin
+		// sign) is not that person and cannot spend their budget.
+		{"cased subject", Principal{Subject: " Alice@Corp.COM "}, []string{"per-user=user:alice@corp.com", "org=org"}},
+		{"lookalike subject", Principal{Subject: "Kelly@corp.com"}, []string{"per-user=user:Kelly@corp.com", "org=org"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
