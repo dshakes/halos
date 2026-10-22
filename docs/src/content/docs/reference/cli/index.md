@@ -25,6 +25,7 @@ halo
 
 | Command | Description |
 |---|---|
+| [`halo admin`](/halos/reference/cli/admin/) | Sync vendor admin consoles (Claude, ChatGPT/Codex, Gemini, Copilot, Cursor) with policy (ADR-0025) |
 | [`halo agents`](/halos/reference/cli/agents/) | Delegated and remote (A2A) agents (ADR-0024) |
 | [`halo audit`](/halos/reference/cli/audit/) | Inspect halo-server's hash-chained audit log |
 | [`halo budget`](/halos/reference/cli/budget/) | Gateway cost budgets: spend per user, group, ring and org |

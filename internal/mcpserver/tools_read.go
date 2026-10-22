@@ -113,6 +113,7 @@ func (s *srv) addReadTools(m *mcp.Server) {
 	s.addEvalTools(m)
 	s.addToggleReadTools(m)
 	s.addRolloutReadTools(m)
+	s.addAdminTools(m)
 	if s.ClickHouse != nil {
 		mcp.AddTool(m, &mcp.Tool{Name: "analyze_experiment", Description: "Evaluate experiment evidence from ClickHouse: verdict promote|rollback|continue|expired.", Annotations: readOnly}, s.analyze)
 	}

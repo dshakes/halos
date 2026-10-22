@@ -48,6 +48,9 @@ type Options struct {
 	// PROpener opens review PRs (propose_promotion, open_pr on the rollout
 	// tools); nil = gh via promote.GHOpener. Tests inject a fake.
 	PROpener promote.PROpener
+	// AdminBaseURLs overrides admin_plan's vendor API base URLs (tests);
+	// empty = the vendors' public APIs. Never a tool argument.
+	AdminBaseURLs map[string]string
 }
 
 func (s *srv) prOpener() promote.PROpener {
