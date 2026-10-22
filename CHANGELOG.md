@@ -60,6 +60,17 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
   - `halo telemetry collector-config` gains a `traces/gateway` pipeline.
 
 ### Security
+- Gateway directory: fails open only on transport errors or 5xx. Any other non-200 refuses the caller (403), a cached inactive entry stays refused through an outage, and halo-server answers an oversized subject as inactive instead of 400.
+- halo-server refuses to start with a gateway token (shared or per capability) under 32 characters or 128 bits of estimated entropy; generate one with `openssl rand -hex 32`.
+- Workload exchange: a known issuer's non-tenant `tenantClaim` (e.g. GitHub `ref`) is ignored at runtime as well as refused by validation.
+- Workload exchange: only malformed, unknown-issuer or bad-signature tokens count toward the per-IP limit. A signed token passes even from a blocked IP, verified from cached keys only, so a blocked IP never makes halo-server fetch an issuer's JWKS. Delegation uses its own budget (`agentFails`).
+- A refused policy still applies workload rule removals (`halo_server_policy_tightened_total`), on the API and on the HA controller's path.
+- `halo_server_workload_rules_skipped_total` is replaced by the gauge `halo_server_workload_rules_skipped`, set per policy load.
+- Public endpoints (readyz, login, token exchange, agent egress) no longer return policy load errors; they are logged.
+- Policy snapshots with null entries are refused; halo-kong recovers panics in the Access phase and answers 500.
+- Budget estimates charge the server-state input floor for remote files, `item_reference`, server tools and `background` requests, and at least the thinking budget (else the output cap) when reasoning is enabled.
+- Per-user budgets are keyed by the canonical user id shared with halo-server; lookalike characters such as the Kelvin sign are no longer folded into ASCII.
+- Units can no longer set `OTEL_*`, shell hooks (`BASH_FUNC_*`, `PROMPT_COMMAND`, `PS4`, `ZDOTDIR`, `HOME`, `XDG_CONFIG_HOME`), pagers or editors, git wrappers (`GIT_SSH`, `GIT_ASKPASS`, `SSH_ASKPASS*`, `GIT_PROXY_COMMAND`, `GIT_TEMPLATE_DIR`, `GIT_SSL_*`), compiler and runtime hooks (`GOFLAGS`, `RUSTC*`, `CARGO_*`, `PERL5LIB`, `RUBYLIB`, `JDK_JAVA_OPTIONS`, `DOTNET_STARTUP_HOOKS`, `ELECTRON_RUN_AS_NODE`) or harness config dirs (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GEMINI_*`).
 - Delegated agents' `deniedTools` can no longer be bypassed by deep JSON nesting, Gemini `function_declarations`, Bedrock Converse tools, or hosted tools (web search, code execution, MCP servers). When `deniedTools` is set, gateways refuse agent calls whose tools they cannot read. A hosted tool counts by its type (prefix match), and an MCP server as `mcp:<server>`.
 - Gateways and the egress decision re-check every agent in a delegation chain (groups, models) and enforce the root's profile and unit `maxDepth`. Egress refuses agents whose human root's sessions were revoked, and never returns an allow without its audit record.
 - Agent delegation and egress have their own failed-auth rate limit. Policy refusals no longer count, and neither do expired agent credentials at egress. Refused parents are audited as `agent.token.denied`, and `halo_server_audit_append_errors_total` counts failed audit appends.
