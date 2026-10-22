@@ -28,7 +28,9 @@ agents:
       groups: [ai-platform] # only for roots in this group
 ```
 
-An `actor_id` that is not listed is refused. Profiles and units may lower the depth (`agents.maxDepth`) and narrow the remote agents (`agents.remote: [names]`). `halo validate` reports a unit that raises the depth or adds a remote agent as a loosening.
+An `actor_id` that is not listed is refused. `actor_harness` and `actor_session` are labels the caller asserts, recorded for audit and correlation, never a control: they may hold only `A-Z a-z 0-9 . _ : -` (64 and 256 bytes), and anything else is a 400 before anything is audited.
+
+`deniedTools` names function tools (matched ignoring case) and hosted tools. A hosted tool, one the provider runs or builds in, counts by its type: `web_search_20250305` and `web_search_preview` (Anthropic, OpenAI), `codeExecution`, `googleSearch` and `urlContext` (Gemini), a Bedrock `systemTool` name, and `mcp:<server>` for a remote MCP server (Anthropic `mcp_servers`, OpenAI `mcp` tools). A deny entry matches a hosted tool as a prefix ignoring case and underscores, so `web_search` denies every version of it, `code_execution` denies `codeExecution`, and `mcp` denies every MCP server. Profiles and units may lower the depth (`agents.maxDepth`) and narrow the remote agents (`agents.remote: [names]`). `halo validate` reports a unit that raises the depth or adds a remote agent as a loosening.
 
 ## Mint a delegated credential
 
@@ -50,17 +52,23 @@ Refused, with the reason, and audited as `agent.token.denied`:
 - A depth over the root's limit, or an agent already in the chain (a cycle).
 - A model outside the parent's scope, `allowedModels` or the actor's `models`, or an empty intersection.
 - A `group:` the parent does not hold. Narrowing groups is refused too: groups decide the ring, toggles and group budgets, so narrow models instead.
-- An `expires_in` longer than `maxTTLSeconds` or the parent's remaining lifetime.
-- A revoked session, a SCIM-deactivated root, a forged or expired parent.
+- An `expires_in` longer than `maxTTLSeconds` or the parent's remaining lifetime (any size: a 400, never a 500).
+- A revoked session or a SCIM-deactivated root (audited with the root and the parent's `jti`).
+- A policy that cannot be resolved for the root (a 503, audited).
+
+A forged, malformed or expired parent is a 400 that is logged, not audited, and spends the client IP's failed-authentication budget. Delegation and egress share a budget of their own, separate from CI token exchange; policy refusals never spend it.
 
 ## At the gateway
 
 `halo-proxy` and `halo-kong` verify the credential with the same workload public key as workload credentials (`identity.workloadPubkeyFile` / `workload_pubkey`). On every model call they apply the current policy and refuse with a 400 `agent_not_permitted` when:
 
-- the agent was removed from `actors`;
-- the chain is deeper than `maxDepth`;
-- the model is outside the credential scope, `allowedModels` or the actor's `models`;
-- the request's `tools[]` declares a `deniedTools` name.
+- any agent of the chain was removed from `actors`, or lists `groups` the root no longer holds;
+- the chain is deeper than `maxDepth`, or than the root's profile and unit `maxDepth`;
+- the model is outside the credential scope, `allowedModels` or the `models` of any actor in the chain;
+- the request declares a `deniedTools` tool;
+- `deniedTools` is set and the request's tools cannot be read: a body nested too deeply, malformed tool declarations, or a request shape the gateway has no tool reader for.
+
+The gateway reads tools from Anthropic Messages and `count_tokens` (`tools[]`, `mcp_servers[]`), OpenAI Responses (`tools[]`), Gemini `generateContent`, `streamGenerateContent` and `countTokens` (`functionDeclarations` and `function_declarations`, built-in tool keys), and Bedrock invoke and Converse (`tools[]`, `toolConfig.tools[]`, `additionalModelRequestFields.tools`). Keys are matched ignoring case and underscores, and duplicate keys all count.
 
 With a SCIM directory, an agent of a deprovisioned user gets a 403, like the user. Client copies of `x-halo-actor` and `x-halo-actor-depth` are discarded. Metrics carry `halo.actor.agent` and `halo.actor.depth`. Spans also carry `halo.actor.chain` and `gen_ai.agent.name`.
 
@@ -85,7 +93,7 @@ halo agents verify https://agents.billing.example/.well-known/agent-card.json   
 halo agents verify --policy-dir . https://agents.billing.example/.well-known/agent-card.json  # checks the pins; exit 1 on drift
 ```
 
-`verify` fetches over https only, with no redirect off the host, at most 256 KB, and a timeout. It refuses loopback, private and link-local addresses unless `--allow-private`. With a pinned key or JWKS, the card's JWS signature (A2A section 8.4) must verify. Run it in CI: a changed card fails until someone updates the pin in a reviewed PR.
+`verify` fetches over https only, with no redirect off the host, at most 256 KB, and a timeout. It refuses loopback, private and link-local addresses unless `--allow-private`, and always refuses IPv6 transition addresses that embed an IPv4 address (NAT64 `64:ff9b::/96` and `64:ff9b:1::/48`, 6to4 `2002::/16`, Teredo `2001::/32`). A card with invalid UTF-8 or a lone surrogate escape has no digest, the card's fields are read by exact key (`SKILLS` is not `skills`), and card text is printed with control characters escaped. With a pinned key or JWKS, the card's JWS signature (A2A section 8.4) must verify. Run it in CI: a changed card fails until someone updates the pin in a reviewed PR.
 
 Ring releases list the agents their members may call, with the pinned digests, signed with the release. No coding CLI has a system-level A2A allowlist setting, so each harness gets a release warning. Gemini CLI reads remote agents from per-user `.gemini/agents/*.md` files; `experimental.enableAgents: false` in `harnesses.gemini-cli.overrides` turns off all its subagents.
 
@@ -98,10 +106,10 @@ curl -fsS https://halo.acme.example/api/v1/agents/egress \
 # {"allow":true,"agent":"billing","digest":"sha256:4f1c...","reason":"allowed","ring":"ring3-ga"}
 ```
 
-The decision uses the root's ring, unit and profile from the verified credential, and is audited (`agent.egress.allow` / `agent.egress.deny`).
+The decision uses the root's ring, unit and profile from the verified credential, re-checks every agent of the chain and the root's profile and unit `maxDepth`, and is audited. An allow is fail closed: when `agent.egress.allow` cannot be recorded the answer is a 500, never an allow. A refusal (`agent.egress.deny`) is best-effort; a failed append increments `halo_server_audit_append_errors_total`. A human root whose sessions were revoked after it authenticated, or who was deprovisioned, gets a 403. An expired agent credential gets a 401 but does not spend the IP's failure budget: long agent runs outlive their credentials, and only a holder of the signing key can produce one.
 
 ## Limits
 
-- A delegated credential cannot be revoked on its own. It dies at `exp` (at most `maxTTLSeconds`), when its agent leaves `actors`, or when its root is deprovisioned.
-- The gateway enforces the org `maxDepth`. A lower profile or unit depth is enforced when the credential is minted.
+- A delegated credential cannot be revoked on its own. It dies at `exp` (at most `maxTTLSeconds`), when any agent of its chain leaves `actors`, or when its root is deprovisioned.
+- The gateway has no session revocation list. Revoking a human's sessions stops their agents' exchanges and egress decisions at once, and their model calls when the credential expires.
 - The egress API is advisory until a proxy enforces it.

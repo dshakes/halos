@@ -43,7 +43,7 @@ const agentsYAML = `agents:
 
 // delegationEnv is newEnv (acme-corp, fixed clock) with halos.yaml agents and
 // a workload key; scim turns the SCIM directory on (authoritative).
-func delegationEnv(t *testing.T, scim bool) (*env, ed25519.PrivateKey) {
+func delegationEnv(t *testing.T, scim bool, more ...func(*Config)) (*env, ed25519.PrivateKey) {
 	t.Helper()
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -65,6 +65,9 @@ func delegationEnv(t *testing.T, scim bool) (*env, ed25519.PrivateKey) {
 		}
 		if issues := org.Validate(); policy.HasErrors(issues) {
 			t.Fatalf("fixture invalid: %v", issues)
+		}
+		for _, m := range more {
+			m(c)
 		}
 	}
 	if scim {

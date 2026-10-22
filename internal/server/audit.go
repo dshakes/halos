@@ -640,6 +640,7 @@ func (s *Server) AuditStrict(ctx context.Context, actor, action, target string, 
 	m, _ := ctx.Value(reqMetaKey{}).(reqMeta)
 	e := AuditEntry{Time: s.cfg.Now().UTC(), Actor: actor, Action: action, Target: target, IP: m.ip, RequestID: m.id, Details: details}
 	if err := s.auditLog.append(e); err != nil {
+		s.auditFails.Add(1)
 		s.cfg.Log.Error("audit append failed", "action", action, "actor", actor, "err", err)
 		return err
 	}

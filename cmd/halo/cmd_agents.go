@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 
@@ -93,7 +95,7 @@ func (a *app) cmdAgents() *cobra.Command {
 				return err
 			}
 			if len(rep.Problems) > 0 {
-				return &exitErr{code: exitError, err: errors.New(strings.Join(rep.Problems, "; "))}
+				return &exitErr{code: exitError, err: errors.New(termSafe(strings.Join(rep.Problems, "; ")))}
 			}
 			return nil
 		},
@@ -126,12 +128,38 @@ func remoteByURL(org *policy.Org, u string) *policy.RemoteAgent {
 	return nil
 }
 
+// termSafe escapes control and format characters (ANSI escapes, carriage
+// returns, bidi overrides) and invalid UTF-8 in remote text before it reaches
+// a terminal: an AgentCard is served by whoever controls the URL.
+func termSafe(s string) string {
+	var b strings.Builder
+	for i, r := range s {
+		switch {
+		case r == utf8.RuneError && !strings.HasPrefix(s[i:], "\uFFFD"):
+			fmt.Fprintf(&b, `\x%02x`, s[i])
+		case unicode.IsControl(r) || unicode.Is(unicode.Cf, r):
+			fmt.Fprintf(&b, `\u%04x`, r)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+func termSafeAll(ss []string) []string {
+	out := make([]string, len(ss))
+	for i, s := range ss {
+		out[i] = termSafe(s)
+	}
+	return out
+}
+
 func (a *app) printAgentVerify(r agentVerifyReport) {
 	c := r.Result.Card
 	if r.Result.Digest == "" {
-		fmt.Fprintf(a.out, "%s %s\n", a.red("FAIL"), r.URL)
+		fmt.Fprintf(a.out, "%s %s\n", a.red("FAIL"), termSafe(r.URL))
 		for _, p := range r.Problems {
-			fmt.Fprintln(a.out, "  "+p)
+			fmt.Fprintln(a.out, "  "+termSafe(p))
 		}
 		return
 	}
@@ -139,7 +167,7 @@ func (a *app) printAgentVerify(r agentVerifyReport) {
 	if len(r.Problems) > 0 {
 		status = a.red("FAIL")
 	}
-	fmt.Fprintf(a.out, "%s %s (%s %s)\n", status, r.URL, c.Name, c.Version)
+	fmt.Fprintf(a.out, "%s %s (%s %s)\n", status, termSafe(r.URL), termSafe(c.Name), termSafe(c.Version))
 	if r.Policy != "" {
 		fmt.Fprintf(a.out, "  policy:     agents.remote[%s]\n", r.Policy)
 	}
@@ -153,7 +181,7 @@ func (a *app) printAgentVerify(r agentVerifyReport) {
 	}
 	fmt.Fprintf(a.out, "  signature:  %s\n", sig)
 	for _, i := range c.SupportedInterfaces {
-		fmt.Fprintf(a.out, "  interface:  %s %s %s\n", i.ProtocolBinding, i.ProtocolVersion, i.URL)
+		fmt.Fprintf(a.out, "  interface:  %s %s %s\n", termSafe(i.ProtocolBinding), termSafe(i.ProtocolVersion), termSafe(i.URL))
 	}
 	if len(c.SecuritySchemes) > 0 {
 		names := make([]string, 0, len(c.SecuritySchemes))
@@ -161,11 +189,11 @@ func (a *app) printAgentVerify(r agentVerifyReport) {
 			names = append(names, n)
 		}
 		slices.Sort(names)
-		fmt.Fprintf(a.out, "  auth:       %s\n", strings.Join(names, ", "))
+		fmt.Fprintf(a.out, "  auth:       %s\n", strings.Join(termSafeAll(names), ", "))
 	}
-	fmt.Fprintf(a.out, "  skills:     %s\n", strings.Join(c.SkillIDs(), ", "))
+	fmt.Fprintf(a.out, "  skills:     %s\n", strings.Join(termSafeAll(c.SkillIDs()), ", "))
 	for _, p := range r.Problems {
-		fmt.Fprintln(a.out, "  "+a.red(p))
+		fmt.Fprintln(a.out, "  "+a.red(termSafe(p)))
 	}
 	if r.Pinned == "" {
 		fmt.Fprintf(a.out, "Pin it in halos.yaml agents.remote[].digest: %s\n", r.Result.Digest)

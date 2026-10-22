@@ -157,11 +157,17 @@ func publicAddr(a netip.Addr) bool {
 	return true
 }
 
-// nonPublic are special-purpose ranges netip has no predicate for.
+// nonPublic are special-purpose ranges netip has no predicate for. IPv6
+// transition ranges that embed an IPv4 address (NAT64 64:ff9b::/96 and
+// 64:ff9b:1::/48, 6to4 2002::/16, Teredo 2001::/32, IPv4-compatible ::/96)
+// are blocked outright rather than unwrapped and re-checked: a translator or
+// relay on the path could deliver them to an internal IPv4 address, and no
+// AgentCard host needs one.
 var nonPublic = []netip.Prefix{
 	netip.MustParsePrefix("0.0.0.0/8"), netip.MustParsePrefix("100.64.0.0/10"), netip.MustParsePrefix("192.0.0.0/24"),
-	netip.MustParsePrefix("198.18.0.0/15"), netip.MustParsePrefix("240.0.0.0/4"), netip.MustParsePrefix("64:ff9b::/96"),
-	netip.MustParsePrefix("2001:db8::/32"),
+	netip.MustParsePrefix("192.88.99.0/24"), netip.MustParsePrefix("198.18.0.0/15"), netip.MustParsePrefix("240.0.0.0/4"),
+	netip.MustParsePrefix("::/96"), netip.MustParsePrefix("64:ff9b::/96"), netip.MustParsePrefix("64:ff9b:1::/48"),
+	netip.MustParsePrefix("2001::/32"), netip.MustParsePrefix("2001:db8::/32"), netip.MustParsePrefix("2002::/16"),
 }
 
 // Get fetches rawURL (https only) within the limits and returns the body.
@@ -192,19 +198,92 @@ func (f Fetcher) Get(ctx context.Context, rawURL string) ([]byte, error) {
 	return b, nil
 }
 
-// ParseCard decodes a card. It must be one JSON object without duplicate keys.
+// ParseCard decodes a card. It must be one JSON object without duplicate
+// keys. Fields are read by exact key from the same decoded value the digest
+// covers: json.Unmarshal matches keys ignoring case, so a card holding both
+// "skills" and "SKILLS" could show Halos one skill list and an A2A client
+// another.
 func ParseCard(raw []byte) (Card, error) {
-	if _, err := decodeJSON(raw); err != nil {
+	v, err := decodeJSON(raw)
+	if err != nil {
 		return Card{}, err
 	}
-	var c Card
-	if err := json.Unmarshal(raw, &c); err != nil {
-		return Card{}, fmt.Errorf("a2a: AgentCard: %w", err)
+	m, ok := v.(map[string]any)
+	if !ok {
+		return Card{}, errors.New("a2a: AgentCard is not a JSON object")
+	}
+	var r cardReader
+	c := Card{Name: r.str(m, "name"), Description: r.str(m, "description"), Version: r.str(m, "version"), URL: r.str(m, "url")}
+	for _, i := range r.objs(m, "supportedInterfaces") {
+		c.SupportedInterfaces = append(c.SupportedInterfaces, Interface{URL: r.str(i, "url"), ProtocolBinding: r.str(i, "protocolBinding"), ProtocolVersion: r.str(i, "protocolVersion")})
+	}
+	if s, ok := m["securitySchemes"]; ok && s != nil {
+		if c.SecuritySchemes, ok = s.(map[string]any); !ok {
+			r.bad("securitySchemes")
+		}
+	}
+	for _, s := range r.objs(m, "skills") {
+		c.Skills = append(c.Skills, Skill{ID: r.str(s, "id"), Name: r.str(s, "name")})
+	}
+	for _, s := range r.objs(m, "signatures") {
+		sig := AgentCardSignature{Protected: r.str(s, "protected"), Signature: r.str(s, "signature")}
+		if h, ok := s["header"]; ok && h != nil {
+			if sig.Header, ok = h.(map[string]any); !ok {
+				r.bad("header")
+			}
+		}
+		c.Signatures = append(c.Signatures, sig)
+	}
+	if r.err != nil {
+		return Card{}, r.err
 	}
 	if c.Name == "" {
 		return Card{}, errors.New("a2a: AgentCard has no name")
 	}
 	return c, nil
+}
+
+// cardReader reads Card fields by exact key; the first type error sticks.
+type cardReader struct{ err error }
+
+func (r *cardReader) bad(k string) {
+	if r.err == nil {
+		r.err = fmt.Errorf("a2a: AgentCard: %q has the wrong type", k)
+	}
+}
+
+func (r *cardReader) str(m map[string]any, k string) string {
+	v, ok := m[k]
+	if !ok || v == nil {
+		return ""
+	}
+	s, ok := v.(string)
+	if !ok {
+		r.bad(k)
+	}
+	return s
+}
+
+func (r *cardReader) objs(m map[string]any, k string) []map[string]any {
+	v, ok := m[k]
+	if !ok || v == nil {
+		return nil
+	}
+	a, ok := v.([]any)
+	if !ok {
+		r.bad(k)
+		return nil
+	}
+	out := make([]map[string]any, 0, len(a))
+	for _, e := range a {
+		o, ok := e.(map[string]any)
+		if !ok {
+			r.bad(k)
+			return nil
+		}
+		out = append(out, o)
+	}
+	return out
 }
 
 // Digest is the pin Halos stores for a card: "sha256:<hex>" over its RFC 8785
