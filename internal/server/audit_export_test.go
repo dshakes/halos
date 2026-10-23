@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -193,8 +194,12 @@ func TestAuditExportWebhook(t *testing.T) {
 		t.Fatalf("cursor %s", cur)
 	}
 	m := metrics(e.s)
-	for _, w := range []string{`halo_server_audit_forward_sent_total{sink="dd"} 30`, `halo_server_audit_forward_lag_entries{sink="dd"} 0`,
-		`halo_server_audit_forward_failed_total{sink="dd"} 0`, "halo_server_audit_rotate_errors_total 0"} {
+	wantM := []string{`halo_server_audit_forward_sent_total{sink="dd"} 30`, `halo_server_audit_forward_lag_entries{sink="dd"} 0`,
+		`halo_server_audit_forward_failed_total{sink="dd"} 0`}
+	if runtime.GOOS != "windows" { // there a rename fails while the forwarder has the segment open; the next append retries (see auditLog.append)
+		wantM = append(wantM, "halo_server_audit_rotate_errors_total 0")
+	}
+	for _, w := range wantM {
 		if !strings.Contains(m, w) {
 			t.Errorf("metrics missing %q:\n%s", w, m)
 		}
