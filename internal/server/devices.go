@@ -10,8 +10,6 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -19,8 +17,8 @@ import (
 
 	"golang.org/x/time/rate"
 
-	"github.com/dshakes/halos/internal/fsutil"
 	"github.com/dshakes/halos/internal/policy"
+	"github.com/dshakes/halos/internal/storage"
 )
 
 // Device is the server-side binding of a device token. Only the SHA-256 of the
@@ -52,29 +50,29 @@ const lastSeenPersist = 10 * time.Minute
 
 // deviceStore is an in-memory index over an append-only JSONL log (last line per id wins).
 // ponytail: never compacted beyond open; rotate if devices x lastSeen writes grow.
-func (d *deviceStore) close() error { return closeFile(&d.mu, d.f) }
+func (d *deviceStore) close() error { return storage.CloseLog(&d.mu, d.log) }
 
 type deviceStore struct {
 	mu     sync.Mutex
 	byHash map[string]*Device
 	byID   map[string]*Device
-	f      *os.File // nil = memory only
+	log    storage.Log // nil = memory only
 	saved  map[string]time.Time
-	ttl    time.Duration // for devices persisted without ExpiresAt
+	ttl    time.Duration     // for devices persisted without ExpiresAt
+	cc     storage.Coalescer // shared log: one catch-up serves concurrent lookups
+	// afterMint, when set, runs after a device is minted (test seam: models a
+	// deprovisioning racing an enrollment).
+	afterMint func()
 }
 
-func openDeviceStore(dir string, ttl time.Duration) (*deviceStore, error) {
+func openDeviceStore(o storage.Opener, ttl time.Duration) (*deviceStore, error) {
 	if ttl <= 0 {
 		ttl = DefaultDeviceTTL
 	}
 	d := &deviceStore{byHash: map[string]*Device{}, byID: map[string]*Device{}, saved: map[string]time.Time{}, ttl: ttl}
-	if dir == "" {
-		return d, nil
-	}
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		return nil, err
-	}
-	f, err := fsutil.OpenJSONL(filepath.Join(dir, "devices.jsonl"), func(line []byte) {
+	ctx, cancel := storage.Ctx()
+	defer cancel()
+	log, err := o.OpenLog(ctx, "devices", func(line []byte) {
 		var v Device
 		if json.Unmarshal(line, &v) == nil && v.ID != "" && v.Hash != "" { // torn line: skip
 			d.index(&v)
@@ -83,28 +81,66 @@ func openDeviceStore(dir string, ttl time.Duration) (*deviceStore, error) {
 	if err != nil {
 		return nil, err
 	}
-	d.f = f
+	d.log = log
 	return d, nil
 }
 
+// index makes v the device's current record. Revocation is sticky: a later
+// record still saying not revoked (a lastSeen update another replica wrote
+// before it saw the revocation) cannot bring a device back.
 func (d *deviceStore) index(v *Device) {
 	if old := d.byID[v.ID]; old != nil {
+		v.Revoked = v.Revoked || old.Revoked
 		delete(d.byHash, old.Hash)
 	}
 	d.byID[v.ID], d.byHash[v.Hash] = v, v
 	d.saved[v.ID] = v.LastSeen
 }
 
+// persist appends v. A revocation is keyed apart from the device's other
+// records, so a shared log compacting by key never drops it.
 func (d *deviceStore) persist(v *Device) error {
-	if d.f == nil {
+	if d.log == nil {
 		return nil
 	}
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
 	}
-	_, err = d.f.Write(append(b, '\n'))
-	return err
+	key := v.ID
+	if v.Revoked {
+		key = "revoked:" + v.ID
+	}
+	ctx, cancel := storage.Ctx()
+	defer cancel()
+	return d.log.Append(ctx, key, b)
+}
+
+// catchup applies other replicas' device records (caller holds mu).
+func (d *deviceStore) catchup() error {
+	if d.log == nil {
+		return nil
+	}
+	ctx, cancel := storage.Ctx()
+	defer cancel()
+	if err := d.log.Catchup(ctx); err != nil {
+		return fmt.Errorf("%w: devices: %w", storage.ErrUnavailable, err)
+	}
+	return nil
+}
+
+// sharedCatchup is catchup for the per-request path: concurrent device
+// authentications share one database round trip (storage.Coalescer) and d.mu
+// is held only while records are applied (caller does not hold mu).
+func (d *deviceStore) sharedCatchup() error {
+	if d.log == nil {
+		return nil
+	}
+	return d.cc.Do(func() error {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		return d.catchup()
+	})
 }
 
 func hashDeviceToken(tok string) string {
@@ -132,6 +168,9 @@ func (d *deviceStore) mint(p Principal, now time.Time) (string, Device, error) {
 		return "", Device{}, err
 	}
 	d.index(v)
+	if d.afterMint != nil {
+		defer d.afterMint() // after mu is released
+	}
 	return tok, *v, nil
 }
 
@@ -141,6 +180,9 @@ func (d *deviceStore) mint(p Principal, now time.Time) (string, Device, error) {
 func (d *deviceStore) lookup(tok string, now time.Time) (Device, error) {
 	if tok == "" {
 		return Device{}, errNoDevice
+	}
+	if err := d.sharedCatchup(); err != nil { // a revocation on another replica must count: fail closed
+		return Device{}, err
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -167,6 +209,9 @@ func (d *deviceStore) lookup(tok string, now time.Time) (Device, error) {
 func (d *deviceStore) revoke(id string) (Device, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if err := d.catchup(); err != nil {
+		return Device{}, err
+	}
 	v := d.byID[id]
 	if v == nil {
 		return Device{}, errNoDevice
@@ -183,6 +228,7 @@ func (d *deviceStore) revoke(id string) (Device, error) {
 func (d *deviceStore) list() []Device {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	_ = d.catchup() // display only: serve the last view (the error is counted by the backend)
 	out := make([]Device, 0, len(d.byID))
 	for _, v := range d.byID {
 		c := *v
@@ -307,6 +353,11 @@ func (s *Server) deviceAuth(w http.ResponseWriter, r *http.Request) (Device, boo
 		return Device{}, false
 	}
 	dev, err := s.devices.lookup(bearer(r), s.cfg.Now())
+	if errors.Is(err, storage.ErrUnavailable) { // not the client's fault: no rate-limit penalty
+		s.cfg.Log.Error("device lookup", "err", err)
+		apiErr(w, http.StatusServiceUnavailable, "state store unavailable")
+		return Device{}, false
+	}
 	if errors.Is(err, errDeviceExpired) { // a real token, just old: not a guessing attempt
 		w.Header().Set("WWW-Authenticate", `Bearer error="invalid_token"`)
 		apiErr(w, http.StatusUnauthorized, err.Error())
@@ -318,6 +369,13 @@ func (s *Server) deviceAuth(w http.ResponseWriter, r *http.Request) (Device, boo
 		apiErr(w, http.StatusUnauthorized, "unauthorized")
 		return Device{}, false
 	}
+	g, ok := s.directoryGroups(dev.UserID, dev.Groups) // SCIM-authoritative groups; an unprovisioned user's device is refused
+	if !ok {
+		w.Header().Set("WWW-Authenticate", `Bearer error="invalid_token"`)
+		apiErr(w, http.StatusUnauthorized, "user is deactivated or not provisioned")
+		return Device{}, false
+	}
+	dev.Groups = g
 	return dev, true
 }
 

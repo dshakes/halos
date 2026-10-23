@@ -87,7 +87,7 @@ The seeded repo has three running experiments, the `opus-5-5-upgrade` rollout ac
    alice sonnet:  served-by=anthropic model=claude-sonnet-5-5
    ```
 
-4. **Watch the shadow.** Only first-turn requests that carry a session id are mirrored (Claude Code sends `x-claude-code-session-id`, Codex `session_id`), so add that header to Bob's call. The mirror goes to the candidate route; users only ever see the primary reply.
+4. **Watch the shadow.** Only requests that carry a session id are mirrored, and only first turns unless the experiment sets `turns: all` (Claude Code sends `x-claude-code-session-id`, Codex `session_id`), so add that header to Bob's call. The mirror goes to the candidate route; users only ever see the primary reply.
 
    ```sh
    curl -s localhost:18088/v1/messages -H "Authorization: Bearer $TOK" -H 'x-claude-code-session-id: demo-1' \

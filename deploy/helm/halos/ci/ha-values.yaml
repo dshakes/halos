@@ -1,0 +1,28 @@
+# HA on Postgres (ADR-0021): several halo-server and halo-shadow replicas share state.
+# helm lint deploy/helm/halos -f deploy/helm/halos/ci/ha-values.yaml
+server:
+  replicas: 3
+  persistence: {enabled: false}
+  database: {existingSecret: halos-postgres, key: url, autoMigrate: false, leaseTTL: 15s, migrateJob: {enabled: true, existingSecret: halos-postgres-ddl}}
+  metrics: {enabled: true}
+  audit: # no rotation on Postgres: one table; each sink forwards from one replica under its lease
+    export:
+      sinks:
+        - {name: splunk, type: splunk-hec, format: ocsf, url: "https://splunk.acme.dev:8088/services/collector/event", token: {env: HALO_SPLUNK_HEC_TOKEN}, index: halo}
+  extraEnv:
+    - name: HALO_SPLUNK_HEC_TOKEN
+      valueFrom: {secretKeyRef: {name: halos-siem, key: hec-token}}
+  controller:
+    enabled: true
+    clickhouse: {url: "http://clickhouse.data.svc:8123"}
+  killSwitch: {existingSecret: halos-killswitch}
+  gatewayTokens: {existingSecret: halos-gateway-tokens, killswitch: killswitch, posture: posture, budget: budget, directory: directory}
+shadow:
+  enabled: true
+  replicas: 2
+  persistence: {enabled: false}
+  database: {existingSecret: halos-postgres, key: url, budgetScope: "2026-q4"}
+proxy:
+  policy: {existingConfigMap: halos-gateway-snapshot}
+networkPolicy:
+  databaseEgress: {to: [{ipBlock: {cidr: 10.20.0.0/24}}], ports: [5432]}

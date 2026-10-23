@@ -196,6 +196,13 @@ Flags (env `HALO_PROXY_<FLAG>`, YAML `--config`): `--listen :8088` (proxied mode
 | `--posture-token-file` | `posture.tokenFile` | File holding the gateway token (same as the kill switch's) |
 | | `posture.cacheTTL`, `posture.grace` | YAML only. Per-user verdict cache, default `1m`; how long the last verdict serves while halo-server is unreachable, default `15m` (after it the posture is unknown and requests pass) |
 | | `posture.allowInsecureInCluster` | YAML only, default `false`; as `killSwitch.allowInsecureInCluster` |
+| `--directory-url` | `directory.url` | halo-server `/api/v1/gateway/directory`. When set, the [SCIM directory](/halos/guides/scim-provisioning/) is authoritative: a verified caller's groups are the directory's, and a caller it does not list as active gets default routing. Empty disables |
+| `--directory-token-file` | `directory.tokenFile` | File holding the gateway token |
+| | `directory.cacheTTL`, `directory.grace`, `directory.allowInsecureInCluster` | YAML only. Per-user entry cache, default `1m`; how long the last entry serves while halo-server is unreachable, default `5m` (after it callers are unknown); plain `http://` as `killSwitch.allowInsecureInCluster` |
+| `--budget-url` | `budgets.url` | halo-server `/api/v1/gateway/budget`; empty means policy [budgets](/halos/guides/cost-budgets/) are neither metered nor enforced |
+| `--budget-token-file` | `budgets.tokenFile` | File holding the gateway token (same as the kill switch's) |
+| `--budget-fail-mode` | `budgets.failMode` | `open` (default): an unknown verdict passes; `closed`: callers under an enforce budget get 503 |
+| | `budgets.cacheTTL`, `budgets.grace`, `budgets.flushInterval`, `budgets.allowInsecureInCluster` | YAML only. Per-caller verdict cache, default `30s`; last verdict kept while halo-server is unreachable, default `15m`; usage report interval, default `5s`; as `killSwitch.allowInsecureInCluster` |
 | `--telemetry-otlp-endpoint` | `telemetry.otlpEndpoint` | OTLP/HTTP collector base URL for `halo.gateway.*` per-request metrics; use the collector's gateway receiver (`:4319`). Empty disables |
 | `--telemetry-token-file` | `telemetry.tokenFile` | File holding the bearer token for that receiver (the collector's `HALO_OTLP_GATEWAY_TOKEN`), read once at startup. Without it the collector answers 401 and the controller sees no gateway evidence, so it cannot auto-kill |
 | `--telemetry-unit-salt-file` | `telemetry.unitSalt` (inline) | File holding the `halo.unit` hash salt. Use the same salt on every replica so one user stays one unit; empty means a random per-process salt. The flag takes a file because flags leak through `ps` |
@@ -203,7 +210,7 @@ Flags (env `HALO_PROXY_<FLAG>`, YAML `--config`): `--listen :8088` (proxied mode
 | | `killSwitch.allowInsecureInCluster` | YAML only, default `false`. Plain `http://` to a non-loopback kill-switch URL is refused (the gateway token would travel in the clear) unless this is `true`; for a trusted in-cluster Service URL |
 | | `signHosts` | YAML only, list of exact hostnames. Extra hosts a `kind: bedrock` upstream may be SigV4-signed for, besides `*.amazonaws.com`, `*.amazonaws.com.cn` and `*.api.aws` (for example a private VPC endpoint DNS name) |
 
-The kill-switch URL, token file and public key must be set together. `/metrics` counts gate outcomes as `halo_proxy_gate_total{gate,ring,outcome}` (`outcome` is `warn`, `enforce` or `unknown`). `kind: bedrock` upstreams are SigV4-signed by `halo-proxy` with its own AWS credentials, configured in policy plus `signHosts`. It signs only for AWS endpoint hosts or `signHosts`; any other host with a region gets a 502, and every client `x-amz*` / `x-amzn*` header is stripped first ([direct Bedrock](/halos/concepts/stack-agnostic/#direct-bedrock-sigv4-in-halo-proxy)).
+The kill-switch URL, token file and public key must be set together. `/metrics` counts gate outcomes as `halo_proxy_gate_total{gate,ring,outcome}` (`outcome` is `warn`, `enforce` or `unknown`), and budget metering as `halo_proxy_budget_*` ([cost budgets](/halos/guides/cost-budgets/#metrics-and-alerts)). `kind: bedrock` upstreams are SigV4-signed by `halo-proxy` with its own AWS credentials, configured in policy plus `signHosts`. It signs only for AWS endpoint hosts or `signHosts`; any other host with a region gets a 502, and every client `x-amz*` / `x-amzn*` header is stripped first ([direct Bedrock](/halos/concepts/stack-agnostic/#direct-bedrock-sigv4-in-halo-proxy)).
 
 ## `halo-server`
 
@@ -219,9 +226,10 @@ Flags (Go style, single or double dash):
 | `-verdicts-file` (deprecated alias `-verdicts`) | | Verdicts JSON file shown in the console; written by `halo exp analyze --verdicts-file` or the controller |
 | `-trusted-proxy-cidrs` | | Reverse proxies whose `X-Forwarded-For` is trusted for rate limiting |
 | `-device-ttl` | `2160h` (90 days) | Device token lifetime after enrollment; expired devices must re-enroll |
-| `-dev-insecure-user`, `-dev-insecure-groups`, `-dev-insecure-admin` | | Demo only: disable login and act as this user |
-| `-killswitch-key-file` | | ed25519 PKCS#8 PEM private key signing the kill list (`halo keys generate --name killswitch`). Use a dedicated key. Requires `-data-dir`. Without it the kill and unkill endpoints return 501, no kill list is served, `GET /api/v1/capabilities` reports `killSwitch: false`, and the in-process controller reports rollbacks as **not enforced** ("merge urgently": only the pause PR stops traffic). Startup fails if `-killswitch-key-file` is set without `-data-dir` or without `-gateway-token-file` |
-| `-gateway-token-file` | | Bearer token (16+ characters) gateways present to `GET /api/v1/gateway/killswitch` and `GET /api/v1/gateway/posture`. Alone, it serves only posture |
+| `-dev-insecure-user`, `-dev-insecure-groups`, `-dev-insecure-roles`, `-dev-insecure-admin` | | Demo only: disable login and act as this user, with these roles (`viewer`, `operator`, `approver`, `auditor`, `admin`; `-dev-insecure-admin` adds `admin`) |
+| `-killswitch-key-file` | | ed25519 PKCS#8 PEM private key signing the kill list (`halo keys generate --name killswitch`). Use a dedicated key. Requires `-data-dir`. Without it the kill and unkill endpoints return 501, no kill list is served, `GET /api/v1/capabilities` reports `killSwitch: false`, and the in-process controller reports rollbacks as **not enforced** ("merge urgently": only the pause PR stops traffic). Startup fails if `-killswitch-key-file` is set without `-data-dir` or without `-gateway-token-file` or `-gateway-killswitch-token-file` |
+| `-gateway-token-file` | | Shared bearer token (at least 32 characters and 128 bits of estimated entropy; `openssl rand -hex 32`) gateways present to `GET /api/v1/gateway/killswitch`, `GET /api/v1/gateway/posture`, `POST /api/v1/gateway/budget/{check,usage}` and `GET /api/v1/gateway/directory`. Alone, it serves posture and budgets; budget counters persist in `-data-dir` (`budgets.json`), in memory without one |
+| `-gateway-killswitch-token-file`, `-gateway-posture-token-file`, `-gateway-budget-token-file`, `-gateway-directory-token-file` | | Recommended: a dedicated token (same strength rule, not the shared one) that becomes the only token that endpoint accepts and opens nothing else; each also enables its endpoint without `-gateway-token-file`. See [split the gateway token](/halos/guides/operations/#split-the-gateway-token-per-capability-recommended) |
 | `-posture-max-age` | `45m` | A device whose last `halod` report is older is non-compliant for the [posture gate](/halos/concepts/delivery/#gateway-gates); minimum `1m` |
 | `-controller` | off | Run the automated experiment loop. Requires `-clickhouse-url` and `-data-dir` |
 | `-interval` (deprecated alias `-controller-interval`) | `5m` | Controller tick interval; minimum `1m` |
@@ -230,6 +238,8 @@ Flags (Go style, single or double dash):
 | `-policy-repo-subdir`, `-policy-repo-base` | (root), `main` | Policy root inside that clone; PR base branch |
 | `-notify-slack-url-file`, `-notify-webhook-url-file`, `-notify-webhook-secret-file` | | Controller notifications; the secret signs generic webhook bodies (`X-Halo-Timestamp` plus `X-Halo-Signature`, [verification](#verifying-the-webhook-signature)) |
 | `-metrics-listen` | off | Address serving the controller's `/metrics`. **Unauthenticated**: keep it internal |
+| `-scim-token-sha256-file` | | Enables [SCIM 2.0 provisioning](/halos/guides/scim-provisioning/) at `/scim/v2`. File with the hex SHA-256 of each accepted SCIM bearer token, one per line (two while rotating; `#` comments allowed). Requires `-data-dir` |
+| `-scim-authoritative` | off | The SCIM directory decides who is active and their groups for the console and device endpoints; users it does not list as active are refused. Requires `-scim-token-sha256-file` |
 
 `POST /api/v1/experiments/{name}/kill` needs a `reason` (HTTP 422 without one). Kill, unkill, enrollment, session and device revocation and experiment-status PRs fail with HTTP 500 if the audit append fails ([security model](/halos/concepts/security-model/#audit-log)).
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -135,5 +136,86 @@ func TestEvalOnline(t *testing.T) {
 	t.Logf("halo eval online:\n%s", out)
 	if code, out, _ = halo(t, args...); code != 0 || !strings.Contains(out, "no new pairs") {
 		t.Fatalf("history must skip graded pairs: %d %s", code, out)
+	}
+}
+
+// halo eval harvest -> halo eval steps run end to end: an encrypted pair store
+// holding a Claude Code session with planted secrets, and a fake model route.
+func TestEvalHarvestAndSteps(t *testing.T) {
+	dir := t.TempDir()
+	key := []byte("0123456789abcdef0123456789abcdef")
+	keyFile := filepath.Join(dir, "pair.key")
+	if err := os.WriteFile(keyFile, []byte(base64.StdEncoding.EncodeToString(key)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store, err := shadow.NewFileStore(filepath.Join(dir, "pairs.jsonl"), shadow.StoreOptions{Key: key})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const tools = `"tools":[{"name":"Bash","input_schema":{"type":"object","required":["command"]}},{"name":"Edit","input_schema":{"type":"object","required":["file_path"]}}]`
+	const user = `{"role":"user","content":"fix the tests; the deploy key is AKIAIOSFODNN7EXAMPLE, mail ops@acme-corp.com"}`
+	const call = `[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"go test ./..."}}]`
+	bash, stop := `{"content":`+call+`}`, `{"content":[{"type":"text","text":"Done."}]}`
+	steps := []string{
+		`{"model":"sonnet","metadata":{"user_id":"session_raw-session-1"},` + tools + `,"messages":[` + user + `]}`,
+		`{"model":"sonnet","metadata":{"user_id":"session_raw-session-1"},` + tools + `,"messages":[` + user + `,{"role":"assistant","content":` + call +
+			`},{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"FAIL"}]}]}`,
+	}
+	for i, req := range steps {
+		p := shadow.Pair{ID: "p" + string(rune('0'+i)), Experiment: "opus-shadow", SessionID: "raw-session-1", Protocol: "anthropic-messages", Request: json.RawMessage(req),
+			Control: shadow.Side{Status: 200, Response: json.RawMessage(bash)}, Candidate: shadow.Side{Status: 200, Response: json.RawMessage(stop)}}
+		if err := store.Append(context.Background(), p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = store.Close()
+	suite := filepath.Join(dir, "steps")
+	args := []string{"eval", "harvest", "--pairs", filepath.Join(dir, "pairs.jsonl"), "--pair-key-file", keyFile, "--out", suite}
+	code, out, e := halo(t, append(args, "--dry-run")...)
+	if code != 0 || !strings.Contains(out, "2 selected") {
+		t.Fatalf("dry run: code %d\n%s\n%s", code, out, e)
+	}
+	if _, err := os.Stat(suite); !os.IsNotExist(err) {
+		t.Fatal("dry run wrote cases")
+	}
+	if code, out, e = halo(t, args...); code != 0 || !strings.Contains(out, "wrote 2 cases") {
+		t.Fatalf("harvest: code %d\n%s\n%s", code, out, e)
+	}
+	t.Logf("halo eval harvest:\n%s", out)
+	files, _ := filepath.Glob(filepath.Join(suite, "*.json"))
+	for _, f := range files {
+		b, _ := os.ReadFile(f)
+		for _, leak := range []string{"AKIAIOSFODNN7EXAMPLE", "ops@acme-corp.com", "raw-session-1"} {
+			if strings.Contains(string(b), leak) {
+				t.Fatalf("%s leaks %s", f, leak)
+			}
+		}
+	}
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("x-api-key") != "route-key" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		_, _ = w.Write([]byte(bash))
+	}))
+	defer model.Close()
+	t.Setenv("ROUTE_KEY", "route-key")
+	sc := filepath.Join(dir, "scorecard.json")
+	// Step 0 expects production's Bash (recovered from step 1); step 1 has no
+	// later step, so the control's Bash is expected.
+	code, out, e = halo(t, "eval", "steps", "run", "--suite", suite, "--model", "opus-next", "--url", model.URL, "--key-env", "ROUTE_KEY", "--scorecard", sc)
+	if code != 0 || !strings.Contains(out, "PASS              100%") {
+		t.Fatalf("steps run: code %d\n%s\n%s", code, out, e)
+	}
+	t.Logf("halo eval steps run:\n%s", out)
+	var card eval.StepScorecard
+	if b, err := os.ReadFile(sc); err != nil || json.Unmarshal(b, &card) != nil || card.Cases != 2 || card.Sessions != 1 {
+		t.Fatalf("scorecard %v %+v", err, card)
+	}
+	if code, _, e = halo(t, "eval", "harvest", "--pairs", filepath.Join(dir, "pairs.jsonl"), "--pair-key-file", keyFile); code == 0 || !strings.Contains(e, "--out") {
+		t.Fatalf("missing --out: %d %s", code, e)
+	}
+	if code, _, e = halo(t, "eval", "harvest", "--pairs", filepath.Join(dir, "pairs.jsonl"), "--out", suite); code == 0 {
+		t.Fatalf("encrypted store read without a key: %s", e)
 	}
 }

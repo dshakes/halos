@@ -44,6 +44,30 @@ type Org struct {
 	// Rollouts are omitted when empty, like Toggles.
 	Rollouts []*Rollout `json:",omitempty"`
 
+	// Units are the org hierarchy (ADR-0018), omitted when empty like Toggles.
+	Units []*Unit `json:",omitempty"`
+
+	// Delegation is what units may add beyond the baseline (ADR-0018); omitted
+	// when unset, like Toggles.
+	Delegation *Delegation `json:",omitempty"`
+
+	// Sources records which repo-relative file declared each document, so
+	// Validate can keep unit directories (delegated by CODEOWNERS) to Unit
+	// documents. Not part of the snapshot.
+	Sources []Source `json:"-"`
+
+	// Workloads federates CI / cloud workload identities (ADR-0023); omitted
+	// when unset, like Toggles.
+	Workloads *Workloads `json:",omitempty"`
+
+	// Agents governs delegated and remote agents (ADR-0024); omitted when
+	// unset, like Toggles.
+	Agents *Agents `json:",omitempty"`
+
+	// VendorAdmin drives the vendors' cloud admin consoles (ADR-0025); omitted
+	// when unset, like Toggles.
+	VendorAdmin *VendorAdmin `json:",omitempty"`
+
 	// Deprecations are load-time warnings (one per file still on a deprecated
 	// apiVersion) that Validate reports. Not part of the snapshot.
 	Deprecations []Issue `json:"-"`
@@ -60,8 +84,23 @@ type Identity struct {
 	// UserClaim / GroupsClaim name the JWT claims for subject id and groups.
 	UserClaim   string `yaml:"userClaim,omitempty" json:"userClaim,omitempty"`     // default "email"
 	GroupsClaim string `yaml:"groupsClaim,omitempty" json:"groupsClaim,omitempty"` // default "groups"
-	// AdminGroups may approve requests and manage experiments in the portal.
+	// AdminGroups hold halo-server's admin role; same as Roles.Admin (kept for
+	// existing policy repos).
 	AdminGroups []string `yaml:"adminGroups,omitempty" json:"adminGroups,omitempty"`
+	// Roles maps halo-server roles to IdP groups (ADR-0015). omitzero keeps
+	// the JSON form, and so existing snapshot digests, unchanged when unset.
+	Roles RoleGroups `yaml:"roles,omitempty" json:"roles,omitzero"`
+}
+
+// RoleGroups lists, per halo-server role, the IdP groups that hold it. A user
+// holds every role any of their groups maps to. Strict YAML decoding rejects an
+// unknown role name, so a typo cannot silently grant nothing.
+type RoleGroups struct {
+	Viewer   []string `yaml:"viewer,omitempty" json:"viewer,omitempty"`     // read fleet, releases, rollouts, experiments, toggles, policy
+	Operator []string `yaml:"operator,omitempty" json:"operator,omitempty"` // viewer + kill switch, experiment status
+	Approver []string `yaml:"approver,omitempty" json:"approver,omitempty"` // viewer + decide access requests
+	Auditor  []string `yaml:"auditor,omitempty" json:"auditor,omitempty"`   // audit log only
+	Admin    []string `yaml:"admin,omitempty" json:"admin,omitempty"`       // everything, incl. devices, sessions, toggle config
 }
 
 // SelfService configures the developer portal ("kiosk").
@@ -96,6 +135,12 @@ type Gateway struct {
 	// nothing translates aliases). Multi-target routes (weights, failover) are
 	// halo-proxy-only; Kong uses each route's first target.
 	Engine string `yaml:"engine,omitempty" json:"engine,omitempty"`
+	// Pricing is USD per million tokens keyed by provider model id (the model a
+	// route target names). It costs gateway usage for Budgets.
+	Pricing map[string]ModelPrice `yaml:"pricing,omitempty" json:"pricing,omitempty"`
+	// Budgets cap spend per user, group, ring or org (ADR-0017). halo-proxy
+	// enforces them; halo-server holds the counters.
+	Budgets []Budget `yaml:"budgets,omitempty" json:"budgets,omitempty"`
 }
 
 // EngineExternal is a gateway Halos does not run.
@@ -238,6 +283,15 @@ type Profile struct {
 	Hooks       Hooks       `yaml:"hooks" json:"hooks"`
 	Telemetry   Telemetry   `yaml:"telemetry" json:"telemetry"`
 	Egress      Egress      `yaml:"egress" json:"egress"`
+	// Extensions governs agent-extension surfaces: plugins and their marketplaces,
+	// skills, subagents, output style and status line.
+	Extensions Extensions `yaml:"extensions,omitempty" json:"extensions,omitempty"`
+	// Agents lowers the delegation depth and narrows the remote agents for
+	// this profile's members (ADR-0024). Gateway and halo-server enforced.
+	Agents AgentLimits `yaml:"agents,omitempty" json:"agents,omitzero"`
+	// Login restricts how users authenticate: subscription (claude.ai / ChatGPT /
+	// Google login) | api (API key or gateway credential). Empty = unrestricted.
+	Login string `yaml:"login,omitempty" json:"login,omitempty"`
 	// Instructions is org-wide memory (managed CLAUDE.md / AGENTS.md / GEMINI.md).
 	Instructions string `yaml:"instructions,omitempty" json:"instructions,omitempty"`
 	// Env is extra environment applied to every harness.
@@ -316,6 +370,71 @@ type Egress struct {
 	AllowedDomains []string `yaml:"allowedDomains,omitempty" json:"allowedDomains,omitempty"`
 }
 
+// Marketplace source kinds for Extensions.Marketplaces.
+const (
+	MarketplaceGitHub      = "github"      // Repo (OWNER/REPO), optional Ref
+	MarketplaceGit         = "git"         // URL, optional Ref
+	MarketplaceURL         = "url"         // URL of a marketplace.json
+	MarketplaceHostPattern = "hostPattern" // HostPattern, a regex over marketplace hosts
+)
+
+// Login restrictions for Profile.Login.
+const (
+	LoginSubscription = "subscription"
+	LoginAPI          = "api"
+)
+
+// Extensions is the plugin/skill/subagent governance surface. Unset means
+// unrestricted; each adapter renders what its harness can enforce and warns
+// about the rest.
+type Extensions struct {
+	// Marketplaces is the allowlist of plugin marketplace sources; empty = any.
+	Marketplaces []Marketplace `yaml:"marketplaces,omitempty" json:"marketplaces,omitempty"`
+	// BlockedMarketplaces are sources users may never use. Unions down an extends chain.
+	BlockedMarketplaces []Marketplace `yaml:"blockedMarketplaces,omitempty" json:"blockedMarketplaces,omitempty"`
+	Plugins             Plugins       `yaml:"plugins,omitempty" json:"plugins,omitempty"`
+	Skills              ExtensionSet  `yaml:"skills,omitempty" json:"skills,omitempty"`
+	Subagents           ExtensionSet  `yaml:"subagents,omitempty" json:"subagents,omitempty"`
+	// OutputStyle selects the harness's output style by name.
+	OutputStyle string `yaml:"outputStyle,omitempty" json:"outputStyle,omitempty"`
+	// StatusLine runs a managed command to render the status line.
+	StatusLine StatusLine `yaml:"statusLine,omitempty" json:"statusLine,omitempty"`
+}
+
+// Marketplace is one plugin marketplace source.
+type Marketplace struct {
+	// Source: github | git | url | hostPattern
+	Source      string `yaml:"source" json:"source"`
+	Repo        string `yaml:"repo,omitempty" json:"repo,omitempty"`
+	URL         string `yaml:"url,omitempty" json:"url,omitempty"`
+	Ref         string `yaml:"ref,omitempty" json:"ref,omitempty"`
+	HostPattern string `yaml:"hostPattern,omitempty" json:"hostPattern,omitempty"`
+}
+
+// Plugins pins individual plugins, keyed PLUGIN@MARKETPLACE.
+type Plugins struct {
+	// Enabled plugins are required on.
+	Enabled []string `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	// Blocked plugins are required off. Unions down an extends chain.
+	Blocked []string `yaml:"blocked,omitempty" json:"blocked,omitempty"`
+}
+
+// ExtensionSet governs a user-authored extension kind (skills or subagents).
+type ExtensionSet struct {
+	// Deny names that must not load. Unions down an extends chain.
+	Deny []string `yaml:"deny,omitempty" json:"deny,omitempty"`
+	// PluginOnly allows only extensions that arrive via plugins or managed
+	// settings (the allowlist is then the allowed marketplaces); user and
+	// project sources are blocked.
+	PluginOnly bool `yaml:"pluginOnly,omitempty" json:"pluginOnly,omitempty"`
+}
+
+// StatusLine is a managed status-line command.
+type StatusLine struct {
+	Command string `yaml:"command,omitempty" json:"command,omitempty"`
+	Padding int    `yaml:"padding,omitempty" json:"padding,omitempty"`
+}
+
 // Ring is an ordered rollout cohort pointing at a profile.
 type Ring struct {
 	Meta    `yaml:",inline"`
@@ -371,6 +490,12 @@ const (
 	ExperimentShadow ExperimentType = "shadow"
 )
 
+// Shadow turn scopes (Experiment.Turns).
+const (
+	ShadowTurnsFirst = "first"
+	ShadowTurnsAll   = "all"
+)
+
 // Axis is where an experiment's variants differ.
 type Axis string
 
@@ -388,9 +513,13 @@ type Experiment struct {
 	Rings    []string  `yaml:"rings" json:"rings"`
 	Variants []Variant `yaml:"variants" json:"variants"`
 	// Shadow only: fraction of eligible requests mirrored (0-1).
-	SampleRate float64  `yaml:"sampleRate,omitempty" json:"sampleRate,omitempty"`
-	Metrics    Metrics  `yaml:"metrics" json:"metrics"`
-	Stopping   Stopping `yaml:"stopping" json:"stopping"`
+	SampleRate float64 `yaml:"sampleRate,omitempty" json:"sampleRate,omitempty"`
+	// Shadow only: which turns of a sampled session are mirrored. "first"
+	// (default) mirrors the opening request; "all" mirrors every step of the
+	// session, each replayed on the real prefix (ADR-0014).
+	Turns    string   `yaml:"turns,omitempty" json:"turns,omitempty"`
+	Metrics  Metrics  `yaml:"metrics" json:"metrics"`
+	Stopping Stopping `yaml:"stopping" json:"stopping"`
 	// Salt keeps assignment independent across experiments; defaults to Name.
 	Salt string `yaml:"salt,omitempty" json:"salt,omitempty"`
 }

@@ -1,0 +1,81 @@
+{{- /* Schema migrations as a pre-install/pre-upgrade hook (ADR-0021), so the serving role needs no DDL rights. */}}
+{{- $s := .Values.server }}
+{{- if and $s.enabled $s.database.existingSecret $s.database.migrateJob.enabled }}
+{{- $mj := $s.database.migrateJob }}
+{{- $n := include "halo.cname" (list . "migrate") }}
+{{- $secret := default $s.database.existingSecret $mj.existingSecret }}
+{{- $key := ternary $mj.key $s.database.key (ne $mj.existingSecret "") }}
+{{- if .Values.networkPolicy.enabled }}
+# The release's default-deny already selects this pod and the release's own allow rules do not exist yet
+# on a first install, so the hook brings its own: DNS and the database, nothing else.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $n }}
+  labels: {{- include "halo.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  podSelector:
+    matchLabels: {{- include "halo.selector" (list . "migrate") | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {{- toYaml .Values.networkPolicy.dnsNamespaceSelector | nindent 14 }}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to: {{- toYaml .Values.networkPolicy.databaseEgress.to | nindent 8 }}
+      ports:
+        {{- range .Values.networkPolicy.databaseEgress.ports }}
+        - {protocol: TCP, port: {{ . }}}
+        {{- end }}
+---
+{{- end }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $n }}
+  labels: {{- include "halo.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-5"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels: {{- include "halo.selector" (list . "migrate") | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "halo.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- include "halo.pullSecrets" . | nindent 6 }}
+      containers:
+        - name: migrate
+          image: {{ include "halo.image" (list . $s.image) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - migrate
+            - --database-url-file=/secrets/database-url
+            {{- if $s.database.insecureTLS }}
+            - --database-insecure-tls
+            {{- end }}
+          securityContext: {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {memory: 128Mi}
+          volumeMounts:
+            - {name: secrets, mountPath: /secrets, readOnly: true}
+      volumes:
+        - name: secrets
+          secret:
+            secretName: {{ $secret }}
+            defaultMode: 0440
+            items: [{key: {{ $key }}, path: database-url}]
+{{- end }}

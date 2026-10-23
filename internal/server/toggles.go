@@ -96,6 +96,20 @@ func toggleView(t *policy.Toggle, kills map[string]ToggleKill, now time.Time) To
 }
 
 // toggleKills is the active toggle kills of the kill store, by toggle name.
+// toggleHistory is the newest 50 toggle.* audit entries for name, oldest first.
+func (s *Server) toggleHistory(name string) ([]AuditEntry, error) {
+	snap, err := s.auditLog.snapshot()
+	if err != nil {
+		return nil, err
+	}
+	defer snap.close()
+	h, err := snap.tail(50, func(e AuditEntry) bool { return e.Target == name && strings.HasPrefix(e.Action, "toggle.") })
+	if h == nil {
+		h = []AuditEntry{}
+	}
+	return h, err
+}
+
 func (s *Server) toggleKills() (map[string]ToggleKill, error) {
 	recs, _, err := s.kills.Killed()
 	if err != nil {
@@ -114,7 +128,7 @@ func (s *Server) toggleKills() (map[string]ToggleKill, error) {
 func (s *Server) listToggles(w http.ResponseWriter, _ *http.Request, _ Principal) {
 	org, _, err := s.pol.Get()
 	if org == nil {
-		apiErr(w, http.StatusServiceUnavailable, "policy not loaded: "+err.Error())
+		s.policyUnavailable(w, err)
 		return
 	}
 	kills, err := s.toggleKills()
@@ -143,7 +157,7 @@ type TogglePreview struct {
 func (s *Server) getToggle(w http.ResponseWriter, r *http.Request, _ Principal) {
 	org, _, err := s.pol.Get()
 	if org == nil {
-		apiErr(w, http.StatusServiceUnavailable, "policy not loaded: "+err.Error())
+		s.policyUnavailable(w, err)
 		return
 	}
 	name := r.PathValue("name")
@@ -159,20 +173,11 @@ func (s *Server) getToggle(w http.ResponseWriter, r *http.Request, _ Principal) 
 		apiErr(w, http.StatusInternalServerError, "killswitch unreadable")
 		return
 	}
-	entries, err := s.auditLog.all()
+	history, err := s.toggleHistory(name)
 	if err != nil {
 		s.cfg.Log.Error("read audit log", "err", err)
 		apiErr(w, http.StatusInternalServerError, "audit log unreadable")
 		return
-	}
-	history := []AuditEntry{}
-	for _, e := range entries {
-		if e.Target == name && strings.HasPrefix(e.Action, "toggle.") {
-			history = append(history, e)
-		}
-	}
-	if len(history) > 50 {
-		history = history[len(history)-50:]
 	}
 	resp := struct {
 		Toggle  ToggleView     `json:"toggle"`
@@ -234,7 +239,7 @@ func (s *Server) postToggleProposal(w http.ResponseWriter, r *http.Request, p Pr
 	name := r.PathValue("name")
 	org, _, err := s.pol.Get()
 	if org == nil {
-		apiErr(w, http.StatusServiceUnavailable, "policy not loaded: "+err.Error())
+		s.policyUnavailable(w, err)
 		return
 	}
 	if !slices.ContainsFunc(org.Toggles, func(t *policy.Toggle) bool { return t.Name == name }) {

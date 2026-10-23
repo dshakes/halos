@@ -13,9 +13,9 @@ The `uat-k8s` CI job installs the chart on kind on every PR (`test/uat/REPORT.md
 |---|---|---|
 | `halo` (publish, promote, refresh, rollback) | CI runners and operator workstations | The signing key (CI secret or KMS) |
 | OCI registry | Managed registry (GHCR, ECR, Artifactory) | Releases and signed pointers |
-| `halo-server` | Cluster, single replica | `--data-dir`: device store, request log, fleet reports |
+| `halo-server` | Cluster, single replica, or N replicas on Postgres | `--data-dir` (device store, request log, audit, kill list, fleet reports) or Postgres |
 | `halo-proxy` | Cluster, 2+ replicas behind your ingress, or beside your gateway | Stateless; policy snapshot |
-| `halo-shadow` | Cluster, single replica | Pair file (contains prompts) |
+| `halo-shadow` | Cluster, single replica, or N replicas on Postgres | Pair file or table (contains prompts) and the spend budget |
 | OTEL collector, ClickHouse | Cluster | Telemetry |
 | `halod` | Every managed machine (or dev container) | `state.json` |
 
@@ -35,7 +35,7 @@ Things you must do:
 
 - **Grant network access.** The default-deny policy allows only DNS and proxy to halo-shadow. Grant the IdP, model upstreams, git host, registry, ClickHouse, ingress controller and Prometheus through `networkPolicy.ingressFrom.*`, `networkPolicy.egress.*` and `networkPolicy.metricsFrom`, or the pods cannot reach them.
 - **Terminate TLS** in front of `halo-proxy` (it serves plain HTTP). The default ingress annotations assume nginx with 3600s timeouts and buffering off.
-- **Keep single-replica components single.** `halo-server` and `halo-shadow` use RWO volumes with a Recreate strategy; `values.schema.json` pins their replicas to 1. Why, and what that costs during an upgrade: [Operations](/halos/guides/operations/#what-is-highly-available-and-what-is-not).
+- **Keep single-replica components single, or move them to Postgres.** On the default file backend `halo-server` and `halo-shadow` use RWO volumes with a Recreate strategy and `values.schema.json` pins their replicas to 1. Why, and what that costs during an upgrade: [Operations](/halos/guides/operations/#what-is-highly-available-and-what-is-not). For more than one replica, see [HA on Postgres](#ha-on-postgres).
 - **Set the policy repo.** `policy.gitSync.repo` ships as a placeholder and `NOTES.txt` warns until you change it.
 
 ### Secrets
@@ -49,12 +49,13 @@ The chart never holds secret values; it references Secrets you create.
 | `server.oidcClientSecret.existingSecret` | `client-secret` | Portal OIDC client secret |
 | `halos-halo-shadow` | `token` | `halo-shadow` `HALO_SHADOW_TOKEN`; also injected into `halo-proxy` as `HALO_PROXY_HALO_SHADOW_TOKEN` |
 | `halo-shadow.authHeader.existingSecret` | `auth-header` | Upstream credential header for halo-shadow (`Name: value`) |
-| `server.killSwitch.existingSecret` | `signing-key`, `gateway-token` | Kill-switch signing key (Ed25519 PKCS#8 PEM) and gateway bearer token (16+ chars); set together |
+| `server.killSwitch.existingSecret` | `signing-key`, `gateway-token` | Kill-switch signing key (Ed25519 PKCS#8 PEM) and gateway bearer token (random hex or base64, at least 32 characters and 128 bits, e.g. `openssl rand -hex 32`; passphrases are refused); set together |
 | `proxy.killSwitch.pubkey.existingSecret` | `killswitch.pub` | Public half of the signing key, for `halo-proxy` |
 | `server.controller.clickhouse.existingSecret` | `username`, `password` | Controller evidence store |
 | `server.controller.policyRepo.ghToken.existingSecret` | `token` | `GH_TOKEN` for `gh` (controller PRs) |
 | `policy.gitSync.auth.existingSecret` | `ssh` and `known_hosts`, or `password` | git-sync |
 | `otel.clickhouse.existingSecret` | `username`, `password` | Collector ClickHouse exporter |
+| `server.database.existingSecret`, `halo-shadow.database.existingSecret` | `url` | HA: Postgres URL (`--database-url-file`); one Secret can serve both |
 | `otel.gatewayToken.existingSecret` | `token` | Collector gateway receiver (`HALO_OTLP_GATEWAY_TOKEN`, required by the generated config). Without it the collector does not start |
 | `proxy.telemetry.tokenSecret.existingSecret` | `token` | Bearer token `halo-proxy` presents to that receiver, mounted as a file (`--telemetry-token-file`). Defaults to `otel.gatewayToken.existingSecret`: same value |
 | `proxy.telemetry.unitSaltSecret.existingSecret` | `unit-salt` | Optional `halo.unit` hash salt (`--telemetry-unit-salt-file`), identical on every proxy replica |
@@ -65,6 +66,58 @@ kubectl -n halos create secret generic halos-session --from-literal=session-key=
 ```
 
 Prefer External Secrets or your secret manager over shell history for real values. The `--dev-insecure-*` flags of `halo-server` are deliberately not exposed by the chart.
+
+## HA on Postgres
+
+[ADR-0021](/halos/adr/0021-ha-control-plane-on-postgres/) is the design; [Operations](/halos/guides/operations/#ha-on-postgres) is the runbook. The install:
+
+1. **A database.** Postgres 13 or newer (tested with 15), a dedicated database and role that owns it. Managed Postgres with automated backups and point-in-time recovery is the recommendation. Use TLS: `sslmode=verify-full` (with `sslrootcert`) in the URL; anything weaker to a non-loopback host is refused unless `server.database.insecureTLS` (test environments only). With NetworkPolicy on, set `networkPolicy.databaseEgress.to`: the chart refuses to render HA without it.
+2. **The Secret** (a human runs this; prefer External Secrets):
+
+   ```bash
+   kubectl -n halos create secret generic halos-postgres \
+     --from-literal=url='postgres://halos:PASSWORD@pg.internal:5432/halos?sslmode=verify-full'
+   ```
+
+3. **The schema.** Preferred: `server.database.migrateJob.enabled: true` with a DDL-capable URL in `migrateJob.existingSecret`; the chart runs `halo-server migrate` as a pre-install/pre-upgrade hook and the serving role needs only DML on the `halo_*` tables. Alternatives: `halo-server migrate --database-url-file /path/to/url` by hand, or `server.database.autoMigrate: true` (the serving role then needs DDL rights).
+4. **Existing data.** Moving from the file backend: scale `halo-server` to 0, copy the data dir out of the PVC, then
+   `halo-server import --from-data-dir ./data --database-url-file ./url`. It only reads the directory, refuses a non-empty database and a source whose audit chain does not verify, and prints per-log counts and the verified audit head. halo-shadow's pair file is evidence, not state: keep it as a file archive.
+5. **Values** (`deploy/helm/halos/ci/ha-values.yaml` is a complete example):
+
+   ```yaml
+   server:
+     replicas: 3
+     persistence: {enabled: false}
+     database: {existingSecret: halos-postgres, key: url, autoMigrate: false, leaseTTL: 15s}
+     metrics: {enabled: true}            # halo_leader, halo_db_errors_total
+   shadow:
+     replicas: 2
+     persistence: {enabled: false}
+     database: {existingSecret: halos-postgres, key: url, budgetScope: "2026-q4"}
+   networkPolicy:
+     databaseEgress: {to: [{ipBlock: {cidr: 10.20.0.0/24}}], ports: [5432]}
+   ```
+
+The chart then drops the PVCs and the Recreate strategy, renders a PodDisruptionBudget (`maxUnavailable: 1`), a startup probe, and a readiness probe that fails while Postgres is unreachable. Check after install: every replica Ready, exactly one reports `halo_leader{lease="controller"} 1`, `GET /api/v1/audit?limit=1` returns `verified: true`.
+
+On Postgres the controller keeps verdicts in the database (one document per experiment) instead of `server.verdictsPath`, and every replica's console shows them. Budgets, SCIM, workload token replay protection and SIEM export cursors are shared too ([ADR-0021](/halos/adr/0021-ha-control-plane-on-postgres/#state-added-by-later-features)); `server.audit.rotation` is refused there (the chain is one table). Per-capability gateway tokens: `server.gatewayTokens` (one Secret, a key per capability).
+## Console roles
+
+Who may do what in the console and API is policy, not chart configuration: map IdP groups to `halo-server` roles in the policy repo's `halos.yaml`, so every change to it is a reviewed PR ([ADR-0015](/halos/adr/0015-rbac-roles-for-halo-server/)).
+
+```yaml
+identity:
+  issuer: https://acme.okta.com/oauth2/default
+  clientID: halos-portal
+  adminGroups: [ai-platform]          # admin, as before; same as roles.admin
+  roles:
+    viewer: [eng-leads]               # read fleet, releases, rollouts, experiments, toggles, policy
+    operator: [ai-oncall]             # viewer + kill/unkill, experiment status PRs
+    approver: [ai-platform-approvers] # viewer + approve/deny access requests
+    auditor: [security-audit]         # audit log read and export only
+```
+
+For segregation of duties, keep `operator`, `approver` and `auditor` in different groups and keep `admin` small. Auditors get no fleet view unless their group is also a viewer. A user holds every role any of their groups maps to; removing a group from a role applies on the next request, adding one at the user's next login. An unknown role name fails `halo validate`. Every refused request is audit-logged as `authz.deny`; [Operations](/halos/guides/operations/#a-user-gets-403) shows how to read them. Nothing changes in the Helm values.
 
 ## Controller
 
@@ -88,9 +141,9 @@ The kill switch drops a misbehaving experiment back to control within one gatewa
 4. Set `proxy.killSwitch.enabled: true`. `url` defaults to the in-cluster `halo-server` Service at `/api/v1/gateway/killswitch` and `interval` to 10s. `halo-proxy` refuses plain `http://` to a non-loopback host unless `proxy.killSwitch.allowInsecureInCluster` is true (chart default `true`, because the in-cluster `halo-server` Service has no TLS listener; the list is signed but the bearer token travels in the clear). To enforce TLS, set an `https://` `proxy.killSwitch.url` (TLS terminated in front of `halo-server`) and `allowInsecureInCluster: false`.
 5. The proxy-to-server NetworkPolicy rule is added automatically when `proxy.killSwitch.enabled` is set.
 
-Admins can kill and unkill from the console's Experiments page or via `POST /api/v1/experiments/{name}/kill|unkill`; both are audit-logged. For Kong, `kong.killSwitch.enabled` (or `halo gateway deck --killswitch-url ...`) sets `killswitch_*` with vault references, so `HALO_KILLSWITCH_TOKEN` and `HALO_KILLSWITCH_PUBKEY` must be in Kong's environment and listed in `KONG_NGINX_MAIN_ENV`. `halo-kong` enforces the same URL rule through `killswitch_allow_insecure_in_cluster` (`kong.killSwitch.allowInsecureInCluster`). An invalid kill-switch config does not block traffic: it is logged at ERROR once a minute and the plugin adds `x-halo-killswitch: misconfigured` to the upstream request, so alert on that header.
+Operators and admins can kill and unkill from the console's Experiments page or via `POST /api/v1/experiments/{name}/kill|unkill`; both are audit-logged. For Kong, `kong.killSwitch.enabled` (or `halo gateway deck --killswitch-url ...`) sets `killswitch_*` with vault references, so `HALO_KILLSWITCH_TOKEN` and `HALO_KILLSWITCH_PUBKEY` must be in Kong's environment and listed in `KONG_NGINX_MAIN_ENV`. `halo-kong` enforces the same URL rule through `killswitch_allow_insecure_in_cluster` (`kong.killSwitch.allowInsecureInCluster`). An invalid kill-switch config does not block traffic: it is logged at ERROR once a minute and the plugin adds `x-halo-killswitch: misconfigured` to the upstream request, so alert on that header.
 
-**Check:** `GET /api/v1/killswitch` (admin) lists active kills, and a gateway that cannot verify or fetch the list keeps serving (nothing is killed until its first successful poll).
+**Check:** `GET /api/v1/killswitch` (viewer and up) lists active kills, and a gateway that cannot verify or fetch the list keeps serving (nothing is killed until its first successful poll).
 
 ## Direct AWS Bedrock
 
@@ -192,4 +245,5 @@ Every file `halo-server` writes, what losing each one costs, and the restore pro
 - [ ] `allowShellInstall` is not set on any `halod`
 - [ ] `halo-proxy` is unreachable except through your ingress or gateway; if you use `trusted_header`, the CIDR pin is set
 - [ ] `--dev-insecure-*` flags are not present anywhere
+- [ ] `identity.roles` separates operators, approvers and auditors; `adminGroups` / `roles.admin` hold only the platform owners
 - [ ] Read the [threat model](/halos/reference/threat-model/) and the **UNVERIFIED** items in the [README](https://github.com/dshakes/halos#status)

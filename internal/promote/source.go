@@ -167,7 +167,15 @@ var derivedSamples = map[string][]sampleExpr{
 	"halo.tool.error_rate": {cli("countIf(metric = 'halo.tool.call' AND attrs['error'] = '1') / nullIf(countIf(metric = 'halo.tool.call'), 0)")},
 	// Judge scores count only from the collector's authenticated eval receiver;
 	// there is no CLI fallback (a client-forged quality score is no evidence).
-	"halo.eval.judge.score": {{SourceEval, "if(countIf(" + evalScore + ") = 0, NULL, avgIf(value, " + evalScore + "))"}},
+	"halo.eval.judge.score":             {evalMean("halo.eval.judge.score")},
+	"halo.eval.agent.fidelity":          {evalMean("halo.eval.agent.fidelity")},
+	"halo.eval.agent.invalid_call_rate": {evalMean("halo.eval.agent.invalid_call_rate")},
+}
+
+// evalMean: per-unit mean of an eval-receiver metric, NULL when the unit has none.
+func evalMean(metric string) sampleExpr {
+	c := "attrs['halo.source'] = '" + SourceEval + "' AND metric = '" + metric + "'"
+	return sampleExpr{SourceEval, "if(countIf(" + c + ") = 0, NULL, avgIf(value, " + c + "))"}
 }
 
 // Evidence sources (Report.Source): which collector receiver the samples came through.

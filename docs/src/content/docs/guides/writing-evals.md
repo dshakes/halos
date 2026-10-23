@@ -63,6 +63,58 @@ Flags: `--parallel` (default 2 trials at once), `--cpus 2`, `--memory 4g`, `--ne
 
 **Check:** the scorecard lists, per variant and task, pass rate, cost, latency and turns, with bootstrap confidence intervals against the control. `halo mcp serve` exposes the JSON form as the `eval_scorecard` tool.
 
+## Step suites harvested from shadow traffic
+
+A task suite tests whole outcomes on fixtures someone wrote. A **step suite** tests single decisions on real traffic: each case is one step of a production session, harvested from the [shadow](/halos/concepts/shadow-traffic/) pair store where the candidate went wrong ([ADR-0020](/halos/adr/0020-harvest-shadow-sessions-into-replay-evals/)).
+
+```bash
+halo eval harvest --pairs pairs.jsonl --pair-key-file pair.key \
+  --experiment opus-5-5-shadow --out evals/steps/opus-5-5 \
+  --history eval-history.jsonl --select diverged,invalid-call,premature-stop,judge-loss
+halo eval steps run --suite evals/steps/opus-5-5 --model opus --url https://gateway.example.com --key-env HALO_GATEWAY_TOKEN
+```
+
+`--select` picks the steps:
+
+| Reason | The step is a case when |
+|---|---|
+| `diverged` | The candidate's tools differed from the control replay, or from production's action |
+| `invalid-call` | The candidate called a tool the request did not offer, missed a required argument, or produced a malformed call |
+| `premature-stop` | Production kept working and the candidate ended its turn |
+| `judge-loss` | The judge scored the candidate below the control by more than `--judge-loss` (default 0.2). Needs `--history` from `halo eval online` |
+| `sample` | A seeded random sample of `--per-depth` steps (default 5) per depth bucket: 0, 1-4, 5-19, 20+ |
+
+Auxiliary requests (no tools offered), byte-identical retries and steps an arm truncated are not steps and are never harvested.
+
+Each case is one JSON file (`<id>.json`, mode 0600, directory 0700):
+
+| Field | Holds |
+|---|---|
+| `request` | The real prefix, redacted, in the harness's wire protocol (Anthropic Messages, Bedrock, OpenAI Responses, Gemini) |
+| `tools` | The offered tools and their required arguments |
+| `expected`, `expectedFrom` | Production's action at that step when it was recovered, otherwise the control replay's |
+| `alternatives` | Also accepted: the control replay, when it differed from production's action but was a valid call |
+| `match` | `tools` (default: same multiset of tool names) or `calls` (same names and canonical arguments). Edit it per case |
+| `reasons`, `provenance` | Why it was selected; pair id, experiment, hashed session, step depth, harvest time, redaction rules version. Never the raw session id |
+
+A step whose expected action is itself an invalid call is skipped, not written.
+
+**Redaction is always on and fails closed.** Only an allowlist of top-level request fields is kept (`model`, `system`, `messages`, `tools`, `input`, `contents`... ; add more with `--keep-field`), which drops Claude Code's `metadata.user_id`, Codex's `prompt_cache_key` and every other account or session identifier. Every string is then scanned for private keys, JWTs, vendor tokens (`sk-`, `ghp_`, `xoxb-`...), AWS access key ids, `Bearer`/`Basic` credentials, `PASSWORD=`-style assignments, high-entropy strings and emails, plus any `--redact-pattern` regex. Provider ids, thinking signatures and encrypted reasoning are exempt from the entropy rule only, so the request still replays. If a redacted request no longer parses as the same step, or a credential shape survives, the harvest fails and writes nothing. `--dry-run` prints the selection without writing. Redaction is pattern based: **review the cases before committing them**.
+
+`halo eval steps run` replays every case against one model route, non-streaming, through the same request rewrite halo-shadow uses. `--model` is a gateway alias (with `--url` at the gateway) or an upstream model id; `--key-env` names the credential's variable. It grades each answer with the deterministic matcher (the `SameTools`/`SameCalls` and validity checks the shadow reading uses): **pass** means a valid call that matches the expected action or an alternative. The scorecard reports pass, same-tools, same-calls, valid-call and premature-stop rates with 95% CIs that resample **sessions**, so many steps from one long session do not narrow the interval. An errored call fails its case. `--rubric` with the `--judge-*` flags adds a judge score per step as a secondary reading; it never changes pass. The shape of the output (illustrative numbers):
+
+```
+suite evals/steps/opus-5-5  model opus  cases 48  sessions 17  errors 0
+
+PASS              81% (70..90) n=48
+SAME TOOLS        85% (75..93) n=48
+SAME CALLS        52% (40..65) n=48
+VALID CALLS       98% (94..100) n=48
+PREMATURE STOP    6% (0..13) n=36
+```
+
+The MCP tool `eval_harvest` previews the selection (provenance and expected tool names only) and writes the cases only with `--allow-writes` and `dry_run: false`.
+
 ## Practices
 
 1. **Deterministic scorers first.** Tests and diffs beat LLM judges.

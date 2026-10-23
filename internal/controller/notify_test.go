@@ -88,6 +88,22 @@ func TestWebhookSignature(t *testing.T) {
 	}
 }
 
+// TestWebhookEventID: the idempotency key rides in a header and the body, so
+// a receiver can drop a duplicate a failover resends.
+func TestWebhookEventID(t *testing.T) {
+	srv, ch := capture(t, http.StatusAccepted)
+	ev := testEvent()
+	ev.ID = "intent-key-1"
+	if err := (Webhook{URL: srv.URL}).Notify(context.Background(), ev); err != nil {
+		t.Fatal(err)
+	}
+	got := <-ch
+	var body Event
+	if got.hdr.Get(EventIDHeader) != "intent-key-1" || json.Unmarshal(got.body, &body) != nil || body.ID != "intent-key-1" {
+		t.Fatalf("event id header %q body %s", got.hdr.Get(EventIDHeader), got.body)
+	}
+}
+
 func TestWebhookVerify(t *testing.T) {
 	secret, body := []byte("s3cret"), []byte(`{"a":1}`)
 	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)

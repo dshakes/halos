@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -76,6 +77,24 @@ type Manifest struct {
 	// Toggles are the client-axis feature toggles: targeting rules plus the
 	// per-harness fragments halod merges for the toggles that are on for it.
 	Toggles []ToggleEntry `json:"toggles,omitempty"`
+	// Units are the org units (ADR-0018): member selectors plus each unit's
+	// rendered files, which halod applies in place of the release's own.
+	Units []UnitEntry `json:"units,omitempty"`
+	// RemoteAgents pins the A2A agents this ring's members (or some of its
+	// units' members) may call, with each AgentCard's digest (ADR-0024):
+	// signed with the release, so a changed card is a policy change.
+	RemoteAgents []RemoteAgentEntry `json:"remoteAgents,omitempty"`
+}
+
+// RemoteAgentEntry is one allowlisted remote agent in a release manifest.
+type RemoteAgentEntry struct {
+	Name    string   `json:"name"`
+	CardURL string   `json:"cardURL"`
+	Digest  string   `json:"digest"`
+	Skills  []string `json:"skills,omitempty"`
+	// Units, when set, are the only units (and units below them) whose
+	// members may call it; empty = every member of the ring.
+	Units []string `json:"units,omitempty"`
 }
 
 // Experiment is one client-axis experiment in a ring release manifest: just
@@ -138,6 +157,10 @@ func Build(org ProfileResolver, profileName, ringName string, opts Options) (*Re
 	}
 	blobs := map[string][]byte{}
 	toggles := newToggleBuild(org0, &m)
+	units, err := newUnitBuild(org0, prof, &m)
+	if err != nil {
+		return nil, fmt.Errorf("release: profile %q: %w", profileName, err)
+	}
 	names := make([]string, 0, len(prof.Harnesses))
 	for n := range prof.Harnesses {
 		names = append(names, n)
@@ -171,6 +194,9 @@ func Build(org ProfileResolver, profileName, ringName string, opts Options) (*Re
 					return nil, fmt.Errorf("release: profile %q: %w", profileName, err)
 				}
 			}
+			if err := units.add(ad, os, files, warns, opts, blobs); err != nil {
+				return nil, fmt.Errorf("release: profile %q: %w", profileName, err)
+			}
 			entries := make([]FileEntry, 0, len(files))
 			for _, f := range files {
 				sum := sha256.Sum256(f.Data)
@@ -184,6 +210,13 @@ func Build(org ProfileResolver, profileName, ringName string, opts Options) (*Re
 		m.Harnesses[name] = he
 	}
 	toggles.finish()
+	units.finish()
+	m.RemoteAgents = remoteAgents(org0, prof, ringName)
+	if len(m.RemoteAgents) > 0 {
+		for _, name := range names {
+			m.Warnings = append(m.Warnings, name+": "+remoteAgentsWarning(name))
+		}
+	}
 	sort.Strings(m.Warnings)
 	return pack(m, blobs)
 }
@@ -296,4 +329,42 @@ func Open(tarData []byte) (*Release, error) {
 	}
 	sum := sha256.Sum256(tarData)
 	return &Release{Manifest: m, Blobs: blobs, Tar: tarData, Digest: "sha256:" + hex.EncodeToString(sum[:])}, nil
+}
+
+// remoteAgents lists the agents.remote entries ring's members may call: the
+// ring is listed, or some unit is (whose members then may), narrowed by the
+// profile's agents.remote.
+func remoteAgents(org *policy.Org, prof *policy.Profile, ring string) []RemoteAgentEntry {
+	if org == nil || org.Agents == nil {
+		return nil
+	}
+	var out []RemoteAgentEntry
+	for _, ra := range org.Agents.Remote {
+		if len(prof.Agents.Remote) > 0 && !slices.Contains(prof.Agents.Remote, ra.Name) {
+			continue
+		}
+		e := RemoteAgentEntry{Name: ra.Name, CardURL: ra.CardURL, Digest: ra.Digest, Skills: ra.Skills}
+		switch {
+		case ring != "" && slices.Contains(ra.Rings, ring):
+		case len(ra.Units) > 0:
+			e.Units = ra.Units
+		default:
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+// remoteAgentsWarning explains, per harness, why agents.remote is not
+// rendered (invariant 2: warn, never drop silently). Checked against each
+// CLI's documentation (ADR-0024): only Gemini CLI documents A2A remote agents,
+// and only as per-user or per-project files.
+func remoteAgentsWarning(h string) string {
+	const enforce = "enforce the allowlist with POST /api/v1/agents/egress at the egress proxy, and the pinned card digests in this manifest"
+	if h == "gemini-cli" {
+		return "agents.remote is not rendered: Gemini CLI defines remote A2A subagents only in per-user and per-project agents/*.md files (kind: remote), with no system-level allowlist; " +
+			"experimental.enableAgents: false (harnesses.gemini-cli.overrides) turns off every subagent; " + enforce
+	}
+	return "agents.remote is not rendered: the CLI documents no A2A or remote-agent setting; " + enforce
 }

@@ -120,7 +120,7 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <text class="bn" x="76" y="496.4" text-anchor="middle">8</text>
 <path class="ln" d="M76 459L76 461"/>
 <rect class="card" x="56" y="528" width="452" height="46" rx="12" filter="url(#sh)"/>
-<text class="t" x="96" y="547.5">Mirror the first turn</text>
+<text class="t" x="96" y="547.5">Mirror sampled steps</text>
 <text class="m" x="96" y="565.5">shadow.Jobs -&gt; bounded async queue</text>
 <circle class="bdg" cx="76" cy="551.0" r="8"/>
 <text class="bn" x="76" y="554.4" text-anchor="middle">9</text>

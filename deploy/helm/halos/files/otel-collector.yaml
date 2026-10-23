@@ -42,6 +42,7 @@ processors:
     metric_statements:
       - context: metric
         statements:
+          - set(resource.attributes["halo.harness"], "copilot-cli") where IsMatch(name, "^gen_ai\\.client\\.") and resource.attributes["service.name"] == "github-copilot" and resource.attributes["halo.harness"] == nil
           - set(resource.attributes["halo.harness"], "claude-code") where name == "claude_code.cost.usage" and resource.attributes["halo.harness"] == nil
           - set(resource.attributes["halo.harness"], "claude-code") where name == "claude_code.token.usage" and resource.attributes["halo.harness"] == nil
           - set(resource.attributes["halo.harness"], "claude-code") where name == "claude_code.code_edit_tool.decision" and resource.attributes["halo.harness"] == nil
@@ -54,6 +55,7 @@ processors:
           - set(resource.attributes["halo.harness"], "gemini-cli") where name == "gen_ai.client.operation.duration" and resource.attributes["halo.harness"] == nil
           - set(resource.attributes["halo.harness"], "gemini-cli") where name == "gemini_cli.session.count" and resource.attributes["halo.harness"] == nil
           - set(resource.attributes["halo.harness"], "gemini-cli") where name == "gemini_cli.tool.call.count" and resource.attributes["halo.harness"] == nil
+          - set(resource.attributes["halo.harness"], "copilot-cli") where name == "github.copilot.tool.call.count" and resource.attributes["halo.harness"] == nil
           - set(name, "halo.cost.usd") where name == "claude_code.cost.usage"
           - set(name, "halo.tokens") where name == "claude_code.token.usage"
           - set(name, "halo.edit.decision") where name == "claude_code.code_edit_tool.decision"
@@ -66,6 +68,7 @@ processors:
           - set(name, "halo.operation.duration") where name == "gen_ai.client.operation.duration"
           - set(name, "halo.sessions") where name == "gemini_cli.session.count"
           - set(name, "halo.tool.calls") where name == "gemini_cli.tool.call.count"
+          - set(name, "halo.tool.calls") where name == "github.copilot.tool.call.count"
   transform/source-cli:
     error_mode: ignore
     metric_statements:
@@ -79,6 +82,11 @@ processors:
       - context: datapoint
         statements:
           - set(datapoint.attributes["halo.source"], "gateway")
+          - delete_key(resource.attributes, "halo.source")
+    trace_statements:
+      - context: span
+        statements:
+          - set(span.attributes["halo.source"], "gateway")
           - delete_key(resource.attributes, "halo.source")
 receivers:
   otlp:
@@ -140,3 +148,12 @@ service:
         - batch
       receivers:
         - otlp
+    traces/gateway:
+      exporters:
+        - clickhouse
+      processors:
+        - memory_limiter
+        - transform/source-gateway
+        - batch
+      receivers:
+        - otlp/gateway

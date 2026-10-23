@@ -12,9 +12,13 @@ import (
 func TestSessionEpoch(t *testing.T) {
 	dir := t.TempDir()
 	e := newEnv(t, func(c *Config) { c.DataDir = dir })
-	cookie := func(sub string) *http.Cookie {
+	cookie := func(sub string) *http.Cookie { // a login now: stamped as the OIDC callback does (issueAt)
 		*e.now = e.now.Add(time.Second)
-		return &http.Cookie{Name: sessionCookie, Value: e.s.seal(cookiePayload{Sub: sub, Exp: e.now.Add(time.Hour).Unix(), Iat: e.now.UnixNano()})}
+		iat, ok := e.s.revoked.issueAt(sub, *e.now)
+		if !ok {
+			t.Fatal("issueAt")
+		}
+		return &http.Cookie{Name: sessionCookie, Value: e.s.seal(cookiePayload{Sub: sub, Exp: e.now.Add(time.Hour).Unix(), Iat: iat})}
 	}
 	req := func(h http.Handler, method, path string, c *http.Cookie) int {
 		r := httptest.NewRequest(method, path, nil)

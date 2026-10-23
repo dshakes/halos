@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 560" width="880" height="560" role="img" aria-labelledby="t d" font-family="ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 592" width="880" height="592" role="img" aria-labelledby="t d" font-family="ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif">
 <title id="t">Halos architecture</title>
-<desc id="d">Policy compiles to a signed release and ring pointers. The client plane (halod, MDM, Dev Container Feature, Coder, CI action) applies it; the traffic plane (halo-proxy or the Kong plugin) routes to Anthropic, Bedrock, Vertex or OpenAI; the evidence plane (OTEL, ClickHouse, halo eval, controller, console, MCP) proposes promotion PRs and fires the kill switch.</desc>
+<desc id="d">Policy compiles to a signed release and ring pointers. The client plane (halod, MDM, Dev Container Feature, Coder, CI action) applies it; the traffic plane (halo-proxy or the Kong plugin) routes to Anthropic, Bedrock, Vertex or OpenAI, meters budgets and carries delegated agent credentials; the evidence plane (OTEL, ClickHouse, halo eval, controller, MCP, and halo-server with RBAC, SCIM and SIEM audit export on Postgres) proposes promotion PRs and fires the kill switch. Six harnesses run on the client plane.</desc>
 <style>
 .cv{fill:#0c0c10;stroke:#1e1e24;stroke-width:1.5}
 .card{fill:#121217;stroke:#2a2a31;stroke-width:1.5}
@@ -50,7 +50,7 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <linearGradient id="gs" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="880" y2="0"><stop offset="0" stop-color="#ffb547" stop-opacity="0.12"/><stop offset="1" stop-color="#ff7a4d" stop-opacity="0.12"/></linearGradient>
 <filter id="sh" x="-10%" y="-10%" width="120%" height="140%"><feDropShadow dx="0" dy="1" stdDeviation="1.6" flood-color="#000000" flood-opacity="0.5"/></filter>
 </defs>
-<rect class="cv" x=".75" y=".75" width="878.5" height="558.5" rx="16"/>
+<rect class="cv" x=".75" y=".75" width="878.5" height="590.5" rx="16"/>
 <rect class="zone" x="24" y="24" width="832" height="96" rx="16"/>
 <text class="k ka" x="40" y="48">POLICY → RELEASE</text>
 <rect class="card" x="40.0" y="52" width="179.0" height="52" rx="12" filter="url(#sh)"/>
@@ -73,75 +73,79 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <path class="la hd" d="M442.5 81.4L448 78L442.5 74.6"/>
 <path class="la" d="M639 78L655 78"/>
 <path class="la hd" d="M649.5 81.4L655 78L649.5 74.6"/>
-<rect class="zone" x="24" y="168" width="240" height="368" rx="16"/>
+<rect class="zone" x="24" y="168" width="240" height="400" rx="16"/>
 <text class="k ka" x="40" y="192">CLIENT PLANE</text>
 <text class="xs" x="248" y="192" text-anchor="end">on the machine</text>
-<rect class="card" x="36" y="208" width="216" height="46" rx="12" filter="url(#sh)"/>
-<text class="t" x="52" y="227.5">halod</text>
-<text class="s" x="52" y="245.5">agent · macOS, Linux, Windows</text>
-<rect class="card" x="36" y="262" width="216" height="46" rx="12" filter="url(#sh)"/>
-<text class="t" x="52" y="281.5">MDM exports</text>
-<text class="s" x="52" y="299.5">Jamf · Kandji · Intune</text>
-<rect class="card" x="36" y="316" width="216" height="46" rx="12" filter="url(#sh)"/>
-<text class="t" x="52" y="335.5">Dev Container Feature</text>
-<text class="s" x="52" y="353.5">devcontainers · Codespaces</text>
-<rect class="card" x="36" y="370" width="216" height="46" rx="12" filter="url(#sh)"/>
-<text class="t" x="52" y="389.5">Coder module</text>
-<text class="s" x="52" y="407.5">cloud workspaces</text>
-<rect class="card" x="36" y="424" width="216" height="46" rx="12" filter="url(#sh)"/>
-<text class="t" x="52" y="443.5">CI action</text>
-<text class="s" x="52" y="461.5">runners · headless evals</text>
-<rect class="card" x="36" y="478" width="216" height="46" rx="12" filter="url(#sh)"/>
-<text class="t" x="52" y="497.5">Harnesses</text>
-<text class="s" x="52" y="515.5">Claude Code · Codex · Gemini</text>
-<rect class="zone" x="320" y="168" width="240" height="368" rx="16"/>
+<rect class="card" x="36" y="208" width="216" height="44" rx="12" filter="url(#sh)"/>
+<text class="t" x="52" y="226.5">halod</text>
+<text class="s" x="52" y="244.5">agent · macOS, Linux, Windows</text>
+<rect class="card" x="36" y="258" width="216" height="44" rx="12" filter="url(#sh)"/>
+<text class="t" x="52" y="276.5">MDM exports</text>
+<text class="s" x="52" y="294.5">Jamf · Kandji · Intune</text>
+<rect class="card" x="36" y="308" width="216" height="44" rx="12" filter="url(#sh)"/>
+<text class="t" x="52" y="326.5">Dev Container · Coder</text>
+<text class="s" x="52" y="344.5">Codespaces · cloud workspaces</text>
+<rect class="card" x="36" y="358" width="216" height="44" rx="12" filter="url(#sh)"/>
+<text class="t" x="52" y="376.5">CI action</text>
+<text class="s" x="52" y="394.5">runners · workload identity</text>
+<rect class="card" x="36" y="408" width="216" height="60" rx="12" filter="url(#sh)"/>
+<text class="t" x="52" y="426.5">Six harnesses</text>
+<text class="s" x="52" y="444.5">Claude Code · Codex · Gemini</text>
+<text class="s" x="52" y="460.5">Copilot · Cursor · OpenCode</text>
+<rect class="zone" x="320" y="168" width="240" height="400" rx="16"/>
 <text class="k ka" x="336" y="192">TRAFFIC PLANE</text>
 <text class="xs" x="544" y="192" text-anchor="end">in the request path</text>
-<rect class="card" x="332" y="208" width="216" height="46" rx="12" filter="url(#sh)"/>
-<rect class="soft" x="332" y="208" width="216" height="46" rx="12"/>
-<rect class="ring" x="332.75" y="208.75" width="214.5" height="44.5" rx="11.25"/>
-<text class="t" x="348" y="227.5">halo-proxy</text>
-<text class="s" x="348" y="245.5">OIDC · model routes · failover</text>
-<rect class="card" x="332" y="262" width="216" height="46" rx="12" filter="url(#sh)"/>
-<text class="t" x="348" y="281.5">Kong + halo-kong</text>
-<text class="s" x="348" y="299.5">drop-in gateway plugin</text>
-<rect class="card" x="332" y="316" width="216" height="46" rx="12" filter="url(#sh)"/>
-<text class="t" x="348" y="335.5">halo-shadow</text>
-<text class="s" x="348" y="353.5">async first-turn mirror</text>
-<rect class="zone" x="616" y="168" width="240" height="368" rx="16"/>
+<rect class="card" x="332" y="208" width="216" height="44" rx="12" filter="url(#sh)"/>
+<rect class="soft" x="332" y="208" width="216" height="44" rx="12"/>
+<rect class="ring" x="332.75" y="208.75" width="214.5" height="42.5" rx="11.25"/>
+<text class="t" x="348" y="226.5">halo-proxy</text>
+<text class="s" x="348" y="244.5">OIDC · model routes · failover</text>
+<rect class="card" x="332" y="258" width="216" height="44" rx="12" filter="url(#sh)"/>
+<text class="t" x="348" y="276.5">Kong + halo-kong</text>
+<text class="s" x="348" y="294.5">drop-in gateway plugin</text>
+<rect class="card" x="332" y="308" width="216" height="44" rx="12" filter="url(#sh)"/>
+<text class="t" x="348" y="326.5">halo-shadow</text>
+<text class="s" x="348" y="344.5">async multi-turn mirror</text>
+<rect class="card" x="332" y="358" width="216" height="44" rx="12" filter="url(#sh)"/>
+<text class="t" x="348" y="376.5">Budgets · agent identity</text>
+<text class="s" x="348" y="394.5">cost caps · delegated tokens</text>
+<rect class="zone" x="616" y="168" width="240" height="400" rx="16"/>
 <text class="k ka" x="632" y="192">EVIDENCE PLANE</text>
 <text class="xs" x="840" y="192" text-anchor="end">decides</text>
-<rect class="card" x="628" y="208" width="216" height="46" rx="12" filter="url(#sh)"/>
-<text class="t" x="644" y="227.5">OTEL collector</text>
-<text class="s" x="644" y="245.5">normalize to halo.*</text>
-<rect class="card" x="628" y="262" width="216" height="46" rx="12" filter="url(#sh)"/>
-<text class="t" x="644" y="281.5">ClickHouse</text>
-<text class="s" x="644" y="299.5">halo.* tables</text>
-<rect class="card" x="628" y="316" width="216" height="46" rx="12" filter="url(#sh)"/>
-<text class="t" x="644" y="335.5">halo eval</text>
-<text class="s" x="644" y="353.5">pass@k · LLM judge · matrix</text>
-<rect class="card" x="628" y="370" width="216" height="46" rx="12" filter="url(#sh)"/>
-<rect class="soft" x="628" y="370" width="216" height="46" rx="12"/>
-<rect class="ring" x="628.75" y="370.75" width="214.5" height="44.5" rx="11.25"/>
-<text class="t" x="644" y="389.5">controller</text>
-<text class="s" x="644" y="407.5">mSPRT verdicts · rollback</text>
-<rect class="card" x="628" y="424" width="216" height="46" rx="12" filter="url(#sh)"/>
-<text class="t" x="644" y="443.5">halo-server console</text>
-<text class="s" x="644" y="461.5">portal · kill switch</text>
-<rect class="card" x="628" y="478" width="216" height="46" rx="12" filter="url(#sh)"/>
-<text class="t" x="644" y="497.5">MCP</text>
-<text class="s" x="644" y="515.5">halo mcp serve · agents</text>
-<rect class="card" x="332" y="370" width="216" height="154" rx="12" filter="url(#sh)"/>
-<text class="t" x="348" y="397">Providers</text>
-<text class="xs" x="532" y="397" text-anchor="end">any, with failover</text>
-<rect class="chip" x="348" y="410" width="184" height="21" rx="6"/>
-<text class="m" x="360" y="424.5">Anthropic</text>
-<rect class="chip" x="348" y="437" width="184" height="21" rx="6"/>
-<text class="m" x="360" y="451.5">Amazon Bedrock</text>
-<rect class="chip" x="348" y="464" width="184" height="21" rx="6"/>
-<text class="m" x="360" y="478.5">Google Vertex</text>
-<rect class="chip" x="348" y="491" width="184" height="21" rx="6"/>
-<text class="m" x="360" y="505.5">OpenAI · Azure</text>
+<rect class="card" x="628" y="208" width="216" height="44" rx="12" filter="url(#sh)"/>
+<text class="t" x="644" y="226.5">OTEL collector</text>
+<text class="s" x="644" y="244.5">normalize to halo.*</text>
+<rect class="card" x="628" y="258" width="216" height="44" rx="12" filter="url(#sh)"/>
+<text class="t" x="644" y="276.5">ClickHouse</text>
+<text class="s" x="644" y="294.5">halo.* tables</text>
+<rect class="card" x="628" y="308" width="216" height="44" rx="12" filter="url(#sh)"/>
+<text class="t" x="644" y="326.5">halo eval</text>
+<text class="s" x="644" y="344.5">pass@k · LLM judge · matrix</text>
+<rect class="card" x="628" y="358" width="216" height="44" rx="12" filter="url(#sh)"/>
+<rect class="soft" x="628" y="358" width="216" height="44" rx="12"/>
+<rect class="ring" x="628.75" y="358.75" width="214.5" height="42.5" rx="11.25"/>
+<text class="t" x="644" y="376.5">controller</text>
+<text class="s" x="644" y="394.5">mSPRT verdicts · rollback</text>
+<rect class="card" x="628" y="408" width="216" height="44" rx="12" filter="url(#sh)"/>
+<text class="t" x="644" y="426.5">halo-server</text>
+<text class="s" x="644" y="444.5">console · RBAC · SCIM · SIEM</text>
+<rect class="card" x="628" y="458" width="216" height="44" rx="12" filter="url(#sh)"/>
+<text class="t" x="644" y="476.5">Postgres (HA)</text>
+<text class="s" x="644" y="494.5">replicas · leader lease</text>
+<rect class="card" x="628" y="508" width="216" height="44" rx="12" filter="url(#sh)"/>
+<text class="t" x="644" y="526.5">MCP</text>
+<text class="s" x="644" y="544.5">halo mcp serve · agents</text>
+<rect class="card" x="332" y="408" width="216" height="154" rx="12" filter="url(#sh)"/>
+<text class="t" x="348" y="435">Providers</text>
+<text class="xs" x="532" y="435" text-anchor="end">any, with failover</text>
+<rect class="chip" x="348" y="448" width="184" height="21" rx="6"/>
+<text class="m" x="360" y="462.5">Anthropic</text>
+<rect class="chip" x="348" y="475" width="184" height="21" rx="6"/>
+<text class="m" x="360" y="489.5">Amazon Bedrock</text>
+<rect class="chip" x="348" y="502" width="184" height="21" rx="6"/>
+<text class="m" x="360" y="516.5">Google Vertex</text>
+<rect class="chip" x="348" y="529" width="184" height="21" rx="6"/>
+<text class="m" x="360" y="543.5">OpenAI · Azure</text>
 <path class="la" d="M144 126L144 162"/>
 <path class="la hd" d="M140.6 156.5L144 162L147.4 156.5"/>
 <rect class="pa" x="99.4" y="136" width="89.2" height="18" rx="9"/>
@@ -162,8 +166,8 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <path class="ln hd" d="M604.5 234.4L610 231L604.5 227.6"/>
 <rect class="pl" x="568.2" y="204" width="39.6" height="18" rx="9"/>
 <text class="xs xm" x="588" y="216.6" text-anchor="middle">OTLP</text>
-<path class="ld dash" d="M610 447L566 447"/>
-<path class="ld hd" d="M571.5 443.6L566 447L571.5 450.4"/>
-<rect class="pd" x="573.9" y="420" width="28.2" height="18" rx="9"/>
-<text class="xs xd" x="588" y="432.6" text-anchor="middle">kill</text>
+<path class="ld dash" d="M610 431L566 431"/>
+<path class="ld hd" d="M571.5 427.6L566 431L571.5 434.4"/>
+<rect class="pd" x="573.9" y="404" width="28.2" height="18" rx="9"/>
+<text class="xs xd" x="588" y="416.6" text-anchor="middle">kill</text>
 </svg>

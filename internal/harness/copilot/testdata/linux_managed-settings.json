@@ -11,8 +11,28 @@
       ]
     }
   ],
+  "deniedMcpServers": [
+    {
+      "serverName": "filesystem"
+    }
+  ],
+  "enabledPlugins": {
+    "audit@acme-plugins": true,
+    "risky@acme-plugins": false
+  },
   "model": "halo-sonnet",
   "permissions": {
     "disableBypassPermissionsMode": "disable"
-  }
+  },
+  "strictKnownMarketplaces": [
+    {
+      "source": "github",
+      "repo": "acme/plugins",
+      "ref": "v1"
+    },
+    {
+      "source": "hostPattern",
+      "hostPattern": "^git\\.example\\.com$"
+    }
+  ]
 }

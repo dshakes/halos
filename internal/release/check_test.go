@@ -43,7 +43,17 @@ const (
 	codexPath  = "/etc/codex/managed_config.toml"
 	codexReq   = "/etc/codex/requirements.toml"
 	geminiPath = "/etc/gemini-cli/settings.json"
+	openPath   = "/etc/opencode/opencode.json"
+	cursorPath = "/etc/cursor/hooks.json"
 )
+
+// goodOpenCode is what the real adapter renders for a gateway.
+const goodOpenCode = `{
+  "enabled_providers": ["halos"],
+  "model": "halos/halo-sonnet",
+  "permission": {"bash": {"*": "ask", "rm *": "deny"}, "read": {".env": "deny"}},
+  "provider": {"halos": {"npm": "@ai-sdk/anthropic", "options": {"baseURL": "https://gw.example.com/v1", "apiKey": "{env:HALO_GATEWAY_TOKEN}"}}}
+}`
 
 // goodClaude is what the real adapter renders for checkProfile + checkGateway.
 const goodClaude = `{
@@ -135,6 +145,25 @@ func TestCheckRendered(t *testing.T) {
 		{"gemini YOLO allowed (N1)", "gemini-cli", []harness.File{{Path: geminiPath, Data: []byte(`{"security": {"disableYoloMode": false}}`)}}, nil, nil, "security.disableYoloMode"},
 		{"gemini disableYoloMode missing", "gemini-cli", []harness.File{{Path: geminiPath, Data: []byte(`{}`)}}, nil, nil, "security.disableYoloMode"},
 		{"gemini secure mode not required", "gemini-cli", []harness.File{{Path: geminiPath, Data: []byte(`{}`)}}, func(p *policy.Profile) { p.Permissions.DisableBypass = false }, nil, ""},
+
+		{"opencode good", "opencode", []harness.File{{Path: openPath, Data: []byte(goodOpenCode)}}, nil, checkGateway(), ""},
+		{"opencode good without gateway", "opencode", []harness.File{{Path: openPath, Data: []byte(`{"permission": {"bash": {"*": "ask"}}}`)}}, nil, nil, ""},
+		{"opencode permission allow", "opencode", []harness.File{{Path: openPath, Data: []byte(`{"permission": "allow"}`)}}, nil, nil, `permission = "allow"`},
+		{"opencode permission star allow", "opencode", []harness.File{{Path: openPath, Data: []byte(`{"permission": {"*": "allow", "bash": "ask"}}`)}}, nil, nil, `permission["*"]`},
+		{"opencode per-tool allow is a rule, not a bypass", "opencode", []harness.File{{Path: openPath, Data: []byte(`{"permission": {"bash": {"go test *": "allow"}}}`)}}, nil, nil, ""},
+		{"opencode bypass value anywhere", "opencode", []harness.File{{Path: openPath, Data: []byte(`{"x": ["bypassPermissions"]}`)}}, nil, nil, "x[0]"},
+		{"opencode provider off gateway", "opencode", []harness.File{{Path: openPath, Data: []byte(strings.Replace(goodOpenCode, "https://gw.example.com/v1", "https://gw.example.com.evil.io/v1", 1))}}, nil, checkGateway(), "baseURL"},
+		{"opencode extra direct provider", "opencode", []harness.File{{Path: openPath, Data: []byte(strings.Replace(goodOpenCode, `"provider": {`, `"provider": {"direct": {"options": {"baseURL": "https://api.anthropic.com"}}, `, 1))}}, nil, checkGateway(), "provider.direct.options.baseURL"},
+		{"opencode enabled_providers unset", "opencode", []harness.File{{Path: openPath, Data: []byte(strings.Replace(goodOpenCode, `"enabled_providers": ["halos"],`, ``, 1))}}, nil, checkGateway(), "enabled_providers is unset"},
+		{"opencode enabled non-gateway provider", "opencode", []harness.File{{Path: openPath, Data: []byte(strings.Replace(goodOpenCode, `["halos"]`, `["halos", "anthropic"]`, 1))}}, nil, checkGateway(), "enabled_providers names anthropic"},
+		{"opencode model on direct provider", "opencode", []harness.File{{Path: openPath, Data: []byte(strings.Replace(goodOpenCode, `halos/halo-sonnet`, `anthropic/claude-sonnet-4-5`, 1))}}, nil, checkGateway(), "does not name a gateway provider"},
+		{"opencode bad json", "opencode", []harness.File{{Path: openPath, Data: []byte("{")}}, nil, nil, "parse rendered config"},
+		{"opencode instructions file may mention bypass", "opencode", []harness.File{{Path: "/etc/opencode/halos-instructions.md", Data: []byte("never use bypassPermissions")}}, nil, nil, ""},
+
+		{"cursor good", "cursor-agent", []harness.File{{Path: cursorPath, Data: []byte(`{"version": 1, "hooks": {"preToolUse": [{"command": "/opt/halo/audit.sh", "matcher": "Shell", "type": "command"}], "stop": [{"command": "/x"}]}}`)}}, nil, nil, ""},
+		{"cursor prompt hook", "cursor-agent", []harness.File{{Path: cursorPath, Data: []byte(`{"version": 1, "hooks": {"stop": [{"command": "x", "type": "prompt"}]}}`)}}, nil, nil, "hooks.stop[0].type"},
+		{"cursor hook without command", "cursor-agent", []harness.File{{Path: cursorPath, Data: []byte(`{"version": 1, "hooks": {"stop": [{"matcher": "Stop"}]}}`)}}, nil, nil, "hooks.stop[0] has no command"},
+		{"cursor bad json", "cursor-agent", []harness.File{{Path: cursorPath, Data: []byte("{")}}, nil, nil, "parse rendered config"},
 
 		{"unknown harness tolerates non-json", "fake", []harness.File{{Path: "/x.json", Data: []byte("nope")}}, nil, nil, ""},
 		{"unknown harness still forbids bypass", "copilot-cli", []harness.File{{Path: "/x.json", Data: []byte(`{"mode": "bypassPermissions"}`)}}, nil, nil, "mode"},

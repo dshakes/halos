@@ -1,6 +1,7 @@
 package rollout
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -161,25 +162,32 @@ func LoadState(dir, name string) (State, error) {
 	} else if err != nil {
 		return State{}, fmt.Errorf("rollout state: %w", err)
 	}
+	return ParseState(StatePath(dir, name), name, b)
+}
+
+// ParseState decodes and verifies a stored state for rollout name; where
+// names its origin in errors. The history hash chain must verify and the
+// header must agree with it.
+func ParseState(where, name string, b []byte) (State, error) {
 	var disk State
 	if err := json.Unmarshal(b, &disk); err != nil {
-		return State{}, fmt.Errorf("rollout state %s: %w", StatePath(dir, name), err)
+		return State{}, fmt.Errorf("rollout state %s: %w", where, err)
 	}
 	if disk.Rollout != name {
-		return State{}, fmt.Errorf("rollout state %s: belongs to rollout %q", StatePath(dir, name), disk.Rollout)
+		return State{}, fmt.Errorf("rollout state %s: belongs to rollout %q", where, disk.Rollout)
 	}
 	st := NewState(name)
 	prev := ""
 	for i, e := range disk.History {
 		if e.Seq != i+1 || e.Prev != prev || e.Hash != e.sum() {
-			return State{}, fmt.Errorf("%w: %s entry %d", ErrTampered, StatePath(dir, name), i+1)
+			return State{}, fmt.Errorf("%w: %s entry %d", ErrTampered, where, i+1)
 		}
 		prev = e.Hash
 		st.History = append(st.History, e)
 		st.apply(e)
 	}
 	if st.Halted != disk.Halted || st.HaltSource != disk.HaltSource || st.Step != disk.Step || !maps.Equal(st.Done, disk.Done) {
-		return State{}, fmt.Errorf("%w: %s header disagrees with history", ErrTampered, StatePath(dir, name))
+		return State{}, fmt.Errorf("%w: %s header disagrees with history", ErrTampered, where)
 	}
 	st.Last, st.LastAt = disk.Last, disk.LastAt // display only
 	return st, nil
@@ -195,6 +203,63 @@ func (s *State) Save(dir string) error {
 		return fmt.Errorf("rollout state: encode: %w", err)
 	}
 	if err := fsutil.WriteAtomic(StatePath(dir, s.Rollout), append(b, '\n'), 0o600); err != nil {
+		return fmt.Errorf("rollout state: %w", err)
+	}
+	return nil
+}
+
+// StateStore persists rollout state: DirStore (files under halo-server's data
+// dir, single replica) or DocStore (a table shared by every replica).
+type StateStore interface {
+	Load(ctx context.Context, name string) (State, error)
+	Save(ctx context.Context, s *State) error
+}
+
+// DirStore keeps <dir>/<name>.json files.
+type DirStore string
+
+// Load implements StateStore.
+func (d DirStore) Load(_ context.Context, name string) (State, error) {
+	return LoadState(string(d), name)
+}
+
+// Save implements StateStore.
+func (d DirStore) Save(_ context.Context, s *State) error { return s.Save(string(d)) }
+
+// Docs is a document table (pgstore.DB).
+type Docs interface {
+	GetDoc(ctx context.Context, kind, name string) ([]byte, bool, error)
+	PutDoc(ctx context.Context, kind, name string, body []byte) error
+}
+
+// DocStore keeps each rollout's state as one document, verified on load like a file.
+type DocStore struct{ DB Docs }
+
+// DocKind is the document kind DocStore keeps rollout state under.
+const DocKind = "rollout-state"
+
+// Load implements StateStore.
+func (d DocStore) Load(ctx context.Context, name string) (State, error) {
+	if !policy.ValidName(name) {
+		return State{}, fmt.Errorf("rollout state: invalid rollout name %q", name)
+	}
+	b, ok, err := d.DB.GetDoc(ctx, DocKind, name)
+	if err != nil {
+		return State{}, fmt.Errorf("rollout state: %w", err)
+	}
+	if !ok {
+		return NewState(name), nil
+	}
+	return ParseState(DocKind+"/"+name, name, b)
+}
+
+// Save implements StateStore.
+func (d DocStore) Save(ctx context.Context, s *State) error {
+	b, err := json.Marshal(s)
+	if err != nil {
+		return fmt.Errorf("rollout state: encode: %w", err)
+	}
+	if err := d.DB.PutDoc(ctx, DocKind, s.Rollout, b); err != nil {
 		return fmt.Errorf("rollout state: %w", err)
 	}
 	return nil

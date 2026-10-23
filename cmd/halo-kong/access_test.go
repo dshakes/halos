@@ -65,6 +65,32 @@ func (f *fakeKong) Err(args ...any) error           { return f.log(args...) }
 func (f *fakeKong) Warn(args ...any) error          { return f.log(args...) }
 func (f *fakeKong) Notice(args ...any) error        { return f.log(args...) }
 
+// panicKong panics where the plugin reads the request path, standing in for
+// any bug or hostile input that panics inside the Access phase.
+type panicKong struct{ fakeKong }
+
+func (*panicKong) Path() (string, error) { panic("boom: nil entry") }
+
+// go-pdk has no recover around an event: a panic in Access would kill the
+// plugin server for every route. access recovers, logs and answers 500.
+func TestAccessRecoversPanic(t *testing.T) {
+	k := &panicKong{}
+	func() {
+		defer func() {
+			if p := recover(); p != nil {
+				t.Fatalf("panic escaped the Access phase: %v", p)
+			}
+		}()
+		trustedCfg(testPolicy(t)).access(k)
+	}()
+	if k.exitStatus != http.StatusInternalServerError || !strings.Contains(string(k.exitBody), "internal error") {
+		t.Fatalf("exit %d %s, want 500", k.exitStatus, k.exitBody)
+	}
+	if len(k.logs) == 0 || !strings.Contains(strings.Join(k.logs, "\n"), "boom: nil entry") {
+		t.Fatalf("panic not logged: %q", k.logs)
+	}
+}
+
 func testPolicy(t *testing.T) string {
 	t.Helper()
 	org := &policy.Org{

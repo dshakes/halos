@@ -1,0 +1,77 @@
+# yaml-language-server: $schema=../../schemas/halos.schema.json
+# Headless CI and cloud agents (ADR-0023). Simple mode plus a workloads
+# section: CI jobs trade their own OIDC token for a short-lived gateway
+# credential at halo-server, so no provider API key lives in CI. See
+# .github/ (composite action + workflow) and .gitlab/halo-ci.yml: copy them
+# into the application repositories whose jobs run agents.
+apiVersion: halos.dev/v1
+kind: Halos
+org: acme
+tools:
+  claude-code: 2.1.280
+  codex: {version: 0.99.0, model: codex}
+provider: anthropic
+models:
+  default: claude-sonnet-4-5
+  codex: openai/gpt-5-codex
+gateway: https://ai.acme.example
+identity: {issuer: https://login.acme.example, audience: halos, adminGroups: [ai-platform]}
+safety: standard
+rollout: standard
+# Claim names are each provider's documented OIDC claims.
+workloads:
+  audience: halos
+  issuers:
+    # https://docs.github.com/en/actions/reference/security/oidc
+    - name: github
+      url: https://token.actions.githubusercontent.com
+    # https://docs.gitlab.com/ci/secrets/id_token_authentication/
+    - name: gitlab
+      url: https://gitlab.com
+    # https://buildkite.com/docs/agent/v3/cli-oidc
+    - name: buildkite
+      url: https://agent.buildkite.com
+  rules:
+    # Claude Code on main, from a protected environment, in any acme repository.
+    # repository_owner_id pins the tenant by its immutable id (gh api orgs/acme
+    # --jq .id): a renamed or deleted owner name can be re-registered by anyone.
+    # environment (with required reviewers) keeps pull_request_target and
+    # workflow_run jobs, which run on main with fork-supplied code, out.
+    - name: github-main
+      issuer: github
+      match:
+        repository_owner_id: "123456789"
+        repository_owner: acme
+        repository: acme/*
+        ref: refs/heads/main
+        environment: ai-agents
+      subject: workload:gh:{repository}
+      groups: [ci-agents]
+      maxTTLSeconds: 1800
+    # A reusable workflow the platform team pins, callable from any acme repo.
+    - name: github-shared-workflow
+      issuer: github
+      match:
+        repository_owner_id: "123456789"
+        job_workflow_ref: acme/ai-platform/.github/workflows/agent.yml@refs/heads/main
+      subject: workload:gh:{repository}
+      groups: [ci-agents]
+    # GitLab and Buildkite: pin the immutable id too (namespace_id,
+    # organization_id); a path or slug alone can be renamed and re-registered.
+    - name: gitlab-protected
+      issuer: gitlab
+      match:
+        namespace_id: "4242"
+        namespace_path: acme
+        ref_protected: "true"
+      subject: workload:gl:{project_path}
+      groups: [ci-agents]
+    - name: buildkite-main
+      issuer: buildkite
+      match:
+        organization_id: 0190b0b4-6c1e-4c2b-9a77-0a1b2c3d4e5f
+        organization_slug: acme
+        pipeline_slug: monorepo
+        build_branch: main
+      subject: workload:bk:{pipeline_slug}
+      groups: [ci-agents]

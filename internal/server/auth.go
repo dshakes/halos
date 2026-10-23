@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,6 +24,7 @@ import (
 
 	"github.com/dshakes/halos/internal/identity"
 	"github.com/dshakes/halos/internal/policy"
+	"github.com/dshakes/halos/internal/storage"
 )
 
 const (
@@ -31,11 +33,20 @@ const (
 	sessionTTL    = 12 * time.Hour
 )
 
-// Principal is the authenticated portal user.
+// Principal is the authenticated portal user. Roles are recomputed from current
+// policy on every request, never trusted from the cookie.
 type Principal struct {
 	ID     string   `json:"id"`
 	Groups []string `json:"groups"`
-	Admin  bool     `json:"admin"`
+	Roles  []string `json:"roles"`
+	Admin  bool     `json:"admin"` // holds RoleAdmin; kept for API clients that predate roles
+}
+
+func newPrincipal(id string, groups, roles []string) Principal {
+	if roles == nil {
+		roles = []string{}
+	}
+	return Principal{ID: id, Groups: groups, Roles: roles, Admin: slices.Contains(roles, RoleAdmin)}
 }
 
 func (p Principal) subject() policy.Subject { return policy.Subject{ID: p.ID, Groups: p.Groups} }
@@ -100,17 +111,17 @@ func (s *Server) setCookie(w http.ResponseWriter, name, val, path string, ttl ti
 
 // ---- principal resolution and role gates ----
 
-func (s *Server) isAdmin(groups []string) bool {
+func (s *Server) roles(groups []string) []string {
 	org, _, _ := s.pol.Get()
 	if org == nil {
-		return false
+		return nil
 	}
-	return slices.ContainsFunc(org.Identity.AdminGroups, func(g string) bool { return slices.Contains(groups, g) })
+	return rolesFor(org.Identity, groups)
 }
 
 func (s *Server) principal(r *http.Request) (Principal, bool) {
 	if s.cfg.DevUser != "" { // --dev-insecure-user: no authentication at all
-		return Principal{ID: s.cfg.DevUser, Groups: s.cfg.DevGroups, Admin: s.cfg.DevAdmin}, true
+		return newPrincipal(s.cfg.DevUser, s.cfg.DevGroups, s.cfg.DevRoles), true
 	}
 	c, err := r.Cookie(sessionCookie)
 	if err != nil {
@@ -121,14 +132,18 @@ func (s *Server) principal(r *http.Request) (Principal, bool) {
 		return Principal{}, false
 	}
 	if p.SID != "" {
-		g, ok := s.oidc.session(p.SID, s.cfg.Now())
+		g, ok := s.oidc.session(p.SID)
 		if !ok {
 			return Principal{}, false
 		}
 		p.Groups = g
 	}
-	// Admin is recomputed from current policy rather than trusted from the cookie.
-	return Principal{ID: p.Sub, Groups: p.Groups, Admin: s.isAdmin(p.Groups)}, true
+	g, ok := s.directoryGroups(p.Sub, p.Groups) // SCIM: deactivated users are out; authoritative groups win
+	if !ok {
+		return Principal{}, false
+	}
+	// Roles are recomputed from current policy and directory groups rather than trusted from the cookie.
+	return newPrincipal(p.Sub, g, s.roles(g)), true
 }
 
 type authedHandler func(http.ResponseWriter, *http.Request, Principal)
@@ -162,16 +177,6 @@ func (s *Server) user(next authedHandler) http.HandlerFunc {
 	}
 }
 
-func (s *Server) admin(next authedHandler) http.HandlerFunc {
-	return s.user(func(w http.ResponseWriter, r *http.Request, p Principal) {
-		if !p.Admin {
-			apiErr(w, http.StatusForbidden, "admin role required")
-			return
-		}
-		next(w, r, p)
-	})
-}
-
 // ---- OIDC (authorization code + PKCE) ----
 
 type oidcState struct {
@@ -179,65 +184,54 @@ type oidcState struct {
 	key      string
 	provider *oidc.Provider
 
-	// Server-side state, in memory (lost on restart: users log in again).
-	smu      sync.Mutex
-	used     map[string]time.Time // consumed login states until expiry: single use
-	sessions map[string]bigSession
+	// Consumed login states and server-side sessions. In process by default
+	// (lost on restart: users log in again); shared across replicas in HA.
+	kv storage.KV
 }
 
-type bigSession struct {
-	groups []string
-	exp    time.Time
-}
+const (
+	kvLoginState = "oidc-state"
+	kvSession    = "oidc-session"
+)
 
-// consume marks a login state used; false if it already was.
-func (o *oidcState) consume(state string, exp, now time.Time) bool {
-	o.smu.Lock()
-	defer o.smu.Unlock()
-	for k, e := range o.used {
-		if now.After(e) {
-			delete(o.used, k)
-		}
-	}
-	if _, dup := o.used[state]; dup {
-		return false
-	}
-	if o.used == nil {
-		o.used = map[string]time.Time{}
-	}
-	o.used[state] = exp
-	return true
+// consume marks a login state used until exp; false if it already was (or
+// the store cannot say: a login is retried, a replayed state is not let in).
+func (o *oidcState) consume(state string, exp time.Time) bool {
+	ctx, cancel := storage.Ctx()
+	defer cancel()
+	h := sha256.Sum256([]byte(state))
+	ok, err := o.kv.Add(ctx, kvLoginState, hex.EncodeToString(h[:]), nil, exp)
+	return err == nil && ok
 }
 
 // newSession stores groups server-side and returns the session id.
-// ponytail: in-memory, pruned on insert; a shared store if halo-server scales out.
-func (o *oidcState) newSession(groups []string, exp, now time.Time) string {
-	o.smu.Lock()
-	defer o.smu.Unlock()
-	for k, v := range o.sessions {
-		if now.After(v.exp) {
-			delete(o.sessions, k)
-		}
+func (o *oidcState) newSession(groups []string, exp time.Time) (string, error) {
+	b, err := json.Marshal(groups)
+	if err != nil {
+		return "", err
 	}
-	if o.sessions == nil {
-		o.sessions = map[string]bigSession{}
-	}
+	ctx, cancel := storage.Ctx()
+	defer cancel()
 	id := randB64(24)
-	o.sessions[id] = bigSession{groups, exp}
-	return id
+	if err := o.kv.Put(ctx, kvSession, id, b, exp); err != nil {
+		return "", err
+	}
+	return id, nil
 }
 
-func (o *oidcState) session(id string, now time.Time) ([]string, bool) {
-	o.smu.Lock()
-	defer o.smu.Unlock()
-	v, ok := o.sessions[id]
-	if !ok || now.After(v.exp) {
+// session returns a live session's groups; a store error is no session.
+func (o *oidcState) session(id string) ([]string, bool) {
+	ctx, cancel := storage.Ctx()
+	defer cancel()
+	b, ok, err := o.kv.Get(ctx, kvSession, id)
+	var groups []string
+	if err != nil || !ok || json.Unmarshal(b, &groups) != nil {
 		return nil, false
 	}
-	return v.groups, true
+	return groups, true
 }
 
-// policyGroups keeps only the groups current policy refers to (admin groups,
+// policyGroups keeps only the groups current policy refers to (role groups,
 // ring membership groups and toggle rule groups: enrolled devices target
 // toggles with the groups recorded here); IdPs often send hundreds, which would
 // overflow the cookie. A group newly referenced by policy applies at the next login.
@@ -247,7 +241,7 @@ func policyGroups(org *policy.Org, groups []string) []string {
 	}
 	var out []string
 	for _, g := range groups {
-		keep := slices.Contains(org.Identity.AdminGroups, g) ||
+		keep := slices.Contains(roleGroups(org.Identity), g) ||
 			slices.ContainsFunc(org.Rings, func(r *policy.Ring) bool { return slices.Contains(r.Membership.Groups, g) }) ||
 			slices.ContainsFunc(org.Toggles, func(t *policy.Toggle) bool {
 				return slices.ContainsFunc(t.Rules, func(r policy.ToggleRule) bool { return slices.Contains(r.Groups, g) })
@@ -300,7 +294,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	oc, _, _, err := s.oidcConfig(r.Context())
 	if err != nil {
 		s.cfg.Log.Error("login unavailable", "err", err)
-		apiErr(w, http.StatusServiceUnavailable, "login unavailable: "+err.Error())
+		apiErr(w, http.StatusServiceUnavailable, "login unavailable") // public: the cause (policy, IdP) is logged above
 		return
 	}
 	st, nonce, verifier := randB64(16), randB64(16), oauth2.GenerateVerifier()
@@ -316,7 +310,7 @@ func principalFromClaims(claims map[string]any, id policy.Identity) (Principal, 
 	if err != nil {
 		return Principal{}, err
 	}
-	return Principal{ID: sub.ID, Groups: sub.Groups, Admin: slices.ContainsFunc(id.AdminGroups, func(g string) bool { return slices.Contains(sub.Groups, g) })}, nil
+	return newPrincipal(sub.ID, sub.Groups, rolesFor(id, sub.Groups)), nil
 }
 
 func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
@@ -345,7 +339,7 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.setCookie(w, oidcCookie, "", "/auth", -time.Second) // state is single-use
-	if !s.oidc.consume(st.State, time.Unix(st.Exp, 0), s.cfg.Now()) {
+	if !s.oidc.consume(st.State, time.Unix(st.Exp, 0)) {
 		fail(http.StatusBadRequest, "login state already used", nil)
 		return
 	}
@@ -387,15 +381,33 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 		fail(http.StatusForbidden, err.Error(), err)
 		return
 	}
+	g, provisioned := s.directoryGroups(p.ID, p.Groups)
+	if !provisioned {
+		fail(http.StatusForbidden, "user is deactivated or not provisioned", nil)
+		return
+	}
+	// Directory groups may differ from the token's: roles follow the groups in force.
+	p = newPrincipal(p.ID, g, rolesFor(id, g))
 	org, _, _ := s.pol.Get()
 	exp := s.cfg.Now().Add(sessionTTL)
-	sess := cookiePayload{Sub: p.ID, Groups: policyGroups(org, p.Groups), Exp: exp.Unix(), Iat: s.cfg.Now().UnixNano()}
+	iat, ok := s.revoked.issueAt(p.ID, s.cfg.Now()) // past a (padded) revocation epoch: this is a fresh login
+	if !ok {
+		apiErr(w, http.StatusServiceUnavailable, "login unavailable")
+		return
+	}
+	sess := cookiePayload{Sub: p.ID, Groups: policyGroups(org, p.Groups), Exp: exp.Unix(), Iat: iat}
 	if v := s.seal(sess); len(v) > maxCookie {
-		sess.SID, sess.Groups = s.oidc.newSession(sess.Groups, exp, s.cfg.Now()), nil
+		sid, err := s.oidc.newSession(sess.Groups, exp)
+		if err != nil {
+			s.cfg.Log.Error("store session", "user", p.ID, "err", err)
+			apiErr(w, http.StatusServiceUnavailable, "login unavailable")
+			return
+		}
+		sess.SID, sess.Groups = sid, nil
 	}
 	s.setCookie(w, sessionCookie, s.seal(sess), "/", sessionTTL)
-	s.cfg.Log.Info("login", "user", p.ID, "admin", p.Admin)
-	s.Audit(r.Context(), p.ID, "login", "", map[string]string{"admin": strconv.FormatBool(p.Admin)})
+	s.cfg.Log.Info("login", "user", p.ID, "roles", p.Roles)
+	s.Audit(r.Context(), p.ID, "login", "", map[string]string{"admin": strconv.FormatBool(p.Admin), "roles": strings.Join(p.Roles, ",")})
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 
@@ -414,9 +426,11 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 			}
 			s.Audit(r.Context(), p.Sub, "logout", "", nil)
 			if p.SID != "" {
-				s.oidc.smu.Lock()
-				delete(s.oidc.sessions, p.SID)
-				s.oidc.smu.Unlock()
+				ctx, cancel := storage.Ctx()
+				if err := s.oidc.kv.Delete(ctx, kvSession, p.SID); err != nil {
+					s.cfg.Log.Warn("delete session", "err", err) // the epoch bump already ended it
+				}
+				cancel()
 			}
 		}
 	}

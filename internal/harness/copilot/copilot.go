@@ -4,6 +4,7 @@ package copilot
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/dshakes/halos/internal/harness"
 	"github.com/dshakes/halos/internal/harness/hutil"
@@ -30,7 +31,9 @@ func (Adapter) Meta() harness.Meta {
 }
 
 func (Adapter) Capabilities() []harness.Capability {
-	return []harness.Capability{harness.CapTelemetry, harness.CapMCPAllowlist, harness.CapPermissions}
+	return []harness.Capability{harness.CapTelemetry, harness.CapMCPAllowlist, harness.CapPermissions,
+		harness.CapExtensions, // partial: plugin marketplaces and plugin pins only
+	}
 }
 
 func (Adapter) InstallCommand(version string, _ harness.OS) string {
@@ -50,7 +53,8 @@ func settingsPath(os harness.OS) string {
 
 func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []string, error) {
 	warns := hutil.WarnUnsupported(name, p,
-		"models.default", "permissions.disableBypass", "mcp.servers", "telemetry.enabled", "telemetry.logPrompts", "telemetry.attributes")
+		"models.default", "permissions.disableBypass", "mcp.servers", "mcp.managedOnly", "mcp.denied", "telemetry.enabled", "telemetry.logPrompts", "telemetry.attributes",
+		"extensions.marketplaces", "extensions.plugins.enabled", "extensions.plugins.blocked")
 	warns = append(warns, "copilot-cli: cannot self-enforce version; halod enforces")
 	if c.Gateway != nil {
 		warns = append(warns, "copilot-cli: gateway not rendered; BYOK is env-only (COPILOT_PROVIDER_BASE_URL, COPILOT_PROVIDER_API_KEY, COPILOT_MODEL) and managed-settings.json cannot set env; traffic is not routed through Halos")
@@ -72,6 +76,12 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 	if p.Permissions.DisableBypass {
 		s["permissions"] = map[string]any{"disableBypassPermissionsMode": "disable"}
 	}
+	// allowedMcpServers: omitted allows all, [] blocks all but built-ins, so
+	// managedOnly with no servers renders [] (block everything).
+	// https://docs.github.com/en/copilot/reference/enterprise-administrators/enterprise-managed-settings
+	if p.MCP.ManagedOnly && len(p.MCP.Servers) == 0 {
+		s["allowedMcpServers"] = []map[string]any{}
+	}
 	if len(p.MCP.Servers) > 0 {
 		var allow []map[string]any
 		for _, sv := range p.MCP.Servers {
@@ -85,6 +95,33 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 			}
 		}
 		s["allowedMcpServers"] = allow
+	}
+	if len(p.MCP.Denied) > 0 {
+		var denied []map[string]any
+		for _, n := range p.MCP.Denied {
+			if strings.Contains(n, "://") {
+				denied = append(denied, map[string]any{"serverUrl": n})
+				continue
+			}
+			denied = append(denied, map[string]any{"serverName": n})
+			warns = append(warns, fmt.Sprintf("copilot-cli: mcp.denied %q is matched by name only, which a user can bypass by renaming the server; deny by URL instead", n))
+		}
+		s["deniedMcpServers"] = denied
+	}
+	// Plugin keys share Claude Code's managed-settings shapes: enabledPlugins
+	// {"plugin@marketplace": bool} and strictKnownMarketplaces [{source, ...}].
+	if len(p.Extensions.Marketplaces) > 0 {
+		s["strictKnownMarketplaces"] = p.Extensions.Marketplaces
+	}
+	if pl := p.Extensions.Plugins; len(pl.Enabled)+len(pl.Blocked) > 0 {
+		plugins := map[string]any{}
+		for _, k := range pl.Enabled {
+			plugins[k] = true
+		}
+		for _, k := range pl.Blocked {
+			plugins[k] = false
+		}
+		s["enabledPlugins"] = plugins
 	}
 	if t := p.Telemetry; t.Enabled {
 		switch t.Protocol {

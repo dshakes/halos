@@ -144,7 +144,7 @@ var providerDefaults = map[string]Upstream{
 }
 
 // toolProtocols is the wire each harness speaks to the gateway.
-var toolProtocols = map[string]string{"claude-code": "anthropic-messages", "codex": "openai-responses", "gemini-cli": "gemini"}
+var toolProtocols = map[string]string{"claude-code": "anthropic-messages", "codex": "openai-responses", "gemini-cli": "gemini", "opencode": "anthropic-messages"}
 
 // providerWires are the client wires each provider answers natively.
 // KindServes is what halo-proxy can forward, and a pass-through upstream
@@ -163,7 +163,7 @@ var providerWires = map[string][]string{
 var (
 	// toolVendor is the provider/model a tool starts on when the org's
 	// provider cannot answer its wire.
-	toolVendor = map[string]string{"claude-code": "anthropic/claude-sonnet-4-5", "codex": "openai/gpt-5-codex", "gemini-cli": "gemini/gemini-2.5-pro"}
+	toolVendor = map[string]string{"claude-code": "anthropic/claude-sonnet-4-5", "codex": "openai/gpt-5-codex", "gemini-cli": "gemini/gemini-2.5-pro", "opencode": "anthropic/claude-sonnet-4-5"}
 	// providerModel is the default alias's model per provider.
 	providerModel = map[string]string{"anthropic": "claude-sonnet-4-5", "bedrock": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
 		"vertex": "claude-sonnet-4-5@20250929", "openai": "gpt-5", "gemini": "gemini-2.5-pro", ProviderMulti: "anthropic/claude-sonnet-4-5"}
@@ -175,7 +175,7 @@ func DefaultModelFor(provider string) string { return providerModel[provider] }
 // ToolModelFor reports whether tool needs its own start model because
 // defaultID (the default alias's model, on provider) runs on a provider that
 // cannot answer the tool's wire, and if so the vendor model to use
-// ("<provider>/<model>"). Tools the gateway does not route (copilot-cli)
+// ("<provider>/<model>"). Tools the gateway does not route (copilot-cli, cursor-agent)
 // never need one.
 func ToolModelFor(tool, provider, defaultID string) (string, bool) {
 	wire, routed := toolProtocols[tool]

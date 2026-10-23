@@ -20,7 +20,7 @@ const schemaDir = "../../schemas"
 var kindSchema = map[string]string{
 	"Profile": "profile.schema.json", "Ring": "ring.schema.json", "Experiment": "experiment.schema.json",
 	"Gateway": "gateway.schema.json", "Halos": "halos.schema.json", "Toggle": "toggle.schema.json",
-	"Rollout": "rollout.schema.json",
+	"Rollout": "rollout.schema.json", "Unit": "unit.schema.json",
 }
 
 func compileSchemas(t *testing.T) map[string]*jsonschema.Schema {
@@ -114,9 +114,19 @@ func TestSchemasRejectBadDocs(t *testing.T) {
 		{"experiment bad type", "Experiment", hdr + "kind: Experiment\nname: e\ntype: zzz\naxis: client\nrings: [a]\nvariants: [{name: a, weight: 1}]\nmetrics: {primary: {metric: halo.task.success, direction: increase}}\nstopping: {method: msprt}\n"},
 		{"zero weight", "Experiment", hdr + "kind: Experiment\nname: e\ntype: ab\naxis: client\nrings: [a]\nvariants: [{name: a, weight: 0}]\nmetrics: {primary: {metric: halo.task.success, direction: increase}}\nstopping: {method: msprt}\n"},
 		{"root missing org", "Halos", "kind: Halos\n"},
+		{"vendorAdmin org traversal", "Halos", "org: a\nvendorAdmin: {copilot: {org: ..}}\n"},
+		{"vendorAdmin project path", "Halos", "org: a\nvendorAdmin: {gemini: {project: a/b}}\n"},
+		{"vendorAdmin location path", "Halos", "org: a\nvendorAdmin: {gemini: {project: acme-dev, location: ../x}}\n"},
+		{"vendorAdmin token key", "Halos", "org: a\nvendorAdmin: {copilot: {org: acme, token: x}}\n"},
 		{"gateway missing upstreams", "Gateway", hdr + "kind: Gateway\nname: g\nbaseURL: https://x.example\nauth: {}\nmodels: {}\n"},
 		{"route without upstream unless external", "Gateway", hdr + "kind: Gateway\nname: g\nbaseURL: https://x.example\nauth: {}\nupstreams: {}\nmodels: {d: {model: m}}\n"},
 		{"target without upstream unless external", "Gateway", hdr + "kind: Gateway\nname: g\nbaseURL: https://x.example\nauth: {}\nupstreams: {}\nmodels: {d: {targets: [{model: m}]}}\n"},
+		{"budget without limit", "Gateway", gwHdr + "budgets: [{name: b, scope: user, window: day}]\n"},
+		{"budget bad scope", "Gateway", gwHdr + "budgets: [{name: b, scope: team, window: day, limitUSD: 1}]\n"},
+		{"budget rolling without period", "Gateway", gwHdr + "budgets: [{name: b, scope: org, window: rolling, limitUSD: 1}]\n"},
+		{"budget period on day window", "Gateway", gwHdr + "budgets: [{name: b, scope: org, window: day, period: 24h, limitUSD: 1}]\n"},
+		{"budget alert at 1", "Gateway", gwHdr + "budgets: [{name: b, scope: org, window: day, limitUSD: 1, alertAt: [1]}]\n"},
+		{"price without output", "Gateway", gwHdr + "pricing: {m: {inputPerMTok: 1}}\n"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -130,6 +140,18 @@ func TestSchemasRejectBadDocs(t *testing.T) {
 				t.Fatalf("unexpected error type: %v", err)
 			}
 		})
+	}
+}
+
+const gwHdr = hdr + "kind: Gateway\nname: g\nbaseURL: https://x.example\nauth: {}\nupstreams: {u: {kind: anthropic, url: https://api.example}}\nmodels: {d: {upstream: u, model: m}}\n"
+
+func TestSchemaBudgets(t *testing.T) {
+	schemas := compileSchemas(t)
+	doc := yamlDocs(t, []byte(gwHdr+"pricing: {m: {inputPerMTok: 3, outputPerMTok: 15, cacheReadPerMTok: 0.3}}\n"+
+		"budgets:\n- {name: daily, scope: user, window: day, limitUSD: 25, action: enforce, alertAt: [0.5, 0.8]}\n"+
+		"- {name: team, scope: group, groups: [ml], window: rolling, period: 24h, limitTokens: 1000000}\n"))[0]
+	if err := schemas[kindSchema["Gateway"]].Validate(doc); err != nil {
+		t.Fatal(err)
 	}
 }
 

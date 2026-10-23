@@ -29,6 +29,16 @@ type RequestInfo struct {
 	Harness    string
 	Protocol   string
 	FirstTurn  bool
+	// AnyTurn: a parsed, replayable model call at any step of a session
+	// (eligible for shadow experiments with turns: all).
+	AnyTurn bool
+	// Workload: the verified caller is a CI / cloud workload (ADR-0023). It
+	// gets no experiment or shadow unless policy workloads.experiments is true.
+	Workload bool
+	// Agent: the verified caller is a delegated agent acting for UserID
+	// (ADR-0024). It gets no experiment or shadow unless policy
+	// agents.experiments is true (and, for a workload root, workloads.experiments).
+	Agent bool
 }
 
 // ShadowTarget is one candidate a request should be mirrored to.
@@ -89,7 +99,7 @@ func Decide(org *policy.Org, req RequestInfo) Decision {
 	// and attributes the request to it only when no traffic-axis experiment
 	// did, so it can never displace a traffic experiment's routing.
 	var clientExp, clientVar string
-	if known && d.Ring != RingUnknown {
+	if known && d.Ring != RingUnknown && (!req.Workload || org.Workloads.AllowsExperiments()) && (!req.Agent || org.Agents.AllowsExperiments()) {
 		for _, e := range byName(org.Experiments) {
 			switch e.Type {
 			case policy.ExperimentAB, policy.ExperimentCanary:
@@ -161,9 +171,11 @@ func upstreamURL(g *policy.Gateway, name string) (policy.Upstream, bool) {
 
 // shadowTargets returns the candidates for a shadow experiment, or nil when
 // this request is not sampled. Sampling is keyed on the session so a whole
-// session is either mirrored or not; only first-turn requests are eligible.
+// session is either mirrored or not; first-turn requests are eligible, and
+// with turns: all every step of the session is (ADR-0014).
 func shadowTargets(org *policy.Org, e *policy.Experiment, ring string, req RequestInfo) []ShadowTarget {
-	if e.Status != "running" || !slices.Contains(e.Rings, ring) || !req.FirstTurn || req.SessionID == "" {
+	eligible := req.FirstTurn || (e.Turns == policy.ShadowTurnsAll && req.AnyTurn)
+	if e.Status != "running" || !slices.Contains(e.Rings, ring) || !eligible || req.SessionID == "" {
 		return nil
 	}
 	salt := e.Salt

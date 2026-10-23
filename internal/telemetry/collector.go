@@ -1,7 +1,33 @@
 // Package telemetry generates the OpenTelemetry Collector configuration that
-// receives OTLP from Claude Code, Codex and Gemini CLI, normalises their
-// harness-specific metrics into the halo.* schema, and exports to ClickHouse and
-// Prometheus.
+// receives OTLP from Claude Code, Codex, Gemini CLI and Copilot CLI, normalises
+// their harness-specific metrics into the halo.* schema, and exports to
+// ClickHouse and Prometheus.
+//
+// Normalised CLIs, exactly:
+//   - Claude Code: metrics and log events.
+//   - Gemini CLI: metrics and log events.
+//   - Codex: log events only (its native metrics are not mapped, see below).
+//   - Copilot CLI: metrics only (gen_ai.client.token.usage,
+//     gen_ai.client.operation.duration, github.copilot.tool.call.count). It
+//     emits spans and span events but no OTel log records, so it produces no
+//     halo.api.request / halo.tool.call rows. Not mapped: its
+//     github.copilot.code.lines_added/_removed counters (separate counters, where
+//     halo.loc is one counter split by a type attribute) and the other
+//     github.copilot.* / gen_ai.invoke_agent.* metrics.
+//     https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference
+//
+// Not normalised, on purpose (nothing is invented for them):
+//   - Cursor CLI: no OTel export is documented for the CLI; telemetry is a
+//     dashboard/server-side team setting (internal/harness/FACTS.md).
+//   - OpenCode: no OTLP setting; experimental.openTelemetry only switches on
+//     AI SDK spans and the exporter comes from OTEL_EXPORTER_OTLP_* environment,
+//     which a managed file cannot set (internal/harness/FACTS.md).
+//
+// For Cursor CLI, OpenCode and any other CLI without native OTel, the honest
+// per-request source is halo-proxy: it exports gen_ai.* GenAI semantic-convention
+// metrics and opt-in spans on otlp/gateway for all traffic that passes through
+// it (see below). That is request-level evidence only (no session, tool or edit
+// signals), and only for traffic routed through the gateway.
 //
 // Verified end to end by `make obs-e2e` (scripts/obs-e2e.sh): the config loads
 // in otelcol-contrib 0.161.0 (`validate`), the transform renames metrics and
@@ -28,6 +54,11 @@
 // only auto-kills on gateway-sourced evidence. Optionally the CLI receiver
 // requires per-device bearer tokens (Options.CLITokenFile, one per line,
 // hot-reloaded); either way its request size is capped.
+//
+// halo-proxy also exports OpenTelemetry GenAI semantic-convention metrics
+// (gen_ai.client.*) and, opt-in, per-call spans on otlp/gateway. They ride the
+// same authenticated receiver; metrics land in the exporter's raw tables only
+// (halo_metrics projects halo.* names), spans go through traces/gateway.
 //
 // Optionally (Options.EvalReceiver) a third receiver, `otlp/eval` (OTLP/HTTP,
 // 4320), takes `halo eval online` quality readings behind its own token
@@ -66,6 +97,9 @@ var Mappings = []Mapping{
 	{"gemini-cli", "gen_ai.client.operation.duration", "halo.operation.duration"},
 	{"gemini-cli", "gemini_cli.session.count", "halo.sessions"},
 	{"gemini-cli", "gemini_cli.tool.call.count", "halo.tool.calls"},
+	// Copilot CLI emits the same gen_ai.client.* names as Gemini CLI (mapped
+	// above); statements() claims them for copilot-cli by service.name first.
+	{"copilot-cli", "github.copilot.tool.call.count", "halo.tool.calls"},
 }
 
 // Options configures the generated collector.
@@ -124,7 +158,13 @@ func (o *Options) defaults() error {
 // resource attributes halo.ring / halo.release / halo.experiment / halo.variant come
 // from OTEL_RESOURCE_ATTRIBUTES on the client and are left untouched.
 func statements() []string {
-	var out []string
+	// Copilot CLI's gen_ai.client.* metrics are indistinguishable by name from
+	// Gemini CLI's. Stamp them by Copilot's default service.name before the loop
+	// below, or the Gemini mapping would claim them wherever the adapter could
+	// not set halo.harness (no profile.d off Linux). A client-set harness wins.
+	out := []string{
+		`set(resource.attributes["halo.harness"], "copilot-cli") where IsMatch(name, "^gen_ai\\.client\\.") and resource.attributes["service.name"] == "github-copilot" and resource.attributes["halo.harness"] == nil`,
+	}
 	for _, m := range Mappings {
 		out = append(out, fmt.Sprintf(
 			`set(resource.attributes["halo.harness"], %q) where name == %q and resource.attributes["halo.harness"] == nil`,
@@ -150,6 +190,19 @@ func sourceStamp(src string) map[string]any {
 			},
 		}},
 	}
+}
+
+// withSpanStamp adds the same halo.source stamp for spans (the one transform
+// processor serves both signals; each pipeline applies only its own statements).
+func withSpanStamp(cfg map[string]any, src string) map[string]any {
+	cfg["trace_statements"] = []any{map[string]any{
+		"context": "span",
+		"statements": []string{
+			fmt.Sprintf(`set(span.attributes["halo.source"], %q)`, src),
+			`delete_key(resource.attributes, "halo.source")`,
+		},
+	}}
+	return cfg
 }
 
 // Generate renders the collector configuration as YAML. Output is
@@ -199,7 +252,7 @@ func Generate(o Options) ([]byte, error) {
 				"metrics":    map[string]any{"metric": []string{`IsMatch(name, "^halo\\.gateway\\.")`}},
 			},
 			"transform/source-cli":     sourceStamp(SourceCLI),
-			"transform/source-gateway": sourceStamp(SourceGateway),
+			"transform/source-gateway": withSpanStamp(sourceStamp(SourceGateway), SourceGateway),
 			"transform/halo": map[string]any{
 				"error_mode": "ignore",
 				"metric_statements": []any{map[string]any{
@@ -241,6 +294,12 @@ func Generate(o Options) ([]byte, error) {
 					"receivers":  []string{"otlp"},
 					"processors": []string{"memory_limiter", "filter/drop-gateway", "transform/halo", "batch"},
 					"exporters":  []string{"prometheus"},
+				},
+				// halo-proxy's opt-in GenAI spans (telemetry.genai.traces): same trusted receiver, no transform.
+				"traces/gateway": map[string]any{
+					"receivers":  []string{"otlp/gateway"},
+					"processors": []string{"memory_limiter", "transform/source-gateway", "batch"},
+					"exporters":  []string{"clickhouse"},
 				},
 				"logs": map[string]any{
 					"receivers":  []string{"otlp"},

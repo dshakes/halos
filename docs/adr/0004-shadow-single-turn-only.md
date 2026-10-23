@@ -7,7 +7,7 @@ date: 2026-09-30
 
 # ADR-0004: Shadow traffic is single-turn only
 
-- Status: accepted
+- Status: accepted; amended by [ADR-0014](/halos/adr/0014-step-level-multi-turn-shadow/) (`turns: all` mirrors every step, compared at the step level)
 - Date: 2026-09-30
 
 ## Context and problem statement

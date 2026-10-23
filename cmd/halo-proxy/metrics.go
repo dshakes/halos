@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/dshakes/halos/internal/budget"
 )
 
 // Hand-written Prometheus text exposition (no client library needed for three
@@ -45,10 +47,68 @@ type metrics struct {
 	authFailures uint64
 	attempts     map[[2]string]uint64 // {provider kind, outcome}
 	gates        map[[3]string]uint64 // {gate, ring, outcome}
+
+	budgets   map[[2]string]uint64 // {budget, outcome}
+	budgetRes map[string]uint64    // metered responses by outcome
+	budgetUSD float64
+	budgetTok budget.Usage
 }
 
 func newMetrics() *metrics {
-	return &metrics{reqs: map[reqKey]uint64{}, attempts: map[[2]string]uint64{}, gates: map[[3]string]uint64{}}
+	return &metrics{reqs: map[reqKey]uint64{}, attempts: map[[2]string]uint64{}, gates: map[[3]string]uint64{},
+		budgets: map[[2]string]uint64{}, budgetRes: map[string]uint64{}}
+}
+
+// budget counts one budget check outcome per counter a request is charged
+// to: ok, alert, exceeded (warn budget), refused (enforce budget) or unknown.
+func (m *metrics) budget(name, outcome string) {
+	m.mu.Lock()
+	m.budgets[[2]string{name, outcome}]++
+	m.mu.Unlock()
+}
+
+// budgetResponse counts one metered response (metered, unpriced or estimated) and its spend.
+func (m *metrics) budgetResponse(outcome string, usd float64, u budget.Usage) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.budgetRes[outcome]++
+	m.budgetUSD += usd
+	m.budgetTok.Input += u.Input
+	m.budgetTok.Output += u.Output
+	m.budgetTok.CacheRead += u.CacheRead
+	m.budgetTok.CacheWrite += u.CacheWrite
+}
+
+// writeBudget renders the budget families; reported/failed/dropped come from the BudgetClient.
+func (m *metrics) writeBudget(w io.Writer, reported, failed, dropped int64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	fmt.Fprintln(w, "# HELP halo_proxy_budget_checks_total Budget check outcomes per budget: ok, alert (soft threshold crossed), exceeded (warn budget used up), refused (enforce budget, 429), unknown (no verdict).")
+	fmt.Fprintln(w, "# TYPE halo_proxy_budget_checks_total counter")
+	bk := make([][2]string, 0, len(m.budgets))
+	for k := range m.budgets {
+		bk = append(bk, k)
+	}
+	sort.Slice(bk, func(i, j int) bool { return bk[i][0]+"\x00"+bk[i][1] < bk[j][0]+"\x00"+bk[j][1] })
+	for _, k := range bk {
+		fmt.Fprintf(w, "halo_proxy_budget_checks_total{budget=\"%s\",outcome=\"%s\"} %d\n", esc(k[0]), esc(k[1]), m.budgets[k])
+	}
+	fmt.Fprintln(w, "# HELP halo_proxy_budget_responses_total Metered model responses: metered, unpriced (model has no price: tokens only), estimated (final usage not read: client hung up, upstream cut, no usage object or an undecodable encoding; charged a pessimistic estimate).")
+	fmt.Fprintln(w, "# TYPE halo_proxy_budget_responses_total counter")
+	for _, o := range []string{"estimated", "metered", "unpriced"} {
+		fmt.Fprintf(w, "halo_proxy_budget_responses_total{outcome=\"%s\"} %d\n", o, m.budgetRes[o])
+	}
+	fmt.Fprintf(w, "# HELP halo_proxy_budget_spend_usd_total Spend charged to budgets, priced from policy gateway.pricing.\n# TYPE halo_proxy_budget_spend_usd_total counter\nhalo_proxy_budget_spend_usd_total %g\n", m.budgetUSD)
+	fmt.Fprintln(w, "# HELP halo_proxy_budget_tokens_total Tokens charged to budgets, by kind.")
+	fmt.Fprintln(w, "# TYPE halo_proxy_budget_tokens_total counter")
+	for _, kv := range []struct {
+		k string
+		v int64
+	}{{"cache_read", m.budgetTok.CacheRead}, {"cache_write", m.budgetTok.CacheWrite}, {"input", m.budgetTok.Input}, {"output", m.budgetTok.Output}} {
+		fmt.Fprintf(w, "halo_proxy_budget_tokens_total{kind=\"%s\"} %d\n", kv.k, kv.v)
+	}
+	fmt.Fprintf(w, "# HELP halo_proxy_budget_reports_total Usage reports to halo-server, by outcome.\n# TYPE halo_proxy_budget_reports_total counter\nhalo_proxy_budget_reports_total{outcome=\"ok\"} %d\nhalo_proxy_budget_reports_total{outcome=\"failed\"} %d\n", reported, failed)
+	fmt.Fprintf(w, "# HELP halo_proxy_budget_dropped_total Usage records dropped because too much was waiting to be reported.\n# TYPE halo_proxy_budget_dropped_total counter\nhalo_proxy_budget_dropped_total %d\n", dropped)
 }
 
 // attempt counts one upstream target try; outcome is ok | failed | circuit_open | skipped.

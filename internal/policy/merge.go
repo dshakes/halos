@@ -12,13 +12,51 @@ import (
 //   - scalars: child wins when set (non-zero). ponytail: zero means "unset", so a
 //     child cannot turn a parent's true bool back to false; add pointer bools if needed.
 //   - slices: child replaces the parent's list when non-empty, EXCEPT
-//     permissions.deny, mcp.denied and hooks.items, which union (see below).
+//     permissions.deny, mcp.denied, hooks.items and the extensions deny/blocked
+//     lists, which union (see below).
 //   - maps: merged per key; struct values (e.g. harnesses) merge recursively,
 //     other values (e.g. overrides) are child-wins per key.
 //
 // The result is a deep-ish copy: mutating it does not affect the Org.
 // Extends cycles and missing parents are errors.
 func (o *Org) ResolveProfile(name string) (*Profile, error) {
+	chain, err := o.profileChain(name)
+	if err != nil {
+		return nil, err
+	}
+	out := &Profile{}
+	var deny, mcpDenied, plugBlocked, skillDeny, agentDeny []string
+	var blockedMkts []Marketplace
+	var hooks []Hook
+	for i := len(chain) - 1; i >= 0; i-- {
+		mergeValue(reflect.ValueOf(out).Elem(), reflect.ValueOf(chain[i]).Elem())
+		deny = unionAppend(deny, chain[i].Permissions.Deny)
+		mcpDenied = unionAppend(mcpDenied, chain[i].MCP.Denied)
+		hooks = unionAppend(hooks, chain[i].Hooks.Hooks)
+		e := chain[i].Extensions
+		plugBlocked = unionAppend(plugBlocked, e.Plugins.Blocked)
+		skillDeny = unionAppend(skillDeny, e.Skills.Deny)
+		agentDeny = unionAppend(agentDeny, e.Subagents.Deny)
+		blockedMkts = unionAppend(blockedMkts, e.BlockedMarketplaces)
+	}
+	// Deny lists and hooks only accumulate down the chain: a child profile can
+	// add restrictions (or audit hooks) but never silently drop a parent's.
+	// (Same reason the zero-means-unset rule above is a feature for
+	// DisableBypass/ManagedOnly.) Hooks dedupe on event+matcher+command.
+	out.Permissions.Deny = deny
+	out.MCP.Denied = mcpDenied
+	out.Hooks.Hooks = hooks
+	out.Extensions.Plugins.Blocked = plugBlocked
+	out.Extensions.Skills.Deny = skillDeny
+	out.Extensions.Subagents.Deny = agentDeny
+	out.Extensions.BlockedMarketplaces = blockedMkts
+	out.Extends = ""
+	return out, nil
+}
+
+// profileChain returns name's extends chain, child first. Extends cycles and
+// missing parents are errors.
+func (o *Org) profileChain(name string) ([]*Profile, error) {
 	var chain []*Profile
 	seen := map[string]bool{}
 	for cur := name; cur != ""; {
@@ -36,24 +74,7 @@ func (o *Org) ResolveProfile(name string) (*Profile, error) {
 		chain = append(chain, p)
 		cur = p.Extends
 	}
-	out := &Profile{}
-	var deny, mcpDenied []string
-	var hooks []Hook
-	for i := len(chain) - 1; i >= 0; i-- {
-		mergeValue(reflect.ValueOf(out).Elem(), reflect.ValueOf(chain[i]).Elem())
-		deny = unionAppend(deny, chain[i].Permissions.Deny)
-		mcpDenied = unionAppend(mcpDenied, chain[i].MCP.Denied)
-		hooks = unionAppend(hooks, chain[i].Hooks.Hooks)
-	}
-	// Deny lists and hooks only accumulate down the chain: a child profile can
-	// add restrictions (or audit hooks) but never silently drop a parent's.
-	// (Same reason the zero-means-unset rule above is a feature for
-	// DisableBypass/ManagedOnly.) Hooks dedupe on event+matcher+command.
-	out.Permissions.Deny = deny
-	out.MCP.Denied = mcpDenied
-	out.Hooks.Hooks = hooks
-	out.Extends = ""
-	return out, nil
+	return chain, nil
 }
 
 func unionAppend[T comparable](dst, src []T) []T {

@@ -2,6 +2,7 @@ package policy
 
 import (
 	"bytes"
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -51,6 +52,43 @@ func TestParseSnapshotRejects(t *testing.T) {
 	}
 	if _, err := Compile(nil); err == nil {
 		t.Error("nil org must error")
+	}
+}
+
+// A null document in a snapshot decodes to a nil pointer that Validate,
+// SecurityIssues and the gateways dereference: one hand-made (or correctly
+// digested) file would crash halo-proxy or the halo-kong plugin. Each is
+// refused, enveloped or bare.
+func TestParseSnapshotRejectsNullEntries(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		set  func(*Org)
+		want string
+	}{
+		{"ring", func(o *Org) { o.Rings = append(o.Rings, nil) }, "Rings[1] is null"},
+		{"experiment", func(o *Org) { o.Experiments = []*Experiment{nil} }, "Experiments[0] is null"},
+		{"unit", func(o *Org) { o.Units = []*Unit{nil} }, "Units[0] is null"},
+		{"rollout", func(o *Org) { o.Rollouts = []*Rollout{nil} }, "Rollouts[0] is null"},
+		{"toggle", func(o *Org) { o.Toggles = []*Toggle{nil} }, "Toggles[0] is null"},
+		{"profile", func(o *Org) { o.Profiles = map[string]*Profile{"base": nil} }, `profile "base" is null`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			o := snapOrg()
+			tc.set(o)
+			env, err := Compile(o) // a correctly digested envelope
+			if err != nil {
+				t.Fatal(err)
+			}
+			bare, err := json.Marshal(o)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for form, b := range map[string][]byte{"envelope": env, "bare": bare} {
+				if got, err := ParseSnapshot(b); err == nil || !strings.Contains(err.Error(), tc.want) {
+					t.Errorf("%s: %+v %v, want error %q", form, got, err, tc.want)
+				}
+			}
+		})
 	}
 }
 

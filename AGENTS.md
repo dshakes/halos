@@ -20,10 +20,12 @@ Before finishing: `gofmt -l .` empty, `go build ./... && go vet ./... && go test
 
 - `cmd/halo` CLI (cobra). `cmd/halod` fleet agent. `cmd/halo-server` API + console. `cmd/halo-shadow` shadow mirror. `cmd/halo-kong` gateway plugin.
 - `internal/policy` types, loader, validation, ring/experiment resolution.
-- `internal/harness/{claudecode,codex,gemini,copilot}` adapters: render config + capability matrix.
+- `internal/harness/{claudecode,codex,gemini,copilot,cursor,opencode}` adapters: render config + capability matrix.
 - `internal/release` build/diff of release bundles; `internal/bundle` OCI push/pull + signing.
 - `internal/assign` deterministic hashing. `internal/gateway`, `internal/identity`, `internal/server`, `internal/shadow`.
+- `internal/a2a` A2A AgentCard fetch, canonical digest and signature checks.
 - `internal/eval` replay evals + scorecards. `internal/stats` mSPRT/bootstrap. `internal/promote` verdicts, promotion/rollback plans, PRs.
+- `internal/vendoradmin` vendor admin console sync (ADR-0025): render, read, diff, apply; `halo admin`.
 - `internal/mcpserver` MCP server behind `halo mcp serve`. `plugins/claude-code` Claude Code plugin. `schemas/` JSON Schemas. `examples/acme-corp` example policy repo.
 
 ## Invariants (do not break; flag rather than bend)
@@ -38,7 +40,7 @@ Before finishing: `gofmt -l .` empty, `go build ./... && go vet ./... && go test
 
 ## Agentic operation (MCP)
 
-`halo mcp serve --policy-dir DIR [--allow-writes] [--clickhouse URL] [--server URL]` serves read tools (status, validate, plan, release_build, render_preview, whoami, list_rings, list_experiments, show_experiment, harness_matrix, explain_release_diff, eval_scorecard, wait_for, list_rollouts, rollout_status, analyze_experiment when ClickHouse is set; kill_switch_status, fleet_status, audit_tail when `--server` and `HALO_SESSION` are set), resources (`halos://policy/<path>`, `halos://schema/<kind>`, `halos://guide/autopilot`) and prompts (`autopilot` is the full lifecycle with its human gates). Write tools (`start|pause|conclude_experiment`, `propose_promotion`, `propose_rollback`, `propose_rollout_advance|rollback`, `kill_switch`, `eval_run`) exist only with `--allow-writes` (the last two are registered always and preview without it), default to `dry_run`, require a `reason`, and only commit to a local branch, open a PR, or post to halo-server's reversible kill list. Every tool answers with `next_steps`: the next call or the exact human command at a gate. No tool publishes releases, retags registry rings, merges, or pushes to main: a human owns every irreversible step. Do not add one.
+`halo mcp serve --policy-dir DIR [--allow-writes] [--admin-read] [--clickhouse URL] [--server URL]` serves read tools (status, validate, plan, release_build, render_preview, whoami, list_rings, list_experiments, show_experiment, harness_matrix, explain_release_diff, eval_scorecard, wait_for, list_rollouts, rollout_status, analyze_experiment when ClickHouse is set; kill_switch_status, fleet_status, audit_tail when `--server` and `HALO_SESSION` are set; admin_plan, read-only, renders from policy only unless `--admin-read`, then reads consoles with `HALO_MCP_ADMIN_<VENDOR>_TOKEN` only), resources (`halos://policy/<path>`, `halos://schema/<kind>`, `halos://guide/autopilot`) and prompts (`autopilot` is the full lifecycle with its human gates). Write tools (`start|pause|conclude_experiment`, `propose_promotion`, `propose_rollback`, `propose_rollout_advance|rollback`, `kill_switch`, `eval_run`, `eval_harvest`) exist only with `--allow-writes` (the last three are registered always and preview without it), default to `dry_run`, require a `reason`, and only commit to a local branch, open a PR, or post to halo-server's reversible kill list. Every tool answers with `next_steps`: the next call or the exact human command at a gate. No tool publishes releases, retags registry rings, merges, or pushes to main: a human owns every irreversible step. Do not add one.
 
 ### Onboarding a user or a company
 

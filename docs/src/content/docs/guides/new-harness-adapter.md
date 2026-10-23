@@ -3,7 +3,7 @@ title: Writing a harness adapter
 description: Add support for a new CLI by implementing render and the capability declaration.
 ---
 
-An adapter lives in `internal/harness/<name>/` and does two things: **render** a `Profile` into the harness's native config (returning files and warnings), and **declare capabilities** (`Capabilities()`), which `halo harnesses` prints and the docs matrix mirrors. Existing adapters: `claudecode`, `codex`, `gemini`, `copilot`.
+An adapter lives in `internal/harness/<name>/` and does two things: **render** a `Profile` into the harness's native config (returning files and warnings), and **declare capabilities** (`Capabilities()`), which `halo harnesses` prints and the docs matrix mirrors. Existing adapters: `claudecode`, `codex`, `gemini`, `copilot`, `cursor`, `opencode` (see [ADR-0019](/halos/adr/0019-harness-coverage-beyond-the-big-four/) for what a partial adapter renders and warns).
 
 ## Steps
 

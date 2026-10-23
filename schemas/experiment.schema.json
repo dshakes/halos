@@ -124,6 +124,15 @@
       "exclusiveMinimum": 0,
       "maximum": 1
     },
+    "turns": {
+      "type": "string",
+      "enum": [
+        "first",
+        "all"
+      ],
+      "default": "first",
+      "description": "Shadow only: which turns of a sampled session are mirrored. first mirrors the opening request; all mirrors every step, each replayed on the real conversation prefix (ADR-0014)."
+    },
     "metrics": {
       "type": "object",
       "description": "Metrics.",

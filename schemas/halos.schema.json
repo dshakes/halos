@@ -50,7 +50,54 @@
           "items": {
             "type": "string"
           },
-          "description": "Groups that may approve requests and manage experiments in the portal."
+          "description": "Groups holding halo-server's admin role. Same as roles.admin; kept for existing policy repos."
+        },
+        "roles": {
+          "type": "object",
+          "description": "halo-server roles (ADR-0015): IdP groups per role. A user holds every role any of their groups maps to.",
+          "properties": {
+            "viewer": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": "Read fleet, releases, rollouts, experiments, toggles and policy."
+            },
+            "operator": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": "Viewer plus kill switch and experiment status (pause, resume, conclude)."
+            },
+            "approver": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": "Viewer plus approving and denying access requests."
+            },
+            "auditor": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": "Read and export the audit log; nothing else."
+            },
+            "admin": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": "Everything, including devices, sessions and toggle proposals. Same as adminGroups."
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
@@ -127,6 +174,134 @@
       },
       "additionalProperties": false
     },
+    "delegation": {
+      "type": "object",
+      "description": "What units (ADR-0018) may add on top of the baseline; anything else a unit adds is a loosening that validate rejects. MCP servers a unit adds must be exact selfService.catalog entries.",
+      "properties": {
+        "allowHooks": {
+          "type": "boolean",
+          "description": "Let units add hooks.items (shell commands every member's harness runs). Default false."
+        },
+        "envKeys": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Env names units may add. Provider, cloud, base-URL, proxy, telemetry, CA-trust and runtime-injection names (*_BASE_URL, *_API_KEY, ANTHROPIC_*, OPENAI_*, GEMINI_*, CLAUDE_CODE_*, AWS_*, GOOGLE_*, CLOUD_ML_REGION, HTTP(S)_PROXY, ALL_PROXY, NO_PROXY, OTEL_EXPORTER_OTLP_*, SSL_CERT_FILE, SSL_CERT_DIR, REQUESTS_CA_BUNDLE, CURL_CA_BUNDLE, NODE_EXTRA_CA_CERTS, PATH, BASH_ENV, ENV, GIT_SSH_COMMAND, GIT_CONFIG_*, GIT_EXEC_PATH, npm_config_*, JAVA_TOOL_OPTIONS, _JAVA_OPTIONS, PERL5OPT, RUBYOPT, NODE_*, LD_*, DYLD_*, PYTHON*, every GIT_* but commit identity, CC, CXX, CGO_*, GO module sources (GOPROXY, GOSUMDB, GONOSUMDB, GOPRIVATE, ...), PIP_*, UV_*, YARN_*, BUNDLE_*, GEM_*, build tool options and DOCKER_HOST; any case) are refused even here."
+        }
+      },
+      "additionalProperties": false
+    },
+    "workloads": {
+      "type": "object",
+      "description": "Workload identity federation for headless CI / cloud agents (ADR-0023): halo-server exchanges a token from a trusted OIDC issuer for a short-lived gateway credential when a rule matches its claims.",
+      "properties": {
+        "audience": {
+          "type": "string",
+          "minLength": 1,
+          "description": "aud the CI token must carry (e.g. halos); an issuer may override it."
+        },
+        "issuers": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Trusted OIDC issuers, e.g. GitHub Actions https://token.actions.githubusercontent.com, GitLab https://gitlab.com, Buildkite https://agent.buildkite.com, CircleCI https://oidc.circleci.com/org/<org-id>, Google https://accounts.google.com.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Name rules refer to."
+              },
+              "url": {
+                "type": "string",
+                "format": "uri",
+                "description": "Exact iss claim; discovery is <url>/.well-known/openid-configuration. https (http only for loopback)."
+              },
+              "audience": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Overrides workloads.audience for this issuer (CircleCI's default aud is the organization id)."
+              },
+              "tenantClaim": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The claim naming the tenant (org, group, account) a token was minted for; every rule of this issuer must match it exactly. Required for issuers Halos does not know; for GitHub, GitLab.com, Buildkite, CircleCI, Google and Entra ID it may only pick one of their tenant claims."
+              }
+            },
+            "required": [
+              "name",
+              "url"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "rules": {
+          "type": "array",
+          "description": "Tried in order; the first rule of the token's issuer whose every match entry holds mints the credential.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "issuer": {
+                "type": "string",
+                "minLength": 1,
+                "description": "An issuers[].name."
+              },
+              "match": {
+                "type": "object",
+                "minProperties": 1,
+                "description": "Claim name -> exact value or glob (* never crosses /). One of the issuer's tenant claims must be matched exactly, or as literal/* (GitHub: repository_owner_id, repository_owner, repository or repository_id; GitLab.com: namespace_id, namespace_path, project_id or project_path; Buildkite: organization_id or organization_slug; CircleCI: oidc.circleci.com/org-id; Google: email or sub; Entra ID: tid; other issuers: their tenantClaim).",
+                "additionalProperties": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "subject": {
+                "type": "string",
+                "pattern": "^workload:.+",
+                "description": "Workload subject id; {claim} expands to that claim's value, e.g. workload:gh:{repository}."
+              },
+              "groups": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "description": "Groups the workload gets (ring membership, budgets) like a human's IdP groups."
+              },
+              "maxTTLSeconds": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 3600,
+                "description": "Credential lifetime (default 900)."
+              }
+            },
+            "required": [
+              "name",
+              "issuer",
+              "match",
+              "subject"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "experiments": {
+          "type": "boolean",
+          "description": "Enroll workloads in experiments and shadows like humans (default false: control routing)."
+        }
+      },
+      "required": [
+        "audience",
+        "issuers",
+        "rules"
+      ],
+      "additionalProperties": false
+    },
     "tools": {
       "type": "object",
       "description": "Simple mode: harnesses to enable, each pinned to an exact CLI version: a bare version, or {version, model} where model is a models alias the tool starts on instead of default.",
@@ -135,7 +310,9 @@
           "claude-code",
           "codex",
           "gemini-cli",
-          "copilot-cli"
+          "copilot-cli",
+          "cursor-agent",
+          "opencode"
         ]
       },
       "additionalProperties": {
@@ -277,10 +454,225 @@
         "careful"
       ],
       "description": "Simple mode: rollout preset (rings and step template; default standard)."
+    },
+    "vendorAdmin": {
+      "type": "object",
+      "description": "Vendor admin sync (ADR-0025): drive the vendors' cloud admin consoles from one ring's profile with `halo admin plan|apply|export`. A vendor is managed when its key is present. Credentials never live here.",
+      "additionalProperties": false,
+      "properties": {
+        "ring": {
+          "type": "string",
+          "description": "Ring whose profile the consoles get; console settings are org-wide (default: the last ring, GA)."
+        },
+        "claude": {
+          "$ref": "#/$defs/vendorTarget",
+          "description": "Claude for Teams/Enterprise server-managed settings (no API: exported for the claude.ai console)."
+        },
+        "codex": {
+          "$ref": "#/$defs/vendorTarget",
+          "description": "ChatGPT workspace Agent security requirements (no documented API: exported as requirements.toml)."
+        },
+        "gemini": {
+          "$ref": "#/$defs/vendorTarget",
+          "description": "Gemini Code Assist settings through the Gemini for Google Cloud API (read and write). project is required."
+        },
+        "copilot": {
+          "$ref": "#/$defs/vendorTarget",
+          "description": "GitHub Copilot org content exclusion (read and write) and CLI policy (read). org is required."
+        },
+        "cursor": {
+          "$ref": "#/$defs/vendorTarget",
+          "description": "Cursor team model allowlist (exported for the dashboard)."
+        }
+      }
+    },
+    "agents": {
+      "type": "object",
+      "description": "Agent identity and delegation (ADR-0024): which agents may act for a principal (RFC 8693 act chain), how deep and for how long, what delegated agents may not do, and the allowlist of remote A2A agents.",
+      "properties": {
+        "maxDepth": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5,
+          "description": "Longest delegation chain (default 2)."
+        },
+        "maxTTLSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600,
+          "description": "Delegated credential lifetime cap (default 900). Never longer than the parent's remaining lifetime."
+        },
+        "experiments": {
+          "type": "boolean",
+          "description": "Enroll delegated callers in experiments with their root (default false: control routing, no shadow)."
+        },
+        "allowedModels": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true,
+          "description": "Gateway model aliases any delegated agent may call; empty = every alias the root may."
+        },
+        "deniedTools": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true,
+          "description": "Tools a delegated agent's model call may not declare: function names (case-insensitive) and hosted tool identifiers such as web_search, code_execution or mcp:<server> (prefix match ignoring case and underscores). With any set, an agent call whose tools the gateway cannot read is refused."
+        },
+        "actors": {
+          "type": "array",
+          "description": "Agents that may act. Any other actor_id is refused.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9._-]{0,62}$",
+                "description": "The actor_id an exchange names."
+              },
+              "harnesses": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "uniqueItems": true,
+                "description": "Harnesses it may run in (claude-code, codex, gemini-cli, copilot-cli, cursor-agent, opencode); empty = any."
+              },
+              "groups": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "uniqueItems": true,
+                "description": "The root must hold one of these groups; empty = any root."
+              },
+              "models": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "uniqueItems": true,
+                "description": "Narrows agents.allowedModels for this agent."
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "remote": {
+          "type": "array",
+          "description": "Allowlisted remote A2A agents. Answered by POST /api/v1/agents/egress and pinned into ring releases.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9._-]{0,62}$"
+              },
+              "cardURL": {
+                "type": "string",
+                "format": "uri",
+                "pattern": "^https://",
+                "description": "The AgentCard, usually https://host/.well-known/agent-card.json."
+              },
+              "digest": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$",
+                "description": "sha256 of the card's RFC 8785 canonical JSON, as `halo agents verify` prints it."
+              },
+              "publicKey": {
+                "type": "string",
+                "minLength": 1,
+                "description": "PEM public key (Ed25519, ECDSA P-256/P-384, RSA >= 2048) the card's JWS signature must verify with."
+              },
+              "jwksURL": {
+                "type": "string",
+                "format": "uri",
+                "pattern": "^https://",
+                "description": "https JWKS holding the card signing key. A jku in the card is never followed."
+              },
+              "skills": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "uniqueItems": true,
+                "description": "Skill ids that may be invoked; empty = any."
+              },
+              "rings": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "uniqueItems": true,
+                "description": "Rings whose members may call it."
+              },
+              "units": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "uniqueItems": true,
+                "description": "Units (and units below them) whose members may call it."
+              }
+            },
+            "required": [
+              "name",
+              "cardURL",
+              "digest"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
     }
   },
   "required": [
     "org"
   ],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "vendorTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "org": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9-]{0,38}$",
+          "description": "Tenant: the GitHub organization login (copilot, required), or the Claude organization / ChatGPT workspace / Cursor team id recorded in exports."
+        },
+        "project": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{4,28}[a-z0-9]$",
+          "description": "Google Cloud project holding the Gemini Code Assist settings (gemini only, required)."
+        },
+        "location": {
+          "type": "string",
+          "pattern": "^([a-z]+-[a-z]+[0-9]+|global)$",
+          "description": "Location of the Gemini settings resources (gemini only; default global)."
+        },
+        "releaseChannel": {
+          "enum": [
+            "stable",
+            "experimental"
+          ],
+          "description": "Gemini Code Assist release channel (gemini only); unset leaves it unmanaged."
+        }
+      }
+    }
+  }
 }

@@ -9,6 +9,10 @@ Generated from `schemas/profile.schema.json`; do not edit. Nested fields use dot
 
 | Field | Type | Required | Default | Allowed values | Constraints | Description |
 |---|---|---|---|---|---|---|
+| `agents` | object |  |  |  |  | Bounds delegated agents for this profile's members (ADR-0024). A unit overlay may only lower maxDepth and narrow remote. |
+| `agents.maxDepth` | integer |  |  |  | minimum 1; maximum 5 | Lowers agents.maxDepth for these members. |
+| `agents.remote` | array of string |  |  |  |  | agents.remote names these members may call; empty = every entry whose rings or units admit them. |
+| `agents.remote[]` | string |  |  |  | minLength 1 |  |
 | `apiVersion` | string | yes |  | const halos.dev/v1 |  | Document version. |
 | `egress` | object |  |  |  |  | Egress policy. |
 | `egress.allowedDomains` | array of string |  |  |  |  | Only egress permitted from managed environments; must include the gateway host when non-empty. |
@@ -16,7 +20,39 @@ Generated from `schemas/profile.schema.json`; do not edit. Nested fields use dot
 | `env` | object |  |  |  |  | Extra environment applied to every harness. |
 | `env.*` | string |  |  |  |  |  |
 | `extends` | string |  |  |  |  | Parent profile. Scalars: child wins; lists: child replaces; maps: merged. |
-| `harnesses` | object |  |  |  |  | Enabled harnesses keyed by adapter name (claude-code, codex, gemini-cli, copilot-cli). |
+| `extensions` | object |  |  |  |  | Plugin, skill, subagent, output style and status line governance. Unset means unrestricted; each adapter renders what its harness can enforce and warns about the rest. |
+| `extensions.blockedMarketplaces` | array of object |  |  |  |  | Marketplace sources users may never use (Claude Code blockedMarketplaces). Unions down an extends chain. |
+| `extensions.blockedMarketplaces[]` | object |  |  |  |  | A plugin marketplace source. |
+| `extensions.blockedMarketplaces[].hostPattern` | string |  |  |  |  | Regular expression over marketplace hosts (source hostPattern). |
+| `extensions.blockedMarketplaces[].ref` | string |  |  |  |  | Branch or tag (sources github and git). |
+| `extensions.blockedMarketplaces[].repo` | string |  |  |  | pattern ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ | OWNER/REPO (source github). |
+| `extensions.blockedMarketplaces[].source` | string | yes |  | github, git, url, hostPattern |  | Source kind. |
+| `extensions.blockedMarketplaces[].url` | string |  |  |  | format uri | Repository or marketplace.json URL (sources git and url). |
+| `extensions.marketplaces` | array of object |  |  |  |  | Allowlist of plugin marketplace sources (Claude Code strictKnownMarketplaces, Codex marketplaces.allowed_sources, Copilot strictKnownMarketplaces); empty means any. The vendor's own marketplace is blocked unless listed. |
+| `extensions.marketplaces[]` | object |  |  |  |  | A plugin marketplace source. |
+| `extensions.marketplaces[].hostPattern` | string |  |  |  |  | Regular expression over marketplace hosts (source hostPattern). |
+| `extensions.marketplaces[].ref` | string |  |  |  |  | Branch or tag (sources github and git). |
+| `extensions.marketplaces[].repo` | string |  |  |  | pattern ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ | OWNER/REPO (source github). |
+| `extensions.marketplaces[].source` | string | yes |  | github, git, url, hostPattern |  | Source kind. |
+| `extensions.marketplaces[].url` | string |  |  |  | format uri | Repository or marketplace.json URL (sources git and url). |
+| `extensions.outputStyle` | string |  |  |  |  | Output style name (Claude Code outputStyle). |
+| `extensions.plugins` | object |  |  |  |  | Individual plugin pins, keyed PLUGIN@MARKETPLACE. |
+| `extensions.plugins.blocked` | array of string |  |  |  |  | Plugins required off. Unions down an extends chain. |
+| `extensions.plugins.blocked[]` | string |  |  |  | pattern ^[^@\s]+@[^@\s]+$ |  |
+| `extensions.plugins.enabled` | array of string |  |  |  |  | Plugins required on. |
+| `extensions.plugins.enabled[]` | string |  |  |  | pattern ^[^@\s]+@[^@\s]+$ |  |
+| `extensions.skills` | object |  |  |  |  | Governance for a user-authored extension kind. |
+| `extensions.skills.deny` | array of string |  |  |  |  | Names that must not load. Unions down an extends chain. |
+| `extensions.skills.deny[]` | string |  |  |  |  |  |
+| `extensions.skills.pluginOnly` | boolean |  |  |  |  | Allow only extensions delivered by plugins or managed settings; user and project sources are blocked (Claude Code strictPluginOnlyCustomization). |
+| `extensions.statusLine` | object |  |  |  |  | Managed status-line command (Claude Code statusLine). |
+| `extensions.statusLine.command` | string |  |  |  |  | Command that renders the status line. |
+| `extensions.statusLine.padding` | integer |  |  |  | minimum 0 | Horizontal padding in characters; requires command. |
+| `extensions.subagents` | object |  |  |  |  | Governance for a user-authored extension kind. |
+| `extensions.subagents.deny` | array of string |  |  |  |  | Names that must not load. Unions down an extends chain. |
+| `extensions.subagents.deny[]` | string |  |  |  |  |  |
+| `extensions.subagents.pluginOnly` | boolean |  |  |  |  | Allow only extensions delivered by plugins or managed settings; user and project sources are blocked (Claude Code strictPluginOnlyCustomization). |
+| `harnesses` | object |  |  |  |  | Enabled harnesses keyed by adapter name (claude-code, codex, gemini-cli, copilot-cli, cursor-agent, opencode). |
 | `harnesses.*` | object |  |  |  |  | Harness settings. |
 | `harnesses.*.model` | string |  |  |  |  | This harness's default model alias, replacing models.default for it (e.g. codex-default). Must be a gateway.models alias, and in models.allowed when enforce is set. |
 | `harnesses.*.overrides` | object |  |  |  |  | Raw harness-native keys merged last (escape hatch; guardrails still apply). |
@@ -32,6 +68,7 @@ Generated from `schemas/profile.schema.json`; do not edit. Nested fields use dot
 | `kind` | string | yes |  | const Profile |  | Document kind. |
 | `labels` | object |  |  |  |  | Free-form labels. |
 | `labels.*` | string |  |  |  |  |  |
+| `login` | string |  |  | subscription, api |  | Restrict how users authenticate: subscription (claude.ai, ChatGPT or Google login) or api (API key or gateway credential). Unset means unrestricted. |
 | `mcp` | object |  |  |  |  | MCP policy. |
 | `mcp.denied` | array of string |  |  |  |  | Denied server names. |
 | `mcp.denied[]` | string |  |  |  |  |  |

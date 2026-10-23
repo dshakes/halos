@@ -13,8 +13,26 @@ loop (`--controller`) and the gateway kill switch.
 | `--data-dir` | in-memory | JSONL logs: fleet, requests, devices, audit, `killswitch.jsonl`, `controller-state.jsonl`. |
 | `--verdicts-file` | | Verdicts JSON array shown in the console; the controller (and `halo exp analyze --verdicts-file`) upserts it. `--verdicts` is a deprecated alias. |
 | `--portal-config` | | Portal/self-service JSON config. |
+| `--audit-config` | | Audit log rotation and SIEM export JSON config (ADR-0016). Requires `--data-dir`. |
 | `--trusted-proxy-cidrs` | | Reverse proxies whose `X-Forwarded-For` is trusted for rate limiting. |
 | `--device-ttl` | 90d | Device token lifetime. |
+
+## HA on Postgres (ADR-0021)
+
+| Flag | Default | Purpose |
+|---|---|---|
+| `--database-url-file` | | File holding a Postgres URL. State (devices, requests, session revocations, audit chain, kill list, controller log, rollout state, reports, enrollment tokens, login states) lives there instead of `--data-dir` (the two are exclusive), so several replicas can serve. The controller runs on the replica holding the leader lease. |
+| `--auto-migrate` | off | Apply pending schema migrations at start; otherwise the schema must already be current. |
+| `--leader-lease-ttl` | 15s | Controller lease length (>= 3s); a failed leader is replaced within about this long. |
+| `--database-max-conns` | 16 | Connection pool size per replica; replicas x this must stay under the server's `max_connections`. |
+| `--database-insecure-tls` | off | Accept a URL that does not verify the server certificate and host name (below `sslmode=verify-full`) to a non-loopback host. Test environments only; loopback and Unix sockets never need it. |
+
+```
+halo-server migrate --database-url-file F                       # apply migrations, print the schema version
+halo-server import --from-data-dir DIR --database-url-file F    # copy a STOPPED server's data dir into an empty database, then verify counts and the audit chain
+```
+
+`--killswitch-key-file` and `--controller` accept `--database-url-file` in place of `--data-dir`. `/readyz` also fails while the database is unreachable, and `--metrics-listen` adds `halo_leader`, `halo_leader_changes_total`, `halo_db_errors_total` and `halo_db_open_connections`. Integration tests run against a real Postgres when `HALO_TEST_PG_DSN` is set.
 
 ## Kill switch
 
@@ -25,7 +43,7 @@ routing and no shadow mirroring.
 | Flag | Purpose |
 |---|---|
 | `--killswitch-key-file` | ed25519 PKCS#8 PEM private key (`halo keys generate --name killswitch`). It signs the kill list. Use a dedicated key, not the release key. **Requires `--data-dir`** (kills must survive a restart). |
-| `--gateway-token-file` | Bearer token (16+ chars) that gateways present to `GET /api/v1/gateway/killswitch`. |
+| `--gateway-token-file` | Bearer token (at least 32 characters and 128 bits of estimated entropy; `openssl rand -hex 32`) that gateways present to `GET /api/v1/gateway/killswitch`. |
 
 The key needs the token; startup fails otherwise, and fails if the key is set without `--data-dir`. The token alone serves only `GET /api/v1/gateway/posture` (below). Without a key the server is honest about it: no kill list is served, kill and unkill return 501, `GET /api/v1/capabilities` reports `killSwitch: false`, and the in-process controller reports rollbacks as **not enforced** ("merge the pause PR urgently") instead of recording a kill nobody reads. The gateway endpoint returns
 `{"payload": base64(JSON {version, experiments, issuedAt}), "signature": base64(ed25519("halo-killswitch-v1\n" + payload))}`.
@@ -50,6 +68,13 @@ lift it. Unkill it explicitly before you restart the experiment.
 ## Audit
 
 Privileged actions append to the hash-chained `audit.jsonl` in `--data-dir`, fsynced before the action is acknowledged. They fail closed: kill, unkill, device enrollment, session and device revocation and experiment-status PRs return HTTP 500 if the append fails. A kill whose audit append fails stays applied (fail safe), a failed unkill is reverted, and a revocation stays in force. `audit.jsonl` has a single writer: do not point `halo controller run` at a data dir this server is using.
+
+With `--audit-config`, `rotation` (`maxBytes`, `maxAgeSeconds`) renames the active `audit.jsonl` to
+`audit-<first seq, 20 digits>.jsonl` and starts a new one; the hash chain runs on across segments. `halo audit
+verify --data-dir DIR` checks the whole chain. `export.sinks` forwards every entry, at least once and in order,
+to a Splunk HEC endpoint, an HTTPS webhook (signed like the controller's) or RFC 5424 syslog over TLS, each with a
+cursor in `<data-dir>/audit-forward/`. Export never blocks or fails an action. See the
+[SIEM export guide](https://dshakes.github.io/halos/guides/siem-export/).
 
 ## Controller (`--controller`)
 
@@ -79,7 +104,7 @@ retried on later ticks without re-posting to the others.
 | `--notify-slack-url-file` | | Slack incoming-webhook URL. Posts `{text, blocks}`. |
 | `--notify-webhook-url-file` | | Generic webhook URL. Posts the JSON event. |
 | `--notify-webhook-secret-file` | | HMAC-SHA256 secret. Adds `X-Halo-Timestamp: <unix s>` and `X-Halo-Signature: sha256=<hex HMAC(secret, timestamp + "." + body)>`. Receivers must verify it and reject timestamps more than 5 minutes off (Go and Python snippets: docs site, CLI reference, "Verifying the webhook signature"). |
-| `--metrics-listen` | off | Serves `/metrics` with `halo_controller_ticks_total`, `halo_controller_verdicts_total{verdict}` and `halo_controller_errors_total`. Unauthenticated, so keep it internal. |
+| `--metrics-listen` | off | Serves `/metrics` with `halo_server_audit_rotate_errors_total`, the `halo_server_audit_forward_*` export series (with sinks) and, with `--controller`, `halo_controller_ticks_total`, `halo_controller_verdicts_total{verdict}` and `halo_controller_errors_total`. Unauthenticated, so keep it internal. |
 
 Webhook URLs are secrets. They are read from files and never logged.
 

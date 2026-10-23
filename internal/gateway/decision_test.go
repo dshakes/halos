@@ -176,9 +176,44 @@ func TestShadowEligibility(t *testing.T) {
 			}
 		})
 	}
+	// turns: all (ADR-0014): any parsed step of a sampled session is eligible.
+	later := RequestInfo{UserID: "alice", ModelAlias: "sonnet", SessionID: "s1", AnyTurn: true}
+	if len(Decide(org, later).Shadow) != 0 {
+		t.Fatal("later turn mirrored with turns: first")
+	}
+	org.Experiments[1].Turns = policy.ShadowTurnsAll
+	if len(Decide(org, later).Shadow) == 0 {
+		t.Fatal("later turn not mirrored with turns: all")
+	}
+	later.AnyTurn = false // unparsed body, count_tokens, previous_response_id
+	if len(Decide(org, later).Shadow) != 0 {
+		t.Fatal("unparsed request mirrored")
+	}
 	org.Experiments[1].Status = "paused"
 	if len(Decide(org, RequestInfo{UserID: "alice", ModelAlias: "sonnet", SessionID: "s1", FirstTurn: true}).Shadow) != 0 {
 		t.Fatal("paused experiment mirrored")
+	}
+}
+
+func TestNewRequestInfoAnyTurn(t *testing.T) {
+	h := http.Header{"X-Claude-Code-Session-Id": {"s1"}}
+	tests := []struct {
+		name, path, body string
+		first, any       bool
+	}{
+		{"first", "/v1/messages", `{"model":"sonnet","messages":[{"role":"user","content":"hi"}]}`, true, true},
+		{"tool step", "/v1/messages", `{"model":"sonnet","messages":[{"role":"user","content":"fix it"},{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"go test"}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"FAIL"}]}]}`, false, true},
+		{"count tokens", "/v1/messages/count_tokens", `{"model":"sonnet","messages":[{"role":"user","content":"hi"}]}`, false, false},
+		{"bad json", "/v1/messages", `{`, false, false},
+		{"null body", "/v1/messages", `null`, false, false},
+		{"no conversation", "/v1/messages", `{"model":"sonnet"}`, false, false},
+		{"responses chained", "/v1/responses", `{"model":"gpt","previous_response_id":"r1","input":[{"role":"user","content":"x"}]}`, false, false},
+	}
+	for _, tc := range tests {
+		r := NewRequestInfo(h, tc.path, []byte(tc.body))
+		if r.FirstTurn != tc.first || r.AnyTurn != tc.any {
+			t.Errorf("%s: first=%v any=%v, want %v %v", tc.name, r.FirstTurn, r.AnyTurn, tc.first, tc.any)
+		}
 	}
 }
 
@@ -215,6 +250,7 @@ func TestHarnessFromUA(t *testing.T) {
 		"claude-cli/2.1.0 (external, cli)": "claude-code",
 		"codex_cli_rs/0.40":                "codex",
 		"GeminiCLI/0.5 (darwin)":           "gemini-cli",
+		"opencode/1.19.3 ai-sdk/x":         "opencode",
 		"curl/8":                           "",
 	} {
 		if got := HarnessFromUA(ua); got != want {
@@ -236,6 +272,8 @@ func TestSpoofingImpossible(t *testing.T) {
 		h.Set("X-Halo-Experiment", "sonnet-canary")
 		h.Set("x-halo-variant", "direct")
 		h.Set("x-halo-anything", "1")
+		h.Set("X-Halo-Actor", "root-agent")
+		h.Set("x-halo-actor-depth", "0")
 	}
 
 	t.Run("identical decision with and without spoofed headers", func(t *testing.T) {
@@ -252,7 +290,7 @@ func TestSpoofingImpossible(t *testing.T) {
 		h := http.Header{}
 		spoof(h)
 		res := PrepareVerified(org, carol, h, "/v1/messages", body)
-		if len(res.ClearHeaders) != 5 {
+		if len(res.ClearHeaders) != 7 {
 			t.Fatalf("ClearHeaders=%v", res.ClearHeaders)
 		}
 		for _, n := range res.ClearHeaders {

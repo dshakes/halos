@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strings"
 )
 
 // Severity of a validation Issue.
@@ -37,7 +38,7 @@ var (
 	awsRegion = regexp.MustCompile(`^[a-z]{2}(-[a-z]+)+-[0-9]+$`)
 	gcpRegion = regexp.MustCompile(`^([a-z]+-[a-z]+[0-9]+|global)$`)
 
-	knownHarnesses   = []string{"claude-code", "codex", "gemini-cli", "copilot-cli"}
+	knownHarnesses   = []string{"claude-code", "codex", "gemini-cli", "copilot-cli", "cursor-agent", "opencode"}
 	permissionModes  = []string{"default", "acceptEdits", "plan", "auto"}
 	sandboxModes     = []string{"off", "workspace-write", "read-only"}
 	gateModes        = []string{GateOff, GateWarn, GateEnforce}
@@ -60,6 +61,10 @@ func (o *Org) Validate() []Issue {
 	v.rings()
 	v.experiments()
 	v.rollouts()
+	v.units()
+	v.workloads()
+	v.agents()
+	v.vendorAdmin()
 	for _, g := range builtinGuardrails {
 		v.issues = append(v.issues, g(o)...)
 	}
@@ -77,6 +82,27 @@ func (o *Org) Validate() []Issue {
 	return v.issues
 }
 
+// securityPaths prefix the issue paths of fields that grant identity or
+// widen what runs on members' machines: workload federation (tenant pinning,
+// subjects, TTLs), unit overlays and delegation (loosenings, forbidden env
+// keys, hooks, MCP servers), and agents (delegation depth and lifetime caps,
+// unpinned or plain-http remote AgentCards; ADR-0024).
+var securityPaths = []string{"workloads", "units[", "delegation", "agents"}
+
+// SecurityIssues returns o's error-severity Validate issues on security fields
+// (securityPaths). halo-server and the gateways run it on every policy load
+// and refuse to activate a policy that has any, keeping the last good one:
+// `halo validate` and `halo release build` are not the only gate.
+func SecurityIssues(o *Org) []Issue {
+	var out []Issue
+	for _, i := range o.Validate() {
+		if i.Severity == SeverityError && slices.ContainsFunc(securityPaths, func(p string) bool { return strings.HasPrefix(i.Path, p) }) {
+			out = append(out, i)
+		}
+	}
+	return out
+}
+
 // clone deep-copies o through its JSON form, the same form gateway snapshots use.
 func (o *Org) clone() (*Org, error) {
 	b, err := json.Marshal(o)
@@ -90,6 +116,7 @@ func (o *Org) clone() (*Org, error) {
 type validator struct {
 	org    *Org
 	issues []Issue
+	once   map[string]bool // onceErr keys already reported
 }
 
 func (v *validator) errf(path, format string, a ...any) {
@@ -155,6 +182,7 @@ func (v *validator) gateway() {
 	for _, alias := range sortedKeys(g.Models) {
 		v.route("gateway.models."+alias, g.Models[alias])
 	}
+	v.budgets(g)
 }
 
 // upstreamKind checks the per-kind fields: where a provider's credential lives
@@ -246,55 +274,149 @@ func (v *validator) profiles() {
 			v.errf(path+".extends", "%v", err)
 			continue
 		}
-		for _, h := range sortedKeys(p.Harnesses) {
-			if !slices.Contains(knownHarnesses, h) {
-				v.errf(path+".harnesses."+h, "unknown harness %q, want one of %v", h, knownHarnesses)
-			}
+		v.profileSpec(path, p)
+	}
+}
+
+// profileSpec checks one resolved profile (a declared profile, or a unit's
+// effective profile), reporting under path.
+func (v *validator) profileSpec(path string, p *Profile) {
+	for _, h := range sortedKeys(p.Harnesses) {
+		if !slices.Contains(knownHarnesses, h) {
+			v.errf(path+".harnesses."+h, "unknown harness %q, want one of %v", h, knownHarnesses)
 		}
-		if p.Models.Enforce && !slices.Contains(p.Models.Allowed, p.Models.Default) {
-			v.errf(path+".models.default", "default %q must be in models.allowed when enforce is set", p.Models.Default)
+	}
+	if p.Models.Enforce && !slices.Contains(p.Models.Allowed, p.Models.Default) {
+		v.errf(path+".models.default", "default %q must be in models.allowed when enforce is set", p.Models.Default)
+	}
+	for _, h := range sortedKeys(p.Harnesses) {
+		m := p.Harnesses[h].Model
+		if m == "" {
+			continue
 		}
-		for _, h := range sortedKeys(p.Harnesses) {
-			m := p.Harnesses[h].Model
-			if m == "" {
-				continue
-			}
-			if p.Models.Enforce && !slices.Contains(p.Models.Allowed, m) {
-				v.errf(path+".harnesses."+h+".model", "model %q must be in models.allowed when enforce is set", m)
-			}
-			if g := v.org.Gateway; g != nil {
-				if _, ok := g.Models[m]; !ok {
-					v.errf(path+".harnesses."+h+".model", "model %q is not a gateway.models alias", m)
-				}
-			}
+		if p.Models.Enforce && !slices.Contains(p.Models.Allowed, m) {
+			v.errf(path+".harnesses."+h+".model", "model %q must be in models.allowed when enforce is set", m)
 		}
 		if g := v.org.Gateway; g != nil {
-			for _, m := range append([]string{p.Models.Default}, p.Models.Allowed...) {
-				if _, ok := g.Models[m]; !ok && m != "" {
-					v.errf(path+".models", "model %q is not a gateway.models alias", m)
-				}
+			if _, ok := g.Models[m]; !ok {
+				v.errf(path+".harnesses."+h+".model", "model %q is not a gateway.models alias", m)
 			}
 		}
-		// bypassPermissions is a valid harness mode but forbidden by the
-		// no-bypass guardrail, which reports it with a clearer message.
-		if m := p.Permissions.Mode; m != "" && m != "bypassPermissions" {
-			v.oneOf(path+".permissions.mode", "mode", m, permissionModes)
-		}
-		if s := p.Permissions.Sandbox; s != "" {
-			v.oneOf(path+".permissions.sandbox", "sandbox", s, sandboxModes)
-		}
-		if p.Permissions.SandboxRequired && p.Permissions.Sandbox == "off" {
-			v.errf(path+".permissions.sandboxRequired", `sandboxRequired contradicts permissions.sandbox "off"`)
-		}
-		for i, h := range p.Hooks.Hooks {
-			v.oneOf(fmt.Sprintf("%s.hooks.items[%d].event", path, i), "event", h.Event, hookEvents)
-			if h.Command == "" {
-				v.errf(fmt.Sprintf("%s.hooks.items[%d].command", path, i), "command is required")
+	}
+	if g := v.org.Gateway; g != nil {
+		for _, m := range append([]string{p.Models.Default}, p.Models.Allowed...) {
+			if _, ok := g.Models[m]; !ok && m != "" {
+				v.errf(path+".models", "model %q is not a gateway.models alias", m)
 			}
 		}
-		if pr := p.Telemetry.Protocol; pr != "" {
-			v.oneOf(path+".telemetry.protocol", "protocol", pr, otlpProtocols)
+	}
+	// bypassPermissions is a valid harness mode but forbidden by the
+	// no-bypass guardrail, which reports it with a clearer message.
+	if m := p.Permissions.Mode; m != "" && m != "bypassPermissions" {
+		v.oneOf(path+".permissions.mode", "mode", m, permissionModes)
+	}
+	if s := p.Permissions.Sandbox; s != "" {
+		v.oneOf(path+".permissions.sandbox", "sandbox", s, sandboxModes)
+	}
+	if p.Permissions.SandboxRequired && p.Permissions.Sandbox == "off" {
+		v.errf(path+".permissions.sandboxRequired", `sandboxRequired contradicts permissions.sandbox "off"`)
+	}
+	for i, h := range p.Hooks.Hooks {
+		v.oneOf(fmt.Sprintf("%s.hooks.items[%d].event", path, i), "event", h.Event, hookEvents)
+		if h.Command == "" {
+			v.errf(fmt.Sprintf("%s.hooks.items[%d].command", path, i), "command is required")
 		}
+	}
+	if pr := p.Telemetry.Protocol; pr != "" {
+		v.oneOf(path+".telemetry.protocol", "protocol", pr, otlpProtocols)
+	}
+	if l := p.Login; l != "" {
+		v.oneOf(path+".login", "login", l, loginModes)
+	}
+	v.extensions(path+".extensions", p.Extensions)
+}
+
+var (
+	loginModes        = []string{LoginSubscription, LoginAPI}
+	marketplaceRepoRe = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
+	pluginKeyRe       = regexp.MustCompile(`^[^@\s]+@[^@\s]+$`)
+)
+
+func (v *validator) extensions(path string, e Extensions) {
+	for _, g := range []struct {
+		field string
+		list  []Marketplace
+	}{{"marketplaces", e.Marketplaces}, {"blockedMarketplaces", e.BlockedMarketplaces}} {
+		for i, m := range g.list {
+			v.marketplace(fmt.Sprintf("%s.%s[%d]", path, g.field, i), m)
+		}
+	}
+	for _, g := range []struct {
+		field string
+		list  []string
+	}{{"enabled", e.Plugins.Enabled}, {"blocked", e.Plugins.Blocked}} {
+		for i, k := range g.list {
+			if !pluginKeyRe.MatchString(k) {
+				v.errf(fmt.Sprintf("%s.plugins.%s[%d]", path, g.field, i), "%q must be PLUGIN@MARKETPLACE", k)
+			}
+			if g.field == "enabled" && slices.Contains(e.Plugins.Blocked, k) {
+				v.errf(fmt.Sprintf("%s.plugins.enabled[%d]", path, i), "plugin %q is both enabled and blocked", k)
+			}
+		}
+	}
+	for _, g := range []struct {
+		field string
+		names []string
+	}{{"skills.deny", e.Skills.Deny}, {"subagents.deny", e.Subagents.Deny}} {
+		for i, n := range g.names {
+			// Names are spliced into permission-rule syntax such as Agent(NAME).
+			if n == "" || strings.ContainsAny(n, "()\r\n") {
+				v.errf(fmt.Sprintf("%s.%s[%d]", path, g.field, i), "%q must be a non-empty name without parentheses or newlines", n)
+			}
+		}
+	}
+	if strings.ContainsAny(e.OutputStyle, "\r\n") {
+		v.errf(path+".outputStyle", "must not contain a newline")
+	}
+	sl := e.StatusLine
+	if sl.Padding < 0 {
+		v.errf(path+".statusLine.padding", "%d must be >= 0", sl.Padding)
+	}
+	if sl.Command == "" && sl.Padding != 0 {
+		v.errf(path+".statusLine.command", "command is required when padding is set")
+	}
+}
+
+func (v *validator) marketplace(path string, m Marketplace) {
+	only := func(fields map[string]string, allowed ...string) {
+		for _, f := range sortedKeys(fields) {
+			if fields[f] != "" && !slices.Contains(allowed, f) {
+				v.errf(path+"."+f, "not valid for source %q", m.Source)
+			}
+		}
+	}
+	all := map[string]string{"repo": m.Repo, "url": m.URL, "ref": m.Ref, "hostPattern": m.HostPattern}
+	switch m.Source {
+	case MarketplaceGitHub:
+		only(all, "repo", "ref")
+		if !marketplaceRepoRe.MatchString(m.Repo) {
+			v.errf(path+".repo", "%q must be OWNER/REPO", m.Repo)
+		}
+	case MarketplaceGit, MarketplaceURL:
+		only(all, "url", "ref")
+		if m.Source == MarketplaceURL && m.Ref != "" {
+			v.errf(path+".ref", "not valid for source %q", m.Source)
+		}
+		if u, err := url.Parse(m.URL); err != nil || u.Host == "" {
+			v.errf(path+".url", "%q must be an absolute URL", m.URL)
+		}
+	case MarketplaceHostPattern:
+		only(all, "hostPattern")
+		if _, err := regexp.Compile(m.HostPattern); err != nil || m.HostPattern == "" {
+			v.errf(path+".hostPattern", "%q must be a non-empty regular expression", m.HostPattern)
+		}
+	default:
+		v.oneOf(path+".source", "source", m.Source, []string{MarketplaceGitHub, MarketplaceGit, MarketplaceURL, MarketplaceHostPattern})
 	}
 }
 
@@ -391,6 +513,11 @@ func (v *validator) experiments() {
 			if e.SampleRate <= 0 || e.SampleRate > 1 {
 				v.errf(path+".sampleRate", "%v must be in (0,1]", e.SampleRate)
 			}
+			if e.Turns != "" {
+				v.oneOf(path+".turns", "turns", e.Turns, []string{ShadowTurnsFirst, ShadowTurnsAll})
+			}
+		} else if e.Turns != "" {
+			v.errf(path+".turns", "only shadow experiments mirror turns")
 		}
 		v.variants(path, e)
 		v.metric(path+".metrics.primary", e.Metrics.Primary)

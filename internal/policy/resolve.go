@@ -10,6 +10,11 @@ import (
 type Subject struct {
 	ID     string
 	Groups []string
+	// Kind is "" for a human and SubjectWorkload for a CI / cloud workload.
+	Kind string
+	// Delegation is set when an agent acts for this subject (ADR-0024); ID,
+	// Groups and Kind are then the root principal's.
+	Delegation *DelegationChain
 }
 
 // ringSalt keeps ring hashing independent from experiment hashing.

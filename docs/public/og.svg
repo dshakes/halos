@@ -24,5 +24,5 @@
 <text x="80" y="346" fill="url(#tg)" font-size="64" font-weight="700" letter-spacing="-2.4">like software.</text>
 <text x="80" y="414" fill="#bdb7ac" font-size="24">Signed releases, ring rollouts, evals and</text>
 <text x="80" y="446" fill="#bdb7ac" font-size="24">automatic rollback for AI coding CLIs.</text>
-<text x="80" y="548" fill="#9a958b" font-size="19" font-family="ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace">Claude Code · Codex · Gemini CLI · Copilot CLI</text>
+<text x="80" y="548" fill="#9a958b" font-size="19" font-family="ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace">Claude Code · Codex · Gemini · Copilot · Cursor · OpenCode</text>
 </g></svg>

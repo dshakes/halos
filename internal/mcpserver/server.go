@@ -48,6 +48,13 @@ type Options struct {
 	// PROpener opens review PRs (propose_promotion, open_pr on the rollout
 	// tools); nil = gh via promote.GHOpener. Tests inject a fake.
 	PROpener promote.PROpener
+	// AdminRead lets admin_plan read the live vendor consoles, with
+	// credentials from HALO_MCP_ADMIN_<VENDOR>_TOKEN (`halo mcp serve
+	// --admin-read`). Off: admin_plan renders from policy only.
+	AdminRead bool
+	// AdminBaseURLs overrides admin_plan's vendor API base URLs (tests);
+	// empty = the vendors' public APIs. Never a tool argument.
+	AdminBaseURLs map[string]string
 }
 
 func (s *srv) prOpener() promote.PROpener {

@@ -34,7 +34,7 @@ Halos ships six binaries from `cmd/`. Two more surfaces run inside one of them o
   - `internal/policy`: types, strict loader, validation and the default guardrails.
   - `internal/release`: renders every harness for every OS into a content-addressed tar.
   - `internal/bundle`: OCI push and pull, ed25519 and cosign signing, signed ring pointers.
-  - `internal/harness/*`: adapters for Claude Code, Codex, Gemini CLI and Copilot CLI.
+  - `internal/harness/*`: adapters for Claude Code, Codex, Gemini CLI, Copilot CLI, Cursor CLI and OpenCode.
   - `internal/promote`, `internal/rollout`, `internal/controller`: verdicts, rollout state and PRs.
   - `internal/mcpserver`: `halo mcp serve`.
   - `internal/eval`, `internal/stats`: replay evals, scorecards and statistics.
@@ -163,7 +163,7 @@ Halos ships six binaries from `cmd/`. Two more surfaces run inside one of them o
 
 ## halo-shadow
 
-**Purpose:** receives mirrored first-turn requests, replays each against control and candidate, and stores the pairs for the LLM judge.
+**Purpose:** receives mirrored requests (first turns, or every step of a sampled session with `turns: all`), replays each against control and candidate, and stores the pairs for the LLM judge.
 
 - **Inputs:** `POST` mirror jobs from halo-proxy or halo-kong, carrying a shared bearer token, and the compiled policy snapshot.
 - **Outputs:** `pairs.jsonl`, mode `0600`, optionally AES-256-GCM encrypted (`--pair-key-file`), and counters.
@@ -227,7 +227,7 @@ Halos ships six binaries from `cmd/`. Two more surfaces run inside one of them o
 - **Config:** flags ([`cmd/halo-server/main.go:59-135`](https://github.com/dshakes/halos/blob/main/cmd/halo-server/main.go#L59-L135)):
   - `--policy-dir`, `--token-file`, `--data-dir`
   - `--portal-config`
-  - `--killswitch-key-file` together with `--gateway-token-file`
+  - `--killswitch-key-file` together with `--gateway-token-file` (or `--gateway-killswitch-token-file`); optional per-capability `--gateway-{killswitch,posture,budget,directory}-token-file`
   - `--controller`, `--interval` (5m, minimum 1m)
   - `--clickhouse-*`
   - `--notify-*`

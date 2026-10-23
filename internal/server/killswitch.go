@@ -74,7 +74,7 @@ func (s *Server) killHandler(kill bool, kind string) authedHandler {
 		}
 		org, _, err := s.pol.Get()
 		if org == nil {
-			apiErr(w, http.StatusServiceUnavailable, "policy not loaded: "+err.Error())
+			s.policyUnavailable(w, err)
 			return
 		}
 		// Unkill is allowed for names no longer in policy, so stale kills can be cleared.
@@ -127,32 +127,76 @@ func (s *Server) getKills(w http.ResponseWriter, _ *http.Request, _ Principal) {
 
 // getGatewayKillswitch: the signed kill list for halo-proxy / halo-kong.
 func (s *Server) getGatewayKillswitch(w http.ResponseWriter, r *http.Request) {
-	if s.cfg.GatewayToken == "" || s.cfg.KillKey == nil {
+	if !s.gatewayEnabled(capKillswitch) || s.cfg.KillKey == nil {
 		apiErr(w, http.StatusNotFound, "killswitch not configured")
 		return
 	}
-	if !s.gatewayAuth(w, r) {
+	if !s.gatewayAuth(w, r, capKillswitch) {
 		return
 	}
 	s.writeKillList(w)
 }
 
-// gatewayAuth checks the gateways' bearer token (rate-limited per client IP),
-// writing the 401/429 itself on failure.
-func (s *Server) gatewayAuth(w http.ResponseWriter, r *http.Request) bool {
+// gatewayCap is one capability a gateway bearer token grants on halo-server.
+type gatewayCap int
+
+const (
+	capKillswitch gatewayCap = iota // GET /api/v1/gateway/killswitch
+	capPosture                      // GET /api/v1/gateway/posture
+	capBudget                       // /api/v1/gateway/budget/* (usage writes)
+	capDirectory                    // GET /api/v1/gateway/directory (SCIM reads)
+)
+
+// gatewayToken is the only token accepted for c: its dedicated token when
+// set, else the shared GatewayToken. "" = the capability is off.
+func (c Config) gatewayToken(cp gatewayCap) string {
+	if t := [...]string{capKillswitch: c.GatewayKillswitchToken, capPosture: c.GatewayPostureToken,
+		capBudget: c.GatewayBudgetToken, capDirectory: c.GatewayDirectoryToken}[cp]; t != "" {
+		return t
+	}
+	return c.GatewayToken
+}
+
+// gatewaySums hashes the token of every enabled capability.
+func gatewaySums(c Config) map[gatewayCap][32]byte {
+	out := map[gatewayCap][32]byte{}
+	for _, cp := range []gatewayCap{capKillswitch, capPosture, capBudget, capDirectory} {
+		if t := c.gatewayToken(cp); t != "" {
+			out[cp] = sha256.Sum256([]byte(t))
+		}
+	}
+	return out
+}
+
+func (s *Server) gatewayEnabled(cp gatewayCap) bool {
+	_, ok := s.gwSums[cp]
+	return ok
+}
+
+// gatewayAuth checks the bearer token for capability cp, writing the 401/429
+// itself on failure. Failures count against the gateway class's own per-IP
+// budget (gwFails), and a valid token is accepted even from a blocked IP: a
+// gateway sharing an egress IP with someone sending garbage is never locked
+// out of its directory, posture, budget or kill list. The cost is that a
+// blocked guesser still learns when a guess is right; halo-server refuses
+// to start with a gateway token under 32 characters or 128 bits of
+// estimated entropy (cmd/halo-server checkGatewayToken), so guessing is
+// infeasible.
+func (s *Server) gatewayAuth(w http.ResponseWriter, r *http.Request, cp gatewayCap) bool {
+	tok, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	sum := sha256.Sum256([]byte(tok)) // hash first: constant-time regardless of length
+	want, enabled := s.gwSums[cp]
+	if ok && enabled && subtle.ConstantTimeCompare(sum[:], want[:]) == 1 {
+		return true
+	}
 	ip := s.clientIP(r)
-	if s.authFails.blocked(ip) {
+	if s.gwFails.blocked(ip) {
 		apiErr(w, http.StatusTooManyRequests, "too many failed attempts")
 		return false
 	}
-	tok, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-	sum := sha256.Sum256([]byte(tok)) // hash first: constant-time regardless of length
-	if !ok || subtle.ConstantTimeCompare(sum[:], s.gwSum[:]) != 1 {
-		s.authFails.fail(ip)
-		apiErr(w, http.StatusUnauthorized, "gateway token required")
-		return false
-	}
-	return true
+	s.gwFails.fail(ip)
+	apiErr(w, http.StatusUnauthorized, "gateway token required")
+	return false
 }
 
 // getFleetKillswitch: the same signed kill list for enrolled halod devices

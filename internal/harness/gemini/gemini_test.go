@@ -64,6 +64,7 @@ func TestErrorsAndOverride(t *testing.T) {
 
 func TestNoGatewayNoEnforcedAuthAndDisableYolo(t *testing.T) {
 	p, _ := hutiltest.Fixture()
+	p.Login = "" // an explicit login restriction enforces auth too; see TestExtensions
 	files, _, err := Adapter{}.Render(p, harness.Context{OS: harness.Linux})
 	if err != nil {
 		t.Fatal(err)

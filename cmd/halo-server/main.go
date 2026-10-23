@@ -19,10 +19,12 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/dshakes/halos/internal/bundle"
 	"github.com/dshakes/halos/internal/controller"
-	"github.com/dshakes/halos/internal/policy"
+	"github.com/dshakes/halos/internal/pgstore"
 	"github.com/dshakes/halos/internal/promote"
 	"github.com/dshakes/halos/internal/server"
 )
@@ -42,24 +44,38 @@ func main() {
 var deprecatedFlags = map[string]string{"verdicts": "verdicts-file", "controller-interval": "interval"}
 
 type options struct {
-	policyDir, listen, tokenFile, dataDir, verdicts, portalCfg, devUser string
-	devGroups                                                           []string
-	devAdmin                                                            bool
-	deviceTTL, postureMaxAge                                            time.Duration
-	trusted                                                             []netip.Prefix
+	policyDir, listen, tokenFile, dataDir, verdicts, portalCfg, devUser, auditCfg string
+	devGroups, devRoles                                                           []string
+	devAdmin                                                                      bool
+	deviceTTL, postureMaxAge                                                      time.Duration
+	trusted                                                                       []netip.Prefix
 
 	// automated experiment loop + kill switch
 	controller                                                     bool
 	interval                                                       time.Duration
 	chURL, chDB, chUser, chPasswordFile                            string
 	killKeyFile, gatewayTokenFile                                  string
+	gatewayCapTokenFiles                                           [4]string // killswitch, posture, budget, directory (gatewayCapFlags order)
+	workloadKeyFile                                                string
 	slackURLFile, webhookURLFile, webhookSecretFile                string
 	policyRepoDir, policyRepoSubdir, policyRepoBase, metricsListen string
+
+	// SCIM provisioning (ADR-0022)
+	scimTokenHashFile string
+	scimAuthoritative bool
+
+	// HA: shared Postgres state instead of --data-dir files (ADR-0021)
+	dbURLFile   string
+	autoMigrate bool
+	leaseTTL    time.Duration
+	// dbInsecureTLS accepts sslmode below verify-full to a remote host; dbMaxConns sizes the pool.
+	dbInsecureTLS bool
+	dbMaxConns    int
 }
 
 func parseFlags(args []string) (options, error) {
 	var o options
-	var devGroups, proxies string
+	var devGroups, devRoles, proxies string
 	fs := flag.NewFlagSet("halo-server", flag.ContinueOnError)
 	fs.StringVar(&o.policyDir, "policy-dir", "", "policy repo directory (required)")
 	fs.StringVar(&o.listen, "listen", "127.0.0.1:8080", "listen address")
@@ -68,9 +84,11 @@ func parseFlags(args []string) (options, error) {
 	fs.StringVar(&o.verdicts, "verdicts-file", "", "verdicts JSON file written by `halo exp analyze` / the controller")
 	fs.StringVar(&o.verdicts, "verdicts", "", "deprecated: --verdicts-file")
 	fs.StringVar(&o.portalCfg, "portal-config", "", "portal/self-service JSON config (baseURL, registry, launchers, halod checksums, ...)")
+	fs.StringVar(&o.auditCfg, "audit-config", "", "audit log rotation and SIEM export JSON config (ADR-0016; needs --data-dir)")
 	fs.StringVar(&o.devUser, "dev-insecure-user", "", "INSECURE demo mode: disable login and act as this user")
 	fs.StringVar(&devGroups, "dev-insecure-groups", "", "comma-separated groups for --dev-insecure-user")
-	fs.BoolVar(&o.devAdmin, "dev-insecure-admin", false, "make the --dev-insecure-user an admin")
+	fs.BoolVar(&o.devAdmin, "dev-insecure-admin", false, "make the --dev-insecure-user an admin (same as --dev-insecure-roles admin)")
+	fs.StringVar(&devRoles, "dev-insecure-roles", "", "comma-separated roles for --dev-insecure-user: "+strings.Join(server.Roles, ", "))
 	fs.DurationVar(&o.deviceTTL, "device-ttl", server.DefaultDeviceTTL, "device token lifetime after enrollment; expired devices must re-enroll")
 	fs.StringVar(&proxies, "trusted-proxy-cidrs", "", "comma-separated CIDRs of reverse proxies whose X-Forwarded-For is trusted for rate limiting")
 	fs.BoolVar(&o.controller, "controller", false, "run the automated experiment loop (evaluate, kill switch on rollback, PRs, notifications)")
@@ -81,7 +99,11 @@ func parseFlags(args []string) (options, error) {
 	fs.StringVar(&o.chUser, "clickhouse-user", "", "ClickHouse user")
 	fs.StringVar(&o.chPasswordFile, "clickhouse-password-file", "", "file holding the ClickHouse password")
 	fs.StringVar(&o.killKeyFile, "killswitch-key-file", "", "ed25519 PKCS#8 PEM private key signing the gateway kill list (halo keys generate --name killswitch)")
-	fs.StringVar(&o.gatewayTokenFile, "gateway-token-file", "", "file holding the bearer token gateways use for GET /api/v1/gateway/killswitch and /api/v1/gateway/posture")
+	fs.StringVar(&o.gatewayTokenFile, "gateway-token-file", "", "file holding the shared bearer token gateways use for /api/v1/gateway/killswitch, /posture, /budget/* and /directory (each overridable below)")
+	for i, name := range gatewayCapFlags {
+		fs.StringVar(&o.gatewayCapTokenFiles[i], "gateway-"+name+"-token-file", "", "file holding the only bearer token /api/v1/gateway/"+name+" accepts (recommended; overrides --gateway-token-file for it)")
+	}
+	fs.StringVar(&o.workloadKeyFile, "workload-key-file", "", "ed25519 PKCS#8 PEM private key signing CI/cloud workload credentials from POST /api/v1/token/exchange (halo keys generate --name workload); empty disables the endpoint")
 	fs.DurationVar(&o.postureMaxAge, "posture-max-age", server.DefaultPostureMaxAge, "a device whose last halod report is older is non-compliant for the gateway posture gate")
 	fs.StringVar(&o.slackURLFile, "notify-slack-url-file", "", "file holding a Slack incoming-webhook URL")
 	fs.StringVar(&o.webhookURLFile, "notify-webhook-url-file", "", "file holding a generic webhook URL (JSON event, signed with X-Halo-Signature)")
@@ -89,7 +111,14 @@ func parseFlags(args []string) (options, error) {
 	fs.StringVar(&o.policyRepoDir, "policy-repo-dir", "", "dedicated policy-repo clone the controller opens PRs from (hard-reset to origin before each PR; must not be --policy-dir or the portal clone)")
 	fs.StringVar(&o.policyRepoSubdir, "policy-repo-subdir", "", "policy root inside --policy-repo-dir")
 	fs.StringVar(&o.policyRepoBase, "policy-repo-base", "main", "PR base branch for controller PRs")
-	fs.StringVar(&o.metricsListen, "metrics-listen", "", "address serving controller /metrics (unauthenticated; keep it internal; empty disables)")
+	fs.StringVar(&o.metricsListen, "metrics-listen", "", "address serving /metrics: audit export, controller with --controller, leader lease and database with --database-url-file (unauthenticated; keep it internal; empty disables)")
+	fs.StringVar(&o.scimTokenHashFile, "scim-token-sha256-file", "", "file holding the hex SHA-256 of each accepted SCIM bearer token, one per line (two while rotating); enables /scim/v2")
+	fs.BoolVar(&o.scimAuthoritative, "scim-authoritative", false, "the SCIM directory decides who is active and their groups (console, devices); unprovisioned users are refused")
+	fs.StringVar(&o.dbURLFile, "database-url-file", "", "file holding a Postgres URL: shared state for running several replicas (replaces --data-dir state; see `halo-server migrate`)")
+	fs.BoolVar(&o.dbInsecureTLS, "database-insecure-tls", false, insecureTLSUsage)
+	fs.IntVar(&o.dbMaxConns, "database-max-conns", pgstore.DefaultMaxConns, "with --database-url-file: connection pool size per replica (replicas x this must stay under the server's max_connections)")
+	fs.BoolVar(&o.autoMigrate, "auto-migrate", false, "apply pending database migrations on start (else the schema must already be current)")
+	fs.DurationVar(&o.leaseTTL, "leader-lease-ttl", 15*time.Second, "with --database-url-file: controller and audit-export lease length; a failed leader is replaced within about this long")
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), "Usage of halo-server:\n")
 		fs.VisitAll(func(f *flag.Flag) {
@@ -106,7 +135,7 @@ func parseFlags(args []string) (options, error) {
 			slog.Warn("deprecated flag; use the new name", "flag", "--"+f.Name, "use", "--"+to)
 		}
 	})
-	o.devGroups = splitCSV(devGroups)
+	o.devGroups, o.devRoles = splitCSV(devGroups), splitCSV(devRoles)
 	for _, c := range splitCSV(proxies) {
 		p, err := netip.ParsePrefix(c)
 		if err != nil {
@@ -117,21 +146,40 @@ func parseFlags(args []string) (options, error) {
 	if o.policyDir == "" || o.tokenFile == "" {
 		return o, errors.New("--policy-dir and --token-file are required")
 	}
-	if o.killKeyFile != "" && o.gatewayTokenFile == "" { // a gateway token alone serves only the posture endpoint
-		return o, errors.New("--killswitch-key-file and --gateway-token-file must be set together")
+	if o.killKeyFile != "" && o.gatewayTokenFile == "" && o.gatewayCapTokenFiles[0] == "" { // a gateway token alone serves the posture and budget endpoints
+		return o, errors.New("--killswitch-key-file needs --gateway-token-file or --gateway-killswitch-token-file")
 	}
 	if o.postureMaxAge < time.Minute {
 		return o, errors.New("--posture-max-age must be at least 1m")
 	}
-	if o.killKeyFile != "" && o.dataDir == "" {
-		return o, errors.New("--killswitch-key-file requires --data-dir (kills must survive a restart)")
+	durable := o.dataDir != "" || o.dbURLFile != ""
+	if o.dbURLFile != "" && o.dataDir != "" {
+		return o, errors.New("--data-dir and --database-url-file are exclusive: state lives in one place (move a data dir with `halo-server import`)")
+	}
+	if o.dbURLFile != "" && o.dbMaxConns < 2 {
+		return o, errors.New("--database-max-conns must be at least 2")
+	}
+	if o.dbURLFile != "" && o.leaseTTL < 3*time.Second {
+		return o, errors.New("--leader-lease-ttl must be at least 3s")
+	}
+	if o.auditCfg != "" && !durable {
+		return o, errors.New("--audit-config requires --data-dir or --database-url-file (segments and export cursors must survive a restart)")
+	}
+	if o.scimAuthoritative && o.scimTokenHashFile == "" {
+		return o, errors.New("--scim-authoritative requires --scim-token-sha256-file")
+	}
+	if o.scimTokenHashFile != "" && !durable {
+		return o, errors.New("--scim-token-sha256-file requires --data-dir or --database-url-file (the provisioned directory must survive a restart)")
+	}
+	if o.killKeyFile != "" && !durable {
+		return o, errors.New("--killswitch-key-file requires --data-dir or --database-url-file (kills must survive a restart)")
 	}
 	if o.controller {
 		switch {
 		case o.chURL == "":
 			return o, errors.New("--controller requires --clickhouse-url")
-		case o.dataDir == "":
-			return o, errors.New("--controller requires --data-dir (its action log prevents duplicate PRs across restarts)")
+		case o.dataDir == "" && o.dbURLFile == "":
+			return o, errors.New("--controller requires --data-dir or --database-url-file (its action log prevents duplicate PRs across restarts)")
 		case o.interval < time.Minute:
 			return o, errors.New("--interval must be at least 1m")
 		}
@@ -151,8 +199,171 @@ func policyWriter(portal server.Portal, policyDir string) (server.PolicyWriter, 
 	return &server.GitPolicyWriter{RepoDir: portal.PolicyRepoDir, ServedDir: policyDir, Subdir: portal.PolicySubdir, Base: portal.PolicyBase, Opener: promote.GHOpener{}}, nil
 }
 
+// gatewayCapFlags names the per-capability --gateway-<name>-token-file flags,
+// in options.gatewayCapTokenFiles order.
+var gatewayCapFlags = [4]string{"killswitch", "posture", "budget", "directory"}
+
+// Gateway token strength. halo-server accepts a valid gateway token even
+// from an IP blocked for failed attempts (so a gateway sharing an egress IP
+// with a guesser is never locked out), which tells a blocked guesser when a
+// guess is right; only a token nobody can guess keeps that safe. So a token
+// must look like the output of a random generator, not a passphrase.
+const (
+	minGatewayTokenLen  = 32
+	minGatewayTokenBits = 128
+	// maxGatewayTokenRun: a run this long of one character, or of consecutive
+	// ascending or descending characters, is refused. A random 64-character
+	// hex token has one with probability under 1e-6.
+	maxGatewayTokenRun = 8
+)
+
+// tokenCharset classifies t: "hex" (4 bits per character), "base64" (the
+// standard or URL-safe alphabet, 6 bits; trailing "=" padding ignored), or
+// "" for anything else (spaces, punctuation, other scripts).
+func tokenCharset(t string) (name string, bitsPerChar float64) {
+	isHex, isB64 := true, true
+	for _, r := range strings.TrimRight(t, "=") {
+		switch {
+		case r >= '0' && r <= '9', r >= 'a' && r <= 'f', r >= 'A' && r <= 'F':
+		case r >= 'g' && r <= 'z', r >= 'G' && r <= 'Z', r == '+', r == '/', r == '-', r == '_':
+			isHex = false
+		default:
+			return "", 0
+		}
+	}
+	switch {
+	case isHex:
+		return "hex", 4
+	case isB64:
+		return "base64", 6
+	}
+	return "", 0
+}
+
+// longestRun is the longest stretch of t in which each character equals the
+// previous one, or each is one above it, or each one below it.
+func longestRun(t string) int {
+	best, run, step := 1, 1, 0
+	for i := 1; i < len(t); i++ {
+		d := int(t[i]) - int(t[i-1])
+		switch {
+		case (d == 0 || d == 1 || d == -1) && d == step && run > 1:
+			run++
+		case d == 0 || d == 1 || d == -1:
+			run, step = 2, d
+		default:
+			run = 1
+		}
+		best = max(best, run)
+	}
+	return best
+}
+
+// checkGatewayToken refuses a gateway token that does not look random: fewer
+// than minGatewayTokenLen characters; a character outside hex or base64
+// (url); under minGatewayTokenBits by charset bits x length; a long run
+// (maxGatewayTokenRun); too few distinct characters for its charset; or,
+// for base64, missing upper case, lower case or digits (a random base64
+// token of 32+ characters has all three with probability above 1-1e-7).
+func checkGatewayToken(t string) error {
+	const fix = "generate one with: openssl rand -hex 32"
+	n := utf8.RuneCountInString(t)
+	if n < minGatewayTokenLen {
+		return fmt.Errorf("token is %d characters, want at least %d; %s", n, minGatewayTokenLen, fix)
+	}
+	cs, per := tokenCharset(t)
+	if cs == "" {
+		return fmt.Errorf("token must be hex or base64/base64url characters only (random bytes, not a passphrase); %s", fix)
+	}
+	body := strings.TrimRight(t, "=")
+	if bits := per * float64(len(body)); bits < minGatewayTokenBits {
+		return fmt.Errorf("token carries %.0f bits (%d %s characters), want at least %d; %s", bits, len(body), cs, minGatewayTokenBits, fix)
+	}
+	if r := longestRun(body); r >= maxGatewayTokenRun {
+		return fmt.Errorf("token has a run of %d repeated or consecutive characters, so it is not random; %s", r, fix)
+	}
+	seen := map[rune]bool{}
+	var upper, lower, digit bool
+	for _, r := range body {
+		seen[r] = true
+		upper = upper || unicode.IsUpper(r)
+		lower = lower || unicode.IsLower(r)
+		digit = digit || unicode.IsDigit(r)
+	}
+	if minDistinct := map[string]int{"hex": 8, "base64": 16}[cs]; len(seen) < minDistinct {
+		return fmt.Errorf("token uses %d distinct characters, want at least %d for %s, so it is not random; %s", len(seen), minDistinct, cs, fix)
+	}
+	if cs == "base64" && (!upper || !lower || !digit) {
+		return fmt.Errorf("token looks like words, not random base64 (it lacks upper case, lower case or digits); %s", fix)
+	}
+	return nil
+}
+
+// readGatewayTokens reads the shared gateway token and the per-capability
+// ones. Each must pass checkGatewayToken, and a per-capability token must
+// differ from the shared one (otherwise it separates nothing).
+func readGatewayTokens(o options) (shared string, caps [4]string, err error) {
+	read := func(flag, path string) (string, error) {
+		if path == "" {
+			return "", nil
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return "", fmt.Errorf("--%s: %w", flag, err)
+		}
+		t := strings.TrimSpace(string(b))
+		if err := checkGatewayToken(t); err != nil {
+			return "", fmt.Errorf("--%s: %w", flag, err)
+		}
+		return t, nil
+	}
+	if shared, err = read("gateway-token-file", o.gatewayTokenFile); err != nil {
+		return "", caps, err
+	}
+	for i, name := range gatewayCapFlags {
+		flag := "gateway-" + name + "-token-file"
+		if caps[i], err = read(flag, o.gatewayCapTokenFiles[i]); err != nil {
+			return "", caps, err
+		}
+		if caps[i] != "" && caps[i] == shared {
+			return "", caps, fmt.Errorf("--%s: must differ from the --gateway-token-file token", flag)
+		}
+	}
+	return shared, caps, nil
+}
+
+// readSCIMHashes reads one hex SHA-256 per line; blank lines and # comments
+// are skipped. server.New validates each digest.
+func readSCIMHashes(path string) ([]string, error) {
+	if path == "" {
+		return nil, nil
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("--scim-token-sha256-file: %w", err)
+	}
+	var out []string
+	for _, l := range strings.Split(string(b), "\n") {
+		if l = strings.TrimSpace(l); l != "" && !strings.HasPrefix(l, "#") {
+			out = append(out, l)
+		}
+	}
+	if len(out) == 0 {
+		return nil, errors.New("--scim-token-sha256-file: no token hash in the file")
+	}
+	return out, nil
+}
+
 // run serves until ctx ends (then shuts down gracefully) or the listener fails.
 func run(ctx context.Context, args []string) error {
+	if len(args) > 0 {
+		switch args[0] {
+		case "migrate":
+			return runMigrate(ctx, args[1:], os.Stdout)
+		case "import":
+			return runImport(ctx, args[1:], os.Stdout)
+		}
+	}
 	o, err := parseFlags(args)
 	if err != nil {
 		return err
@@ -191,6 +402,18 @@ func run(ctx context.Context, args []string) error {
 		}
 		portal.PubKeyPEM = string(b)
 	}
+	var audit server.AuditConfig
+	if o.auditCfg != "" {
+		f, err := os.Open(o.auditCfg)
+		if err != nil {
+			return fmt.Errorf("--audit-config: %w", err)
+		}
+		audit, err = server.ParseAuditConfig(f)
+		_ = f.Close() // read-only
+		if err != nil {
+			return fmt.Errorf("--audit-config %s: %w", o.auditCfg, err)
+		}
+	}
 	writer, err := policyWriter(portal, o.policyDir)
 	if err != nil {
 		return err
@@ -199,8 +422,18 @@ func run(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	var db *pgstore.DB
+	if o.dbURLFile != "" {
+		if db, err = openDB(ctx, o.dbURLFile, o.autoMigrate, pgstore.Options{InsecureTLS: o.dbInsecureTLS, MaxConns: o.dbMaxConns}); err != nil {
+			return err
+		}
+		defer func() { _ = db.Close() }()
+	}
 	store := server.NewMemStore()
-	if o.dataDir != "" {
+	switch {
+	case db != nil:
+		store = server.NewPGStore(db)
+	case o.dataDir != "":
 		if store, err = server.OpenLogStore(o.dataDir); err != nil {
 			return err
 		}
@@ -217,25 +450,50 @@ func run(ctx context.Context, args []string) error {
 		}
 		killKey = sig.Key
 	}
-	gwToken, err := readTrim(o.gatewayTokenFile)
-	if err != nil {
-		return fmt.Errorf("--gateway-token-file: %w", err)
+	var workloadKey ed25519.PrivateKey
+	if o.workloadKeyFile != "" {
+		b, err := os.ReadFile(o.workloadKeyFile)
+		if err != nil {
+			return fmt.Errorf("--workload-key-file: %w", err)
+		}
+		sig, err := bundle.ParseEd25519Signer(b)
+		if err != nil {
+			return fmt.Errorf("--workload-key-file: %w", err)
+		}
+		workloadKey = sig.Key
 	}
-	if o.gatewayTokenFile != "" && len(gwToken) < 16 {
-		return errors.New("--gateway-token-file: token must be at least 16 characters")
+	gwToken, gwCaps, err := readGatewayTokens(o)
+	if err != nil {
+		return err
+	}
+	scimHashes, err := readSCIMHashes(o.scimTokenHashFile)
+	if err != nil {
+		return err
 	}
 	// One kill store shared by the server (serves it) and the controller (reads it).
-	kills, err := controller.OpenKillStore(o.dataDir)
+	var kills *controller.KillStore
+	if db != nil {
+		kills, err = controller.NewKillStore(ctx, db)
+	} else {
+		kills, err = controller.OpenKillStore(o.dataDir)
+	}
 	if err != nil {
 		return err
 	}
 	defer func() { _ = kills.Close() }()
-	srv, err := server.New(server.Config{
+	cfg := server.Config{
 		PolicyDir: o.policyDir, Token: strings.TrimSpace(string(tok)), VerdictsPath: o.verdicts, Store: store,
 		SessionKey: []byte(sessionKey), OIDCClientSecret: clientSecret, Portal: portal, DataDir: o.dataDir, Writer: writer,
-		DeviceTTL: o.deviceTTL, DevUser: o.devUser, DevGroups: o.devGroups, DevAdmin: o.devAdmin, TrustedProxies: o.trusted,
-		KillStore: kills, KillKey: killKey, GatewayToken: gwToken, PostureMaxAge: o.postureMaxAge,
-	})
+		DeviceTTL: o.deviceTTL, DevUser: o.devUser, DevGroups: o.devGroups, DevRoles: o.devRoles, DevAdmin: o.devAdmin, TrustedProxies: o.trusted,
+		KillStore: kills, KillKey: killKey, GatewayToken: gwToken, PostureMaxAge: o.postureMaxAge, Audit: audit,
+		GatewayKillswitchToken: gwCaps[0], GatewayPostureToken: gwCaps[1], GatewayBudgetToken: gwCaps[2], GatewayDirectoryToken: gwCaps[3],
+		SCIMTokenSHA256: scimHashes, SCIMAuthoritative: o.scimAuthoritative,
+		WorkloadKey: workloadKey,
+	}
+	if db != nil {
+		cfg.Backend = &server.PGBackend{DB: db, LeaseTTL: o.leaseTTL}
+	}
+	srv, err := server.New(cfg)
 	if err != nil {
 		return err
 	}
@@ -243,6 +501,10 @@ func run(ctx context.Context, args []string) error {
 	if c, ok := store.(io.Closer); ok {
 		defer func() { _ = c.Close() }()
 	}
+	actx, stopAudit := context.WithCancel(ctx)
+	auditDone := make(chan struct{})
+	go func() { defer close(auditDone); srv.RunAuditExport(actx) }()
+	defer func() { stopAudit(); <-auditDone }() // runs before srv.Close: forwarders read the log
 	hup := make(chan os.Signal, 1)
 	signal.Notify(hup, syscall.SIGHUP)
 	defer signal.Stop(hup)
@@ -257,6 +519,10 @@ func run(ctx context.Context, args []string) error {
 		}
 	}()
 
+	metrics := []func(io.Writer){srv.WriteMetrics}
+	if db != nil {
+		metrics = append(metrics, db.WriteMetrics)
+	}
 	if o.controller {
 		var ks *controller.KillStore
 		if killKey != nil { // only a served (signed) kill list enforces anything
@@ -268,27 +534,30 @@ func run(ctx context.Context, args []string) error {
 		}
 		cctx, stopCtrl := context.WithCancel(ctx)
 		done := make(chan struct{})
-		go func() { defer close(done); ctrl.Run(cctx, o.interval) }()
-		defer func() { // stop the loop before closing the log it appends to
-			stopCtrl()
-			<-done
-			_ = ctrl.State.Close()
-		}()
-		slog.Info("experiment controller running", "interval", o.interval, "prs", ctrl.Writer != nil, "killswitch_served", killKey != nil)
-		if o.metricsListen != "" {
-			mux := http.NewServeMux()
-			mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, _ *http.Request) {
-				w.Header().Set("Content-Type", "text/plain; version=0.0.4")
-				ctrl.WriteMetrics(w)
-			})
-			ms := &http.Server{Addr: o.metricsListen, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
-			go func() {
-				if err := ms.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-					slog.Error("metrics listener", "err", err)
-				}
+		if db != nil {
+			el := newElector(db, o.leaseTTL)
+			metrics = append(metrics, el.WriteMetrics)
+			go func() { defer close(done); el.Run(cctx, leadController(ctrl, db, o.interval)) }()
+			defer func() { stopCtrl(); <-done }() // stops the loop and releases the lease
+		} else {
+			go func() { defer close(done); ctrl.Run(cctx, o.interval) }()
+			defer func() { // stop the loop before closing the log it appends to
+				stopCtrl()
+				<-done
+				_ = ctrl.State.Close()
 			}()
-			defer func() { _ = ms.Close() }() // stateless scrapes
 		}
+		metrics = append(metrics, ctrl.WriteMetrics)
+		slog.Info("experiment controller running", "interval", o.interval, "prs", ctrl.Writer != nil, "killswitch_served", killKey != nil, "leader_elected", db != nil)
+	}
+	if o.metricsListen != "" {
+		ms := &http.Server{Addr: o.metricsListen, Handler: metricsHandler(metrics...), ReadHeaderTimeout: 10 * time.Second}
+		go func() {
+			if err := ms.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				slog.Error("metrics listener", "err", err)
+			}
+		}()
+		defer func() { _ = ms.Close() }() // stateless scrapes
 	}
 
 	hs := &http.Server{Addr: o.listen, Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, IdleTimeout: 2 * time.Minute}
@@ -303,6 +572,20 @@ func run(ctx context.Context, args []string) error {
 	sctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	return hs.Shutdown(sctx)
+}
+
+// metricsHandler serves GET /metrics from every writer that is set.
+func metricsHandler(writers ...func(io.Writer)) http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+		for _, write := range writers {
+			if write != nil {
+				write(w)
+			}
+		}
+	})
+	return mux
 }
 
 // controllerWriter returns the controller's PR writer: the portal's writer
@@ -351,26 +634,26 @@ func newController(o options, portal server.Portal, portalWriter server.PolicyWr
 	if err != nil {
 		return nil, err
 	}
-	state, err := controller.OpenStateLog(o.dataDir)
-	if err != nil {
-		return nil, err
-	}
 	c := &controller.Controller{
-		Org:          func() (*policy.Org, error) { return policy.Load(o.policyDir) },
+		Org:          srv.Policy, // the policy the server accepted (SecurityIssues), not a raw load
 		Metrics:      &promote.ClickHouse{URL: o.chURL, Database: o.chDB, User: o.chUser, Password: pw},
 		Writer:       writer,
 		Notifier:     notifiers,
-		State:        state,
 		VerdictsPath: o.verdicts,
 		PolicyDir:    o.policyDir,
 	}
-	if o.dataDir != "" { // rollouts need persistent state; GET /api/v1/rollouts reads it here
+	if o.dataDir != "" { // rollouts need persistent state; GET /api/v1/rollouts reads it here (HA: set per leadership term)
 		c.RolloutStateDir = filepath.Join(o.dataDir, "rollouts")
 	}
 	if kills != nil {
 		c.Kill, c.Kills = controller.KillFunc(srv.KillExperiment), kills
 	} else {
 		slog.Warn("--controller without --killswitch-key-file: rollbacks are NOT enforced until the pause PR merges")
+	}
+	if o.dataDir != "" { // HA: opened per leadership term, fenced by the lease (leadController)
+		if c.State, err = controller.OpenStateLog(o.dataDir); err != nil {
+			return nil, err
+		}
 	}
 	return c, nil
 }

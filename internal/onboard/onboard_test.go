@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -348,6 +349,61 @@ func TestVerify(t *testing.T) {
 	}
 	if r := Verify(ctx, fake("nope", nil), "claude-code", false, false, time.Second); r.Status != VerifyFail {
 		t.Fatalf("wrong reply: %+v", r)
+	}
+}
+
+// TestDetectAndVerifyCursorAndOpenCode: both are found by their binary and
+// version output as recorded from the real CLIs (cursor-agent 2026.10.19-6bbf2c4,
+// opencode 1.19.3), and verify runs their documented headless commands.
+func TestDetectAndVerifyCursorAndOpenCode(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		harness, bin, versionOut, version string
+		cred                              string
+		args                              []string
+	}{
+		{"cursor-agent", "cursor-agent", "2026.10.19-6bbf2c4\n", "2026.10.19-6bbf2c4", "CURSOR_API_KEY", []string{"-p", VerifyPrompt}},
+		{"opencode", "opencode", "1.19.3\n", "1.19.3", "HALO_GATEWAY_TOKEN", []string{"run", VerifyPrompt}},
+	} {
+		t.Run(tc.harness, func(t *testing.T) {
+			env := map[string]string{}
+			e := Env{
+				GOOS:   "linux",
+				Getenv: func(k string) string { return env[k] },
+				LookPath: func(b string) (string, error) {
+					if b == tc.bin {
+						return "/usr/local/bin/" + b, nil
+					}
+					return "", errors.New("not found")
+				},
+				Run: func(_ context.Context, _ string, args ...string) ([]byte, error) {
+					if len(args) == 1 && args[0] == "--version" {
+						return []byte(tc.versionOut), nil
+					}
+					return []byte("HALOS_OK"), nil
+				},
+			}
+			var got Harness
+			for _, h := range Detect(ctx, e) {
+				if h.Name == tc.harness {
+					got = h
+				}
+			}
+			if !got.Installed || got.Version != tc.version || got.Binary != tc.bin {
+				t.Fatalf("detected %+v", got)
+			}
+			if r := Verify(ctx, e, tc.harness, false, false, time.Second); r.Status != VerifySkipped || !strings.Contains(r.Detail, "--assume-auth") {
+				t.Fatalf("no credential: %+v", r)
+			}
+			env[tc.cred] = secret
+			r := Verify(ctx, e, tc.harness, false, true, time.Second)
+			if r.Status != VerifyDryRun || !slices.Equal(r.Command[1:], tc.args) {
+				t.Fatalf("dry run: %+v", r)
+			}
+			if r := Verify(ctx, e, tc.harness, false, false, time.Second); r.Status != VerifyPass {
+				t.Fatalf("verify: %+v", r)
+			}
+		})
 	}
 }
 

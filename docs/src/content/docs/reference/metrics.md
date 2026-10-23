@@ -16,7 +16,9 @@ The collector (generate its config with `halo telemetry collector-config`) maps 
 | `halo.latency.p95_ms` | ms | gateway, else CLI | 95th percentile, same basis |
 | `halo.session.duration_s` | s | none yet | Not derived |
 | `halo.tool.error_rate` | ratio | CLI | Failed / total tool calls |
-| `halo.eval.judge.score` | ratio | eval (`halo eval online` on `halo-shadow` pairs) | Mean judge score of one shadow pair's response for that arm (unit = pair) |
+| `halo.eval.judge.score` | ratio | eval (`halo eval online` on `halo-shadow` pairs) | Mean judge score of one session's graded shadow pairs for that arm (unit = hashed session) |
+| `halo.eval.agent.fidelity` | ratio | eval (`halo eval online`, shadow `turns: all`) | Mean step fidelity (next action matches production's) over one session's referenced steps for that arm (unit = hashed session); higher is better ([ADR-0014](/halos/adr/0014-step-level-multi-turn-shadow/)) |
+| `halo.eval.agent.invalid_call_rate` | ratio | eval (`halo eval online`) | Share of one session's steps where the arm called a tool the request did not offer or omitted a required argument (unit = hashed session); lower is better |
 
 "Gateway" is `halo-proxy`'s per-request OTLP export (`halo.gateway.requests`, `halo.gateway.latency_ms`). It assigns ring and variant itself, so it is the only online source for `traffic`-axis experiments; when an experiment has gateway data it is preferred over CLI events, and the two are never mixed in one analysis. The gateway is also the only **trusted** source: the collector stamps `halo.source=gateway` only on its authenticated receiver (`:4319`) and `halo.source=cli` on everything from developer machines, which also cannot carry `halo.gateway.*` at all. The controller auto-kills only on `gateway` evidence. The unit for gateway data is `halo.unit`, `HMAC-SHA256(salt, verified subject)` truncated; anonymous requests are counted but are not units. `halo.gateway.*` metrics are not exposed to Prometheus through the collector (per-unit labels would explode cardinality); scrape `halo-proxy`'s own `/metrics` instead. How each is computed: [evidence plane](/halos/concepts/evidence-plane/#derived-per-unit-metrics).
 
@@ -62,6 +64,27 @@ For Claude Code these ride on `OTEL_RESOURCE_ATTRIBUTES`. Codex uses its `[otel]
 
 A rising `halo_controller_errors_total` with flat verdicts usually means ClickHouse or the policy clone is unreachable; the loop retries at 15s, 30s, and so on.
 
+With the Postgres backend (`--database-url-file`, [ADR-0021](/halos/adr/0021-ha-control-plane-on-postgres/)) the same listener also serves, with or without `--controller`:
+
+| Metric | Type | Meaning |
+|---|---|---|
+| `halo_leader{lease}` | gauge | 1 while this replica holds the lease (`lease="controller"`), else 0. Summed over replicas it must be exactly 1 |
+| `halo_leader_changes_total{lease}` | counter | Times this replica gained or lost the lease |
+| `halo_db_errors_total` | counter | Failed Postgres statements (a cancelled request is not counted) |
+| `halo_db_open_connections` | gauge | Open connections in the pool (at most 16) |
+
+## Audit export metrics
+
+`halo-server --metrics-listen` serves these with or without `--controller`. The `sink` label is the sink's `name` in `--audit-config` ([SIEM export](/halos/guides/siem-export/)).
+
+| Metric | Type | Meaning |
+|---|---|---|
+| `halo_server_audit_forward_sent_total{sink}` | counter | Audit entries the sink accepted (a resent batch counts again) |
+| `halo_server_audit_forward_failed_total{sink}` | counter | Failed delivery attempts: sink errors, a broken hash chain, a cursor that cannot be saved |
+| `halo_server_audit_forward_lag_entries{sink}` | gauge | Entries appended but not yet delivered to the sink |
+| `halo_server_audit_forward_last_success_timestamp_seconds{sink}` | gauge | Unix time of the last delivered batch (0 since start: none yet) |
+| `halo_server_audit_rotate_errors_total` | counter | Failed audit log rotations; entries keep going to the active segment |
+
 ## Metrics listeners
 
 These processes expose Prometheus text on a **separate, unauthenticated** address. None of them share a public listener.
@@ -70,7 +93,7 @@ These processes expose Prometheus text on a **separate, unauthenticated** addres
 |---|---|---|---|
 | `halo-proxy` | `--admin-listen` (also `/healthz`) | `127.0.0.1:9090` | `halo_proxy_requests_total{ring,variant,status}`, `halo_proxy_upstream_ttfb_seconds`, `halo_proxy_request_duration_seconds`, `halo_proxy_auth_failures_total`, `halo_proxy_shadow_dropped_total`, `halo_proxy_shadow_failed_total` |
 | `halo-shadow` | `-metrics-listen` (env `HALO_SHADOW_METRICS_LISTEN`) | off | `halo_shadow_mirrored_total`, `halo_shadow_dropped_total`, `halo_shadow_errors_total`, `halo_shadow_spend_usd`, `halo_shadow_budget_usd` |
-| `halo-server` (controller) | `--metrics-listen` | off | `halo_controller_*` above |
+| `halo-server` | `--metrics-listen` | off | `halo_server_audit_*`; with `--controller`, `halo_controller_*`; with `--database-url-file`, `halo_leader*` and `halo_db_*` above |
 
 ## Verification status
 

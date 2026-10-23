@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/dshakes/halos/internal/policy"
@@ -18,12 +19,22 @@ type policyHolder struct {
 	dir string
 	log *slog.Logger
 
-	mu    sync.Mutex
+	mu sync.Mutex
+	// org is the policy in effect: good, or good narrowed by a refused
+	// policy's workload rule removals (policy.TightenWorkloads).
 	org   *policy.Org
+	good  *policy.Org // the last policy that passed policy.SecurityIssues
 	view  PolicyView
 	sig   string
 	force bool
 	err   error
+	// refused counts loads refused by policy.SecurityIssues.
+	refused atomic.Uint64
+	// tightened counts refused loads whose workload rule removals were applied.
+	tightened atomic.Uint64
+	// skipped is the number of workload rules in the policy in effect that pin
+	// no tenant, so the exchange never matches them (a gauge, set per load).
+	skipped atomic.Int64
 }
 
 // Invalidate forces a reload on the next read.
@@ -53,21 +64,58 @@ func dirSig(dir string) string {
 
 // Get returns the current org (nil + error if the dir has never loaded).
 // A failed reload keeps serving the last good policy and returns its error.
+// A policy refused for security validation errors still removes workload
+// rules (policy.TightenWorkloads): the rules in effect become the last good
+// policy's rules that the refused one still has unchanged.
 func (p *policyHolder) Get() (*policy.Org, PolicyView, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if sig := dirSig(p.dir); p.force || sig != p.sig || p.org == nil && p.err == nil {
 		p.force, p.sig = false, sig
 		org, err := policy.Load(p.dir)
+		if err == nil {
+			if iss := policy.SecurityIssues(org); len(iss) > 0 {
+				p.refused.Add(1)
+				err = fmt.Errorf("policy refused (keeping the last good policy): %d security validation error(s), first: %s", len(iss), iss[0])
+				p.tighten(org)
+			}
+		}
 		if err != nil {
 			p.err = err
 			p.log.Error("policy reload failed", "dir", p.dir, "err", err)
 		} else {
-			p.err, p.org, p.view = nil, org, buildPolicyView(org)
+			p.err, p.org, p.good = nil, org, org
+			p.activate()
 			p.log.Info("policy loaded", "org", org.Name, "rings", len(org.Rings), "experiments", len(org.Experiments))
 		}
 	}
 	return p.org, p.view, p.err
+}
+
+// tighten applies a refused policy's workload rule removals to the last good
+// policy (none loaded yet: nothing to narrow).
+func (p *policyHolder) tighten(refused *policy.Org) {
+	t, dropped := policy.TightenWorkloads(p.good, refused)
+	if t == nil || t == p.org {
+		return
+	}
+	p.org = t
+	p.activate()
+	if len(dropped) > 0 {
+		p.tightened.Add(1)
+		p.log.Warn("policy refused, but its workload rule removals are applied: these last-good rules are gone or changed in it and no longer match",
+			"rules", dropped)
+	}
+}
+
+// activate refreshes what derives from p.org: the view and the skipped-rule gauge.
+func (p *policyHolder) activate() {
+	p.view = buildPolicyView(p.org)
+	skipped := p.org.Workloads.UnpinnedRules()
+	p.skipped.Store(int64(len(skipped)))
+	if len(skipped) > 0 { // unreachable after SecurityIssues; defence in depth
+		p.log.Error("workload rules skipped: they pin no tenant", "rules", skipped)
+	}
 }
 
 // PolicyView is the JSON shape of GET /api/v1/policy.

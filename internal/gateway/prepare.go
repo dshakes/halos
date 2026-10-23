@@ -3,9 +3,12 @@ package gateway
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/dshakes/halos/internal/policy"
 )
@@ -38,6 +41,19 @@ type Rejection struct {
 	Protocol string // selects the error body shape
 	Message  string
 	Code     string // OpenAI Responses error code; "" = derived from Status
+	// RetryAfter, when > 0, is sent as Retry-After (whole seconds, rounded up).
+	RetryAfter time.Duration
+}
+
+// SetHeaders adds the response headers that go with the body: Retry-After,
+// and for Bedrock the x-amzn-ErrorType its SDKs classify errors by.
+func (r *Rejection) SetHeaders(h http.Header) {
+	if r.RetryAfter > 0 {
+		h.Set("Retry-After", strconv.FormatInt(int64(math.Ceil(r.RetryAfter.Seconds())), 10))
+	}
+	if r.Protocol == ProtoBedrock && r.Status == http.StatusTooManyRequests {
+		h.Set("X-Amzn-ErrorType", "ThrottlingException")
+	}
 }
 
 func (r *Rejection) Error() string { return fmt.Sprintf("gateway: %d %s", r.Status, r.Message) }
@@ -47,21 +63,25 @@ func (r *Rejection) JSON() []byte {
 	var v any
 	switch r.Protocol {
 	case ProtoResponses:
-		code := map[int]string{400: "model_not_allowed", 401: "invalid_api_key", 403: "model_not_allowed", 404: "unknown_url", 413: "request_too_large"}[r.Status]
+		code := map[int]string{400: "model_not_allowed", 401: "invalid_api_key", 403: "model_not_allowed", 404: "unknown_url", 413: "request_too_large", 429: "insufficient_quota"}[r.Status]
 		if r.Code != "" {
 			code = r.Code
 		}
-		v = map[string]any{"error": map[string]any{"message": r.Message, "type": "invalid_request_error", "param": nil, "code": code}}
+		typ := "invalid_request_error"
+		if r.Status == http.StatusTooManyRequests { // OpenAI's quota error shape: Codex stops and shows it rather than retrying
+			typ = "insufficient_quota"
+		}
+		v = map[string]any{"error": map[string]any{"message": r.Message, "type": typ, "param": nil, "code": code}}
 	case ProtoBedrock:
 		v = map[string]any{"message": r.Message}
 	case ProtoGemini:
-		status := map[int]string{400: "INVALID_ARGUMENT", 401: "UNAUTHENTICATED", 403: "PERMISSION_DENIED", 404: "NOT_FOUND", 413: "INVALID_ARGUMENT", 503: "UNAVAILABLE"}[r.Status]
+		status := map[int]string{400: "INVALID_ARGUMENT", 401: "UNAUTHENTICATED", 403: "PERMISSION_DENIED", 404: "NOT_FOUND", 413: "INVALID_ARGUMENT", 429: "RESOURCE_EXHAUSTED", 503: "UNAVAILABLE"}[r.Status]
 		if status == "" {
 			status = "UNKNOWN"
 		}
 		v = map[string]any{"error": map[string]any{"code": r.Status, "message": r.Message, "status": status}}
 	default:
-		typ := map[int]string{400: "invalid_request_error", 401: "authentication_error", 403: "permission_error", 404: "not_found_error", 413: "request_too_large", 503: "api_error"}[r.Status]
+		typ := map[int]string{400: "invalid_request_error", 401: "authentication_error", 403: "permission_error", 404: "not_found_error", 413: "request_too_large", 429: "rate_limit_error", 503: "api_error"}[r.Status]
 		if typ == "" {
 			typ = "api_error"
 		}
@@ -141,7 +161,7 @@ func PrepareVerified(org *policy.Org, sub *policy.Subject, h http.Header, path s
 	// Always clear the owned names, even if the header list the host gave us
 	// was truncated (Kong's GetHeaders caps the count).
 	seen := map[string]bool{}
-	names := []string{HeaderRing, HeaderRelease, HeaderExperiment, HeaderVariant}
+	names := []string{HeaderRing, HeaderRelease, HeaderExperiment, HeaderVariant, HeaderActor, HeaderActorDepth}
 	for name := range h {
 		if l := strings.ToLower(name); strings.HasPrefix(l, HaloPrefix) {
 			names = append(names, l)
@@ -154,13 +174,21 @@ func PrepareVerified(org *policy.Org, sub *policy.Subject, h http.Header, path s
 		}
 	}
 	req := NewRequestInfo(h, path, body)
+	var dlg *policy.DelegationChain
 	if sub != nil {
-		req.UserID, req.Groups = sub.ID, sub.Groups
+		req.UserID, req.Groups, req.Workload = sub.ID, sub.Groups, sub.Kind == policy.SubjectWorkload
+		dlg, req.Agent = sub.Delegation, sub.Delegation.Depth() > 0
 	}
 	res.Protocol = req.Protocol
 	res.Decision = Decide(org, req)
+	agentHeaders(res.Decision.Headers, dlg)
 	if res.Reject = admit(org, req, res.Decision, path); res.Reject != nil {
 		return res
+	}
+	if req.Agent && req.Protocol != "" {
+		if res.Reject = admitAgent(org, sub, req, path, body); res.Reject != nil {
+			return res
+		}
 	}
 	// JSON-body wires are always re-encoded, even when the alias is the upstream
 	// id: the client's body may hold duplicate or case-variant "model" keys that

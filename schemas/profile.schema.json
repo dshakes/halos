@@ -33,7 +33,7 @@
     },
     "harnesses": {
       "type": "object",
-      "description": "Enabled harnesses keyed by adapter name (claude-code, codex, gemini-cli, copilot-cli).",
+      "description": "Enabled harnesses keyed by adapter name (claude-code, codex, gemini-cli, copilot-cli, cursor-agent, opencode).",
       "additionalProperties": {
         "type": "object",
         "description": "Harness settings.",
@@ -288,6 +288,87 @@
       "required": [],
       "additionalProperties": false
     },
+    "extensions": {
+      "type": "object",
+      "description": "Plugin, skill, subagent, output style and status line governance. Unset means unrestricted; each adapter renders what its harness can enforce and warns about the rest.",
+      "properties": {
+        "marketplaces": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/marketplace"
+          },
+          "description": "Allowlist of plugin marketplace sources (Claude Code strictKnownMarketplaces, Codex marketplaces.allowed_sources, Copilot strictKnownMarketplaces); empty means any. The vendor's own marketplace is blocked unless listed."
+        },
+        "blockedMarketplaces": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/marketplace"
+          },
+          "description": "Marketplace sources users may never use (Claude Code blockedMarketplaces). Unions down an extends chain."
+        },
+        "plugins": {
+          "type": "object",
+          "description": "Individual plugin pins, keyed PLUGIN@MARKETPLACE.",
+          "properties": {
+            "enabled": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[^@\\s]+@[^@\\s]+$"
+              },
+              "description": "Plugins required on."
+            },
+            "blocked": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[^@\\s]+@[^@\\s]+$"
+              },
+              "description": "Plugins required off. Unions down an extends chain."
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        },
+        "skills": {
+          "$ref": "#/$defs/extensionSet"
+        },
+        "subagents": {
+          "$ref": "#/$defs/extensionSet"
+        },
+        "outputStyle": {
+          "type": "string",
+          "description": "Output style name (Claude Code outputStyle)."
+        },
+        "statusLine": {
+          "type": "object",
+          "description": "Managed status-line command (Claude Code statusLine).",
+          "properties": {
+            "command": {
+              "type": "string",
+              "description": "Command that renders the status line."
+            },
+            "padding": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Horizontal padding in characters; requires command."
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "login": {
+      "type": "string",
+      "description": "Restrict how users authenticate: subscription (claude.ai, ChatGPT or Google login) or api (API key or gateway credential). Unset means unrestricted.",
+      "enum": [
+        "subscription",
+        "api"
+      ]
+    },
     "instructions": {
       "type": "string",
       "description": "Org-wide memory rendered as managed CLAUDE.md / AGENTS.md / GEMINI.md."
@@ -298,6 +379,28 @@
       "additionalProperties": {
         "type": "string"
       }
+    },
+    "agents": {
+      "type": "object",
+      "description": "Bounds delegated agents for this profile's members (ADR-0024). A unit overlay may only lower maxDepth and narrow remote.",
+      "properties": {
+        "maxDepth": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5,
+          "description": "Lowers agents.maxDepth for these members."
+        },
+        "remote": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true,
+          "description": "agents.remote names these members may call; empty = every entry whose rings or units admit them."
+        }
+      },
+      "additionalProperties": false
     }
   },
   "required": [
@@ -305,5 +408,64 @@
     "kind",
     "name"
   ],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "marketplace": {
+      "type": "object",
+      "description": "A plugin marketplace source.",
+      "properties": {
+        "source": {
+          "type": "string",
+          "description": "Source kind.",
+          "enum": [
+            "github",
+            "git",
+            "url",
+            "hostPattern"
+          ]
+        },
+        "repo": {
+          "type": "string",
+          "description": "OWNER/REPO (source github).",
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+        },
+        "url": {
+          "type": "string",
+          "description": "Repository or marketplace.json URL (sources git and url).",
+          "format": "uri"
+        },
+        "ref": {
+          "type": "string",
+          "description": "Branch or tag (sources github and git)."
+        },
+        "hostPattern": {
+          "type": "string",
+          "description": "Regular expression over marketplace hosts (source hostPattern)."
+        }
+      },
+      "required": [
+        "source"
+      ],
+      "additionalProperties": false
+    },
+    "extensionSet": {
+      "type": "object",
+      "description": "Governance for a user-authored extension kind.",
+      "properties": {
+        "deny": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Names that must not load. Unions down an extends chain."
+        },
+        "pluginOnly": {
+          "type": "boolean",
+          "description": "Allow only extensions delivered by plugins or managed settings; user and project sources are blocked (Claude Code strictPluginOnlyCustomization)."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  }
 }

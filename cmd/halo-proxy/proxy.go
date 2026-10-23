@@ -36,11 +36,15 @@ type Proxy struct {
 	rp     *httputil.ReverseProxy
 	mirror *shadow.Mirrorer // nil = mirroring off
 	sigv4  *upstreamauth.Bedrock
-	kill   *gateway.KillSwitch    // nil = no kill switch
-	pc     *gateway.PostureClient // nil = posture gate off
-	otlp   *gwmetrics.Emitter     // nil = request metrics export off
+	kill   *gateway.KillSwitch      // nil = no kill switch
+	pc     *gateway.PostureClient   // nil = posture gate off
+	dir    *gateway.DirectoryClient // nil = groups from the verified identity alone
+	bc     *gateway.BudgetClient    // nil = budgets not metered or enforced
+	otlp   *gwmetrics.Emitter       // nil = request metrics export off
 	m      *metrics
 	log    *slog.Logger
+
+	budgetOff sync.Once // warns once that policy budgets have no budgets.url
 
 	breaker    *gateway.Breaker
 	getenv     func(string) string
@@ -58,8 +62,13 @@ type routeCtx struct {
 
 	// Routed model calls: the failover list and which target answered.
 	attempts []attempt
+	genai    bool // wrap the response body in a genaiTap
 	served   *attempt
 	failover bool // an earlier target failed or was skipped
+
+	proto  string       // model-call wire protocol; "" for other traffic
+	tap    *genaiTap    // GenAI observer on the response body; nil unless GenAI telemetry is on for this call
+	budget *budgetMeter // nil = response not metered
 }
 
 type ctxKey struct{}
@@ -96,6 +105,12 @@ func newProxy(cfg Config, log *slog.Logger) (*Proxy, error) {
 	if p.pc, err = cfg.Posture.build(log); err != nil {
 		return nil, err
 	}
+	if p.dir, err = cfg.Directory.build(log); err != nil {
+		return nil, err
+	}
+	if p.bc, err = cfg.Budgets.build(log); err != nil {
+		return nil, err
+	}
 	if p.otlp, err = gwmetrics.New(cfg.Telemetry); err != nil {
 		return nil, fmt.Errorf("halo-proxy: telemetry: %w", err)
 	}
@@ -114,6 +129,25 @@ func newProxy(cfg Config, log *slog.Logger) (*Proxy, error) {
 		ModifyResponse: func(resp *http.Response) error {
 			if rc, ok := resp.Request.Context().Value(ctxKey{}).(*routeCtx); ok {
 				rc.ttfb = time.Since(rc.start)
+				// One usage parser (gateway.UsageTap) feeds both GenAI telemetry and budget metering.
+				ct, ce := resp.Header.Get("Content-Type"), resp.Header.Get("Content-Encoding")
+				var sinks []func(gateway.UsageResult)
+				if rc.genai {
+					stream := strings.HasPrefix(ct, "text/event-stream") || strings.HasPrefix(ct, "application/vnd.amazon.eventstream")
+					rc.tap = newGenAITap(resp.Body, stream, ce == "", rc.start)
+					resp.Body = rc.tap
+					sinks = append(sinks, rc.tap.usage)
+				}
+				if f := p.meterResponse(resp, rc); f != nil {
+					sinks = append(sinks, f)
+				}
+				if len(sinks) > 0 && rc.proto != "" {
+					resp.Body = gateway.UsageTap(rc.proto, ct, ce, resp.Body, func(r gateway.UsageResult) {
+						for _, f := range sinks {
+							f(r)
+						}
+					})
+				}
 			}
 			return nil
 		},
@@ -154,6 +188,7 @@ func (p *Proxy) upstreamError(w http.ResponseWriter, r *http.Request, err error)
 
 // writeReject answers a gateway Rejection in the caller's wire format.
 func writeReject(w http.ResponseWriter, r *gateway.Rejection) {
+	r.SetHeaders(w.Header())
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(r.Status)
 	_, _ = w.Write(r.JSON())
@@ -181,6 +216,13 @@ func (p *Proxy) AdminHandler() http.Handler {
 			d, f = p.mirror.Dropped(), p.mirror.Failed()
 		}
 		p.m.write(w, d, f)
+		var rep, fail, drop int64
+		if p.bc != nil {
+			rep, fail, drop = p.bc.Counters()
+		}
+		p.m.writeBudget(w, rep, fail, drop)
+		//nolint:gosec // G705 false positive: a uint64 counter rendered with %d into a text/plain response
+		fmt.Fprintf(w, "# HELP halo_proxy_policy_refused_total Policy snapshots refused for security validation errors (the last good policy keeps serving).\n# TYPE halo_proxy_policy_refused_total counter\nhalo_proxy_policy_refused_total %d\n", p.snap.Refused())
 		var ms runtime.MemStats
 		runtime.ReadMemStats(&ms)
 		fmt.Fprintf(w, "# TYPE go_goroutines gauge\ngo_goroutines %d\n# TYPE go_memstats_heap_inuse_bytes gauge\ngo_memstats_heap_inuse_bytes %d\n", runtime.NumGoroutine(), ms.HeapInuse)
@@ -192,7 +234,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	sw := &statusWriter{ResponseWriter: w}
 	rc := &routeCtx{start: start, ttfb: -1}
-	ring, variant, experiment, upstream, model := "none", "", "", "", ""
+	ring, variant, experiment, upstream, model, actor := "none", "", "", "", "", ""
 	var rewriteErr error
 	var gates []string        // failed or unknown gate checks, for the request log
 	var gw *gwmetrics.Request // set once the request is a cohort-decided model call
@@ -210,6 +252,13 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if a := rc.served; a != nil { // routed call: provider kind and upstream/model are policy-bounded, never per-user
 				gw.Model, gw.Provider, gw.Target, gw.Failover = a.model, a.kind, a.key, rc.failover
 			}
+			if gw.GenAI != nil {
+				if rc.target == nil { // never reached an upstream (rejected locally): not a model operation
+					gw.GenAI = nil
+				} else {
+					p.finishGenAI(gw, rc)
+				}
+			}
 			p.otlp.Record(*gw)
 		}
 		ttfb := -1.0
@@ -222,6 +271,9 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"duration_ms", total.Milliseconds(), "ring", ring, "remote", r.RemoteAddr}
 		if variant != "" {
 			attrs = append(attrs, "experiment", experiment, "variant", variant)
+		}
+		if actor != "" {
+			attrs = append(attrs, "actor", actor) // verified delegation chain (ADR-0024)
 		}
 		if upstream != "" {
 			attrs = append(attrs, "upstream", upstream)
@@ -257,6 +309,19 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if sub != nil && sub.Delegation.Depth() > 0 {
+		actor = sub.Delegation.Chain()
+	}
+	if p.dir != nil { // SCIM directory is authoritative: its groups; a deprovisioned caller is refused, never anonymous
+		if sub, err = p.dir.Resolve(r.Context(), sub); err != nil {
+			rej := gateway.RejectNotProvisioned(r.URL.EscapedPath())
+			if errors.Is(err, gateway.ErrDirectoryUnavailable) {
+				rej = gateway.RejectDirectoryUnavailable(r.URL.EscapedPath())
+			}
+			writeReject(sw, rej)
+			return
+		}
+	}
 
 	// Body: bounded for every request; fully read only for model calls, which
 	// need inspection/rewrite. Oversize is a hard 413, never a silent no-rewrite.
@@ -286,11 +351,20 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	d := res.Decision
 	ring, variant, experiment, upstream, model = d.Ring, d.Variant, d.Experiment, d.UpstreamName, d.UpstreamModel
 	rewriteErr = res.RewriteErr
+	rc.proto = res.Protocol
 	if res.Protocol != "" && !gateway.IsCountTokens(escPath) { // model calls only; token counting would skew latency
 		gw = &gwmetrics.Request{Ring: d.Ring, Release: d.Release, Experiment: d.Experiment, Variant: d.Variant,
-			Harness: gateway.HarnessFromUA(r.Header.Get("User-Agent")), Model: d.UpstreamModel} // unit = verified subject only, never the client session header
+			Harness: gateway.HarnessFromUA(r.Header.Get("User-Agent")), Model: d.UpstreamModel, Start: start} // unit = verified subject only, never the client session header
+		if p.otlp.GenAIEnabled() {
+			gw.GenAI = &gwmetrics.GenAI{Operation: genaiOperation(res.Protocol), Provider: genaiProvider(res.Protocol, ""), InputTokens: -1, OutputTokens: -1, TTFT: -1}
+			gw.TraceParent = r.Header.Get("Traceparent")
+			rc.genai = true
+		}
 		if sub != nil {
-			gw.Subject = sub.ID
+			gw.Subject = sub.ID // the root principal; a delegated agent is attributed below, never as the unit
+			if dl := sub.Delegation; dl.Depth() > 0 {
+				gw.Actor, gw.Chain, gw.ActorDepth = dl.Current().Agent, dl.Chain(), dl.Depth()
+			}
 		}
 	}
 	if res.Reject != nil {
@@ -302,6 +376,19 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if gates, rej = p.gate(r, org, d.Ring, sub, res.Protocol); rej != nil {
 			writeReject(sw, rej)
 			return
+		}
+		if !gateway.IsCountTokens(escPath) { // token counting is free: never refused, never charged
+			var notes []string
+			rc.budget, notes, rej = p.budgetGate(r.Context(), org, sub, d.Ring, res.Protocol, d.UpstreamModel, sw.Header())
+			gates = append(gates, notes...)
+			if rej != nil {
+				writeReject(sw, rej)
+				return
+			}
+			if rc.budget != nil {
+				rc.budget.request = res.Body
+				r.Header.Del("Accept-Encoding") // usage is read from the response as it streams: ask for it uncompressed
+			}
 		}
 	}
 

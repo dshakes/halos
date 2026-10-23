@@ -3,6 +3,7 @@ package gemini
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/dshakes/halos/internal/harness"
 	"github.com/dshakes/halos/internal/harness/hutil"
@@ -26,7 +27,9 @@ func (Adapter) Meta() harness.Meta {
 }
 
 func (Adapter) Capabilities() []harness.Capability {
-	return []harness.Capability{harness.CapModelLock, harness.CapMCPAllowlist, harness.CapTelemetry, harness.CapGateway}
+	return []harness.Capability{harness.CapModelLock, harness.CapMCPAllowlist, harness.CapTelemetry, harness.CapGateway,
+		harness.CapExtensions, // partial: skills and subagent deny; no plugin marketplaces
+	}
 }
 
 func (Adapter) InstallCommand(version string, _ harness.OS) string {
@@ -47,7 +50,8 @@ func settingsPath(os harness.OS) string {
 
 func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []string, error) {
 	warns := hutil.WarnUnsupported(name, p,
-		"models.default", "permissions.disableBypass", "mcp.servers", "telemetry.enabled", "telemetry.logPrompts", "telemetry.attributes")
+		"models.default", "permissions.disableBypass", "mcp.servers", "mcp.managedOnly", "mcp.denied", "telemetry.enabled", "telemetry.logPrompts", "telemetry.attributes",
+		"extensions.skills.deny", "extensions.subagents.deny", "login")
 	warns = append(warns, "gemini: cannot self-enforce version; halod enforces")
 	if c.Ring != "" || c.Release != "" {
 		warns = append(warns, "gemini: ring/release request headers are not supported")
@@ -88,6 +92,41 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 		}
 		s["mcpServers"] = servers
 		s["mcp"] = map[string]any{"allowed": names}
+	} else if p.MCP.ManagedOnly {
+		warns = append(warns, "gemini: mcp.managedOnly without mcp.servers is not rendered: mcp.allowed has no documented empty-list meaning, and the admin allowlist (admin.mcp.config) is honored only from Google's remote admin controls")
+	}
+	// mcp.allowed / mcp.excluded are name lists (the server key in mcpServers),
+	// so a user can rename a server to slip past either.
+	// https://geminicli.com/docs/reference/configuration/
+	if len(p.MCP.Servers) > 0 || len(p.MCP.Denied) > 0 {
+		warns = append(warns, "gemini: mcp.allowed and mcp.excluded match server names only, which a user can bypass by renaming a server")
+	}
+	if len(p.MCP.Denied) > 0 {
+		var excluded []string
+		for _, n := range p.MCP.Denied {
+			if strings.Contains(n, "://") {
+				warns = append(warns, fmt.Sprintf("gemini: mcp.denied %q is a URL; mcp.excluded matches names only, so it is not rendered", n))
+				continue
+			}
+			excluded = append(excluded, n)
+		}
+		if len(excluded) > 0 {
+			hutil.DeepMerge(s, map[string]any{"mcp": map[string]any{"excluded": excluded}})
+		}
+	}
+	// Skills and subagents: skills.disabled and agents.overrides.<name>.enabled
+	// (https://geminicli.com/docs/reference/configuration/,
+	// https://geminicli.com/docs/core/subagents/). Gemini has no marketplace,
+	// output-style or status-line command settings, and no allowlist for either.
+	if len(p.Extensions.Skills.Deny) > 0 {
+		s["skills"] = map[string]any{"disabled": p.Extensions.Skills.Deny}
+	}
+	if len(p.Extensions.Subagents.Deny) > 0 {
+		overrides := map[string]any{}
+		for _, n := range p.Extensions.Subagents.Deny {
+			overrides[n] = map[string]any{"enabled": false}
+		}
+		s["agents"] = map[string]any{"overrides": overrides}
 	}
 	if t := p.Telemetry; t.Enabled {
 		proto := "grpc"
@@ -101,6 +140,17 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 			"enabled": true, "target": "local", "otlpEndpoint": t.OTLPEndpoint,
 			"otlpProtocol": proto, "logPrompts": t.LogPrompts,
 		}
+	}
+	if p.Login == policy.LoginSubscription && c.Gateway == nil {
+		// security.auth.enforcedType refuses any other auth type at startup
+		// (verified in test/uat); oauth-personal is the Google login.
+		hutil.DeepMerge(s, map[string]any{"security": map[string]any{"auth": map[string]any{"enforcedType": "oauth-personal"}}})
+	}
+	if p.Login == policy.LoginSubscription && c.Gateway != nil {
+		warns = append(warns, "gemini: login subscription conflicts with the gateway, which needs gemini-api-key auth; enforcing gemini-api-key")
+	}
+	if p.Login == policy.LoginAPI && c.Gateway == nil {
+		hutil.DeepMerge(s, map[string]any{"security": map[string]any{"auth": map[string]any{"enforcedType": "gemini-api-key"}}})
 	}
 	if c.Gateway != nil {
 		// GOOGLE_GEMINI_BASE_URL only applies to gemini-api-key auth; enforcing

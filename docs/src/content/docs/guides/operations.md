@@ -10,11 +10,33 @@ Everything here is checked against the code it describes; `file:line` references
 | Component | Replicas | Why | Chart |
 |---|---|---|---|
 | `halo-proxy` | 2+ (HPA 2 to 10 on CPU) | Stateless: policy snapshot from a ConfigMap or git-sync, kill list polled from `halo-server` | `RollingUpdate` with `maxUnavailable: 0, maxSurge: 1` (`deploy/helm/halos/templates/proxy.yaml:74`), readinessProbe `/readyz` and livenessProbe `/healthz` on the admin port (`proxy.yaml:114-115`), `preStop` sleep (`proxy.yaml:118`), HPA (`proxy.yaml:187`), PDB `maxUnavailable: 1` (`proxy.yaml:212`), zone and hostname topology spread (`_helpers.tpl:53`) |
-| `halo-server` | **exactly 1** (`values.schema.json:23`) | Single writer over append-only JSONL files in `--data-dir` that are replayed into memory at start; no locking, no leader election; the controller loop would run once per replica | `Recreate` when persistence is on (`templates/server.yaml:107`), readinessProbe `/readyz` (policy loaded) and livenessProbe `/healthz` (`internal/server/server.go:168,172`) |
-| `halo-shadow` | **exactly 1** (`values.schema.json:47`) | One pair file and an in-process spend counter; a second replica splits pairs and doubles the budget | `Recreate` |
+| `halo-server`, file backend (default) | **exactly 1** (`values.schema.json`, `haWhenDatabase`) | Single writer over append-only JSONL files in `--data-dir` that are replayed into memory at start; no locking, no leader election | `Recreate` when persistence is on, readinessProbe `/readyz` (policy loaded) and livenessProbe `/healthz` (`internal/server/server.go`, `Handler`) |
+| `halo-server`, Postgres backend | **N** (`server.database.existingSecret`) | Shared state in Postgres; the experiment controller runs on the one replica holding the leader lease ([ADR-0021](/halos/adr/0021-ha-control-plane-on-postgres/)) | `RollingUpdate`, PDB `maxUnavailable: 1` when `replicas > 1`, `/readyz` also fails while Postgres is unreachable, startup probe |
+| `halo-shadow`, file backend (default) | **exactly 1** | One pair file and an in-process spend counter; a second replica splits pairs and doubles the budget | `Recreate` |
+| `halo-shadow`, Postgres backend | **N** (`halo-shadow.database.existingSecret`) | Stateless workers; pairs and one global budget in Postgres | `RollingUpdate`, PDB when `replicas > 1`, `/readyz` checks Postgres |
 | OTel collector | 1 by default (`otel.replicas`) | Stateless, can be raised | |
 
-The honest consequence: a `halo-server` upgrade or reschedule is a short outage of the console, enrollment, fleet reports and the kill-list endpoint. That outage does not reach developers' CLIs: gateways keep serving with their last accepted kill list (`internal/gateway/killswitch.go:86`), `halod` keeps its last-good release and logs failed reports at WARN (`cmd/halod/agent.go:239`, `:685`). We chose a pinned single replica over leader election because the state is a handful of local files and the blast radius of a 30-second restart is nil for end users; a second replica would need shared storage and locking the code does not have.
+On the file backend, the honest consequence: a `halo-server` upgrade or reschedule is a short outage of the console, enrollment, fleet reports and the kill-list endpoint. That outage does not reach developers' CLIs: gateways keep serving with their last accepted kill list (`internal/gateway/killswitch.go:86`), `halod` keeps its last-good release and logs failed reports at WARN (`cmd/halod/agent.go:239`, `:685`). A pinned single replica is the right default for a small install: the state is a handful of local files and the blast radius of a 30-second restart is nil for end users. When the console, enrollment and kill-list endpoints must survive a node loss or an upgrade, run the Postgres backend below.
+
+### HA on Postgres
+
+Design and guarantees: [ADR-0021](/halos/adr/0021-ha-control-plane-on-postgres/). In operational terms:
+
+- **Every replica serves every endpoint.** Each store keeps its in-memory index and catches up from Postgres before each read that matters (one indexed query), so a device revoked or a kill set on one replica holds on all of them at once. Enrollment tokens, login states, server-side sessions and approval claims live in a shared table, so a user can be routed to any replica at any step.
+- **Exactly one controller.** The experiment loop (verdicts, rollbacks, PRs, notifications, rollout ticks) runs on the replica holding lease `controller` in `halo_leases`. The leader renews every `leaseTTL/3` (default 5s of a 15s lease) and steps down by itself once `leaseTTL - leaseTTL/3` has passed without a renewal, before the lease can expire on the database clock. Each leadership term writes its action log and rollout state through a fence (the term's token must still own the lease, checked in the same transaction), so a deposed leader cannot write behind its successor.
+- **The audit chain stays linear.** Appends lock the single chain-head row; `seq` is the primary key.
+- **Fail closed.** If a replica cannot read Postgres, device authentication answers 503 and sessions are treated as revoked; `/readyz` fails so the Service stops sending it traffic. `/healthz` does not check the database, so an outage does not restart pods.
+- **Locks and claims.** Leases, the SCIM cluster lock, the access-request decision claim and userName claims are rows with an owner token and an expiry computed by the database: replica clocks never decide who holds them, and only the owner releases one. A SCIM mutation that cannot take the cluster lock within 10s answers 503 (the IdP retries); it never runs unlocked.
+- **Clock skew.** Session revocations and enrollment-token voids are padded by one minute for replica clock skew; a login after a revocation is stamped past it. Keep replicas NTP-synced (well within a minute).
+- **Rate limits are per replica.** The failed-auth buckets (per IP and endpoint class) live in each replica's memory, so with N replicas a client spread across them gets up to N times the configured budget (10 failures/min becomes up to 10N). Use session affinity on the ingress if that matters ([ADR-0021](/halos/adr/0021-ha-control-plane-on-postgres/) explains why they are not in the database).
+- **Policy.** Each replica refuses a policy with security validation errors and keeps its last good one; the controller acts on that same accepted policy. A replica started while the repository head is refused stays unready until a good commit lands.
+- **halo-shadow** workers keep nothing: pairs go to `halo_shadow_pairs` (sealed exactly as in the file) and `budgetUSD` is one budget for every replica, named by `database.budgetScope`. Unlike the file mode's counter it does not reset on restart: use a new scope name (for example the quarter) to start a fresh budget. `halo-shadow export-pairs -database-url-file F > pairs.jsonl` writes the rows `decrypt-pairs` reads.
+
+Metrics on `--metrics-listen` (`server.metrics.enabled`): `halo_leader{lease="controller"}` (1 on the leader), `halo_leader_changes_total{lease}`, `halo_db_errors_total`, `halo_db_open_connections`.
+
+The database URL must use `sslmode=verify-full` (with `sslrootcert`) for any non-loopback host; halo-server and halo-shadow refuse a weaker one unless `--database-insecure-tls` (`server.database.insecureTLS`) is set, for test environments only. Each replica opens up to `--database-max-conns` connections (`server.database.maxConns`, default 16): replicas x that must stay under the server's `max_connections`.
+
+Turning it on (values): `server.database.existingSecret` (a Secret holding the URL under `url`), `server.persistence.enabled: false`, `server.replicas: 3`; the same for `halo-shadow`. The schema refuses `replicas > 1` without a database and a database together with persistence. See [production deployment](/halos/guides/production-deployment/#ha-on-postgres) for the install and the data migration.
 
 `make uat-k8s` proves the proxy side on a kind cluster with `test/load` at 200 rps through the ingress (`scripts/uat-k8s.sh:141-215`): delete a proxy pod mid-traffic, roll the Deployment with `helm upgrade`, and evict both pods back to back. Each must finish with zero client-visible errors and the second eviction must be refused by the PDB. Last measured on main (CI job 111349967655, 2026-10-04): pod kill, 0 of 2880 requests failed (p50 2.14 ms, p95 4.2 ms, p99 31.15 ms through the kind ingress); rolling upgrade, 0 of 4973 failed with both pods replaced; PDB, 1st eviction ok, 2nd refused (429), later eviction ok, no client errors. The HA scenarios print to the job log, not to `test/uat/REPORT.md`. A SIGKILLed proxy pod still drops its in-flight requests; only the graceful path (SIGTERM, drain) is covered.
 
@@ -31,8 +53,9 @@ Set these on the gateway: it is the only component in the developer's request pa
 | Kill-switch propagation | 100% of gateways on the current list within 2 poll intervals (default 10 s) | No metric; `halo-proxy` logs each list change. `GET /api/v1/killswitch` on the server shows the list `version` |
 | Pointer freshness | Every ring refreshed in the last 48 h (pointers expire after 7 days) | The refresh CI job; `halod` warns from 24 h before expiry |
 | Controller health | Ticks every `--interval`, no sustained errors | `halo_controller_ticks_total`, `halo_controller_errors_total` (`server.metrics.enabled`) |
+| Audit export freshness | Every audit entry in the SIEM within 15 minutes | `halo_server_audit_forward_lag_entries`, `halo_server_audit_forward_last_success_timestamp_seconds` (`server.metrics.enabled`, `server.audit.export`) |
 
-`halo-server` itself exposes no request metrics (only the controller counters). Measure its availability from your ingress controller or a blackbox probe of `GET /readyz` (returns 503 until policy is loaded and during drain).
+`halo-server` itself exposes no request metrics (only the controller and audit export series). Measure its availability from your ingress controller or a blackbox probe of `GET /readyz` (returns 503 until policy is loaded and during drain).
 
 ## Alerts
 
@@ -78,6 +101,38 @@ groups:
         labels: {severity: ticket}
         annotations:
           summary: "shadow mirror dropping jobs: halo-shadow down, queue full or token mismatch (client traffic unaffected)"
+      - alert: HaloBudgetNearLimit
+        expr: sum(increase(halo_proxy_budget_checks_total{outcome="alert"}[15m])) by (budget) > 0
+        labels: {severity: ticket}
+        annotations:
+          summary: "budget {{ $labels.budget }}: callers past an alertAt threshold (halo budget status shows which counters)"
+      - alert: HaloBudgetExhausted
+        expr: sum(increase(halo_proxy_budget_checks_total{outcome=~"exceeded|refused"}[15m])) by (budget, outcome) > 0
+        labels: {severity: ticket}
+        annotations:
+          summary: "budget {{ $labels.budget }} used up ({{ $labels.outcome }}): refused means developers are getting 429s"
+      - alert: HaloBudgetVerdictUnknown
+        expr: sum(rate(halo_proxy_budget_checks_total{outcome="unknown"}[5m])) > 0
+        for: 10m
+        labels: {severity: page}
+        annotations:
+          summary: "no budget verdicts from halo-server past grace: budgets are not enforced (failMode open) or callers get 503 (failMode closed)"
+      - alert: HaloBudgetReportsFailing
+        expr: |
+          sum(rate(halo_proxy_budget_reports_total{outcome="failed"}[10m])) > 0
+            or sum(rate(halo_proxy_budget_dropped_total[10m])) > 0
+        for: 10m
+        labels: {severity: ticket}
+        annotations:
+          summary: "halo-proxy cannot report usage to halo-server (or is dropping it): budget counters lag or under-count"
+      - alert: HaloBudgetUsageUnmetered
+        expr: |
+          sum(rate(halo_proxy_budget_responses_total{outcome=~"no_usage|unpriced"}[30m]))
+            / sum(rate(halo_proxy_budget_responses_total[30m])) > 0.05
+        for: 30m
+        labels: {severity: ticket}
+        annotations:
+          summary: ">5% of metered responses had no usage object or no price in gateway.pricing: USD budgets under-count"
       - alert: HaloProxyBelowTwoReplicas
         expr: |
           sum(kube_deployment_status_replicas_available{deployment=~".*-proxy"}) < 2
@@ -105,6 +160,45 @@ groups:
         labels: {severity: ticket}
         annotations:
           summary: "controller errors: ClickHouse, policy clone, PR, kill or notify failing; rollbacks may not be enforced"
+      - alert: HaloNoControllerLeader
+        expr: (sum(halo_leader{lease="controller"}) or vector(0)) == 0
+        for: 2m
+        labels: {severity: page}
+        annotations:
+          summary: "HA: no halo-server replica holds the controller lease for 2m (Postgres down or every replica failing to renew); rollbacks are not being acted on"
+      - alert: HaloTwoControllerLeaders
+        expr: sum(halo_leader{lease="controller"}) > 1
+        for: 1m
+        labels: {severity: page}
+        annotations:
+          summary: "HA: two replicas report leadership for 1m; fenced writes keep state safe, but check clock and network health"
+      - alert: HaloDatabaseErrors
+        expr: sum(rate(halo_db_errors_total[5m])) > 0.1
+        for: 5m
+        labels: {severity: page}
+        annotations:
+          summary: "HA: Postgres statements failing on halo-server/halo-shadow; replicas go unready and device auth answers 503"
+      - alert: HaloLeaderFlapping
+        expr: sum(increase(halo_leader_changes_total[30m])) > 6
+        labels: {severity: ticket}
+        annotations:
+          summary: "HA: controller lease changed hands repeatedly in 30m; renewals are timing out (database latency or lease TTL too short)"
+      - alert: HaloAuditExportStalled
+        expr: halo_server_audit_forward_lag_entries > 0 and time() - halo_server_audit_forward_last_success_timestamp_seconds > 900
+        for: 5m
+        labels: {severity: page}
+        annotations:
+          summary: "{{ $labels.sink }}: audit entries waiting >15m; the SIEM is down, rejecting credentials, or the hash chain broke (see the server log)"
+      - alert: HaloAuditRotationFailing
+        expr: increase(halo_server_audit_rotate_errors_total[1h]) > 0
+        labels: {severity: ticket}
+        annotations:
+          summary: "audit log rotation failing; audit.jsonl keeps growing (nothing is lost)"
+      - alert: HaloPolicyRefused
+        expr: increase(halo_server_policy_refused_total[15m]) > 0 or increase(halo_proxy_policy_refused_total[15m]) > 0
+        labels: {severity: page}
+        annotations:
+          summary: "a policy with security validation errors (unpinned workload rule, unit loosening) was refused; the last good policy is serving, see the 'policy refused' log line"
       - alert: HaloShadowBudgetNearlyExhausted
         expr: halo_shadow_spend_usd / halo_shadow_budget_usd > 0.9
         labels: {severity: ticket}
@@ -122,11 +216,13 @@ Two things no exporter covers, so wire them from CI: the daily `halo release ref
 |---|---|---|---|
 | Device store | `<data-dir>/devices.jsonl` | `internal/server/devices.go:77` | Every enrolled machine must re-enroll (holds token SHA-256s, not tokens) |
 | Access requests | `<data-dir>/requests.jsonl` | `internal/server/requests.go:75` | Pending requests and the decision trail |
-| Audit log | `<data-dir>/audit.jsonl` | `internal/server/audit.go:82` | Hash-chained; a gap is detectable (`GET /api/v1/audit` reports `verified`) but not recoverable |
+| Audit log | `<data-dir>/audit.jsonl` and rotated `<data-dir>/audit-<seq>.jsonl` | `internal/server/audit.go` | Hash-chained across segments; a gap is detectable (`halo audit verify`, `GET /api/v1/audit` reports `verified`) but not recoverable here. With [SIEM export](/halos/guides/siem-export/) the SIEM holds a second copy |
+| Audit export cursors | `<data-dir>/audit-forward/<sink>.json` | `internal/server/audit_export.go` | Each sink re-sends from the oldest entry still on disk (duplicates, never gaps) |
 | Session revocations | `<data-dir>/session-revocations.jsonl` | `internal/server/sessions.go:40` | Revoked user sessions become valid again until they expire |
 | Kill list | `<data-dir>/killswitch.jsonl` | `internal/controller/killstore.go:65` | Active kills are forgotten: gateways and `halod` get an **empty** list at the next poll and the killed change comes back. Treat this file as the one you cannot lose |
 | Controller action log | `<data-dir>/controller-state.jsonl` | `internal/controller/state.go:68` | The controller may open duplicate PRs for verdicts it already acted on |
 | Rollout state | `<data-dir>/rollouts/<name>.json` | `internal/rollout/state.go:151` | Rollout step and gate history |
+| Budget counters | `<data-dir>/budgets.json` | `internal/server/budgets.go:79` | Spend in the current windows resets to zero: enforce budgets let callers spend their limit again ([ADR-0017](/halos/adr/0017-gateway-cost-budgets/)) |
 | Fleet reports | `<data-dir>/reports.jsonl` | `internal/server/store.go:88` | Rebuilds itself as `halod` reports; optional |
 | Verdicts | `--verdicts-file` | | Recomputable from ClickHouse |
 | Shadow pairs | `halo-shadow -out` (default `pairs.jsonl`) | `cmd/halo-shadow/main.go:62` | Evidence only. Contains prompts; encrypt with `-pair-key-file` and back the key up separately or the file is unreadable |
@@ -135,7 +231,9 @@ Two things no exporter covers, so wire them from CI: the daily `halo release ref
 | Signer state file | `~/.local/state/halos/pointers.json` on the signer | | Replay check has nothing to compare against; see [lost signer state](#lost-signer-state-file) |
 | Policy repo | git | | Source of truth for everything above except device identity |
 
-All `--data-dir` files are append-only JSONL, last line per id wins, never compacted. Files are opened with `O_APPEND` and written one line at a time, so a snapshot taken while the server runs is consistent at line granularity: at worst the last line is torn, and replay skips it (`internal/fsutil/jsonl.go:26-47`). The chart keeps the PVC on `helm uninstall` (`helm.sh/resource-policy: keep`).
+All `--data-dir` files are append-only JSONL, last line per id wins, never compacted (the audit log is split into segments by [rotation](#audit-log-rotation), never rewritten). Files are opened with `O_APPEND` and written one line at a time, so a snapshot taken while the server runs is consistent at line granularity: at worst the last line is torn, and replay skips it (`internal/fsutil/jsonl.go:26-47`). The chart keeps the PVC on `helm uninstall` (`helm.sh/resource-policy: keep`).
+
+With the Postgres backend none of the `--data-dir` rows above exist on the pods: the same data lives in the database (table per row: `halo_journal` streams `devices`, `requests`, `session-revocations`, `killswitch`, `controller-state`, `scim`; `halo_audit` (one table, no segments); `halo_docs` for rollout state, verdicts and SIEM export cursors; `halo_budget_buckets` and `halo_budget_batches`; `halo_reports`; `halo_kv` for enrollment tokens, sessions and the workload replay cache; `halo_shadow_pairs`), and the database is the one thing to back up. Keys are unchanged.
 
 ### Backup
 
@@ -144,6 +242,12 @@ All `--data-dir` files are append-only JSONL, last line per id wins, never compa
 kubectl -n halos exec deploy/halos-server -- tar czf - -C /data . > halo-server-data-$(date +%F).tgz
 # Keys: export from your secret manager, never from the cluster; the Secrets hold the only copy
 # of the kill-switch private key if you did not keep one.
+```
+
+Postgres backend: use the database's own backups. Continuous archiving with point-in-time recovery (RDS/Cloud SQL automated backups, CloudNativePG `barmanObjectStore`, or `pg_basebackup` plus WAL archiving) is the recommendation, since the kill list must not lose recent writes. A logical dump is a consistent snapshot of every table (`pg_dump` runs in one repeatable-read transaction):
+
+```bash
+pg_dump --format=custom --file=halos-$(date +%F).dump "$HALOS_DATABASE_URL"   # a human runs this; the URL holds the password
 ```
 
 Take the data backup at least daily and immediately before an upgrade. Keep the kill-switch public key and the release public key alongside: they are what every gateway and `halod` already trusts, and a restore that changes them is a key rotation, not a restore.
@@ -156,7 +260,23 @@ Take the data backup at least daily and immediately before an upgrade. Keep the 
 4. Scale back to 1 and check: `GET /readyz` returns 200 (policy loaded), `GET /api/v1/killswitch` lists the kills you expect, `GET /api/v1/audit?limit=1` returns `verified: true`, and the console shows the device count you had.
 5. Gateways need nothing: on their next poll (10 s) they fetch the restored list and compare its `version` (`internal/gateway/killswitch.go:209`).
 
-If `killswitch.jsonl` is gone for good, re-issue the kills you know about (`POST /api/v1/experiments/{name}/kill`, `halo toggle kill`) before gateways poll an empty list; the audit log tells you which ones were active.
+With SIEM export on, restore the `audit-forward/` cursors **with** the audit log from the same snapshot. If the restored log is older than what a sink already received, that sink halts (`halo_server_audit_forward_failed_total` rises, the server log says the cursor is ahead of the log): the SIEM holds entries the restored log does not. Keep the SIEM copy as the record of those, then delete `<data-dir>/audit-forward/<sink>.json` while the server is stopped; the sink re-sends what is on disk and continues.
+
+Postgres backend:
+
+1. Scale `halo-server` and `halo-shadow` to 0. Replicas cache state in memory and tail the tables by id; restoring underneath running replicas would leave them on a view the database no longer has.
+2. Restore into an empty database: point-in-time recovery to just before the incident, or `pg_restore --clean --if-exists --dbname "$HALOS_DATABASE_URL" halos-<date>.dump`. Do not restore single tables: the audit chain head (`halo_audit_head`) and `halo_audit` must come from the same snapshot, and the export cursors (`halo_docs` kind `audit-cursor`) with them. A sink whose cursor is ahead of the restored chain halts exactly as above; delete its cursor row (`DELETE FROM halo_docs WHERE kind = 'audit-cursor' AND name = '<sink>'`) once the SIEM copy is kept.
+3. Start one replica and check: `/readyz` 200, `halo audit verify --database-url-file F` (or `GET /api/v1/audit?limit=1`) reports the chain verified, `GET /api/v1/killswitch` lists the kills you expect, `halo_leader{lease="controller"} 1` on its metrics port. Then scale out.
+
+If `killswitch.jsonl` (or the `killswitch` stream) is gone for good, re-issue the kills you know about (`POST /api/v1/experiments/{name}/kill`, `halo toggle kill`) before gateways poll an empty list; the audit log tells you which ones were active.
+
+### Audit log rotation
+
+Without `--audit-config` rotation, `audit.jsonl` grows forever and every `GET /api/v1/audit` re-verifies all of it. Set `server.audit.rotation` (`maxBytes`, `maxAgeSeconds`; for example 64 MiB or 1 day). On the append that would cross a bound, `audit.jsonl` is renamed to `audit-<seq of its first entry, 20 digits>.jsonl` and a new one starts; its first entry's `prev` is the last hash of the segment before, so the chain is one chain across files.
+
+- Rotated segments are immutable. `GET /api/v1/audit` and the export read them by streaming; the API caches the verification of rotated segments by name, size and mtime, so a request re-reads only the active one. `halo audit verify --data-dir <dir>` re-reads every segment, from a backup or a live data dir (read-only), and exits 2 on a break.
+- The server never deletes a segment. To free the volume, copy old segments to WORM/object storage first, confirm the SIEM sinks are past them (`halo_server_audit_forward_lag_entries` near 0), then remove them. From then on `verified` is `false` on the server (the chain no longer starts at seq 1); run `halo audit verify` against the archive plus the data dir to check the whole history.
+- A failed rotation (for example a stray file with the segment's name, or on Windows a reader holding the file open) is logged and counted in `halo_server_audit_rotate_errors_total`; the entry goes to the active segment and the next append retries. Audit appends still fail closed only when the write or fsync fails.
 
 ## Runbook
 
@@ -169,7 +289,17 @@ halo toggle kill <toggle> --server https://halos.example.com --reason "..."   # 
 curl -X POST -H "Authorization: Bearer $ADMIN" https://halos.example.com/api/v1/experiments/<name>/kill
 ```
 
-Then open the pause PR so the policy repo agrees with reality; the kill holds until someone unkills, even if the PR is slow. Full walkthrough: [kill a bad change](/halos/tutorials/kill-a-bad-change/). Requires `server.killSwitch.existingSecret`; without it kill returns 501 and the only lever is merging the pause PR.
+Killing needs the `operator` or `admin` role ([console roles](/halos/guides/production-deployment/#console-roles)). Then open the pause PR so the policy repo agrees with reality; the kill holds until someone unkills, even if the PR is slow. Full walkthrough: [kill a bad change](/halos/tutorials/kill-a-bad-change/). Requires `server.killSwitch.existingSecret`; without it kill returns 501 and the only lever is merging the pause PR.
+
+### A user gets 403
+
+The console hides what a user's roles do not allow, so a 403 usually means a script or a stale tab. Each one is in the audit log with the route and the permission it needed:
+
+```bash
+curl -s --cookie "halo_session=$SESSION" 'https://halos.example.com/api/v1/audit?action=authz.deny&limit=50' | jq '.entries[] | {time, actor, target, details}'
+```
+
+`details.need` is the missing permission (`read`, `operate`, `approve`, `audit`, `admin`) and `details.roles` what the user held. Grant it by adding their IdP group to the right role under `identity.roles` in a policy PR; they pick it up at their next login. `need: unmapped` means a route has no entry in the server's permission table, which is a bug: report it.
 
 ### Roll a ring back to a previous release
 
@@ -197,6 +327,19 @@ Both halves are read once at startup: `halo-server` from `--killswitch-key-file`
 
 For Kong, the public key and token live in `HALO_KILLSWITCH_PUBKEY` / `HALO_KILLSWITCH_TOKEN` in the Kong deployment's environment; roll Kong between steps 2 and 3.
 
+### Split the gateway token per capability (recommended)
+
+One `--gateway-token-file` token opens all four gateway endpoints on `halo-server`: the kill list, posture verdicts, budget usage writes and SCIM directory reads. Anyone holding it can mark spend against any user's budget or enumerate who is provisioned. Give each capability its own token instead; when one is set, it is the **only** token that endpoint accepts and it opens nothing else:
+
+| `halo-server` flag | Endpoint | `halo-proxy` setting | `halo-kong` field |
+|---|---|---|---|
+| `--gateway-killswitch-token-file` | `GET /api/v1/gateway/killswitch` | `killSwitch.tokenFile` | `killswitch_token` |
+| `--gateway-posture-token-file` | `GET /api/v1/gateway/posture` | `posture.tokenFile` | `posture_token` |
+| `--gateway-budget-token-file` | `/api/v1/gateway/budget/*` | `budgets.tokenFile` | (no budgets) |
+| `--gateway-directory-token-file` | `GET /api/v1/gateway/directory` | `directory.tokenFile` | `directory_token` |
+
+Each token must be at least 32 characters with 128 bits of estimated entropy (length times log2 of its distinct characters; `openssl rand -hex 32` gives 256) and differ from the shared one; `halo-server` refuses to start otherwise, naming the flag. A capability without its own flag keeps accepting `--gateway-token-file`, so you can migrate one at a time: write the new token to the gateway's file for that capability, restart `halo-server` with the new flag, then roll the gateways. Between the two restarts that capability's calls return 401: posture and directory fall back to their cached entries for `grace`, the kill list keeps the last accepted list, and budgets follow their unknown-state policy. `--killswitch-key-file` accepts either the shared or the kill-switch token.
+
 ### Lost signer state file
 
 The file (`pointers.json`) is the replay guard for `refresh`, `promote`, `publish` and `rollback`. Losing it is not an outage: the next signing command refuses with a message naming the ring and the `seq` the registry serves. Confirm the registry is serving what you expect, then re-adopt:
@@ -220,4 +363,23 @@ A single replica down is not an incident: the PDB and `maxUnavailable: 0` keep t
 
 ### halo-server down
 
-Console, enrollment, access requests, fleet reports and the kill-list endpoint are unavailable; gateways keep their last list, `halod` keeps its release and retries reports at WARN. Nothing a developer runs stops working. Restore the pod (a `Recreate` strategy means a stuck old pod holds the RWO volume: `kubectl -n halos describe pod` for `Multi-Attach`). Do not raise `server.replicas`: the schema refuses it and the state model above is why.
+Console, enrollment, access requests, fleet reports and the kill-list endpoint are unavailable; gateways keep their last list, `halod` keeps its release and retries reports at WARN. Nothing a developer runs stops working. Restore the pod (a `Recreate` strategy means a stuck old pod holds the RWO volume: `kubectl -n halos describe pod` for `Multi-Attach`). Do not raise `server.replicas` on the file backend: the schema refuses it and the state model above is why. To survive this next time, move to [HA on Postgres](#ha-on-postgres).
+
+### Controller failover (Postgres backend)
+
+Nothing to do in the common case: when the leader pod dies, is drained or loses Postgres, a peer takes lease `controller` within about one lease TTL (default 15s; immediately on a clean shutdown, which releases the lease) with a higher fencing token, opens the action log and continues from it. To check or force it:
+
+1. `halo_leader{lease="controller"}` on each replica's metrics port: exactly one should be 1. The holder and token are in the database: `SELECT holder, token, expires_at FROM halo_leases WHERE name = 'controller';` (`holder` is `<pod name>-<random>#<term>`).
+2. To move leadership off a pod, delete the pod (a clean shutdown releases the lease). Do not edit `halo_leases` by hand while replicas run; if you must force a takeover, `UPDATE halo_leases SET expires_at = now() WHERE name = 'controller';` makes the lease free on the next renewal round, and the old holder's next fenced write fails with `lease lost: write fenced off` in its log.
+3. `HaloNoControllerLeader` firing with Postgres healthy means every replica fails to renew: look for `leader lease renewal failed` in the logs (timeouts: renewals must finish within `leaseTTL/6`; raise `server.database.leaseTTL` if the database is far away).
+4. A deposed leader may finish a PR it had started; that is a duplicate PR a human closes, never a merge.
+
+### Postgres down (Postgres backend)
+
+Every halo-server and halo-shadow replica goes unready (`/readyz` 503) within one probe period and the Service has no endpoints: the effect is the same as "halo-server down" above (gateways keep their last kill list, `halod` keeps its release). A replica that still receives a request answers 503 for device authentication and treats sessions as revoked rather than serving a possibly stale revocation. The leader steps down within `leaseTTL - leaseTTL/3`, so no controller acts while the database is gone. Pods are not restarted (liveness does not check the database). When Postgres returns, replicas become ready on the next probe, catch up from the tables, and one takes the lease. Fail the database over with your provider's tooling; the URL in `server.database.existingSecret` should point at the provider's writer endpoint so failover needs no Halos change.
+
+### Upgrading the schema (Postgres backend)
+
+Migrations are forward-only and additive within a major. Each declares the oldest binary schema that still runs against it (`-- min-binary-schema: N`, normally 1), so old pods keep working during a rolling upgrade and a binary rollback starts against the newer schema; a migration that breaks older binaries raises N, and then rolling back means restoring the pre-upgrade backup.
+
+Who runs them: either `server.database.migrateJob.enabled` (a pre-install/pre-upgrade hook Job running `halo-server migrate` with a separate, DDL-capable URL from `migrateJob.existingSecret`, so the serving role needs only SELECT/INSERT/UPDATE/DELETE on the `halo_*` tables and USAGE on their sequences), or `server.database.autoMigrate: true` (the first new pod applies them under an advisory lock; the serving role then needs CREATE on the database or schema), or `halo-server migrate --database-url-file F` by hand before the roll.

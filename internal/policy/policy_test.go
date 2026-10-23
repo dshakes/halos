@@ -303,6 +303,12 @@ func TestValidate(t *testing.T) {
 		{"bad versionGate", func(o *Org) { o.Rings[0].VersionGate = "on" }, "versionGate", "invalid", SeverityError},
 		{"bad hook event", func(o *Org) { o.Profiles["base"].Hooks.Hooks = []Hook{{Event: "Nope", Command: "c"}} }, "hooks.items[0].event", "invalid", SeverityError},
 		{"bad telemetry protocol", func(o *Org) { o.Profiles["base"].Telemetry.Protocol = "smtp" }, "telemetry.protocol", "invalid", SeverityError},
+		// Regression: profile checks after the hook loop run for hook-less profiles too.
+		{"bad login without hooks", func(o *Org) { o.Profiles["base"].Hooks.Hooks = nil; o.Profiles["base"].Login = "sso" }, "login", "invalid", SeverityError},
+		{"bad extensions without hooks", func(o *Org) {
+			o.Profiles["base"].Hooks.Hooks = nil
+			o.Profiles["base"].Extensions.OutputStyle = "a\nb"
+		}, "extensions.outputStyle", "newline", SeverityError},
 		{"extends cycle", func(o *Org) { o.Profiles["base"].Extends = "next" }, "extends", "cycle", SeverityError},
 		{"duplicate experiment", func(o *Org) { o.Experiments = append(o.Experiments, o.Experiments[0]) }, "experiments[e]", "duplicate experiment", SeverityError},
 		{"experiment bad type", func(o *Org) { o.Experiments[0].Type = "x" }, ".type", "invalid", SeverityError},
@@ -335,6 +341,8 @@ func TestValidate(t *testing.T) {
 		{"shadow on client axis", func(o *Org) { e := shadow(o); e.Axis = AxisClient }, ".axis", "traffic axis", SeverityError},
 		{"shadow rate zero", func(o *Org) { shadow(o).SampleRate = 0 }, "sampleRate", "(0,1]", SeverityError},
 		{"shadow rate above one", func(o *Org) { shadow(o).SampleRate = 1.5 }, "sampleRate", "(0,1]", SeverityError},
+		{"shadow turns unknown", func(o *Org) { shadow(o).Turns = "some" }, "turns", "first", SeverityError},
+		{"turns on a non-shadow experiment", func(o *Org) { o.Experiments[0].Turns = "all" }, "turns", "only shadow", SeverityError},
 		{"unknown metric", func(o *Org) { o.Experiments[0].Metrics.Primary.Metric = "halo.bogus" }, "metrics.primary.metric", "unknown metric", SeverityError},
 		{"bad direction", func(o *Org) { o.Experiments[0].Metrics.Primary.Direction = "up" }, "direction", "invalid", SeverityError},
 		{"guardrail negative regression", func(o *Org) {

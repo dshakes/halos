@@ -19,7 +19,7 @@ const gh = 'https://github.com/dshakes/halos';
 const site = 'https://dshakes.github.io/halos/';
 const title = 'Halos: ship AI coding tools like software';
 const desc =
-  'Open-source control plane for Claude Code, Codex, Gemini CLI and Copilot CLI. One policy repo becomes signed releases, rolled out ring by ring, gated by evals and live telemetry.';
+  'Open-source control plane for Claude Code, Codex, Gemini CLI, Copilot CLI, Cursor CLI and OpenCode. One policy repo becomes signed releases, rolled out ring by ring, gated by evals and live telemetry.';
 const p = proof();
 ---
 
@@ -105,7 +105,7 @@ const p = proof();
               <a class="btn primary" href={u('/getting-started/start-here/')}>Start here <span aria-hidden="true">→</span></a>
               <a class="btn ghost" href={u('/getting-started/playground/')}>Try the playground</a>
             </div>
-            <p class="works">Works with Claude Code · Codex · Gemini CLI · Copilot CLI</p>
+            <p class="works">Works with Claude Code · Codex · Gemini CLI · Copilot CLI · Cursor CLI · OpenCode</p>
           </div>
           <div class="hero-term">
             <Terminal />
@@ -229,6 +229,7 @@ const p = proof();
             <div><h3>Guardrails that can't ship off</h3><p><code>bypassPermissions</code> and <code>danger-full-access</code> never render, in any ring or profile.</p></div>
             <div><h3>Humans own the irreversible</h3><p>No auto-merge, no auto-promote. Rollback is the only automatic direction.</p></div>
           </div>
+          <p class="sec-lede">Enterprise controls: RBAC, SCIM 2.0, org units, cost budgets, SIEM audit export, workload and agent identity, HA on Postgres, vendor admin console sync.</p>
           <a class="textlink" href={u('/concepts/security-model/')}>Security model and threat model →</a>
         </div>
       </section>

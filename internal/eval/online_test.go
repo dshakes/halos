@@ -192,8 +192,10 @@ func TestOnlineHistoryAndOTLP(t *testing.T) {
 			}
 		}
 	}
-	if len(units) != 2 || units["a"] != 2 || units["b"] != 2 {
-		t.Errorf("judge.score points per unit: %v, want a and b with one per arm", units)
+	// Unit = hashed session (pairs without a session are their own session).
+	ua, ub := SessionUnit("pair:a"), SessionUnit("pair:b")
+	if len(units) != 2 || units[ua] != 2 || units[ub] != 2 {
+		t.Errorf("judge.score points per unit: %v, want %s and %s with one per arm", units, ua, ub)
 	}
 	if auth != "Bearer t" {
 		t.Errorf("auth %q", auth)

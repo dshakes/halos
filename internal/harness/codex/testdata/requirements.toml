@@ -1,5 +1,19 @@
 allowed_approval_policies = ['on-request']
+allowed_login_methods = ['api']
 allowed_sandbox_modes = ['read-only', 'workspace-write']
+
+[marketplaces]
+restrict_to_allowed_sources = true
+
+[marketplaces.allowed_sources]
+[marketplaces.allowed_sources.source_1]
+ref = 'v1'
+source = 'git'
+url = 'https://github.com/acme/plugins.git'
+
+[marketplaces.allowed_sources.source_2]
+host_pattern = '^git\.example\.com$'
+source = 'host_pattern'
 
 [mcp_servers]
 [mcp_servers.docs]

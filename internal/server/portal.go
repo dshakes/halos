@@ -2,7 +2,9 @@ package server
 
 import (
 	"cmp"
+	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -11,14 +13,15 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/dshakes/halos/internal/harness"
 	"github.com/dshakes/halos/internal/policy"
+	"github.com/dshakes/halos/internal/storage"
 )
 
 // Portal is the self-service section of the server config (JSON file, --portal-config).
@@ -125,6 +128,7 @@ type profileSummary struct {
 // Me is GET /api/v1/me.
 type Me struct {
 	Principal
+	Permissions []string        `json:"permissions"` // the console hides what these do not allow
 	Ring        string          `json:"ring"`
 	Release     string          `json:"release,omitempty"`
 	Variants    []AssignmentRow `json:"variants"`
@@ -215,14 +219,14 @@ var allLaunchers = []string{"devcontainer", "codespaces", "coder", "laptop"}
 func (s *Server) me(w http.ResponseWriter, r *http.Request, p Principal) {
 	org, _, err := s.pol.Get()
 	if org == nil {
-		apiErr(w, http.StatusServiceUnavailable, "policy not loaded: "+err.Error())
+		s.policyUnavailable(w, err)
 		return
 	}
 	ring := org.ResolveRing(p.subject())
 	if p.Groups == nil {
 		p.Groups = []string{}
 	}
-	m := Me{Principal: p, Variants: assignments(org, p.subject(), ring), SelfService: org.SelfService.Enabled, Launchers: []string{}, Requestable: []string{}, OptInRings: []string{}, SupportURL: s.cfg.Portal.SupportURL, DevInsecure: s.cfg.DevUser != ""}
+	m := Me{Principal: p, Permissions: p.permissions(), Variants: assignments(org, p.subject(), ring), SelfService: org.SelfService.Enabled, Launchers: []string{}, Requestable: []string{}, OptInRings: []string{}, SupportURL: s.cfg.Portal.SupportURL, DevInsecure: s.cfg.DevUser != ""}
 	if ring != nil {
 		m.Ring, m.Release = ring.Name, ring.Release
 		if prof, err := org.ResolveProfile(ring.Profile); err == nil {
@@ -232,7 +236,7 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request, p Principal) {
 	if org.SelfService.Enabled {
 		var setup []LauncherSetup
 		m.Launchers, setup = s.launchers(org, r)
-		if p.Admin {
+		if p.can(permAdmin) {
 			m.LauncherSetup = setup
 		}
 		m.Requestable = append(m.Requestable, org.SelfService.Requestable...)
@@ -248,7 +252,7 @@ func (s *Server) selfService(w http.ResponseWriter) *policy.Org {
 	org, _, err := s.pol.Get()
 	switch {
 	case org == nil:
-		apiErr(w, http.StatusServiceUnavailable, "policy not loaded: "+err.Error())
+		s.policyUnavailable(w, err)
 	case !org.SelfService.Enabled:
 		apiErr(w, http.StatusForbidden, "self-service is disabled")
 	default:
@@ -491,7 +495,12 @@ func (s *Server) launch(w http.ResponseWriter, r *http.Request, p Principal) {
 		if ttl <= 0 {
 			ttl = 15 * time.Minute
 		}
-		tok, exp := s.enroll.issue(p, ttl, s.cfg.Now())
+		tok, exp, err := s.enroll.issue(p, ttl, s.cfg.Now())
+		if err != nil {
+			s.cfg.Log.Error("store enrollment token", "user", p.ID, "err", err)
+			apiErr(w, http.StatusServiceUnavailable, "state store unavailable")
+			return
+		}
 		out.Token, out.ExpiresAt, out.TTLSeconds = tok, &exp, int(ttl.Seconds())
 		out.Bash = fmt.Sprintf("curl -fsSL %s/enroll.sh | sh -s -- %s", base, tok)
 		out.PowerShell = fmt.Sprintf("& ([scriptblock]::Create((irm %s/enroll.ps1))) -Token %s", base, tok)
@@ -503,49 +512,88 @@ func (s *Server) launch(w http.ResponseWriter, r *http.Request, p Principal) {
 
 // ---- enrollment tokens: random, stored only as SHA-256, single-use, short TTL ----
 
-type enrollment struct {
-	user Principal
-	exp  time.Time
-}
+// enrollments keeps issued tokens by SHA-256 until they expire or are used.
+// The KV is in process, or shared across replicas (ADR-0021).
+type enrollments struct{ kv storage.KV }
 
-type enrollments struct {
-	mu sync.Mutex
-	m  map[[32]byte]enrollment
+const (
+	kvEnroll     = "enroll"
+	kvEnrollDrop = "enroll-drop" // lower(user) -> unix nanos: tokens issued up to then are void
+	// enrollDropTTL outlives any enrollment token (policy enrollmentTTLSeconds
+	// defaults to 15 minutes; a year covers any sane setting).
+	enrollDropTTL = 366 * 24 * time.Hour
+	// enrollDropSkew covers clock skew between replicas: the void also covers
+	// tokens another replica stamped up to this long after it (a user
+	// re-provisioned that fast just enrolls again a minute later).
+	enrollDropSkew = time.Minute
+)
+
+// enrollToken is the stored value: who it was issued to, and when.
+type enrollToken struct {
+	User   Principal `json:"user"`
+	Issued int64     `json:"issued"` // unix nanos
 }
 
 func hashTok(tok string) [32]byte { return sha256.Sum256([]byte(tok)) }
 
-func (e *enrollments) issue(p Principal, ttl time.Duration, now time.Time) (string, time.Time) {
+func (e *enrollments) issue(p Principal, ttl time.Duration, now time.Time) (string, time.Time, error) {
 	tok := randB64(32) // 32 random bytes
 	exp := now.Add(ttl)
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if e.m == nil {
-		e.m = map[[32]byte]enrollment{}
+	b, err := json.Marshal(enrollToken{User: p, Issued: now.UnixNano()})
+	if err != nil {
+		return "", time.Time{}, err
 	}
-	for h, v := range e.m { // sweep expired
-		if now.After(v.exp) {
-			delete(e.m, h)
-		}
+	ctx, cancel := storage.Ctx()
+	defer cancel()
+	h := hashTok(tok)
+	if err := e.kv.Put(ctx, kvEnroll, hex.EncodeToString(h[:]), b, exp); err != nil {
+		return "", time.Time{}, err
 	}
-	e.m[hashTok(tok)] = enrollment{p, exp}
-	return tok, exp
+	return tok, exp, nil
 }
 
-// consume burns the token (even if expired) and returns the principal it was issued to.
-func (e *enrollments) consume(tok string, now time.Time) (Principal, bool) {
+// consume burns the token (even if expired) and returns the principal it was
+// issued to and when. Of concurrent consumes, on any replica, at most one
+// succeeds. A token issued before its user was deprovisioned (dropUser) is
+// refused; so is any token when the store cannot be read.
+func (e *enrollments) consume(tok string) (Principal, int64, bool) {
+	ctx, cancel := storage.Ctx()
+	defer cancel()
 	h := hashTok(tok)
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	v, ok := e.m[h]
-	if !ok {
-		return Principal{}, false
+	b, ok, err := e.kv.Take(ctx, kvEnroll, hex.EncodeToString(h[:]))
+	var t enrollToken
+	if err != nil || !ok || json.Unmarshal(b, &t) != nil {
+		return Principal{}, 0, false
 	}
-	delete(e.m, h)
-	if now.After(v.exp) {
-		return Principal{}, false
+	if e.voided(ctx, t.User.ID, t.Issued) {
+		return Principal{}, 0, false
 	}
-	return v.user, true
+	return t.User, t.Issued, true
+}
+
+// voided reports whether user's tokens issued at issued are void: dropped at
+// or after it, or unknown because the store cannot be read (fail closed).
+func (e *enrollments) voided(ctx context.Context, user string, issued int64) bool {
+	drop, dropped, err := e.kv.Get(ctx, kvEnrollDrop, canonicalUser(user))
+	if err != nil {
+		return true
+	}
+	if !dropped {
+		return false
+	}
+	at, err := strconv.ParseInt(string(drop), 10, 64)
+	return err != nil || issued <= at
+}
+
+// dropUser voids every unconsumed enrollment token of user (case-insensitive)
+// issued up to now, on every replica: tokens are keyed by hash, so the void is
+// a per-user epoch that consume checks. The epoch only ever moves forward
+// (KV.Raise): two concurrent deprovisionings cannot leave the earlier one.
+func (e *enrollments) dropUser(user string, now time.Time) error {
+	ctx, cancel := storage.Ctx()
+	defer cancel()
+	at := now.Add(enrollDropSkew)
+	return e.kv.Raise(ctx, kvEnrollDrop, canonicalUser(user), at.UnixNano(), at.Add(enrollDropTTL))
 }
 
 func (s *Server) postEnroll(w http.ResponseWriter, r *http.Request) {
@@ -563,7 +611,7 @@ func (s *Server) postEnroll(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, http.StatusTooManyRequests, "too many failed attempts")
 		return
 	}
-	p, ok := s.enroll.consume(body.Token, s.cfg.Now())
+	p, issued, ok := s.enroll.consume(body.Token)
 	if !ok {
 		s.authFails.fail(ip)
 		s.cfg.Log.Warn("enrollment rejected", "remote", r.RemoteAddr)
@@ -583,6 +631,22 @@ func (s *Server) postEnroll(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.cfg.Log.Error("persist device", "user", p.ID, "err", err)
 		apiErr(w, http.StatusInternalServerError, "store failed")
+		return
+	}
+	// A deprovisioning that ran between consume and mint (it voids tokens
+	// first, then revokes the devices it can see) may have missed this device:
+	// re-read the void and undo the enrollment if it covers this token.
+	vctx, vcancel := storage.Ctx()
+	void := s.enroll.voided(vctx, p.ID, issued)
+	vcancel()
+	if void {
+		if _, err := s.devices.revoke(dev.ID); err != nil {
+			s.cfg.Log.Error("revoke device enrolled during deprovisioning", "device", dev.ID, "err", err)
+			apiErr(w, http.StatusInternalServerError, "store failed")
+			return
+		}
+		s.cfg.Log.Warn("enrollment raced a deprovisioning; device revoked", "device", dev.ID, "user", p.ID)
+		apiErr(w, http.StatusUnauthorized, "invalid, expired or already used token")
 		return
 	}
 	base := s.baseURL(r)

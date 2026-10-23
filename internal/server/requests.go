@@ -2,20 +2,20 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/dshakes/halos/internal/fsutil"
 	"github.com/dshakes/halos/internal/policy"
+	"github.com/dshakes/halos/internal/storage"
 )
 
 // Request statuses.
@@ -59,20 +59,16 @@ var ErrManual = errors.New("no automatic policy change for this request kind")
 type requestLog struct {
 	mu   sync.Mutex
 	byID map[string]*Request
-	f    *os.File
+	log  storage.Log
 }
 
-func (l *requestLog) close() error { return closeFile(&l.mu, l.f) }
+func (l *requestLog) close() error { return storage.CloseLog(&l.mu, l.log) }
 
-func openRequestLog(dir string) (*requestLog, error) {
+func openRequestLog(o storage.Opener) (*requestLog, error) {
 	l := &requestLog{byID: map[string]*Request{}}
-	if dir == "" {
-		return l, nil
-	}
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		return nil, err
-	}
-	f, err := fsutil.OpenJSONL(filepath.Join(dir, "requests.jsonl"), func(line []byte) {
+	ctx, cancel := storage.Ctx()
+	defer cancel()
+	log, err := o.OpenLog(ctx, "requests", func(line []byte) {
 		var r Request
 		if json.Unmarshal(line, &r) == nil && r.ID != "" { // torn line: skip
 			if r.Status == StatusApproving {
@@ -84,26 +80,38 @@ func openRequestLog(dir string) (*requestLog, error) {
 	if err != nil {
 		return nil, err
 	}
-	l.f = f
+	l.log = log
 	return l, nil
 }
 
 // save persists r (caller holds mu).
 func (l *requestLog) save(r *Request) error {
-	if l.f == nil || r.Status == StatusApproving {
+	if l.log == nil || r.Status == StatusApproving {
 		return nil
 	}
 	b, err := json.Marshal(r)
 	if err != nil {
 		return err
 	}
-	_, err = l.f.Write(append(b, '\n'))
-	return err
+	ctx, cancel := storage.Ctx()
+	defer cancel()
+	return l.log.Append(ctx, r.ID, b)
+}
+
+// catchup applies other replicas' request records (caller holds mu).
+func (l *requestLog) catchup() error {
+	if l.log == nil {
+		return nil
+	}
+	ctx, cancel := storage.Ctx()
+	defer cancel()
+	return l.log.Catchup(ctx)
 }
 
 func (l *requestLog) list(filter func(*Request) bool) []Request {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	_ = l.catchup() // display only: serve the last view (the error is counted by the backend)
 	out := []Request{}
 	for _, r := range l.byID {
 		if filter(r) {
@@ -159,13 +167,28 @@ func (s *Server) postRequest(w http.ResponseWriter, r *http.Request, p Principal
 	l := s.reqs
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if err := l.catchup(); err != nil {
+		s.cfg.Log.Error("read requests", "err", err)
+		apiErr(w, http.StatusServiceUnavailable, "state store unavailable")
+		return
+	}
 	for _, x := range l.byID {
-		if x.User == p.ID && x.Kind == req.Kind && x.Item == req.Item && (x.Status == StatusPending || x.Status == StatusApproving) {
+		if sameUser(x.User, p.ID) && x.Kind == req.Kind && x.Item == req.Item && (x.Status == StatusPending || x.Status == StatusApproving) {
 			apiErr(w, http.StatusConflict, "you already have a pending request for this")
 			return
 		}
 	}
+	// Across replicas the scan above can race: the database's uniqueness claim decides.
+	if ok, err := s.claimPending(l, req); err != nil {
+		s.cfg.Log.Error("claim request", "err", err)
+		apiErr(w, http.StatusServiceUnavailable, "state store unavailable")
+		return
+	} else if !ok {
+		apiErr(w, http.StatusConflict, "you already have a pending request for this")
+		return
+	}
 	if err := l.save(req); err != nil {
+		s.releasePending(req)
 		s.cfg.Log.Error("persist request", "err", err)
 		apiErr(w, http.StatusInternalServerError, "store failed")
 		return
@@ -176,16 +199,75 @@ func (s *Server) postRequest(w http.ResponseWriter, r *http.Request, p Principal
 	writeJSON(w, http.StatusCreated, req)
 }
 
+// pendingKey names the (user, kind, item) a pending request is unique on.
+func pendingKey(r *Request) string {
+	h := sha256.Sum256([]byte(canonicalUser(r.User) + "\x00" + r.Kind + "\x00" + r.Item))
+	return hex.EncodeToString(h[:])
+}
+
+// claimPending takes the shared uniqueness claim for req (caller holds l.mu,
+// caught up); true without a Backend, where the scan under l.mu is enough.
+func (s *Server) claimPending(l *requestLog, req *Request) (bool, error) {
+	if s.cfg.Backend == nil {
+		return true, nil
+	}
+	ctx, cancel := storage.Ctx()
+	defer cancel()
+	return s.cfg.Backend.ClaimPending(ctx, pendingKey(req), req.ID, func(id string) (bool, bool) {
+		x := l.byID[id]
+		return x != nil, x != nil && (x.Status == StatusPending || x.Status == StatusApproving)
+	})
+}
+
+// releasePending drops req's claim once it is decided (or was never stored).
+// A failed release is harmless: the next request for the item finds the
+// holder decided and takes the claim over.
+func (s *Server) releasePending(req *Request) {
+	if s.cfg.Backend == nil {
+		return
+	}
+	ctx, cancel := storage.Ctx()
+	defer cancel()
+	if err := s.cfg.Backend.ReleasePending(ctx, pendingKey(req), req.ID); err != nil {
+		s.cfg.Log.Warn("release request claim", "id", req.ID, "err", err)
+	}
+}
+
 // listRequests: developers see their own; admins see everyone's.
 func (s *Server) listRequests(w http.ResponseWriter, _ *http.Request, p Principal) {
-	writeJSON(w, http.StatusOK, s.reqs.list(func(r *Request) bool { return p.Admin || r.User == p.ID }))
+	writeJSON(w, http.StatusOK, s.reqs.list(func(r *Request) bool { return p.can(permApprove) || sameUser(r.User, p.ID) }))
 }
 
 func (s *Server) decide(approve bool) authedHandler {
 	return func(w http.ResponseWriter, r *http.Request, p Principal) {
+		// One decision at a time per request across replicas. The claim is a
+		// lock owned by this decision (random token) that expires on the
+		// store's clock after a hung PR attempt, and only its owner releases it.
+		id, owner := r.PathValue("id"), randB64(16)
+		if ok, err := s.kv.TryLock(r.Context(), "request-claim", id, owner, proposeTimeout+time.Minute); err != nil {
+			s.cfg.Log.Error("claim request", "id", id, "err", err)
+			apiErr(w, http.StatusServiceUnavailable, "state store unavailable")
+			return
+		} else if !ok {
+			apiErr(w, http.StatusConflict, "request is being decided")
+			return
+		}
+		defer func() {
+			ctx, cancel := storage.Ctx()
+			defer cancel()
+			if err := s.kv.Unlock(ctx, "request-claim", id, owner); err != nil {
+				s.cfg.Log.Warn("release request claim", "id", id, "err", err) // expires on its own
+			}
+		}()
 		l := s.reqs
 		l.mu.Lock()
-		req := l.byID[r.PathValue("id")]
+		if err := l.catchup(); err != nil {
+			l.mu.Unlock()
+			s.cfg.Log.Error("read requests", "err", err)
+			apiErr(w, http.StatusServiceUnavailable, "state store unavailable")
+			return
+		}
+		req := l.byID[id]
 		switch {
 		case req == nil:
 			l.mu.Unlock()
@@ -195,7 +277,7 @@ func (s *Server) decide(approve bool) authedHandler {
 			l.mu.Unlock()
 			apiErr(w, http.StatusConflict, "request is "+req.Status)
 			return
-		case req.User == p.ID:
+		case sameUser(req.User, p.ID):
 			l.mu.Unlock()
 			apiErr(w, http.StatusForbidden, "you cannot decide your own request")
 			return
@@ -210,6 +292,8 @@ func (s *Server) decide(approve bool) authedHandler {
 			s.Audit(r.Context(), p.ID, action, req.ID, map[string]string{"user": req.User, "kind": req.Kind, "item": req.Item, "prUrl": pr})
 			if err := l.save(req); err != nil {
 				s.cfg.Log.Error("persist decision", "id", req.ID, "err", err)
+			} else {
+				s.releasePending(req)
 			}
 			return *req
 		}

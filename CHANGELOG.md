@@ -4,6 +4,114 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added
+- Vendor admin sync (ADR-0025): `halos.yaml` `vendorAdmin` drives the vendors' cloud admin consoles from the GA ring's profile. `halo admin plan` diffs Gemini Code Assist (logging, release channel) and GitHub Copilot (content exclusion, CLI policy) against the live consoles and exits 2 on drift. `halo admin apply` writes the settings that have a public API, after confirmation, and never loosens a control. `halo admin export` writes Claude server-managed settings, Codex requirements and config, and a Cursor model list, with manual steps for consoles that have no write API. The MCP tool `admin_plan` is read-only.
+- Telemetry: the collector normalises Copilot CLI metrics into `halo.*` (`github.copilot.tool.call.count` becomes `halo.tool.calls`; its `gen_ai.client.*` metrics are stamped `halo.harness=copilot-cli` by `service.name`, where they used to be mislabelled as Gemini CLI). Cursor CLI and OpenCode emit no usable OTel and are documented as unmapped, with halo-proxy `gen_ai.*` metrics as their per-request source.
+- README, landing page, docs and diagrams cover all six harnesses and the enterprise controls.
+- High-availability halo-server on Postgres (ADR-0021): `--database-url-file` runs several replicas behind one load balancer, with advisory-lock migrations and a fenced leader lease for the rollout controller. Gateway budget counters (atomic batch dedupe), the workload-token replay cache, the SCIM directory (deprovisioning holds on every replica), SIEM export cursors (one forwarder per sink under a lease), pending-request uniqueness and verdicts are shared across replicas. Failed-auth limiters stay per replica (up to N× the limit). `halo audit verify --database-url-file`; Helm `server.gatewayTokens` for per-capability gateway tokens.
+- Agent identity and delegation (ADR-0024): `POST /api/v1/token/exchange` with `actor_id` mints short-lived delegated agent credentials (RFC 8693 `act` chain, root principal as subject, down-only model scope, depth/cycle/TTL limits, audited). halo-proxy and halo-kong route them as the root, enforce `agents.*` per call and stamp `x-halo-actor`. `agents.remote` is an A2A allowlist with pinned AgentCard digests, checked by `halo agents verify` and `POST /api/v1/agents/egress`.
+- **Multi-turn agent shadowing** ([ADR-0014](https://dshakes.github.io/halos/adr/0014-step-level-multi-turn-shadow/), amends ADR-0004). A shadow experiment with `turns: all` mirrors every step of a sampled session, not only the first turn. Each step replays the real prefix (developer prompt, production's actions, real tool results and terminal output) to both arms, and nothing either arm returns is executed. `halo eval online` reads each step without a judge across Anthropic, Bedrock (invoke and Converse), OpenAI Responses and Gemini:
+  - tool and argument agreement with the control;
+  - **fidelity** to the action production actually took, recovered from the session's next mirrored step and prefix-checked so subagent and compacted conversations are skipped (the control's fidelity is the measured noise floor);
+  - invalid tool calls (a tool the request did not offer, or a missing required argument);
+  - premature stops;
+  - divergence rate and first divergent step;
+  - agreement by depth.
+- `halo.eval.agent.fidelity` and `halo.eval.agent.invalid_call_rate` are registered metrics, one sample per hashed session and arm, usable as shadow-experiment guardrails in `halo exp analyze` and the controller. Shadow evidence still never promotes.
+- `stats.ClusterBootstrapMean` / `PairedClusterBootstrap`.
+- **Session-to-eval harvesting** ([ADR-0020](https://dshakes.github.io/halos/adr/0020-harvest-shadow-sessions-into-replay-evals/)). `halo eval harvest` turns shadow steps into redacted step-level regression cases. It selects steps where the candidate diverged, made an invalid call, stopped early or lost on judge score, plus a depth-stratified sample. Cases are written 0600 with hashed sessions; redaction is mandatory and fail-closed. `halo eval steps run` replays them against a model route and grades the next action with session-clustered CIs. MCP: `eval_harvest` (preview without `--allow-writes`).
+- **Role-based access control for halo-server** ([ADR-0015](https://dshakes.github.io/halos/adr/0015-rbac-roles-for-halo-server/)).
+  - `identity.roles` maps IdP groups to `viewer`, `operator`, `approver`, `auditor` and `admin`. `adminGroups` still grants admin.
+  - Every console and API route is enforced from one deny-by-default permission table, and every denial is audited as `authz.deny`.
+  - `/api/v1/me` and `/api/v1/capabilities` report the caller's roles and permissions, and the console hides actions accordingly. New `--dev-insecure-roles` for demos.
+- **Audit export to SIEM** ([ADR-0016](https://dshakes.github.io/halos/adr/0016-audit-export-to-siem/)).
+  - `--audit-config` forwards every audit entry at least once and in order to Splunk HEC, an HMAC-signed HTTPS webhook (Datadog-ready) or RFC 5424 syslog over TLS.
+  - Formats are native (hash-verifiable) or OCSF API Activity.
+  - Each sink has its own cursor and backoff, and chain checks halt export on tampering. Metrics: `halo_server_audit_forward_*`.
+  - The audit log rotates by size or age into segments the hash chain runs across. `GET /api/v1/audit` streams instead of loading the log into memory, and `halo audit verify --data-dir` checks every segment. Helm: `server.audit`.
+- **Org hierarchy** ([ADR-0018](https://dshakes.github.io/halos/adr/0018-org-hierarchy-and-delegated-policy/)).
+  - The new `Unit` kind covers business units and teams with delegated owners, member selectors and overlays.
+  - Enforced security fields can only be tightened, and `halo validate` reports each loosening with its field path.
+  - New `halo units codeowners`, and `halo explain --user`, which shows the effective config with the layer that set each field.
+  - Unit files ship inside the signed release, and `halod` applies them.
+- **Cost budgets and quotas at the gateway** ([ADR-0017](https://dshakes.github.io/halos/adr/0017-gateway-cost-budgets/)).
+  - Optional `gateway.pricing` and `gateway.budgets`: user, group, ring or org scope; day, week, month or rolling window; USD and/or tokens; `warn` or `enforce`, with `alertAt`.
+  - halo-proxy meters streamed usage and answers 429 with `Retry-After` in each CLI's wire format.
+  - halo-server holds the counters (`POST /api/v1/gateway/budget/{check,usage}`, and `GET /api/v1/budgets`, which needs the read role). `budgets.failMode` is `open` or `closed`.
+  - New `halo budget status`, and `halo_proxy_budget_*` metrics.
+- **SCIM 2.0 provisioning** ([ADR-0022](https://dshakes.github.io/halos/adr/0022-scim-provisioning/)).
+  - halo-server serves `/scim/v2` for Okta and Entra ID.
+  - Deactivating, deleting or renaming a user immediately revokes their sessions, device tokens and pending enrollments, audited as actor `scim`.
+  - `--scim-authoritative` makes directory groups decide rings, toggles and roles.
+  - halo-proxy `directory.url` and halo-kong `directory_url` make the directory authoritative at the gateway too; deprovisioned users get default routing.
+- **Workload identity federation for CI and cloud agents** ([ADR-0023](https://dshakes.github.io/halos/adr/0023-workload-identity-federation/)).
+  - New `workloads` policy section.
+  - halo-server `POST /api/v1/token/exchange` (RFC 8693) trades a GitHub Actions, GitLab, Buildkite, CircleCI or cloud OIDC token for an ed25519-signed gateway credential that lasts at most 1h. Exchanges are audited, and a token's `jti` cannot be replayed.
+  - halo-proxy reads `identity.workloadPubkeyFile` and halo-kong reads `workload_pubkey` to accept these credentials.
+  - New `halo ci token` and `halo ci config`. Workloads are excluded from experiments by default.
+  - Examples in `examples/ci-agents`.
+- **Agent extension governance.** Profiles can govern `extensions.{marketplaces,blockedMarketplaces,plugins,skills,subagents,outputStyle,statusLine}` and `login`.
+  - These render only where the vendor documents a key (Claude Code, Codex, Gemini CLI, Copilot CLI) and warn in the release manifest everywhere else.
+  - `mcp.denied` now renders for Gemini (`mcp.excluded`) and Copilot (`deniedMcpServers`). For Copilot, `mcp.managedOnly` with no servers renders `allowedMcpServers: []`.
+  - The harness matrix gains an `extensions` capability.
+- **OpenTelemetry GenAI semantic conventions** (semconv v1.40.0, Development stability).
+  - halo-proxy exports `gen_ai.client.token.usage`, `gen_ai.client.operation.duration` and `gen_ai.server.time_to_first_token` alongside the unchanged `halo.gateway.*` series, on by default.
+  - Opt-in `telemetry.genai.traces` sends one content-free `chat {model}` span per call.
+  - `halo telemetry collector-config` gains a `traces/gateway` pipeline.
+
+### Security
+- Bump golang.org/x/text to v0.41.0 (GO-2026-6629, GO-2026-5970, reachable via the Postgres store); halo-server closes its data-dir files when startup fails part way.
+- Workload token exchange matches a rule before recording the subject token's `jti`, so tokens anyone can mint from a shared CI issuer can no longer fill the replay cache and refuse every tenant; `workload.token.denied` is audited at most once per issuer and client IP per minute, the rest counted in `halo_server_workload_denied_audit_suppressed_total`.
+- A login right after a session revocation is stamped a whole second past the revocation epoch, so credentials delegated from it are no longer refused as revoked; sessions issued before the revocation stay dead.
+- A workload rule removed by a refused policy stays in place as a deny tombstone, so its tokens never fall through to a broader rule below it.
+- `halo admin` vendor API clients never follow redirects (net/http would resend `Authorization` over http or to a subdomain); a 3xx is an error.
+- Units can no longer set any `GIT_*` env key except commit identity, nor `CC`, `CXX`, `CGO_*`, Go module sources (`GOPROXY`, `GOSUMDB`, `GONOSUMDB`, `GONOSUMCHECK`, `GOINSECURE`, `GOPRIVATE`, `GONOPROXY`), `GOENV`, `GOTOOLCHAIN`, `PIP_*`, `UV_*`, `YARN_*`, `BUNDLE_*`, `GEM_*`, `MAVEN_OPTS`, `GRADLE_OPTS`, `JAVA_OPTS`, `CLASSPATH`, `GCONV_PATH`, `LUA_INIT*`, `PHPRC`, `PHP_INI_SCAN_DIR`, `SUDO_ASKPASS`, `BROWSER`, `MAKEFLAGS`, `MAKEFILES` or `DOCKER_HOST`.
+- Gateway tokens must look random: hex or base64/base64url only, at least 32 characters and 128 bits, no long repeated or consecutive runs; passphrases are refused at startup (use `openssl rand -hex 32`).
+- Cached OIDC JWKS key sets are refetched after 24 hours, so a withdrawn key stops verifying; requests from a blocked IP never trigger a fetch, and a stale set keeps serving through an issuer outage.
+- A full gateway directory cache evicts active entries only, so fail open can no longer re-admit a deactivated user after the cache fills.
+- HA (ADR-0021, amended): cluster locks and claims are owned and expire on the database clock; a SCIM mutation that can't take the lock answers 503, and a userName is provisioned once across replicas.
+- HA: the leader fence check is race-free (`FOR SHARE`, `clock_timestamp()`); the controller records a fenced intent before every kill, PR and notification; a new leader finds an existing PR by its `halos-intent` marker, and webhook notifications carry `X-Halo-Event-Id`.
+- HA: budget buckets are pruned by age on the database clock, never by a replica's policy; session revocations and enrollment voids are padded for clock skew; an enrollment racing a deprovisioning is undone.
+- HA: catch-ups are coalesced and the audit tail is paged; new `--database-max-conns`; a non-loopback database URL must use `sslmode=verify-full` unless `--database-insecure-tls`; migrations declare `min-binary-schema` so a binary rollback works across additive migrations; `halo-server import` is transactional.
+- Helm: the chart refuses HA with NetworkPolicy but no `databaseEgress.to`; new optional `server.database.migrateJob` hook, so the serving role needs only DML.
+- Vendor admin sync (ADR-0025, amended): `halo admin apply` re-reads every console before writing and aborts with nothing written if it changed since the confirmed plan; Copilot writes are also conditional on GitHub's ETag when one is returned.
+- Copilot content exclusion keeps object rules (`{"if-any-match": [...]}`) under `"*"`; a path string the policy lacks is a loosening that apply refuses.
+- The Claude console export no longer contains machine config (`apiKeyHelper`, hooks, `env.ANTHROPIC_*`, ring stamps); each removed key is warned, and the Claude and Codex steps reconcile rather than paste.
+- MCP `admin_plan` renders from policy only unless `halo mcp serve --admin-read`, which reads `HALO_MCP_ADMIN_<VENDOR>_TOKEN`.
+- `vendorAdmin` org, project and location are strictly validated; plan output and STEPS.md strip control characters; API base URLs must be https (http only to loopback).
+- `halo admin plan --offline` exits 3; manual vendors report `not checked (manual)`; the apply record has a result per change; Gemini rebinding and an unspecified-to-experimental channel change count as loosenings, and a conflicting Gemini binding blocks apply.
+- Gateway directory: fails open only on transport errors or 5xx. Any other non-200 refuses the caller (403), a cached inactive entry stays refused through an outage, and halo-server answers an oversized subject as inactive instead of 400.
+- halo-server refuses to start with a gateway token (shared or per capability) under 32 characters or 128 bits of estimated entropy; generate one with `openssl rand -hex 32`.
+- Workload exchange: a known issuer's non-tenant `tenantClaim` (e.g. GitHub `ref`) is ignored at runtime as well as refused by validation.
+- Workload exchange: only malformed, unknown-issuer or bad-signature tokens count toward the per-IP limit. A signed token passes even from a blocked IP, verified from cached keys only, so a blocked IP never makes halo-server fetch an issuer's JWKS. Delegation uses its own budget (`agentFails`).
+- A refused policy still applies workload rule removals (`halo_server_policy_tightened_total`), on the API and on the HA controller's path.
+- `halo_server_workload_rules_skipped_total` is replaced by the gauge `halo_server_workload_rules_skipped`, set per policy load.
+- Public endpoints (readyz, login, token exchange, agent egress) no longer return policy load errors; they are logged.
+- Policy snapshots with null entries are refused; halo-kong recovers panics in the Access phase and answers 500.
+- Budget estimates charge the server-state input floor for remote files, `item_reference`, server tools and `background` requests, and at least the thinking budget (else the output cap) when reasoning is enabled.
+- Per-user budgets are keyed by the canonical user id shared with halo-server; lookalike characters such as the Kelvin sign are no longer folded into ASCII.
+- Units can no longer set `OTEL_*`, shell hooks (`BASH_FUNC_*`, `PROMPT_COMMAND`, `PS4`, `ZDOTDIR`, `HOME`, `XDG_CONFIG_HOME`), pagers or editors, git wrappers (`GIT_SSH`, `GIT_ASKPASS`, `SSH_ASKPASS*`, `GIT_PROXY_COMMAND`, `GIT_TEMPLATE_DIR`, `GIT_SSL_*`), compiler and runtime hooks (`GOFLAGS`, `RUSTC*`, `CARGO_*`, `PERL5LIB`, `RUBYLIB`, `JDK_JAVA_OPTIONS`, `DOTNET_STARTUP_HOOKS`, `ELECTRON_RUN_AS_NODE`) or harness config dirs (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GEMINI_*`).
+- Delegated agents' `deniedTools` can no longer be bypassed by deep JSON nesting, Gemini `function_declarations`, Bedrock Converse tools, or hosted tools (web search, code execution, MCP servers). When `deniedTools` is set, gateways refuse agent calls whose tools they cannot read. A hosted tool counts by its type (prefix match), and an MCP server as `mcp:<server>`.
+- Gateways and the egress decision re-check every agent in a delegation chain (groups, models) and enforce the root's profile and unit `maxDepth`. Egress refuses agents whose human root's sessions were revoked, and never returns an allow without its audit record.
+- Agent delegation and egress have their own failed-auth rate limit. Policy refusals no longer count, and neither do expired agent credentials at egress. Refused parents are audited as `agent.token.denied`, and `halo_server_audit_append_errors_total` counts failed audit appends.
+- Actor labels are limited to `[A-Za-z0-9._:-]`, and an oversized `expires_in` is a 400. AgentCard digests reject invalid UTF-8 and lone surrogates, and card fields are read by exact key. Remote agents at NAT64, 6to4, Teredo or IPv4-compatible addresses are refused, and `halo agents verify` escapes control characters.
+- SCIM deprovisioning revokes sessions whatever the case of the user id, and gateway posture matches device owners case-insensitively.
+- Gateways with a SCIM directory refuse (403) a verified caller who is deactivated or not provisioned, instead of routing them anonymously. Workload credentials skip the directory, and human identities cannot start with `workload:`.
+- SCIM memberships are indexed: lookups and member changes are linear.
+- New optional `--gateway-{killswitch,posture,budget,directory}-token-file` flags give each gateway capability its own token.
+- Workload rules must pin an exact tenant claim. Issuers Halos doesn't know must set `issuers[].tenantClaim`, so AWS, AKS and self-managed GitLab issuers fail `halo validate` until they do.
+- A unit that adds hooks, env keys, MCP servers or extensions is loosening policy, unless the org delegates it (`delegation.allowHooks`, `delegation.envKeys`, `selfService.catalog`). Provider, proxy and runtime-injection env keys are refused even when delegated. Top-level units select groups only, and their files belong to the root owners.
+- Aborted or compressed metered responses are charged (new `estimated` outcome, replacing `no_usage`), so a successful call is never free. GenAI telemetry and budgets share one usage parser.
+- During a directory outage gateways keep the verified caller (no groups) instead of routing them anonymously; `directory.failMode: closed` returns 503 instead. halo-server's failed-auth lockout is per endpoint class, so public endpoints cannot lock out the gateways.
+- halo-server and the gateways refuse a policy with security validation errors (unpinned workload rules, undelegated unit loosenings) at load time and keep the last good one (`halo_{server,proxy}_policy_refused_total`).
+- Interrupted streams are estimated from generated text, capped at `max_tokens` or `budgets.maxEstimatedOutputTokens`; Responses calls that reuse server-side state are charged at least `budgets.serverStateInputTokens` when usage is missing.
+- User ids compare by one canonical form everywhere, including access-request self-approval. More env keys can never be set by a unit (`PATH`, `BASH_ENV`, `CLAUDE_CODE_*`, `AWS_*`, `GIT_SSH_COMMAND`, CA-bundle overrides).
+
+### Changed
+- `halo eval online` intervals, the judge-score delta included, now resample sessions instead of pairs: steps of one session are correlated, and per-pair intervals were falsely narrow on multi-turn data. With one pair per session the result is identical to before.
+- `halo.eval.judge.score` analysis samples use unit = hashed session instead of pair id. Pairs from one session are correlated, so per-pair units made `halo exp analyze` intervals too narrow.
+- The judge now sees the head and the **tail** of long requests. It previously saw only the first 24 KiB, which on long agent sessions cut the latest tool results the graded step answers.
+
 ## [0.2.1] - 2026-10-11
 
 ### Fixed

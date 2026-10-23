@@ -5,6 +5,7 @@
       "path": "cmd/halo",
       "imports": [
         "cmd/halo/scaffold",
+        "internal/a2a",
         "internal/bundle",
         "internal/controller",
         "internal/delivery/devcontainer",
@@ -19,14 +20,17 @@
         "internal/intent",
         "internal/mcpserver",
         "internal/onboard",
+        "internal/pgstore",
         "internal/policy",
         "internal/promote",
         "internal/release",
         "internal/rollout",
         "internal/server",
+        "internal/shadow",
         "internal/telemetry",
         "internal/toggle",
         "internal/upgrade",
+        "internal/vendoradmin",
         "internal/yamledit"
       ]
     },
@@ -43,6 +47,7 @@
     {
       "path": "cmd/halo-proxy",
       "imports": [
+        "internal/budget",
         "internal/bundle",
         "internal/gateway",
         "internal/gateway/upstreamauth",
@@ -57,8 +62,9 @@
       "imports": [
         "internal/bundle",
         "internal/controller",
-        "internal/policy",
+        "internal/pgstore",
         "internal/promote",
+        "internal/rollout",
         "internal/server"
       ]
     },
@@ -66,6 +72,7 @@
       "path": "cmd/halo-shadow",
       "imports": [
         "internal/gateway",
+        "internal/pgstore",
         "internal/shadow"
       ]
     },
@@ -87,8 +94,20 @@
       ]
     },
     {
+      "path": "internal/a2a",
+      "imports": [
+        "internal/policy"
+      ]
+    },
+    {
       "path": "internal/assign",
       "imports": []
+    },
+    {
+      "path": "internal/budget",
+      "imports": [
+        "internal/policy"
+      ]
     },
     {
       "path": "internal/bundle",
@@ -104,6 +123,7 @@
         "internal/policy",
         "internal/promote",
         "internal/rollout",
+        "internal/storage",
         "internal/yamledit"
       ]
     },
@@ -128,6 +148,8 @@
     {
       "path": "internal/eval",
       "imports": [
+        "internal/gateway",
+        "internal/policy",
         "internal/shadow",
         "internal/stats"
       ]
@@ -140,6 +162,7 @@
       "path": "internal/gateway",
       "imports": [
         "internal/assign",
+        "internal/budget",
         "internal/harness",
         "internal/harness/all",
         "internal/policy",
@@ -175,7 +198,9 @@
         "internal/harness/claudecode",
         "internal/harness/codex",
         "internal/harness/copilot",
-        "internal/harness/gemini"
+        "internal/harness/cursor",
+        "internal/harness/gemini",
+        "internal/harness/opencode"
       ]
     },
     {
@@ -203,6 +228,14 @@
       ]
     },
     {
+      "path": "internal/harness/cursor",
+      "imports": [
+        "internal/harness",
+        "internal/harness/hutil",
+        "internal/policy"
+      ]
+    },
+    {
       "path": "internal/harness/gemini",
       "imports": [
         "internal/harness",
@@ -220,6 +253,14 @@
     {
       "path": "internal/harness/hutil/hutiltest",
       "imports": [
+        "internal/policy"
+      ]
+    },
+    {
+      "path": "internal/harness/opencode",
+      "imports": [
+        "internal/harness",
+        "internal/harness/hutil",
         "internal/policy"
       ]
     },
@@ -254,8 +295,10 @@
         "internal/promote",
         "internal/release",
         "internal/rollout",
+        "internal/shadow",
         "internal/toggle",
         "internal/upgrade",
+        "internal/vendoradmin",
         "internal/yamledit"
       ]
     },
@@ -268,6 +311,18 @@
         "internal/intent",
         "internal/policy",
         "internal/release"
+      ]
+    },
+    {
+      "path": "internal/pgstore",
+      "imports": [
+        "internal/storage"
+      ]
+    },
+    {
+      "path": "internal/pgstore/pgtest",
+      "imports": [
+        "internal/pgstore"
       ]
     },
     {
@@ -308,6 +363,7 @@
     {
       "path": "internal/server",
       "imports": [
+        "internal/budget",
         "internal/bundle",
         "internal/controller",
         "internal/fsutil",
@@ -315,9 +371,11 @@
         "internal/harness",
         "internal/harness/all",
         "internal/identity",
+        "internal/pgstore",
         "internal/policy",
         "internal/promote",
         "internal/rollout",
+        "internal/storage",
         "internal/toggle",
         "internal/yamledit",
         "web"
@@ -334,6 +392,12 @@
     {
       "path": "internal/stats",
       "imports": []
+    },
+    {
+      "path": "internal/storage",
+      "imports": [
+        "internal/fsutil"
+      ]
     },
     {
       "path": "internal/telemetry",
@@ -372,6 +436,15 @@
         "internal/promote",
         "internal/release",
         "internal/yamledit"
+      ]
+    },
+    {
+      "path": "internal/vendoradmin",
+      "imports": [
+        "internal/harness",
+        "internal/harness/all",
+        "internal/harness/hutil",
+        "internal/policy"
       ]
     },
     {

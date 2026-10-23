@@ -108,8 +108,8 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <text class="s" x="388" y="312.5">halo-proxy · halo-kong route models</text>
 <rect class="card" x="40" y="212" width="280" height="112" rx="12" filter="url(#sh)"/>
 <text class="t" x="56" y="248.5">Developer</text>
-<text class="s" x="56" y="266.5">runs claude, codex or gemini</text>
-<text class="s" x="56" y="282.5">as usual; gets the ring's config</text>
+<text class="s" x="56" y="266.5">runs any of six CLIs as usual;</text>
+<text class="s" x="56" y="282.5">gets the ring's config</text>
 <text class="s" x="56" y="298.5">and models automatically</text>
 <path class="la" d="M666 238L630 238"/>
 <path class="la hd" d="M635.5 234.6L630 238L635.5 241.4"/>

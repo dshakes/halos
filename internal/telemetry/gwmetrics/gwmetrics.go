@@ -5,7 +5,8 @@
 // exported as DELTA temporality over OTLP/HTTP (JSON or protobuf):
 //
 //	halo.gateway.requests   sum        {halo.ring, halo.release, halo.experiment, halo.variant, halo.harness, model, status_class, halo.unit,
-//	                                    halo.gateway.provider, halo.gateway.target, halo.gateway.failover}
+//	                                    halo.gateway.provider, halo.gateway.target, halo.gateway.failover,
+//	                                    halo.actor.agent, halo.actor.depth}
 //	halo.gateway.latency_ms histogram  same attributes; total request time incl. streaming
 //
 // Privacy: no prompt content, headers, user ids or session ids are ever
@@ -14,7 +15,9 @@
 // from client-controlled values (session headers): one user rotating session ids
 // must stay one unit, or they would dominate the per-unit statistics. Requests
 // without a verified subject are counted with an empty halo.unit, which
-// internal/promote excludes from per-unit samples. Stdlib only apart from
+// internal/promote excludes from per-unit samples. halo.actor.agent is the
+// verified current agent of a delegated credential (ADR-0024): an
+// agents.actors name, so policy-bounded. Stdlib only apart from
 // protowire (already in the module graph).
 package gwmetrics
 
@@ -27,6 +30,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -64,6 +68,10 @@ type Config struct {
 	// gateway receiver (`halo telemetry collector-config`: otlp/gateway, 4319),
 	// read once at startup. Without it the collector rejects the export (401).
 	TokenFile string `yaml:"tokenFile"`
+	// GenAI selects the OpenTelemetry GenAI semantic-convention signals
+	// exported alongside halo.gateway.* (see genai.go). Zero value: metrics on,
+	// spans off.
+	GenAI GenAIConfig `yaml:"genai"`
 }
 
 // Validate checks c; an empty endpoint is valid (emitter off).
@@ -94,8 +102,18 @@ type Request struct {
 	Provider, Target string
 	Failover         bool
 	Subject          string
-	Status           int
-	Latency          time.Duration
+	// Actor is the verified current agent and ActorDepth the chain length when
+	// an agent acts for Subject (ADR-0024); "" / 0 otherwise. Chain is the
+	// whole chain, root-side first, for spans only.
+	Actor, Chain string
+	ActorDepth   int
+	Status       int
+	Latency      time.Duration
+	// GenAI, when set, also records the call as GenAI semantic-convention
+	// metrics (and a span when enabled); Start and TraceParent only feed the span.
+	GenAI       *GenAI
+	Start       time.Time
+	TraceParent string // inbound W3C traceparent header, "" when none
 }
 
 // LatencyBoundsMS are the histogram bucket upper bounds: ~12% apart from 10ms
@@ -116,6 +134,7 @@ const maxSeries = 20_000
 type key struct {
 	ring, release, experiment, variant, harness, model, class, unit string
 	provider, target, failover                                      string
+	actor, actorDepth                                               string
 }
 
 type agg struct {
@@ -137,6 +156,11 @@ type Emitter struct {
 	mu     sync.Mutex
 	start  time.Time
 	series map[key]*agg
+
+	genai    genaiOpts // from Config.GenAI
+	gen      *genaiSnap
+	spans    []span
+	tracesTo string
 }
 
 // New returns an emitter for c, or nil when c.OTLPEndpoint is empty.
@@ -150,8 +174,10 @@ func New(c Config) (*Emitter, error) {
 	e := &Emitter{
 		url: strings.TrimRight(c.OTLPEndpoint, "/") + "/v1/metrics", proto: c.Protocol, interval: c.Interval,
 		salt: []byte(c.UnitSalt), client: &http.Client{Timeout: 10 * time.Second}, now: time.Now,
-		series: map[key]*agg{},
+		series: map[key]*agg{}, gen: newGenaiSnap(),
+		genai: genaiOpts{metrics: c.GenAI.metricsOn(), traces: c.GenAI.Traces},
 	}
+	e.tracesTo = strings.TrimRight(c.OTLPEndpoint, "/") + "/v1/traces"
 	if e.proto == "" {
 		e.proto = ProtoProtobuf
 	}
@@ -198,9 +224,13 @@ func (e *Emitter) Record(r Request) {
 	if r.Provider != "" {
 		k.failover = strconv.FormatBool(r.Failover)
 	}
+	if r.Actor != "" {
+		k.actor, k.actorDepth = r.Actor, strconv.Itoa(r.ActorDepth)
+	}
 	ms := float64(r.Latency) / float64(time.Millisecond)
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	e.recordGenAI(r)
 	a := e.series[k]
 	if a == nil {
 		if len(e.series) >= maxSeries {
@@ -252,25 +282,42 @@ func (e *Emitter) Flush(ctx context.Context) error {
 		return nil
 	}
 	e.mu.Lock()
-	series, start, end := e.series, e.start, e.now()
-	e.series, e.start = map[key]*agg{}, end
+	series, gen, spans, start, end := e.series, e.gen, e.spans, e.start, e.now()
+	e.series, e.gen, e.spans, e.start = map[key]*agg{}, newGenaiSnap(), nil, end
 	e.mu.Unlock()
-	if len(series) == 0 {
+	if len(series) == 0 { // GenAI points and spans are only ever recorded together with a series
 		return nil
 	}
 	var body []byte
 	ct := "application/json"
 	if e.proto == ProtoProtobuf {
-		body, ct = encodeProto(series, start, end), "application/x-protobuf"
+		body, ct = encodeProto(series, gen, start, end), "application/x-protobuf"
 	} else {
 		var err error
-		if body, err = json.Marshal(encodeJSON(series, start, end)); err != nil {
+		if body, err = json.Marshal(encodeJSON(series, gen, start, end)); err != nil {
 			return fmt.Errorf("gwmetrics: encode: %w", err)
 		}
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.url, bytes.NewReader(body))
+	err := e.post(ctx, e.url, ct, body, fmt.Sprintf("%d series", len(series)))
+	if len(spans) == 0 {
+		return err
+	}
+	// Spans are always OTLP/JSON: every collector accepts it and the span model needs no histogram machinery.
+	tb, merr := json.Marshal(encodeSpansJSON(spans))
+	if merr != nil {
+		return errors.Join(err, fmt.Errorf("gwmetrics: encode spans: %w", merr))
+	}
+	if serr := e.post(ctx, e.tracesTo, "application/json", tb, fmt.Sprintf("%d spans", len(spans))); serr != nil {
+		return errors.Join(err, serr)
+	}
+	return err
+}
+
+// post sends one OTLP/HTTP export request; what names the payload in errors.
+func (e *Emitter) post(ctx context.Context, url, ct string, body []byte, what string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("gwmetrics: export to %s: %w", e.url, err)
+		return fmt.Errorf("gwmetrics: export to %s: %w", url, err)
 	}
 	req.Header.Set("Content-Type", ct)
 	if e.token != "" {
@@ -278,12 +325,12 @@ func (e *Emitter) Flush(ctx context.Context) error {
 	}
 	resp, err := e.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("gwmetrics: export %d series to %s: %w", len(series), e.url, err)
+		return fmt.Errorf("gwmetrics: export %s to %s: %w", what, url, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode/100 != 2 {
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
-		return fmt.Errorf("gwmetrics: export %d series to %s: HTTP %d: %s", len(series), e.url, resp.StatusCode, bytes.TrimSpace(msg))
+		return fmt.Errorf("gwmetrics: export %s to %s: HTTP %d: %s", what, url, resp.StatusCode, bytes.TrimSpace(msg))
 	}
 	_, _ = io.Copy(io.Discard, resp.Body) // keep-alive
 	return nil
@@ -297,6 +344,7 @@ func (k key) attrs() [][2]string {
 		{"halo.variant", k.variant}, {"halo.harness", k.harness}, {"model", k.model},
 		{"status_class", k.class}, {"halo.unit", k.unit},
 		{"halo.gateway.provider", k.provider}, {"halo.gateway.target", k.target}, {"halo.gateway.failover", k.failover},
+		{"halo.actor.agent", k.actor}, {"halo.actor.depth", k.actorDepth},
 	} {
 		if kv[1] != "" {
 			out = append(out, kv)
@@ -314,7 +362,7 @@ func sortedKeys(series map[key]*agg) []key {
 		return cmp.Or(cmp.Compare(a.ring, b.ring), cmp.Compare(a.release, b.release), cmp.Compare(a.experiment, b.experiment),
 			cmp.Compare(a.variant, b.variant), cmp.Compare(a.harness, b.harness), cmp.Compare(a.model, b.model),
 			cmp.Compare(a.class, b.class), cmp.Compare(a.unit, b.unit), cmp.Compare(a.provider, b.provider),
-			cmp.Compare(a.target, b.target), cmp.Compare(a.failover, b.failover))
+			cmp.Compare(a.target, b.target), cmp.Compare(a.failover, b.failover), cmp.Compare(a.actor, b.actor), cmp.Compare(a.actorDepth, b.actorDepth))
 	})
 	return ks
 }
@@ -324,7 +372,7 @@ const temporalityDelta = 1 // AGGREGATION_TEMPORALITY_DELTA
 var resourceAttrs = [][2]string{{"service.name", "halo-proxy"}}
 
 // encodeJSON renders the OTLP/JSON ExportMetricsServiceRequest.
-func encodeJSON(series map[key]*agg, start, end time.Time) map[string]any {
+func encodeJSON(series map[key]*agg, gen *genaiSnap, start, end time.Time) map[string]any {
 	type m = map[string]any
 	kvs := func(a [][2]string) []m {
 		out := make([]m, 0, len(a))
@@ -345,37 +393,21 @@ func encodeJSON(series map[key]*agg, start, end time.Time) map[string]any {
 		hists = append(hists, m{"attributes": kvs(k.attrs()), "startTimeUnixNano": st, "timeUnixNano": et,
 			"count": strconv.FormatUint(a.n, 10), "sum": a.sum, "bucketCounts": bc, "explicitBounds": LatencyBoundsMS})
 	}
+	metrics := []m{
+		{"name": "halo.gateway.requests", "unit": "{request}", "sum": m{"aggregationTemporality": temporalityDelta, "isMonotonic": true, "dataPoints": reqs}},
+		{"name": "halo.gateway.latency_ms", "unit": "ms", "histogram": m{"aggregationTemporality": temporalityDelta, "dataPoints": hists}},
+	}
+	metrics = append(metrics, genaiMetricsJSON(gen, st, et)...)
 	return m{"resourceMetrics": []m{{
-		"resource": m{"attributes": kvs(resourceAttrs)},
-		"scopeMetrics": []m{{"scope": m{"name": "halo-proxy"}, "metrics": []m{
-			{"name": "halo.gateway.requests", "unit": "{request}", "sum": m{"aggregationTemporality": temporalityDelta, "isMonotonic": true, "dataPoints": reqs}},
-			{"name": "halo.gateway.latency_ms", "unit": "ms", "histogram": m{"aggregationTemporality": temporalityDelta, "dataPoints": hists}},
-		}}},
+		"resource":     m{"attributes": kvs(resourceAttrs)},
+		"scopeMetrics": []m{{"scope": m{"name": "halo-proxy"}, "metrics": metrics}},
 	}}}
 }
 
 // encodeProto renders the same request as OTLP protobuf (opentelemetry-proto
 // metrics/v1 field numbers).
-func encodeProto(series map[key]*agg, start, end time.Time) []byte {
-	msg := func(b []byte, num protowire.Number, v []byte) []byte {
-		b = protowire.AppendTag(b, num, protowire.BytesType)
-		return protowire.AppendBytes(b, v)
-	}
-	str := func(b []byte, num protowire.Number, s string) []byte {
-		b = protowire.AppendTag(b, num, protowire.BytesType)
-		return protowire.AppendString(b, s)
-	}
-	fixed := func(b []byte, num protowire.Number, v uint64) []byte {
-		b = protowire.AppendTag(b, num, protowire.Fixed64Type)
-		return protowire.AppendFixed64(b, v)
-	}
-	varint := func(b []byte, num protowire.Number, v uint64) []byte {
-		b = protowire.AppendTag(b, num, protowire.VarintType)
-		return protowire.AppendVarint(b, v)
-	}
-	kv := func(k, v string) []byte { // KeyValue{key=1, value=2 AnyValue{string_value=1}}
-		return msg(str(nil, 1, k), 2, str(nil, 1, v))
-	}
+func encodeProto(series map[key]*agg, gen *genaiSnap, start, end time.Time) []byte {
+	msg, str, fixed, varint, kv := pbMsg, pbStr, pbFixed, pbVarint, pbKV
 	st, et := uint64(start.UnixNano()), uint64(end.UnixNano()) //nolint:gosec // wall-clock nanos are positive
 	var reqs, hists []byte
 	for _, k := range sortedKeys(series) {
@@ -412,7 +444,8 @@ func encodeProto(series map[key]*agg, start, end time.Time) []byte {
 	hist := varint(append([]byte(nil), hists...), 2, temporalityDelta)                             // Histogram{data_points=1, temporality=2}
 	metrics := msg(nil, 2, msg(str(str(nil, 1, "halo.gateway.requests"), 3, "{request}"), 7, sum)) // Metric{name=1, unit=3, sum=7}
 	metrics = msg(metrics, 2, msg(str(str(nil, 1, "halo.gateway.latency_ms"), 3, "ms"), 9, hist))  // histogram=9
-	scope := append(msg(nil, 1, str(nil, 1, "halo-proxy")), metrics...)                            // ScopeMetrics{scope=1, metrics=2}
+	metrics = append(metrics, genaiMetricsProto(gen, st, et)...)
+	scope := append(msg(nil, 1, str(nil, 1, "halo-proxy")), metrics...) // ScopeMetrics{scope=1, metrics=2}
 	var res []byte
 	for _, p := range resourceAttrs {
 		res = msg(res, 1, kv(p[0], p[1])) // Resource.attributes=1
@@ -420,3 +453,27 @@ func encodeProto(series map[key]*agg, start, end time.Time) []byte {
 	rm := msg(msg(nil, 1, res), 2, scope) // ResourceMetrics{resource=1, scope_metrics=2}
 	return msg(nil, 1, rm)                // ExportMetricsServiceRequest{resource_metrics=1}
 }
+
+// Hand-rolled OTLP protobuf field writers shared by the metric encoders.
+func pbMsg(b []byte, num protowire.Number, v []byte) []byte {
+	b = protowire.AppendTag(b, num, protowire.BytesType)
+	return protowire.AppendBytes(b, v)
+}
+
+func pbStr(b []byte, num protowire.Number, s string) []byte {
+	b = protowire.AppendTag(b, num, protowire.BytesType)
+	return protowire.AppendString(b, s)
+}
+
+func pbFixed(b []byte, num protowire.Number, v uint64) []byte {
+	b = protowire.AppendTag(b, num, protowire.Fixed64Type)
+	return protowire.AppendFixed64(b, v)
+}
+
+func pbVarint(b []byte, num protowire.Number, v uint64) []byte {
+	b = protowire.AppendTag(b, num, protowire.VarintType)
+	return protowire.AppendVarint(b, v)
+}
+
+// pbKV is KeyValue{key=1, value=2 AnyValue{string_value=1}}.
+func pbKV(k, v string) []byte { return pbMsg(pbStr(nil, 1, k), 2, pbStr(nil, 1, v)) }

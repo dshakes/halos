@@ -124,7 +124,7 @@ stopping: {method: msprt, alpha: 0.05, minSamples: 10, maxDays: 14, maxSpendUSD:
 	base := "http://" + addr
 	writeFile(t, filepath.Join(dir, "fleet.token"), "e2e-fleet-token\n")
 	writeFile(t, filepath.Join(dir, "session.key"), "e2e-session-key-0123456789abcdef0123456789abcdef\n")
-	writeFile(t, filepath.Join(dir, "gateway.token"), "e2e-gateway-token-0123456789\n")
+	writeFile(t, filepath.Join(dir, "gateway.token"), "7c1e94a2f05b3d68e7c194a2f05b3d68e2a4c6e8f0b1d3a5\n")
 	pc, _ := json.Marshal(map[string]any{
 		"baseURL": base, "registry": repo, "pubKeyFile": filepath.Join(keys, "halo.pub"),
 		"halodURL": "https://downloads.example.com/halod-{os}-{arch}", "halodSHA256": map[string]string{"linux-amd64": strings.Repeat("a", 64)},

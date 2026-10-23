@@ -17,6 +17,7 @@ What a version number covers, and what breaking means for each surface:
 | Release bundles and ring pointers | `schemaVersion: 1` (`internal/release/release.go:60`). A reader refuses a schema it does not know (`release.go:274`) and keeps last-good; a new schema version is a major release |
 | Kill list, fleet report and mirror payloads | Fields only ever added. `halo-shadow` decodes mirror jobs strictly (`internal/shadow/server.go`), which is why it upgrades before `halo-proxy` (below) |
 | Helm chart | Its own SemVer in `Chart.yaml` (`version`), tracking `appVersion`. A values key is renamed only in a chart major; `values.schema.json` checks types and the replica pins but does not reject unknown keys, so read the chart CHANGELOG entry before a major |
+| Postgres schema (HA backend) | Versioned, forward-only migrations embedded in the binary (`internal/pgstore/migrations`). Within a major they only add (tables, columns, indexes) and declare `-- min-binary-schema: 1`, so an older binary keeps running against a migrated database, during a rollout and after a binary rollback. A migration that an older binary cannot run against raises its min-binary-schema, is called out as **Breaking** in the CHANGELOG, and makes older binaries refuse to start. Never downgrade the schema: roll forward, or restore the pre-upgrade backup |
 | Prometheus metric names and labels | Treated as API: renamed only in a major |
 | Go module `github.com/dshakes/halos` | `internal/` only; nothing is importable, nothing is promised |
 
@@ -40,19 +41,19 @@ This is the commitment from `v0.1.1` on. It is a policy, not something the code 
 | 0.1.0 | superseded by 0.1.1 (incomplete publish) | — |
 | 0.1.0-rc.1, rc.2 | prerelease | — |
 
-Harness CLIs (Claude Code, Codex, Gemini CLI, Copilot CLI) are not ours to support. The versions a Halos release was exercised against are in the [harness matrix](/halos/reference/harness-matrix/) (`make uat-clis` runs them on every PR). A newer CLI that changes its config format is a Halos **minor**, not a patch, because the adapter's rendered bytes change.
+Harness CLIs (Claude Code, Codex, Gemini CLI, Copilot CLI, Cursor CLI, OpenCode) are not ours to support. The versions a Halos release was exercised against are in the [harness matrix](/halos/reference/harness-matrix/) (`make uat-clis` runs them on every PR). A newer CLI that changes its config format is a Halos **minor**, not a patch, because the adapter's rendered bytes change.
 
 ## Upgrade order
 
 Clients tolerate an older server; servers tolerate older clients; the one strict reader is `halo-shadow`. Upgrade in this order and nothing is ever talking to something it does not understand:
 
-1. **`halo-server`** — serves the API, kill list and portal that everything else consumes. Single replica with `Recreate`: plan a short console outage (gateways and `halod` are unaffected, see [operations](/halos/guides/operations/#what-is-highly-available-and-what-is-not)). Back up `--data-dir` first.
-2. **`halo-shadow`** — before the proxy, because it rejects mirror jobs with fields it does not know; a newer proxy against an older shadow shows up as `halo_proxy_shadow_failed_total`, not as client errors.
+1. **`halo-server`** — serves the API, kill list and portal that everything else consumes. File backend: single replica with `Recreate`, plan a short console outage (gateways and `halod` are unaffected, see [operations](/halos/guides/operations/#what-is-highly-available-and-what-is-not)); back up `--data-dir` first. Postgres backend ([HA](/halos/guides/operations/#ha-on-postgres)): back up the database, apply the schema first (`halo-server migrate` with the new binary, or `server.database.autoMigrate`), then roll the replicas; the controller lease moves to a new pod during the roll, which is expected.
+2. **`halo-shadow`** — before the proxy (and, on the Postgres backend, after the schema migration in step 1: it shares the database and refuses a schema behind its own), because it rejects mirror jobs with fields it does not know; a newer proxy against an older shadow shows up as `halo_proxy_shadow_failed_total`, not as client errors.
 3. **`halo-proxy`** / **`halo-kong`** — rolling, zero client errors with the chart defaults (verified under load by `make uat-k8s`). Recompile the policy snapshot with the new `halo gateway compile` only after every proxy runs the new version.
 4. **`halod`** — it does not self-update; ship it the way it was installed: the MDM package, a Dev Container Feature or Coder template rebuild, and the portal's `halodURL`/`halodSHA256` for machines that enroll from now on. Old `halod` keeps reading new pointers as long as `schemaVersion` is unchanged, so this step can lag by weeks.
 5. **`halo`** (CI and operators) — last, so the releases it publishes are never newer than the agents that must verify them.
 
-Within one minor the order does not matter; across a major, the CHANGELOG says if it changes. Rolling back follows the reverse order, and a `halo-server` rollback restores the `--data-dir` backup taken in step 1 only if the newer version wrote a format the older one cannot replay (the CHANGELOG says so when it does; append-only JSONL with ignored unknown fields is the default).
+Within one minor the order does not matter; across a major, the CHANGELOG says if it changes. Rolling back follows the reverse order, and a `halo-server` rollback restores the `--data-dir` backup taken in step 1 only if the newer version wrote a format the older one cannot replay (the CHANGELOG says so when it does; append-only JSONL with ignored unknown fields is the default). On the Postgres backend an older binary runs against a newer schema as long as every newer migration declares it compatible (additive migrations do); only a release whose CHANGELOG marks a migration **Breaking** needs the database backup from step 1 to roll back.
 
 ## End of life
 

@@ -27,33 +27,24 @@
 
 ---
 
-**Halos is the open-source control plane for AI coding CLIs**: Claude Code, Codex, Gemini CLI and Copilot CLI.
+**Halos is the open-source control plane for AI coding CLIs**: Claude Code, Codex, Gemini CLI, Copilot CLI, Cursor CLI and OpenCode.
 
-- One policy repo becomes a signed release.
-- Releases roll out ring by ring, behind A/B tests, canaries, shadows and feature toggles.
-- Each step can be gated on evals and live telemetry.
-- A human-merged PR promotes. A regression measured at the gateway is killed automatically when halo-server serves a signed kill list; any other regression opens a rollback PR.
-
-| Today | With Halos |
-|---|---|
-| Every laptop runs a different CLI version and `settings.json` | One signed release per ring, enforced by the CLI and the `halod` agent |
-| A model or CLI upgrade hits 100% of engineers at once | Dark launch → 1% → 5% → 25% → GA, each step gated |
-| Nobody knows whether the new version is better | pass@k evals, LLM-judged shadow traffic, sequential stats, a verdict |
-| Rollback is a Slack message | A signed kill switch that gateways pick up within ~10 s, plus rollback PRs |
+- **One signed release per ring.** A policy repo becomes versioned, content-addressed releases that `halod` and the gateway enforce on every machine.
+- **Every change is staged and measured.** Dark launch, canary, A/B and shadow behind evals and live telemetry; promotion is a PR a human merges.
+- **Rollback is a pointer, not a Slack message.** A regression measured at the gateway trips a signed kill list that gateways pick up in about 10 s (when halo-server serves it); any other regression opens a rollback PR.
 
 <img src="assets/rollout.gif" alt="halo rollout plan prints a six-step dark-launch, canary and holdout plan; halo rollout simulate shows a regression caught and rolled back at the 1% step" width="880">
 
-## Start here
+## Quickstart
 
-Three ways in, each driven by hand or by the AI CLI you already use ([Start here](https://dshakes.github.io/halos/getting-started/start-here/)):
+```sh
+brew install dshakes/tap/halo      # other installs below
+halo quickstart                    # the whole stack in Docker, about a minute
+halo doctor && halo onboard local  # or pin and manage the CLIs on this machine
+halo onboard company               # or: policy repo, gateway, IdP, fleet, first PR
+```
 
-| | First command | From your CLI |
-|---|---|---|
-| **Try it** (about a minute, Docker) | `halo quickstart` | Claude Code `/halos:halo-onboard try` |
-| **My machine** (pin your CLIs, manage their config, local proxy, verified round trip) | `halo doctor`, then `halo onboard local` | Codex `$halos-onboard` |
-| **My company** (policy repo, gateway, IdP, fleet delivery, first PR) | `halo onboard company` | Gemini CLI / Copilot CLI: "onboard me onto Halos" |
-
-The agent shows every write as a dry run and waits for your yes, never prints a credential, and stops before anything outward: publishing, enrolling, pushing and merging stay yours.
+Each path can also be driven by the AI CLI you already use: [Start here](https://dshakes.github.io/halos/getting-started/start-here/).
 
 ## How it works
 
@@ -152,7 +143,7 @@ Commands: `halo rollout plan | status | simulate | advance | rollback` ([docs](h
 
 - **A/B** a CLI version or settings change. Each arm is its own signed release channel, and `halod` picks the arm with the same hash the gateway uses.
 - **Canary** a model at the gateway, sticky per user and session, so agents never switch model mid-task.
-- **Shadow** first-turn requests to a candidate model and grade the pairs with an LLM judge. Nothing from the candidate is served.
+- **Shadow** real agent sessions to a candidate model, every step or just the first, and compare its next action with the control and with what production actually did (tool agreement, fidelity vs a measured noise floor, invalid calls, premature stops), plus an LLM judge. Nothing from the candidate is served or executed.
 - **Toggles** turn one capability (an MCP server, a hook, a model route) on for a ring, an IdP group or a percentage of users. The payload ships inside the signed release. A kill needs no new release and takes effect at the next poll: about 10 s at gateways, 60 s on devices.
 
 <img src="assets/toggles.gif" alt="halo toggle eval shows which toggles are on for a developer and why; halo gateway routes shows each model alias and the upstream it routes to" width="880">
@@ -172,22 +163,39 @@ Commands: `halo rollout plan | status | simulate | advance | rollback` ([docs](h
 | **Sequential stats** | mSPRT guardrails stop an experiment as soon as a regression is real, not at an arbitrary horizon. |
 | **Upgrade watch** | `halo upgrade watch` spots a new CLI or model release, pins it on a branch, runs the suite and opens a PR with the scorecard. |
 
-## Any CLI, any provider
+## Six CLIs, any provider
 
-| | Claude Code | Codex | Gemini CLI | Copilot CLI |
-|---|---|---|---|---|
-| Version pin | CLI-enforced | `halod` | `halod` | `halod` |
-| Model lock | ✓ | ✓ | ✓ | default only |
-| MCP allowlist | ✓ | ✓ | ✓ | ✓ |
-| Permissions | ✓ | ✓ | partial | partial (bypass disable only; UNVERIFIED) |
-| Gateway + telemetry | ✓ | ✓ | partial | telemetry only |
+| | Claude Code | Codex | Gemini CLI | Copilot CLI | Cursor CLI | OpenCode |
+|---|---|---|---|---|---|---|
+| Version pin | CLI-enforced | `halod` | `halod` | `halod` | not installable by `halod` | `halod` |
+| Model lock | ✓ | ✓ | ✓ | default only | - | ✓ |
+| MCP allowlist | ✓ | ✓ | ✓ | ✓ | - | - |
+| Permissions | ✓ | ✓ | partial | partial (UNVERIFIED) | - | ✓ |
+| Gateway | ✓ | ✓ | ✓ | - | - | ✓ |
+| Telemetry | ✓ | ✓ | ✓ | ✓ | - | - |
 
-A setting a CLI can't enforce produces a warning in the release manifest; it is never silently dropped. The full matrix and its sources are in the [harness reference](https://dshakes.github.io/halos/reference/harness-matrix/).
+A setting a CLI can't enforce produces a warning in the release manifest; it is never silently dropped. `halo harnesses` prints the capability matrix; the [harness reference](https://dshakes.github.io/halos/reference/harness-matrix/) has every cell and its source.
 
 Traffic goes through `halo-proxy` to Anthropic, Bedrock (SigV4), Vertex, OpenAI, Azure OpenAI or the Gemini API:
 - Model aliases map to weighted splits and priority failover, with a circuit breaker per target.
 - Moving a model to another provider is a one-line policy change.
 - If you already run Kong, the `halo-kong` plugin applies the same identity, cohort and experiment decisions. It routes each alias to its first target, with no translation or failover.
+
+## Enterprise controls
+
+| Control | What it does | Docs |
+|---|---|---|
+| RBAC | IdP groups map to `viewer`, `operator`, `approver`, `auditor`, `admin`; every route is deny-by-default and denials are audited | [security model](https://dshakes.github.io/halos/concepts/security-model/) |
+| SCIM 2.0 | Okta and Entra provisioning; deprovisioning revokes sessions and device tokens at once | [SCIM](https://dshakes.github.io/halos/guides/scim-provisioning/) |
+| Org units | Delegated owners and overlays that can tighten, never loosen, enforced fields | [org hierarchy](https://dshakes.github.io/halos/concepts/org-hierarchy/) |
+| Cost budgets | Per user, group, ring or org caps in USD or tokens, warn or enforce, answered as 429 at the gateway | [budgets](https://dshakes.github.io/halos/guides/cost-budgets/) |
+| Audit to SIEM | Hash-chained audit forwarded to Splunk HEC, signed webhook or syslog TLS, native or OCSF | [SIEM export](https://dshakes.github.io/halos/guides/siem-export/) |
+| CI and workload identity | RFC 8693 exchange of a GitHub, GitLab, Buildkite, CircleCI or cloud OIDC token for a credential of at most 1 h | [CI and cloud agents](https://dshakes.github.io/halos/guides/ci-and-cloud-agents/) |
+| Agent identity | Delegated agent credentials with an `act` chain, down-only model scope and an A2A allowlist | [agent identity](https://dshakes.github.io/halos/guides/agent-identity/) |
+| Extension governance | Marketplace, plugin, skill and subagent policy, rendered where the vendor documents a key and warned elsewhere | [harness reference](https://dshakes.github.io/halos/reference/harness-matrix/) |
+| OTel GenAI | `gen_ai.*` semantic-convention metrics and opt-in content-free spans from the gateway | [evidence plane](https://dshakes.github.io/halos/concepts/evidence-plane/) |
+| HA on Postgres | Several `halo-server` replicas behind one load balancer with a fenced controller lease | [production deployment](https://dshakes.github.io/halos/guides/production-deployment/) |
+| Vendor admin sync | One policy drives the vendors' cloud admin consoles; `halo admin plan` fails CI on drift, `apply` writes what has a public API and never loosens | [vendor admin sync](https://dshakes.github.io/halos/guides/vendor-admin-sync/) |
 
 ## Runs everywhere
 
@@ -247,7 +255,7 @@ Every component is implemented and covered by unit, race, e2e (`make e2e`) and e
 
 | Suite | Runs against | Report |
 |---|---|---|
-| `make uat-clis` | the real Claude Code, Codex, Gemini and Copilot CLIs, including the eval runner | [CLI-REPORT.md](test/uat/CLI-REPORT.md) |
+| `make uat-clis` | the real Claude Code, Codex, Gemini CLI and Copilot CLI (Cursor CLI and OpenCode are not in this run yet), including the eval runner | [CLI-REPORT.md](test/uat/CLI-REPORT.md) |
 | `make uat-k8s` | a kind cluster with the Helm chart installed | [REPORT.md](test/uat/REPORT.md) |
 | `make uat-kong` | open-source Kong 3.9.3 with the `halo-kong` plugin | [KONG-REPORT.md](test/uat/KONG-REPORT.md) |
 

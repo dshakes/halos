@@ -109,6 +109,13 @@ func HarnessFromUA(ua string) string {
 // first turn. Bedrock carries the alias in the path, the others in the body.
 // Unparseable bodies yield ("", false): never shadowed, routed by default.
 func Inspect(protocol, path string, body []byte) (model string, firstTurn bool) {
+	model, firstTurn, _ = inspect(protocol, path, body)
+	return model, firstTurn
+}
+
+// inspect is Inspect plus parsed: the body is a JSON model call whose
+// conversation shape was understood (a candidate for any-turn mirroring).
+func inspect(protocol, path string, body []byte) (model string, firstTurn, parsed bool) {
 	if protocol == ProtoBedrock {
 		if m := bedrockPath.FindStringSubmatch(path); m != nil {
 			model, _ = url.PathUnescape(m[1])
@@ -127,36 +134,37 @@ func Inspect(protocol, path string, body []byte) (model string, firstTurn bool) 
 		PreviousRespID string          `json:"previous_response_id"`
 	}
 	if json.Unmarshal(body, &b) != nil {
-		return model, false
+		return model, false, false
 	}
 	if protocol != ProtoBedrock && protocol != ProtoGemini {
 		model = b.Model
 	}
 	switch protocol {
 	case ProtoAnthropic, ProtoBedrock:
-		return model, firstTurnOf(b.Messages)
+		return model, firstTurnOf(b.Messages), len(b.Messages) > 0
 	case ProtoGemini:
 		for i := range b.Contents {
 			if b.Contents[i].Role == "model" || b.Contents[i].Role == "function" { // gemini's assistant/tool turns
 				b.Contents[i].Role = "assistant"
 			}
 		}
-		return model, firstTurnOf(b.Contents)
+		return model, firstTurnOf(b.Contents), len(b.Contents) > 0
 	case ProtoResponses:
 		if b.PreviousRespID != "" {
-			return model, false
+			// History lives server-side: a replay would not carry the prefix.
+			return model, false, false
 		}
 		var s string
 		if json.Unmarshal(b.Input, &s) == nil && s != "" {
-			return model, true
+			return model, true, true
 		}
 		var items []turn
 		if json.Unmarshal(b.Input, &items) != nil {
-			return model, false
+			return model, false, false
 		}
-		return model, firstTurnOf(items)
+		return model, firstTurnOf(items), len(items) > 0
 	}
-	return model, false
+	return model, false, false
 }
 
 type turn struct {
@@ -184,14 +192,15 @@ func firstTurnOf(ts []turn) bool {
 // left empty: cohort comes only from a verified identity (PrepareVerified).
 func NewRequestInfo(h http.Header, path string, body []byte) RequestInfo {
 	proto := ProtocolForPath(path)
-	model, first := Inspect(proto, path, body)
+	model, first, parsed := inspect(proto, path, body)
 	if IsCountTokens(path) {
-		first = false // never mirror token counting
+		first, parsed = false, false // never mirror token counting
 	}
 	return RequestInfo{
 		Protocol:   proto,
 		ModelAlias: model,
 		FirstTurn:  first,
+		AnyTurn:    parsed,
 		Harness:    HarnessFromUA(h.Get("User-Agent")),
 		SessionID:  SessionID(h),
 	}

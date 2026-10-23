@@ -231,7 +231,7 @@ func TestRollout(t *testing.T) {
 		data, keys := filepath.Join(dir, "data"), filepath.Join(dir, "keys")
 		must(t, nil, "halo", "keys", "generate", "--name", "killswitch", "--out", keys)
 		writeFile(t, filepath.Join(dir, "fleet.token"), "e2e-fleet-token\n")
-		writeFile(t, filepath.Join(dir, "gateway.token"), "e2e-gateway-token-0123456789\n")
+		writeFile(t, filepath.Join(dir, "gateway.token"), "7c1e94a2f05b3d68e7c194a2f05b3d68e2a4c6e8f0b1d3a5\n")
 		addr := freeAddr(t)
 		base := "http://" + addr
 		start(t, nil, "halo-server", "--listen", addr, "--policy-dir", repo.pol, "--token-file", filepath.Join(dir, "fleet.token"),
@@ -284,7 +284,7 @@ func TestRollout(t *testing.T) {
 		data, keys := filepath.Join(dir, "data"), filepath.Join(dir, "keys")
 		must(t, nil, "halo", "keys", "generate", "--name", "killswitch", "--out", keys)
 		writeFile(t, filepath.Join(dir, "fleet.token"), "e2e-fleet-token\n")
-		writeFile(t, filepath.Join(dir, "gateway.token"), "e2e-gateway-token-0123456789\n")
+		writeFile(t, filepath.Join(dir, "gateway.token"), "7c1e94a2f05b3d68e7c194a2f05b3d68e2a4c6e8f0b1d3a5\n")
 		addr := freeAddr(t)
 		base := "http://" + addr
 		start(t, repo.env, "halo-server", "--listen", addr, "--policy-dir", repo.pol, "--token-file", filepath.Join(dir, "fleet.token"),
@@ -379,7 +379,7 @@ gateway: https://ai.acme.example
 func killList(t *testing.T, base, keys string) []string {
 	t.Helper()
 	req, _ := http.NewRequest("GET", base+"/api/v1/gateway/killswitch", nil)
-	req.Header.Set("Authorization", "Bearer e2e-gateway-token-0123456789")
+	req.Header.Set("Authorization", "Bearer 7c1e94a2f05b3d68e7c194a2f05b3d68e2a4c6e8f0b1d3a5")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)

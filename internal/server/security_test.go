@@ -2,16 +2,22 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/hex"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/dshakes/halos/internal/gateway"
+	"github.com/dshakes/halos/internal/policy"
 )
 
 // asH is env.as with extra request headers.
@@ -128,9 +134,8 @@ func TestEnrollRateLimited(t *testing.T) {
 	if c := enroll(good); c != http.StatusTooManyRequests {
 		t.Fatalf("blocked IP with a valid token: %d, want 429", c)
 	}
-	e.s.enroll.mu.Lock()
-	_, kept := e.s.enroll.m[hashTok(good)]
-	e.s.enroll.mu.Unlock()
+	gh := hashTok(good)
+	_, kept, _ := e.s.kv.Get(context.Background(), kvEnroll, hex.EncodeToString(gh[:]))
 	if !kept {
 		t.Fatal("a rate-limited attempt burned a valid enrollment token")
 	}
@@ -163,8 +168,264 @@ func TestLoginCallbackRateLimited(t *testing.T) {
 	}
 }
 
+// Failed-auth budgets are per endpoint class: garbage sent to the public
+// token exchange and SCIM endpoints from an IP a gateway shares exhausts only
+// those classes, never the gateway token (directory, posture, budget, kill
+// list) or device endpoints. Otherwise anyone could cut a gateway off from its
+// directory and force its fail mode.
+func TestAuthLockoutIsPerEndpointClass(t *testing.T) {
+	e := scimEnv(t, false, func(c *Config) {
+		_, c.WorkloadKey, _ = ed25519.GenerateKey(rand.Reader)
+		f := filepath.Join(c.PolicyDir, "halos.yaml")
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b = append(b, "workloads:\n  audience: halos\n  issuers: [{name: github, url: https://token.actions.githubusercontent.com}]\n"+
+			"  rules: [{name: r, issuer: github, match: {repository_owner_id: \"42\"}, subject: 'workload:gh:{repository}'}]\n"...)
+		if err := os.WriteFile(f, b, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	})
+	dt := enrollDevice(t, e, dev)
+	exchange := func() int {
+		r := httptest.NewRequest("POST", "/api/v1/token/exchange", strings.NewReader(exchangeForm("a.b.c").Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		w := httptest.NewRecorder()
+		e.h.ServeHTTP(w, r)
+		return w.Code
+	}
+	for i := 0; i < authFailBurst; i++ {
+		if c := exchange(); c != http.StatusBadRequest {
+			t.Fatalf("garbage exchange %d: %d", i, c)
+		}
+		if c := e.scimAs("Bearer wrong", "GET", "/scim/v2/Users", "").Code; c != http.StatusUnauthorized {
+			t.Fatalf("bad SCIM token %d: %d", i, c)
+		}
+	}
+	if c := exchange(); c != http.StatusTooManyRequests {
+		t.Fatalf("exchange after burst: %d, want 429", c)
+	}
+	if c := e.scimAs("Bearer wrong", "GET", "/scim/v2/Users", "").Code; c != http.StatusTooManyRequests {
+		t.Fatalf("SCIM after burst: %d, want 429", c)
+	}
+	if c := do(e.h, "GET", "/api/v1/gateway/directory?subject=dev@acme.example", "Bearer "+gwTok, "").Code; c != 200 {
+		t.Fatalf("gateway directory from the same IP: %d, want 200 (separate budget)", c)
+	}
+	if c := do(e.h, "GET", "/api/v1/fleet/ring", "Bearer "+dt, "").Code; c != 200 {
+		t.Fatalf("device auth from the same IP: %d, want 200 (separate budget)", c)
+	}
+}
+
+// halo-server enforces the security validation itself on every policy load:
+// a reload whose workload rule pins no tenant (or whose unit loosens the
+// baseline) is refused, loudly and counted, and the last good policy keeps
+// serving; with no good policy yet, nothing is served.
+func TestPolicyLoadRefusesSecurityErrors(t *testing.T) {
+	e := newWorkloadEnv(t, true)
+	if org, _, err := e.s.pol.Get(); org == nil || err != nil {
+		t.Fatalf("fixture: %v", err)
+	}
+	f := filepath.Join(e.dir, "halos.yaml")
+	b, err := os.ReadFile(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bad := strings.Replace(string(b), `match: {repository: "acme/*", ref: refs/heads/main}`, `match: {ref: refs/heads/main}`, 1)
+	if bad == string(b) {
+		t.Fatal("fixture changed")
+	}
+	if err := os.WriteFile(f, []byte(bad), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e.s.ReloadPolicy()
+	org, _, err := e.s.pol.Get()
+	if err == nil || !strings.Contains(err.Error(), "pins no tenant") {
+		t.Fatalf("unpinned workload rule activated: err %v", err)
+	}
+	// The last good policy keeps serving, minus the rule the refused policy
+	// changed: a modification is never applied, but the old rule is gone from
+	// it, so it stops matching (TestRefusedPolicyStillRemovesWorkloadRules).
+	if org == nil || org.Workloads == nil || org.Gateway == nil || ruleFor(org, "acme/app") != "" {
+		t.Fatalf("last good policy not kept, or the changed rule still in effect: %+v", org)
+	}
+	var m bytes.Buffer
+	e.s.WriteMetrics(&m)
+	if !strings.Contains(m.String(), "halo_server_policy_refused_total 1\n") {
+		t.Fatalf("refusal not counted:\n%s", m.String())
+	}
+	// A fresh server with only the bad policy serves none.
+	s, err := New(Config{PolicyDir: e.dir, Token: tok, SessionKey: []byte(strings.Repeat("k", 32)), Log: slog.New(slog.DiscardHandler)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	if org, _, err := s.pol.Get(); org != nil || err == nil {
+		t.Fatalf("bad policy activated on a fresh server: %v", err)
+	}
+}
+
+// With no policy loaded, unauthenticated endpoints answer a generic error:
+// the load error quotes policy content (rule names, match values, paths),
+// which an anonymous caller must not read. It is logged instead.
+func TestPolicyLoadErrorNotLeaked(t *testing.T) {
+	e := newWorkloadEnv(t, true)
+	f := filepath.Join(e.dir, "halos.yaml")
+	b, err := os.ReadFile(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret := "refs/heads/secret-release-train"
+	bad := strings.Replace(string(b), `match: {repository: "acme/*", ref: refs/heads/main}`, `match: {ref: `+secret+`}`, 1)
+	if err := os.WriteFile(f, []byte(bad), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var logs bytes.Buffer
+	_, key, _ := ed25519.GenerateKey(rand.Reader)
+	s, err := New(Config{PolicyDir: e.dir, Token: tok, SessionKey: []byte(strings.Repeat("k", 32)), WorkloadKey: key,
+		Log: slog.New(slog.NewTextHandler(&logs, nil)), Portal: Portal{BaseURL: "https://halo.example"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	h := s.Handler()
+	for _, c := range []struct{ method, path, body, ctype string }{
+		{"GET", "/readyz", "", ""},
+		{"GET", "/auth/login", "", ""},
+		{"POST", "/api/v1/token/exchange", exchangeForm("a.b.c").Encode(), "application/x-www-form-urlencoded"},
+		{"POST", "/api/v1/agents/egress", `{"agent":"x"}`, "application/json"},
+	} {
+		r := httptest.NewRequest(c.method, c.path, strings.NewReader(c.body))
+		if c.ctype != "" {
+			r.Header.Set("Content-Type", c.ctype)
+		}
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != http.StatusServiceUnavailable && w.Code != http.StatusUnauthorized {
+			t.Errorf("%s %s: %d %s, want 503 (or 401 before the policy is read)", c.method, c.path, w.Code, w.Body)
+		}
+		for _, leak := range []string{secret, "pins no tenant", "main-branch", e.dir} {
+			if strings.Contains(w.Body.String(), leak) {
+				t.Errorf("%s %s leaks %q: %s", c.method, c.path, leak, w.Body)
+			}
+		}
+	}
+	if !strings.Contains(logs.String(), "pins no tenant") {
+		t.Errorf("the load error is not logged:\n%s", logs.String())
+	}
+}
+
+// An unrelated security error (a unit typo) refuses the policy, but cannot
+// block the emergency removal of a compromised workload rule: the rules in
+// effect become the last good rules still present, unchanged, in the refused
+// policy. Its additions and modifications are not applied. Logged, counted,
+// and seen by Server.Policy (the HA controller's path) as well as the API.
+func TestRefusedPolicyStillRemovesWorkloadRules(t *testing.T) {
+	e := newWorkloadEnv(t, true)
+	f := filepath.Join(e.dir, "halos.yaml")
+	write := func(rules string) {
+		t.Helper()
+		root := fmt.Sprintf(`org: acme-corp
+workloads:
+  audience: halos
+  issuers:
+    - {name: github, url: %q, tenantClaim: repository}
+  rules:
+%s`, e.iss.URL, rules)
+		if err := os.WriteFile(f, []byte(root), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		e.s.ReloadPolicy()
+	}
+	const compromised = `    - {name: compromised, issuer: github, match: {repository: "acme/app"}, subject: "workload:gh:{repository}"}
+`
+	const kept = `    - {name: kept, issuer: github, match: {repository: "acme/tools"}, subject: "workload:gh:{repository}"}
+`
+	write(compromised + kept)
+	if org, _, err := e.s.pol.Get(); err != nil || len(org.Workloads.Rules) != 2 {
+		t.Fatalf("fixture: %v", err)
+	}
+	// The emergency change removes "compromised", adds "new" and widens
+	// "kept"; an unrelated unit typo makes the whole policy fail validation.
+	unit := filepath.Join(e.dir, "units", "payments", "checkout", "unit.yaml")
+	ub, err := os.ReadFile(unit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(unit, bytes.Replace(ub, []byte("parent: payments"), []byte("parent: paymnets"), 1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	write(`    - {name: kept, issuer: github, match: {repository: "acme/*"}, subject: "workload:gh:{repository}"}
+    - {name: new, issuer: github, match: {repository: "acme/new"}, subject: "workload:gh:{repository}"}
+`)
+	org, _, err := e.s.pol.Get()
+	if err == nil || !strings.Contains(err.Error(), "units") {
+		t.Fatalf("policy with a unit typo was not refused: %v", err)
+	}
+	if org == nil || org.Workloads == nil || ruleFor(org, "acme/app") != "" || ruleFor(org, "acme/tools") != "" || ruleFor(org, "acme/new") != "" {
+		t.Fatalf("rules in effect %+v, want none matching: compromised removed, kept changed (not applied), new added (not applied)", org.Workloads)
+	}
+	// The exchange stops minting for the removed rule at once.
+	if w := e.post(exchangeForm(e.mint(t)), ""); w.Code != http.StatusBadRequest {
+		t.Fatalf("exchange for the removed rule: %d %s, want 400", w.Code, w.Body)
+	}
+	if hp, err := e.s.Policy(); err != nil || ruleFor(hp, "acme/app") != "" {
+		t.Fatalf("Server.Policy (controller path) still has the removed rule: %+v %v", hp, err)
+	}
+
+	// Removing only "compromised" keeps "kept" unchanged in effect.
+	write(compromised + kept)
+	if org, _, err := e.s.pol.Get(); err == nil || ruleFor(org, "acme/app") != "compromised" || ruleFor(org, "acme/tools") != "kept" {
+		t.Fatalf("still refused (unit typo), back to the last good rules: %+v %v", org.Workloads, err)
+	}
+	write(kept)
+	org, _, _ = e.s.pol.Get()
+	if ruleFor(org, "acme/app") != "" || ruleFor(org, "acme/tools") != "kept" {
+		t.Fatalf("rules in effect %+v, want only kept", org.Workloads.Rules)
+	}
+	var m bytes.Buffer
+	e.s.WriteMetrics(&m)
+	for _, want := range []string{"halo_server_policy_tightened_total 2\n", "halo_server_policy_refused_total 3\n", "halo_server_workload_rules_skipped 0\n"} {
+		if !strings.Contains(m.String(), want) {
+			t.Fatalf("metrics missing %q:\n%s", want, m.String())
+		}
+	}
+}
+
+// A user id compares the same way everywhere (canonicalUser): an IdP that
+// sends "Boss@Acme.example" on one login and "boss@acme.example" on another
+// cannot approve their own access request, and keeps their own requests,
+// devices and whoami self view.
+func TestUserIDsCompareCanonically(t *testing.T) {
+	e := newEnv(t, nil)
+	upper := Principal{ID: " Boss@ACME.example", Groups: admin.Groups}
+	rq := decode[Request](t, e.as(upper, "POST", "/api/v1/requests", `{"kind":"ring-opt-in","item":"`+optInRing(t, e)+`","justification":"please"}`))
+	if w := e.as(admin, "POST", "/api/v1/requests/"+rq.ID+"/approve", ""); w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "your own request") {
+		t.Fatalf("self-approval under another case: %d %s", w.Code, w.Body)
+	}
+	if c := e.as(admin, "POST", "/api/v1/requests", `{"kind":"ring-opt-in","item":"`+optInRing(t, e)+`","justification":"again"}`).Code; c != http.StatusConflict {
+		t.Fatalf("duplicate pending request under another case: %d, want 409", c)
+	}
+	devUpper := Principal{ID: "DEV@acme.example"}
+	rq = decode[Request](t, e.as(dev, "POST", "/api/v1/requests", `{"kind":"ring-opt-in","item":"`+optInRing(t, e)+`","justification":"please"}`))
+	if mine := decode[[]Request](t, e.as(devUpper, "GET", "/api/v1/requests", "")); len(mine) != 1 || mine[0].ID != rq.ID {
+		t.Fatalf("own requests under another case: %+v", mine)
+	}
+	if c := e.as(devUpper, "GET", "/api/v1/whoami?user=dev@acme.example", "").Code; c != 200 {
+		t.Fatalf("whoami self under another case: %d", c)
+	}
+	enrollDevice(t, e, dev)
+	if w := e.as(devUpper, "GET", "/api/v1/me/devices", ""); w.Code != 200 || !strings.Contains(w.Body.String(), `"id"`) {
+		t.Fatalf("own devices under another case: %d %s", w.Code, w.Body)
+	}
+	if !sameUser("Alice@Corp.com ", "alice@corp.com") || sameUser("alice", "alice2") {
+		t.Fatal("sameUser")
+	}
+}
+
 // The gateway kill-list token is rate limited per IP on failure; a client
-// that keeps guessing is refused even with the right token until it cools down.
+// that keeps guessing is refused, but a gateway presenting the valid token
+// from the same (shared egress) IP is not locked out by someone else's noise.
 func TestGatewayKillswitchRateLimited(t *testing.T) {
 	_, h, _ := newKillServer(t, true)
 	for i := 0; i < authFailBurst; i++ {
@@ -172,10 +433,11 @@ func TestGatewayKillswitchRateLimited(t *testing.T) {
 			t.Fatalf("guess %d: %d", i, c)
 		}
 	}
-	for _, auth := range []string{"Bearer guess-0123456789abcdef", "Bearer " + gwTok} {
-		if c := do(h, "GET", "/api/v1/gateway/killswitch", auth, "").Code; c != http.StatusTooManyRequests {
-			t.Fatalf("%q after burst: %d, want 429", auth[:12], c)
-		}
+	if c := do(h, "GET", "/api/v1/gateway/killswitch", "Bearer guess-0123456789abcdef", "").Code; c != http.StatusTooManyRequests {
+		t.Fatalf("guess after burst: %d, want 429", c)
+	}
+	if c := do(h, "GET", "/api/v1/gateway/killswitch", "Bearer "+gwTok, "").Code; c != 200 {
+		t.Fatalf("valid gateway token from the blocked IP: %d, want 200", c)
 	}
 	r := httptest.NewRequest("GET", "/api/v1/gateway/killswitch", nil)
 	r.RemoteAddr = "198.51.100.7:1234"
@@ -398,5 +660,67 @@ func TestGatewayKillswitchConfigAndDomain(t *testing.T) {
 	}
 	if ed25519.Verify(pub, env.Payload, env.Signature) {
 		t.Fatal("kill-list signature is not domain-separated")
+	}
+}
+
+// ruleFor is the workload rule a GitHub token for repository on main gets
+// under org ("" = none).
+func ruleFor(org *policy.Org, repository string) string {
+	r, _, ok := org.Workloads.MatchWorkload("github", map[string]any{"repository": repository, "repository_owner": "acme", "ref": "refs/heads/main"})
+	if !ok {
+		return ""
+	}
+	return r.Name
+}
+
+// A refused policy that drops a narrow rule above a broader one leaves the
+// narrow rule as a deny tombstone: its tokens do not fall through to the
+// broader rule, so no token gains a grant over the last good policy.
+func TestRefusedPolicyRemovalDoesNotWiden(t *testing.T) {
+	e := newWorkloadEnv(t, true)
+	f := filepath.Join(e.dir, "halos.yaml")
+	write := func(rules string) {
+		t.Helper()
+		root := fmt.Sprintf(`org: acme-corp
+workloads:
+  audience: halos
+  issuers:
+    - {name: github, url: %q, tenantClaim: repository_owner}
+  rules:
+%s`, e.iss.URL, rules)
+		if err := os.WriteFile(f, []byte(root), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		e.s.ReloadPolicy()
+	}
+	const narrow = `    - {name: untrusted-readonly, issuer: github, match: {repository_owner: acme, repository: "acme/untrusted"}, subject: "workload:gh:{repository}", groups: [readonly]}
+`
+	const broad = `    - {name: org-deploy, issuer: github, match: {repository_owner: acme}, subject: "workload:gh:{repository}", groups: [deploy]}
+`
+	write(narrow + broad)
+	if org, _, err := e.s.pol.Get(); err != nil || ruleFor(org, "acme/untrusted") != "untrusted-readonly" || ruleFor(org, "acme/app") != "org-deploy" {
+		t.Fatalf("fixture: %v", err)
+	}
+	unit := filepath.Join(e.dir, "units", "payments", "checkout", "unit.yaml")
+	ub, err := os.ReadFile(unit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(unit, bytes.Replace(ub, []byte("parent: payments"), []byte("parent: paymnets"), 1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	write(broad) // refused (unit typo); drops the narrow rule
+	org, _, err := e.s.pol.Get()
+	if err == nil {
+		t.Fatal("policy with a unit typo was not refused")
+	}
+	if got := ruleFor(org, "acme/untrusted"); got != "" {
+		t.Fatalf("acme/untrusted fell through to %q after its narrow rule was removed, want no rule", got)
+	}
+	if got := ruleFor(org, "acme/app"); got != "org-deploy" {
+		t.Fatalf("acme/app: %q, want org-deploy (unchanged)", got)
+	}
+	if w := e.post(exchangeForm(e.mint(t, "repository", "acme/untrusted")), ""); w.Code != http.StatusBadRequest {
+		t.Fatalf("exchange for acme/untrusted: %d %s, want 400", w.Code, w.Body)
 	}
 }

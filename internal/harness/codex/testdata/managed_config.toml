@@ -34,3 +34,9 @@ log_user_prompt = true
 endpoint = 'https://otel.example.com:4317'
 
 [otel.exporter.otlp-grpc.headers]
+[plugins]
+[plugins.'audit@acme-plugins']
+enabled = true
+
+[plugins.'risky@acme-plugins']
+enabled = false

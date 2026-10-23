@@ -15,6 +15,10 @@
 {{- if le (float64 $d.budgetUSD) 0.0 }}
 {{- fail "halo-shadow.budgetUSD must be > 0 (halo-shadow refuses to start otherwise)" }}
 {{- end }}
+{{- $ha := $d.database.existingSecret }}{{- /* shared Postgres pairs + budget (ADR-0021): replicas may be > 1 */}}
+{{- if and $ha .Values.networkPolicy.enabled (not .Values.networkPolicy.databaseEgress.to) }}{{ fail "halo-shadow.database.existingSecret with networkPolicy.enabled needs networkPolicy.databaseEgress.to (the Postgres CIDR or peers)" }}{{ end }}
+{{- if and $ha $d.persistence.enabled }}{{ fail "halo-shadow.database.existingSecret and halo-shadow.persistence.enabled are exclusive: pairs live in Postgres" }}{{ end }}
+{{- if and (gt (int $d.replicas) 1) (not $ha) }}{{ fail "halo-shadow.replicas > 1 requires halo-shadow.database.existingSecret (pairs file and budget are per process)" }}{{ end }}
 {{- if and $d.persistence.enabled (not $d.persistence.existingClaim) }}
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -89,7 +93,18 @@ spec:
             {{- if $d.pairKey.existingSecret }}
             - --pair-key-file=/etc/halo-shadow/pairkey/{{ $d.pairKey.key }}
             {{- end }}
+            {{- if $ha }}
+            - --database-url-file=/etc/halo-shadow/db/{{ $d.database.key }}
+            - --budget-scope={{ $d.database.budgetScope }}
+            {{- if $d.database.insecureTLS }}
+            - --database-insecure-tls
+            {{- end }}
+            {{- if $d.database.autoMigrate }}
+            - --auto-migrate
+            {{- end }}
+            {{- else }}
             - --out=/data/pairs.jsonl
+            {{- end }}
             {{- if $mPort }}
             - --metrics-listen={{ $d.metricsListen }}
             {{- end }}
@@ -110,7 +125,7 @@ spec:
             {{- if $mPort }}
             - {name: metrics, containerPort: {{ $mPort }}}
             {{- end }}
-          readinessProbe: {httpGet: {path: /readyz, port: http}, periodSeconds: 10}
+          readinessProbe: {httpGet: {path: /readyz, port: http}, periodSeconds: 10, timeoutSeconds: 3, failureThreshold: 2}   # policy loaded and (HA) Postgres reachable
           livenessProbe: {httpGet: {path: /healthz, port: http}, initialDelaySeconds: 10, periodSeconds: 20}
           securityContext: {{- toYaml .Values.securityContext | nindent 12 }}
           resources: {{- toYaml $d.resources | nindent 12 }}
@@ -123,6 +138,9 @@ spec:
             {{- end }}
             {{- if $d.pairKey.existingSecret }}
             - {name: pair-key, mountPath: /etc/halo-shadow/pairkey, readOnly: true}
+            {{- end }}
+            {{- if $ha }}
+            - {name: database-url, mountPath: /etc/halo-shadow/db, readOnly: true}
             {{- end }}
         {{- if $gs }}
         {{- include "halo.gitsync" (dict "root" . "name" "git-sync" "once" false "link" "current" "dir" "/policy" "vol" "policy") | nindent 8 }}
@@ -154,6 +172,10 @@ spec:
         - name: pair-key
           secret: {secretName: {{ $d.pairKey.existingSecret }}, defaultMode: 0440}
         {{- end }}
+        {{- if $ha }}
+        - name: database-url
+          secret: {secretName: {{ $ha }}, defaultMode: 0440, items: [{key: {{ $d.database.key }}, path: {{ $d.database.key }}}]}
+        {{- end }}
         {{- if $d.persistence.enabled }}
         - name: data
           persistentVolumeClaim:
@@ -161,7 +183,7 @@ spec:
         {{- else }}
         - {name: data, emptyDir: {}}
         {{- end }}
-{{- if $d.pdb.enabled }}
+{{- if or $d.pdb.enabled (and $ha (gt (int $d.replicas) 1)) }}
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget

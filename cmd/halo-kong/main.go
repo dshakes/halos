@@ -46,6 +46,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -81,6 +82,9 @@ type Config struct {
 	UserClaim         string   `json:"user_claim"`
 	GroupsClaimName   string   `json:"groups_claim"`
 	TrustedProxyCIDRs []string `json:"trusted_proxy_cidrs"` // required for trusted_header
+	// WorkloadPubkey: PEM public key(s) of halo-server --workload-key-file, or
+	// {vault://env/NAME}; accepts CI / cloud workload credentials (ADR-0023).
+	WorkloadPubkey string `json:"workload_pubkey"`
 
 	// AllowUnverified opts out of the secure default. By default, when identity
 	// is verified by JWT (an issuer is configured), a model call whose caller
@@ -109,9 +113,22 @@ type Config struct {
 	// Posture: halo-server's per-subject device posture verdicts, applied on
 	// rings with posture warn|enforce. Empty URL disables the posture gate.
 	PostureURL   string `json:"posture_url"`   // https://halo-server/api/v1/gateway/posture
-	PostureToken string `json:"posture_token"` // {vault://env/NAME} or literal (the halo-server gateway token)
+	PostureToken string `json:"posture_token"` // {vault://env/NAME} or literal (halo-server --gateway-posture-token-file, else the shared gateway token)
 	// PostureAllowInsecure permits plain http to a non-loopback host.
 	PostureAllowInsecure bool `json:"posture_allow_insecure_in_cluster"`
+
+	// Directory: halo-server's SCIM directory (ADR-0022), authoritative when
+	// set: a verified caller's groups are the directory's, and a verified caller
+	// it does not list as active is refused (403). Empty URL disables.
+	DirectoryURL   string `json:"directory_url"`   // https://halo-server/api/v1/gateway/directory
+	DirectoryToken string `json:"directory_token"` // {vault://env/NAME} or literal (halo-server --gateway-directory-token-file, else the shared gateway token)
+	// DirectoryAllowInsecure permits plain http to a non-loopback host.
+	DirectoryAllowInsecure bool `json:"directory_allow_insecure_in_cluster"`
+	// DirectoryFailMode: when the directory cannot be asked (no entry younger
+	// than 5m cached), open (default) keeps the verified caller with no groups
+	// (default routing, no experiments; posture gate still applies) and closed
+	// answers 503. A caller is never made anonymous.
+	DirectoryFailMode string `json:"directory_fail_mode"`
 }
 
 var (
@@ -236,6 +253,51 @@ func (c Config) postureClient(kong kongAPI) *gateway.PostureClient {
 	return pc
 }
 
+var (
+	directoryMu      sync.Mutex
+	directoryClients = map[string]*gateway.DirectoryClient{} // by url, token, insecure
+)
+
+// directoryClient returns the process-wide client for this config (its cache
+// is shared by every route); nil when unconfigured. An invalid config is
+// logged and handled like an unreachable directory (directoryDown).
+func (c Config) directoryClient(kong kongAPI) (dc *gateway.DirectoryClient, invalid bool) {
+	if c.DirectoryURL == "" {
+		return nil, false
+	}
+	tok := secret(c.DirectoryToken)
+	key := c.DirectoryURL + "\x00" + tok + "\x00" + strconv.FormatBool(c.DirectoryAllowInsecure) + "\x00" + c.DirectoryFailMode
+	directoryMu.Lock()
+	defer directoryMu.Unlock()
+	if dc, ok := directoryClients[key]; ok {
+		return dc, false
+	}
+	err := gateway.CheckDirectoryFailMode(c.DirectoryFailMode)
+	if err == nil {
+		dc, err = gateway.NewDirectoryClient(c.DirectoryURL, tok, 0, 0, nil, c.DirectoryAllowInsecure)
+	}
+	if err != nil {
+		_ = kong.Err("halo-kong: directory config invalid; callers keep their identity with no groups (or 503 unless directory_fail_mode is open): ", err.Error())
+		return nil, true
+	}
+	dc.FailClosed = c.DirectoryFailMode == gateway.DirectoryFailClosed
+	directoryClients[key] = dc
+	return dc, false
+}
+
+// directoryDown is the answer for a verified caller when the directory config
+// is invalid: the open fail mode keeps sub with no groups, never anonymous;
+// any other (closed, or an invalid value) refuses.
+func (c Config) directoryDown(sub *policy.Subject, path string) (*policy.Subject, *gateway.Rejection) {
+	if c.DirectoryFailMode != "" && c.DirectoryFailMode != gateway.DirectoryFailOpen {
+		return nil, gateway.RejectDirectoryUnavailable(path)
+	}
+	if sub == nil || sub.Kind == policy.SubjectWorkload { // workloads are not in SCIM: unchanged, as Resolve does
+		return sub, nil
+	}
+	return &policy.Subject{ID: sub.ID, Kind: sub.Kind}, nil
+}
+
 // gate applies the ring's posture and version gates; outcomes is what failed
 // or was unknown (for the x-halo-gate upstream header), rej the 403 to answer.
 func (c Config) gate(kong kongAPI, org *policy.Org, ring string, sub *policy.Subject, h http.Header, proto string) (outcomes []string, rej *gateway.Rejection) {
@@ -272,7 +334,7 @@ func (c Config) identityOptions(org *policy.Org) identity.Options {
 		Mode: c.IdentityMode, Issuer: c.Issuer, Audience: c.Audience,
 		UserClaim: c.UserClaim, GroupsClaim: c.GroupsClaimName,
 		IdentityHeader: gateway.IdentityHeaderFor(org, c.IdentityHeader), GroupsHeader: c.GroupsHeader,
-		TrustedProxyCIDRs: c.TrustedProxyCIDRs,
+		TrustedProxyCIDRs: c.TrustedProxyCIDRs, WorkloadKeys: secret(c.WorkloadPubkey),
 	}
 }
 
@@ -378,6 +440,16 @@ func main() { _ = server.StartServer(New, version, priority) }
 func (c Config) Access(kong *pdk.PDK) { c.access(pdkAPI{kong}) }
 
 func (c Config) access(kong kongAPI) {
+	// go-pdk runs each event in its own goroutine with no recover, so a panic
+	// here would kill the plugin server and every route behind it. Refuse
+	// this request instead (500, never forwarded) and log the panic.
+	defer func() {
+		if p := recover(); p != nil {
+			_ = kong.Err("halo-kong: access phase panic (request refused): ", fmt.Sprint(p), "\n", string(debug.Stack()))
+			kong.Exit(http.StatusInternalServerError, []byte(`{"error":{"type":"halos_internal_error","message":"halos: internal error in the gateway plugin"}}`),
+				map[string][]string{"Content-Type": {"application/json"}})
+		}
+	}()
 	org, err := snapshot(c.PolicyPath).Get()
 	if err != nil {
 		// Fail open on routing (Kong's default service), never on header hygiene.
@@ -408,6 +480,22 @@ func (c Config) access(kong kongAPI) {
 		return
 	}
 
+	if dc, invalid := c.directoryClient(kong); dc != nil {
+		if sub, err = dc.Resolve(context.Background(), sub); err != nil { // a deprovisioned caller is refused, never anonymous
+			rej := gateway.RejectNotProvisioned(path)
+			if errors.Is(err, gateway.ErrDirectoryUnavailable) {
+				rej = gateway.RejectDirectoryUnavailable(path)
+			}
+			exit(kong, rej)
+			return
+		}
+	} else if invalid {
+		var rej *gateway.Rejection
+		if sub, rej = c.directoryDown(sub, path); rej != nil {
+			exit(kong, rej)
+			return
+		}
+	}
 	ks, ksBad := c.killPoller(kong)
 	res := gateway.PrepareVerified(ks.Apply(org), sub, h, path, body) // killed experiments: control, no shadow
 	if res.Reject != nil {

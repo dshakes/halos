@@ -196,6 +196,30 @@ Enforce answers 403 in the caller's wire format with the reason and `halod statu
 on the request log line. An unreachable halo-server past `grace` makes the posture unknown: the request passes.
 `/metrics` counts `halo_proxy_gate_total{gate,ring,outcome}`.
 
+## Budgets
+
+The policy's `gateway.budgets` cap spend per user, group, ring or org (ADR-0017). halo-proxy reads token usage from
+each model response as it streams, prices it from `gateway.pricing`, reports it to halo-server every
+`flushInterval`, and checks the caller's counters before each model call:
+
+```yaml
+budgets:
+  url: https://halo.internal.example.com/api/v1/gateway/budget   # empty: budgets are neither metered nor enforced
+  tokenFile: /run/secrets/halo-gateway-token                     # halo-server --gateway-token-file
+  cacheTTL: 30s                                                  # per-caller verdict cache
+  grace: 15m                                                     # last verdict kept while halo-server is unreachable
+  flushInterval: 5s                                              # usage report interval
+  failMode: open                                                 # open | closed: unknown verdict under an enforce budget
+  serverStateInputTokens: 200000                                 # input charged when a cut Responses call names server-side state
+  maxEstimatedOutputTokens: 128000                               # output estimate cap when the request sets no max tokens
+```
+
+An exhausted `enforce` budget answers 429 with `Retry-After` at the window reset, in the caller's wire format
+(Anthropic `rate_limit_error`, OpenAI `insufficient_quota`, Gemini `RESOURCE_EXHAUSTED`, Bedrock
+`ThrottlingException`). `warn` budgets and soft thresholds (`alertAt`) pass with an `X-Halo-Budget` response header.
+Flags: `--budget-url`, `--budget-token-file`, `--budget-fail-mode`. `/metrics` exports `halo_proxy_budget_*`. See
+the [cost budgets guide](https://dshakes.github.io/halos/guides/cost-budgets/).
+
 ## Kill switch
 
 halo-proxy can poll halo-server's signed kill list and treat killed experiments as **not running**:
@@ -239,15 +263,20 @@ telemetry:
   tokenFile: /run/secrets/halo-otlp-token    # same value as the collector's HALO_OTLP_GATEWAY_TOKEN
   protocol: http/protobuf                    # or http/json
   interval: 10s                              # minimum 1s
+  genai:
+    metrics: true                            # gen_ai.client.* semconv metrics (default on); false also skips the response-body scan
+    traces: false                            # opt-in: one `chat {model}` span per call to <otlpEndpoint>/v1/traces
 ```
 
 Flags (env `HALO_PROXY_<FLAG>`): `--telemetry-otlp-endpoint`, `--telemetry-token-file`, `--telemetry-protocol`,
-`--telemetry-interval`, `--telemetry-unit-salt-file`. `halo-proxy` exports `halo.gateway.*` per-request metrics;
+`--telemetry-interval`, `--telemetry-unit-salt-file`, `--telemetry-genai-metrics`, `--telemetry-genai-traces`. `halo-proxy` exports `halo.gateway.*` per-request metrics;
 the `halo.unit` attribute is `HMAC-SHA256(salt, verified subject)`, never a client id. Use the **same salt file on
 every replica** so one user stays one unit (no salt means a random per-process one; there is no inline flag, flags
 leak via `ps`). The collector accepts these only on its authenticated gateway receiver (`:4319`, bearer token);
 without `tokenFile` the collector answers 401. Only this gateway-sourced evidence may trip the controller's kill
-switch. Generate the collector with `halo telemetry collector-config` ([evidence plane](https://dshakes.github.io/halos/concepts/evidence-plane/#evidence-trust)).
+switch. The same export carries OpenTelemetry GenAI semantic-convention metrics and, opt-in, spans (semconv v1.40.0; names,
+attributes and the no-content rule: [evidence plane](https://dshakes.github.io/halos/concepts/evidence-plane/#opentelemetry-genai-semantic-conventions)).
+Generate the collector with `halo telemetry collector-config` ([evidence plane](https://dshakes.github.io/halos/concepts/evidence-plane/#evidence-trust)).
 
 ## Provider-agnostic routing (halo-proxy only)
 

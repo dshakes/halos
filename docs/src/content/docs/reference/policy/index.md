@@ -14,3 +14,4 @@ Generated from `schemas/*.schema.json`; do not edit. Regenerate with `make docs-
 | [`ring`](/halos/reference/policy/ring/) | An ordered rollout cohort pointing at a profile. |
 | [`rollout`](/halos/reference/policy/rollout/) | A phased rollout of one change: ordered steps with a ring, percent, bake, gates and a failure action. Advancing only opens a PR; rollback and pause are automatic. |
 | [`toggle`](/halos/reference/policy/toggle/) | A feature toggle: one capability turned on for a targeted cohort and killable fleet-wide at the next kill-list poll, without a new release. |
+| [`unit`](/halos/reference/policy/unit/) | A business unit or team in the org hierarchy (ADR-0018): delegated owners, a member selector and an overlay applied on top of the ring profile. Enforced security fields may only be tightened. |

@@ -194,6 +194,13 @@ var allowedOverrides = map[string][]string{
 		"model_reasoning_effort", "model_reasoning_summary", "model_verbosity",
 		"hide_agent_reasoning", "show_raw_agent_reasoning", "file_opener", "tui.*",
 	},
+	// https://opencode.ai/docs/config/ and https://opencode.ai/config.json (checked 2026-10-21):
+	// cosmetic and behavioural keys only. permission, provider, mcp, instructions, share,
+	// plugin, formatter, lsp, command, agent and experimental are deliberately absent:
+	// they widen what runs or where data goes.
+	"opencode": {
+		"username", "layout", "logLevel", "snapshot", "compaction.*", "watcher.*",
+	},
 	// https://github.com/google-gemini/gemini-cli/blob/main/docs/reference/configuration.md (fetched 2026-09-30)
 	// general.* is listed key by key: defaultApprovalMode (yolo), enableAutoUpdate
 	// (version pin), debugKeystrokeLogging (privacy) are deliberately absent.

@@ -3,6 +3,7 @@ package codex
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	toml "github.com/pelletier/go-toml/v2"
@@ -34,6 +35,7 @@ func (Adapter) Capabilities() []harness.Capability {
 		harness.CapGateway, harness.CapHeaders, harness.CapTelemetry,
 		harness.CapMCPAllowlist,
 		harness.CapPermissions,
+		harness.CapExtensions, // partial: marketplace allowlist; plugin pins are defaults
 	}
 }
 
@@ -63,7 +65,8 @@ var approval = map[string]string{
 func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []string, error) {
 	warns := hutil.WarnUnsupported(name, p,
 		"models.default", "permissions.mode", "permissions.sandbox", "permissions.disableBypass",
-		"mcp.servers", "telemetry.enabled", "telemetry.logPrompts", "telemetry.attributes")
+		"mcp.servers", "telemetry.enabled", "telemetry.logPrompts", "telemetry.attributes",
+		"extensions.marketplaces", "extensions.plugins.enabled", "extensions.plugins.blocked", "login")
 	warns = append(warns, "codex cannot self-enforce version; halod enforces")
 	win := c.OS == harness.Windows
 	if win {
@@ -176,6 +179,25 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 		cfg["otel"] = otel
 	}
 
+	// plugins.<plugin@marketplace>.enabled is a config default, not a lock: Codex
+	// reads it from the merged config, so a trusted project can override it, and
+	// requirements.toml has no per-plugin pin (only features.plugins, all or none).
+	// https://learn.chatgpt.com/docs/config-file/config-reference
+	if pl := p.Extensions.Plugins; len(pl.Enabled)+len(pl.Blocked) > 0 {
+		plugins := map[string]any{}
+		for _, k := range pl.Enabled {
+			plugins[k] = map[string]any{"enabled": true}
+		}
+		for _, k := range pl.Blocked {
+			plugins[k] = map[string]any{"enabled": false}
+		}
+		cfg["plugins"] = plugins
+		warns = append(warns, "codex: extensions.plugins.enabled/blocked are rendered as config.toml defaults (plugins.<name>.enabled), not enforced: Codex has no per-plugin requirement, and a trusted project can override them")
+		if win {
+			warns = append(warns, "codex: extensions.plugins.enabled/blocked are not rendered on Windows (no system-wide managed_config.toml)")
+		}
+	}
+
 	hutil.DeepMerge(cfg, p.Harnesses[name].Overrides)
 	data, err := toml.Marshal(cfg)
 	if err != nil {
@@ -228,6 +250,44 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 			allow[sv.Name] = map[string]any{"identity": id}
 		}
 		req["mcp_servers"] = allow
+	}
+	// [marketplaces] restricts which plugin sources users can add and use; git
+	// rules match the normalized repository URL plus an optional exact ref.
+	// https://learn.chatgpt.com/docs/enterprise/managed-configuration
+	if len(p.Extensions.Marketplaces) > 0 {
+		sources := map[string]any{}
+		for i, m := range p.Extensions.Marketplaces {
+			rule := map[string]any{}
+			switch m.Source {
+			case policy.MarketplaceGitHub:
+				rule["source"], rule["url"] = "git", "https://github.com/"+m.Repo+".git"
+			case policy.MarketplaceGit:
+				rule["source"], rule["url"] = "git", m.URL
+			case policy.MarketplaceHostPattern:
+				rule["source"], rule["host_pattern"] = "host_pattern", m.HostPattern
+			default:
+				warns = append(warns, fmt.Sprintf("codex: marketplace source %q has no requirements.toml equivalent (git, host_pattern and local only); not rendered", m.Source))
+				continue
+			}
+			if m.Ref != "" {
+				rule["ref"] = m.Ref
+			}
+			sources["source_"+strconv.Itoa(i+1)] = rule
+		}
+		// Every rule skipped would leave restrict_to_allowed_sources=true with no
+		// sources, i.e. block all marketplaces; refuse to widen or silently lock out.
+		if len(sources) > 0 {
+			req["marketplaces"] = map[string]any{"restrict_to_allowed_sources": true, "allowed_sources": sources}
+		} else {
+			warns = append(warns, "codex: no extensions.marketplaces entry is expressible in requirements.toml; marketplace restriction not rendered")
+		}
+	}
+	// allowed_login_methods is read from the local requirements file only.
+	switch p.Login {
+	case policy.LoginSubscription:
+		req["allowed_login_methods"] = []string{"chatgpt"}
+	case policy.LoginAPI:
+		req["allowed_login_methods"] = []string{"api"}
 	}
 	if len(req) > 0 {
 		rp := requirementsPath

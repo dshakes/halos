@@ -13,7 +13,7 @@ Not by hand, in the usual setups. They keep using the vendor CLI. Config reaches
 
 ## Which CLIs are supported?
 
-Claude Code, Codex and Gemini CLI have adapters and are applied by `halod`. Copilot CLI is rendered and applied by `halod` (Linux), but its gateway is not rendered: BYOK is env-only. `halo harnesses` prints the capability matrix, and an unsupported setting becomes a warning in the release manifest rather than being silently dropped. See the [harness matrix](/halos/reference/harness-matrix/).
+Claude Code, Codex, Gemini CLI, Copilot CLI, Cursor CLI and OpenCode have adapters, and `halod` applies what each can enforce. Copilot CLI and Cursor CLI have no gateway render (Copilot BYOK is env-only; Cursor documents no base-URL override). `halo harnesses` prints the capability matrix, and an unsupported setting becomes a warning in the release manifest rather than being silently dropped. See the [harness matrix](/halos/reference/harness-matrix/).
 
 ## Does it proxy my code?
 
@@ -49,7 +49,7 @@ No. `halo-proxy` runs in front of, behind or instead of Kong, LiteLLM, Envoy, ng
 
 ## Why not just use Claude Code server-managed settings?
 
-They are not fetched with Bedrock or a custom `ANTHROPIC_BASE_URL`. If you use either, you need file, MDM or environment delivery. Halos also spans Codex and Gemini CLI.
+They are not fetched with Bedrock or a custom `ANTHROPIC_BASE_URL`. If you use either, you need file, MDM or environment delivery. Halos also spans Codex, Gemini CLI, Copilot CLI, Cursor CLI and OpenCode.
 
 ## Do I need Kong Enterprise?
 
