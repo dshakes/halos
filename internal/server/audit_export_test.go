@@ -218,8 +218,15 @@ func TestAuditExportRetriesThenResumesWithoutResending(t *testing.T) {
 		t.Fatalf("lag before export:\n%s", m)
 	}
 	stop := exporting(t, e.s)
-	waitFor(t, "delivery after retries", func() bool { return rc.count() == 1 })
+	// The receiver counts a batch before the exporter records it as sent:
+	// wait for the exporter's own metric, not the receiver.
+	waitFor(t, "delivery after retries", func() bool {
+		return strings.Contains(metrics(e.s), `halo_server_audit_forward_sent_total{sink="hook"} 3`)
+	})
 	stop()
+	if n := rc.count(); n != 1 {
+		t.Fatalf("receiver got %d batches, want 1", n)
+	}
 	if m := metrics(e.s); !strings.Contains(m, `halo_server_audit_forward_failed_total{sink="hook"} 2`) ||
 		!strings.Contains(m, `halo_server_audit_forward_sent_total{sink="hook"} 3`) {
 		t.Fatalf("metrics after retries:\n%s", m)
