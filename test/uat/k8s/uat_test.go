@@ -549,11 +549,15 @@ func rollout(t *testing.T, s *u) {
 		t.Fatal(err)
 	}
 	ch := func(sql string) float64 { return s.chNum(t, sql) }
+	// Wait for the synthetic batch itself (release 'uat'): live proxy rows from
+	// scenarios c/d/e also carry experiment uat-bad and would end the wait early.
+	const synthUnits = " FROM halo_metrics WHERE release='uat' AND metric='halo.gateway.requests' AND attrs['halo.source']='gateway'"
 	waitFor(t, 90*time.Second, "evidence rows in ClickHouse", func() bool {
-		return ch("SELECT count() FROM halo_metrics WHERE experiment='uat-bad' AND metric='halo.gateway.requests'") >= 2 &&
+		return ch("SELECT uniqExact(unit_id)"+synthUnits+" AND experiment='uat-bad'") >= 80 &&
+			ch("SELECT uniqExact(unit_id)"+synthUnits+" AND experiment='uat-ok'") >= 500 &&
 			ch("SELECT count() FROM halo_metrics WHERE experiment='uat-cli'") > 0
 	})
-	units := ch("SELECT uniqExact(unit_id) FROM halo_metrics WHERE experiment='uat-bad' AND release='uat' AND metric='halo.gateway.requests' AND attrs['halo.source']='gateway'")
+	units := ch("SELECT uniqExact(unit_id)" + synthUnits + " AND experiment='uat-bad'")
 	s.r.check(t, scg, "gateway telemetry (authenticated OTLP) lands in ClickHouse as halo.source=gateway", units == 80, "%v units for uat-bad", units)
 	cli := ch("SELECT countIf(attrs['halo.source']='cli') FROM halo_metrics WHERE experiment='uat-cli'")
 	s.r.check(t, scg, "CLI telemetry (open OTLP receiver) lands in ClickHouse as halo.source=cli", cli > 0, "%v rows", cli)
