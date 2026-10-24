@@ -4,6 +4,8 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-23
+
 ### Added
 - Vendor admin sync (ADR-0025): `halos.yaml` `vendorAdmin` drives the vendors' cloud admin consoles from the GA ring's profile. `halo admin plan` diffs Gemini Code Assist (logging, release channel) and GitHub Copilot (content exclusion, CLI policy) against the live consoles and exits 2 on drift. `halo admin apply` writes the settings that have a public API, after confirmation, and never loosens a control. `halo admin export` writes Claude server-managed settings, Codex requirements and config, and a Cursor model list, with manual steps for consoles that have no write API. The MCP tool `admin_plan` is read-only.
 - Telemetry: the collector normalises Copilot CLI metrics into `halo.*` (`github.copilot.tool.call.count` becomes `halo.tool.calls`; its `gen_ai.client.*` metrics are stamped `halo.harness=copilot-cli` by `service.name`, where they used to be mislabelled as Gemini CLI). Cursor CLI and OpenCode emit no usable OTel and are documented as unmapped, with halo-proxy `gen_ai.*` metrics as their per-request source.
