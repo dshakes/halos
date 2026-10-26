@@ -5,8 +5,8 @@ sidebar:
   label: Components and source
 ---
 
-:::note[Latest release: v0.2.1]
-Release archives are checksummed, carry an SBOM, and `checksums.txt` is cosign-signed; the release workflow's `verify` job checks the signature, the archive checksum and build provenance after publishing. See [install](/halos/getting-started/install/) for Homebrew, Scoop and `install.sh`. The Helm chart's images default to the chart `appVersion` (currently 0.2.1); set each component's `image.tag` to run a different release.
+:::note[Latest release: v0.3.0]
+Release archives are checksummed, carry an SBOM, and `checksums.txt` is cosign-signed; the release workflow's `verify` job checks the signature, the archive checksum and build provenance after publishing. See [install](/halos/getting-started/install/) for Homebrew, Scoop and `install.sh`. The Helm chart's images default to the chart `appVersion` (currently 0.3.0); set each component's `image.tag` to run a different release.
 :::
 
 ## Components
