@@ -17,7 +17,7 @@ Halos overlaps with three kinds of tool without replacing any of them outright. 
 | Many providers behind one API | No | Core strength | No | A handful (Anthropic, Bedrock, Vertex, OpenAI, Azure OpenAI, Gemini) |
 | Polished admin UI | Yes | Usually | Yes | Basic console and portal |
 | Hosted option, vendor support | Yes | Often | Yes | No: self-hosted, community support |
-| Maturity | Production | Widely deployed | Widely deployed | v0.2.1; policy API `halos.dev/v1` (stable) |
+| Maturity | Production | Widely deployed | Widely deployed | v0.3.0; policy API `halos.dev/v1` (stable) |
 
 ## Vendor consoles and managed settings
 
@@ -45,7 +45,7 @@ Halos borrows the vocabulary (toggles, percentage rollouts, a kill switch, exper
 
 ## Honest limits
 
-- The policy API is `halos.dev/v1` and stable ([Compatibility](/halos/reference/compatibility/)). The latest release is v0.2.1, which is pre-1.0 (see the [support policy](/halos/reference/support-policy/)).
+- The policy API is `halos.dev/v1` and stable ([Compatibility](/halos/reference/compatibility/)). The latest release is v0.3.0, which is pre-1.0 (see the [support policy](/halos/reference/support-policy/)).
 - It is an open-source project with a small maintainer group, not a vendor with an SLA.
 - Several integrations are labelled **UNVERIFIED** in the docs (Kong Enterprise, real Bedrock, Vertex, Azure OpenAI and Gemini accounts, MDM on real devices). Believe those labels.
 - It is self-hosted only. You run the proxy, the registry and the telemetry store.
