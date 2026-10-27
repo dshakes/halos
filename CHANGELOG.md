@@ -4,6 +4,17 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Security
+
+- `halo-kong`: when the directory config is invalid and `directory_fail_mode` is open, a delegated agent keeps its delegation chain. Before, it was treated as its human root: the agent policy (`deniedTools`, chain model scope, `maxDepth`) was skipped and the agent could be enrolled in experiments.
+- `halo-kong`: a posture config that is set but invalid (for example `posture_token` naming an unset env var) no longer turns the posture gate off. Enforce rings answer 403 and warn rings pass tagged `posture=unknown`.
+- Gateways: a posture lookup that `halo-server` refuses (any non-200 below 500, such as 401 or 404) is now a failed verdict. Before, it counted as unknown, and unknown passes.
+- `halo-kong`: a request that reaches Kong's 1000-header-line cap is answered 431 before identity is derived. Kong truncates the header list silently, so a duplicate identity header past the cap went unseen.
+- Gateways: `x-halo-gate` and `x-halo-killswitch` are cleared on every request. Before, they were cleared only when they appeared in the header view the host returned.
+- Identity: OIDC discovery no longer holds a lock across the network. Concurrent requests share one discovery and each waits only until its own deadline. A failed discovery is cached for 30 seconds.
+- Identity: a token that no cached JWKS key verifies (an unknown `kid`) triggers a JWKS refetch at most once every 30 seconds per issuer, which stops unauthenticated amplification against the IdP. A rotated key is accepted once that window has passed.
+- `halo-kong`: with `HALO_KONG_METRICS_LISTEN` set, the plugin serves Prometheus counters on `GET /metrics` for directory resolution outcomes (including fail-open), posture decisions (pass, fail, deny, unknown), header-cap rejections and agent admission denials.
+
 ## [0.3.0] - 2026-10-23
 
 ### Added

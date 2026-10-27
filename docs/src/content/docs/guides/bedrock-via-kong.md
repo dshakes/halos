@@ -113,4 +113,17 @@ Rings with `posture` or `versionGate` set to `warn` or `enforce` (default `warn`
 | `posture_token` | The gateway bearer token, a literal or `{vault://env/halo-gateway-token}` |
 | `posture_allow_insecure_in_cluster` | Default `false`; as `killswitch_allow_insecure_in_cluster` |
 
-Verdicts are cached per user for 1 minute and kept for 15 minutes while `halo-server` is unreachable; after that the posture is unknown and the request passes. Enforce answers 403 in the CLI's wire format. Warn-mode failures and unknown posture pass, are logged at NOTICE, and tag the upstream request `x-halo-gate` (for example `version=warn,posture=unknown`; client copies are cleared first). An invalid posture config is logged at ERROR and leaves the posture gate off.
+Verdicts are cached per user for 1 minute and kept for 15 minutes while `halo-server` is unreachable (a transport error or 5xx); after that the posture is unknown and the request passes. A lookup `halo-server` refuses (401 for a wrong token, 404 when posture is not configured on the server, any other non-200 below 500) is a failed verdict, not unknown: enforce rings answer 403, warn rings pass flagged. Enforce answers 403 in the CLI's wire format. Warn-mode failures and unknown posture pass, are logged at NOTICE, and tag the upstream request `x-halo-gate` (for example `version=warn,posture=unknown`; client copies are always cleared, whether or not the plugin saw them). An invalid posture config (for example `posture_token` naming an unset env var) never turns the gate off: it is logged at ERROR on every request, enforce rings refuse every caller with 403, and warn rings pass tagged `posture=unknown`.
+
+## 7. Metrics and limits
+
+Set `HALO_KONG_METRICS_LISTEN` (for example `127.0.0.1:9542`) in the plugin server's environment and list it in `KONG_NGINX_MAIN_ENV` to serve Prometheus text on `GET /metrics` (unauthenticated: bind it to loopback or a pod-local address). Unset disables it. Counters, process-wide across routes:
+
+| Metric | Labels |
+|---|---|
+| `halo_kong_directory_resolutions_total` | `outcome`: `ok`, `stale` (cached entry served through an outage), `failopen`, `unavailable` (503), `not_provisioned` (403), `invalid_config_failopen`, `invalid_config_refused` |
+| `halo_kong_posture_total` | `ring`, `outcome`: `pass`, `fail` (warn, let through), `deny` (enforce, 403), `unknown` |
+| `halo_kong_header_cap_rejections_total` | none |
+| `halo_kong_agent_denials_total` | none: delegated agent calls refused by the agent policy |
+
+Kong hands the plugin at most 1000 request header lines and truncates silently, so a request that reaches 1000 is answered 431 before identity is derived: a duplicate identity header past the cap would otherwise go unseen.
