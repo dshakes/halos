@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -28,9 +29,9 @@ import (
 
 var sha = strings.Repeat("ab", 32)
 
-// exampleSupplyChain is acme-corp's halos.yaml supplyChain block (its last
-// key), for fixtures that replace halos.yaml but keep the example profiles,
-// which reference those artifacts.
+// exampleSupplyChain is acme-corp's halos.yaml supplyChain block (up to the
+// next top-level key), for fixtures that replace halos.yaml but keep the
+// example profiles, which reference those artifacts.
 func exampleSupplyChain(t testing.TB) string {
 	t.Helper()
 	b, err := os.ReadFile("../../examples/acme-corp/halos.yaml")
@@ -41,7 +42,11 @@ func exampleSupplyChain(t testing.TB) string {
 	if i < 0 {
 		t.Fatal("examples/acme-corp/halos.yaml has no top-level supplyChain")
 	}
-	return string(b[i+1:])
+	block := string(b[i+1:])
+	if j := regexp.MustCompile(`\n[A-Za-z]`).FindStringIndex(block[1:]); j != nil {
+		block = block[:j[0]+2]
+	}
+	return block
 }
 
 // portalPolicy copies acme-corp and enables identity + self-service + one opt-in ring.
