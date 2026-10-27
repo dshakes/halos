@@ -127,6 +127,13 @@ func ReadPath(root string) (Tree, error) {
 	if !fi.IsDir() {
 		return nil, fmt.Errorf("%s is not a regular file or directory", root)
 	}
+	// Reads go through an os.Root, so a symlink swapped in after the walk
+	// saw a regular file still cannot read outside root.
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = r.Close() }() // read-only
 	total := 0
 	err = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -152,7 +159,7 @@ func ReadPath(root string) (Tree, error) {
 		if total += int(info.Size()); total > MaxBytes || len(t) >= MaxFiles {
 			return fmt.Errorf("%s exceeds the artifact limits (%d files, %d bytes)", root, MaxFiles, MaxBytes)
 		}
-		b, err := os.ReadFile(p)
+		b, err := r.ReadFile(rel)
 		if err != nil {
 			return err
 		}

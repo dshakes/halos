@@ -283,7 +283,7 @@ func writeFile(p string, data []byte, mode os.FileMode) error {
 	if mode == 0 {
 		mode = 0o644
 	}
-	return os.WriteFile(p, data, mode)
+	return os.WriteFile(p, data, mode) //nolint:gosec // p is the operator's own output path (-o / --out)
 }
 
 func (a *app) cmdVersion() *cobra.Command {
