@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/dshakes/halos/internal/harness/hutil"
 	"github.com/dshakes/halos/internal/policy"
 	"github.com/dshakes/halos/internal/promote"
 	"github.com/dshakes/halos/internal/yamledit"
@@ -82,6 +84,36 @@ func need(reason string) (string, error) {
 	return "", errors.New("reason is required for write tools")
 }
 
+// needUnlessDry is need for tools that preview by default: a dry run takes a
+// reason but does not require one; a real run does.
+func needUnlessDry(dry *bool, reason string) (string, error) {
+	if isDry(dry) {
+		return strings.TrimSpace(reason), nil
+	}
+	return need(reason)
+}
+
+// shJoin renders argv as a command a human can paste into a POSIX shell:
+// every value is single-quoted unless it is plainly safe.
+func shJoin(argv ...string) string {
+	q := make([]string, len(argv))
+	for i, a := range argv {
+		q[i] = sh(a)
+	}
+	return strings.Join(q, " ")
+}
+
+// sh quotes one value for a copy-paste command (hutil.ShQuote), leaving
+// plain words (flags, names, paths without metacharacters) readable.
+func sh(a string) string {
+	if a != "" && safeWord.MatchString(a) {
+		return a
+	}
+	return hutil.ShQuote(a)
+}
+
+var safeWord = regexp.MustCompile(`^[A-Za-z0-9_@%+=:,./-]+$`)
+
 func (s *srv) setStatus(ctx context.Context, verb string, in writeIn) (writeOut, error) {
 	reason, err := need(in.Reason)
 	if err != nil {
@@ -147,7 +179,7 @@ func (s *srv) finish(ctx context.Context, dry bool, files map[string][]byte, edi
 	}
 	out.Applied, out.Branch, out.Commit = true, branch, c
 	out.Note = "committed locally; push and merge are human steps"
-	out.NextSteps = []string{fmt.Sprintf("human gate: git -C %s push -u origin %s && gh pr create --head %s --fill; then review and merge", s.dir, branch, branch)}
+	out.NextSteps = []string{fmt.Sprintf("human gate: %s && %s; then review and merge", shJoin("git", "-C", s.dir, "push", "-u", "origin", branch), shJoin("gh", "pr", "create", "--head", branch, "--fill"))}
 	return out, nil
 }
 

@@ -320,8 +320,26 @@ func TestEvalRunDryRunAndGates(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, ".halos", "scorecards")); !os.IsNotExist(err) {
 		t.Fatal("dry run created the scorecard dir")
 	}
-	if _, err := call(t, ro, "eval_run", map[string]any{"suite": "evals/suite.yaml", "dry_run": false}); err == nil || !strings.Contains(err.Error(), "--allow-writes") {
+	if _, err := call(t, ro, "eval_run", map[string]any{"suite": "evals/suite.yaml", "dry_run": false, "reason": "pre-canary gate"}); err == nil || !strings.Contains(err.Error(), "--allow-writes") {
 		t.Fatalf("read-only real run accepted: %v", err)
+	}
+	// write tools require a reason: a real run without one never starts
+	rw := connect(t, Options{PolicyDir: dir, AllowWrites: true})
+	for _, r := range []any{nil, "", "  "} {
+		args := map[string]any{"suite": "evals/suite.yaml", "dry_run": false}
+		if r != nil {
+			args["reason"] = r
+		}
+		if out, err := call(t, rw, "eval_run", args); err == nil || !strings.Contains(err.Error(), "reason is required") {
+			t.Fatalf("real run without a reason (%v): %v %v", r, out, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".halos", "scorecards")); !os.IsNotExist(err) {
+		t.Fatal("reasonless run created the scorecard dir")
+	}
+	// a preview accepts one and echoes it
+	if out, err := call(t, ro, "eval_run", map[string]any{"suite": "evals/suite.yaml", "reason": "why"}); err != nil || out["reason"] != "why" {
+		t.Fatalf("dry run with reason: %v %v", out, err)
 	}
 	for _, args := range []map[string]any{{"suite": "/etc/passwd"}, {"suite": "../outside.yaml"}, {"suite": "evals/missing.yaml"}, {}} {
 		if _, err := call(t, ro, "eval_run", args); err == nil {
