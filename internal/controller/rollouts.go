@@ -142,7 +142,7 @@ func (c *Controller) rolloutStep(ctx context.Context, org *policy.Org, r *policy
 			if gov, err = c.Governance(ctx, r); err != nil {
 				// Unknown incident state holds advances (fail closed); a
 				// breach still rolls back, which a freeze never holds.
-				c.fail(err)
+				_ = c.fail(err) // recorded; the rollout is held below, not skipped
 				c.log().Error("change governance unreadable; holding advances", "rollout", r.Name, "err", err)
 				gov = rollout.Governance{Incident: &policy.ActiveFreeze{Reason: "governance state unreadable: " + err.Error()}}
 			}

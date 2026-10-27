@@ -409,7 +409,7 @@ func (o *Org) CheckTicket(target ChangeTarget, ticket string) error {
 // and PR bodies, so it is a short token, never free text.
 func ValidTicket(t string) error {
 	if t == "" || len(t) > 64 || strings.IndexFunc(t, func(c rune) bool {
-		return !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.ContainsRune("._:/#-", c))
+		return (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && !strings.ContainsRune("._:/#-", c)
 	}) >= 0 {
 		return fmt.Errorf("ticket %q: want 1-64 letters, digits or ._:/#- (e.g. CHG0012345, OPS-42)", t)
 	}

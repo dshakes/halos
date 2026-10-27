@@ -67,4 +67,3 @@ func TestPlanAllRingsAndImpact(t *testing.T) {
 		t.Fatalf("option-like ref accepted: %s", errs)
 	}
 }
-
