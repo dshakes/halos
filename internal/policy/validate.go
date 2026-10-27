@@ -338,6 +338,8 @@ func (v *validator) profileSpec(path string, p *Profile) {
 		v.oneOf(path+".login", "login", l, loginModes)
 	}
 	v.extensions(path+".extensions", p.Extensions)
+	v.egress(path+".egress", p.Egress)
+	v.sandbox(path, p)
 }
 
 var (

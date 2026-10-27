@@ -31,6 +31,7 @@ var builtinGuardrails = []Guardrail{
 	guardEgressHasGateway,
 	guardGARing,
 	guardSandboxEgress,
+	guardSandboxOff,
 	guardReservedOverrides,
 	guardNames,
 	guardRingProfiles,
@@ -107,7 +108,7 @@ func guardMCPServers(o *Org) []Issue {
 	return out
 }
 
-// guardEgressHasGateway: a non-empty egress allowlist must include the gateway host.
+// guardEgressHasGateway: a restricted egress policy must allow the gateway host.
 func guardEgressHasGateway(o *Org) []Issue {
 	if o.Gateway == nil {
 		return nil
@@ -120,17 +121,11 @@ func guardEgressHasGateway(o *Org) []Issue {
 	var out []Issue
 	for _, name := range sortedKeys(o.Profiles) {
 		p, err := o.ResolveProfile(name)
-		if err != nil || len(p.Egress.AllowedDomains) == 0 {
+		if err != nil || !p.Egress.Restricted() {
 			continue
 		}
-		ok := false
-		for _, d := range p.Egress.AllowedDomains {
-			if d == host || (strings.HasPrefix(d, "*.") && strings.HasSuffix(host, d[1:])) {
-				ok = true
-			}
-		}
-		if !ok {
-			out = append(out, gi(SeverityError, "profiles["+name+"].egress.allowedDomains", "must include gateway host %q", host))
+		if ok, rule := p.Egress.Rules().Decide(host); !ok {
+			out = append(out, gi(SeverityError, "profiles["+name+"].egress.allowedDomains", "must allow gateway host %q (denied by %s)", host, rule))
 		}
 	}
 	return out
@@ -158,8 +153,8 @@ func guardGARing(o *Org) []Issue {
 func guardSandboxEgress(o *Org) []Issue {
 	var out []Issue
 	for _, r := range o.Rings {
-		if p, err := o.ResolveProfile(r.Profile); err == nil && p.Permissions.SandboxRequired && len(p.Egress.AllowedDomains) == 0 {
-			out = append(out, gi(SeverityError, "rings["+r.Name+"].profile", "permissions.sandboxRequired is true, so egress.allowedDomains must be non-empty (profile %q)", r.Profile))
+		if p, err := o.ResolveProfile(r.Profile); err == nil && p.Permissions.SandboxRequired && p.Egress.Rules().Default != EgressDeny {
+			out = append(out, gi(SeverityError, "rings["+r.Name+"].profile", "permissions.sandboxRequired is true, so egress.allowedDomains must be non-empty or egress.default deny (profile %q)", r.Profile))
 		}
 	}
 	return out
@@ -351,10 +346,10 @@ func widenings(c, base *Profile) []widening {
 	}{
 		{"permissions.allow", c.Permissions.Allow, base.Permissions.Allow},
 		{"permissions.ask", c.Permissions.Ask, base.Permissions.Ask},
-		{"egress.allowedDomains", c.Egress.AllowedDomains, base.Egress.AllowedDomains},
+		{"egress.allowedDomains", c.Egress.Rules().Allow, base.Egress.Rules().Allow},
 	} {
-		// An empty base egress list means "unrestricted", so any child list narrows it.
-		if f.field == "egress.allowedDomains" && len(f.par) == 0 {
+		// A default-allow base is unrestricted, so any child allowlist narrows it.
+		if f.field == "egress.allowedDomains" && base.Egress.Rules().Default == EgressAllow {
 			continue
 		}
 		var added []string
