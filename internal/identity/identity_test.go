@@ -178,11 +178,17 @@ func TestOIDCJWTDiscoveryRetries(t *testing.T) {
 	defer srv.Close()
 	iss.URL = srv.URL
 	v, _ := NewOIDCJWT(iss.URL, aud, "", "", nil)
+	now := time.Now()
+	v.now = func() time.Time { return now }
 	tok, _ := iss.Mint(map[string]any{"aud": aud, "email": "a@x"})
 	if _, err := v.Verify(reqWith(tok)); err == nil {
 		t.Fatal("want error while IdP down")
 	}
 	up.Store(true)
+	if _, err := v.Verify(reqWith(tok)); err == nil {
+		t.Fatal("want the cached discovery failure within discoveryRetry")
+	}
+	now = now.Add(discoveryRetry)
 	if _, err := v.Verify(reqWith(tok)); err != nil {
 		t.Fatalf("should recover once IdP is up: %v", err)
 	}

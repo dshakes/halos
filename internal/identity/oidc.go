@@ -33,10 +33,30 @@ type OIDCJWT struct {
 	// email_verified=true. Off by default: see SubjectFromClaims.
 	TrustUnverifiedEmail bool
 	client               *http.Client
-	mu                   sync.Mutex
-	verifier             *oidc.IDTokenVerifier
-	keys                 *jwksKeySet
+	now                  func() time.Time // nil = time.Now
+
+	// mu guards the fields below; it is never held across the network.
+	mu       sync.Mutex
+	verifier *oidc.IDTokenVerifier
+	keys     *jwksKeySet
+	inflight *discovery // the one discovery running, nil when none
+	failAt   time.Time  // when the last discovery failed
+	failErr  error      // and why; served until failAt+discoveryRetry
 }
+
+// discovery is one in-flight discovery; done is closed when err is set.
+type discovery struct {
+	done chan struct{}
+	err  error
+}
+
+const (
+	// discoveryRetry: after a failed discovery, callers get its error without
+	// asking the issuer again for this long (an IdP outage is not amplified).
+	discoveryRetry = 30 * time.Second
+	// discoveryTimeout bounds one discovery, whatever the client's timeout.
+	discoveryTimeout = 30 * time.Second
+)
 
 // NewOIDCJWT never touches the network; discovery happens on first Verify (and
 // is retried while it fails), so a proxy can start before the IdP is reachable.
@@ -57,30 +77,82 @@ func NewOIDCJWT(issuer, audience, userClaim, groupsClaim string, client *http.Cl
 	return &OIDCJWT{Issuer: issuer, Audience: audience, UserClaim: userClaim, GroupsClaim: groupsClaim, client: client}, nil
 }
 
+func (o *OIDCJWT) clock() time.Time {
+	if o.now != nil {
+		return o.now()
+	}
+	return time.Now()
+}
+
+// idVerifier returns the verifier, discovering the issuer first if needed.
+// Concurrent callers share one discovery and each waits only as long as its
+// own ctx allows; a failed discovery is not retried for discoveryRetry.
 func (o *OIDCJWT) idVerifier(ctx context.Context) (*oidc.IDTokenVerifier, *jwksKeySet, error) {
 	o.mu.Lock()
-	defer o.mu.Unlock()
 	if o.verifier != nil {
+		defer o.mu.Unlock()
 		return o.verifier, o.keys, nil
 	}
 	if cacheOnly(ctx) {
+		o.mu.Unlock()
 		return nil, nil, fmt.Errorf("%w for %s: not yet discovered and the request may not trigger it", ErrDiscovery, o.Issuer)
 	}
-	// Background ctx on purpose: discovery must not die with one request.
-	// The client carries the timeout.
-	p, err := oidc.NewProvider(oidc.ClientContext(context.Background(), o.client), o.Issuer)
-	if err != nil {
-		return nil, nil, fmt.Errorf("%w for %s: %w", ErrDiscovery, o.Issuer, err)
+	if o.failErr != nil && o.clock().Sub(o.failAt) < discoveryRetry {
+		err := o.failErr
+		o.mu.Unlock()
+		return nil, nil, err
 	}
-	var meta struct {
-		JWKS string `json:"jwks_uri"`
+	d := o.inflight
+	if d == nil {
+		d = &discovery{done: make(chan struct{})}
+		o.inflight = d
+		go o.discover(d)
 	}
-	if err := p.Claims(&meta); err != nil || meta.JWKS == "" {
-		return nil, nil, fmt.Errorf("%w for %s: no jwks_uri", ErrDiscovery, o.Issuer)
+	o.mu.Unlock()
+	select {
+	case <-d.done:
+	case <-ctx.Done():
+		return nil, nil, fmt.Errorf("%w for %s: %w", ErrDiscovery, o.Issuer, ctx.Err())
 	}
-	o.keys = &jwksKeySet{url: meta.JWKS, client: o.client}
-	o.verifier = oidc.NewVerifier(o.Issuer, o.keys, &oidc.Config{ClientID: o.Audience, SupportedSigningAlgs: AllowedAlgs})
+	if d.err != nil {
+		return nil, nil, d.err
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
 	return o.verifier, o.keys, nil
+}
+
+// discover runs one discovery and publishes its outcome. Its own context on
+// purpose: discovery must not die with the request that started it.
+func (o *OIDCJWT) discover(d *discovery) {
+	ctx, cancel := context.WithTimeout(context.Background(), discoveryTimeout)
+	defer cancel()
+	var keys *jwksKeySet
+	var v *oidc.IDTokenVerifier
+	p, err := oidc.NewProvider(oidc.ClientContext(ctx, o.client), o.Issuer)
+	if err != nil {
+		err = fmt.Errorf("%w for %s: %w", ErrDiscovery, o.Issuer, err)
+	} else {
+		var meta struct {
+			JWKS string `json:"jwks_uri"`
+		}
+		if cerr := p.Claims(&meta); cerr != nil || meta.JWKS == "" {
+			err = fmt.Errorf("%w for %s: no jwks_uri", ErrDiscovery, o.Issuer)
+		} else {
+			keys = &jwksKeySet{url: meta.JWKS, client: o.client}
+			v = oidc.NewVerifier(o.Issuer, keys, &oidc.Config{ClientID: o.Audience, SupportedSigningAlgs: AllowedAlgs})
+		}
+	}
+	o.mu.Lock()
+	if err != nil {
+		o.failAt, o.failErr = o.clock(), err
+	} else {
+		o.verifier, o.keys, o.failErr = v, keys, nil
+	}
+	o.inflight = nil
+	d.err = err
+	close(d.done)
+	o.mu.Unlock()
 }
 
 func (o *OIDCJWT) Verify(r *http.Request) (policy.Subject, error) {
