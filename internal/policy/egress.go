@@ -5,7 +5,6 @@ import (
 	"path"
 	"regexp"
 	"slices"
-	"sort"
 	"strings"
 )
 
@@ -68,7 +67,8 @@ func (e Egress) Restricted() bool {
 	return e.Default != "" || len(e.AllowedDomains)+len(e.DeniedDomains)+len(e.Presets) > 0
 }
 
-// Rules resolves e: presets join the allow list (sorted, de-duplicated), and an
+// Rules resolves e: presets join the allow list after allowedDomains
+// (lower-cased, de-duplicated, first occurrence kept), and an
 // unset default is deny when anything is allowed (allowedDomains has always
 // meant "the only egress permitted") and allow otherwise.
 func (e Egress) Rules() EgressRules {
@@ -76,7 +76,7 @@ func (e Egress) Rules() EgressRules {
 	for _, p := range e.Presets {
 		allow = append(allow, EgressPresets[p]...)
 	}
-	r := EgressRules{Default: e.Default, Allow: sortedSet(allow), Deny: sortedSet(e.DeniedDomains)}
+	r := EgressRules{Default: e.Default, Allow: dedupe(allow), Deny: dedupe(e.DeniedDomains)}
 	if r.Default == "" {
 		r.Default = EgressAllow
 		if len(r.Allow) > 0 {
@@ -86,16 +86,14 @@ func (e Egress) Rules() EgressRules {
 	return r
 }
 
-func sortedSet(in []string) []string {
-	if len(in) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(in))
+func dedupe(in []string) []string {
+	var out []string
 	for _, s := range in {
-		out = append(out, strings.ToLower(s))
+		if s = strings.ToLower(s); !slices.Contains(out, s) {
+			out = append(out, s)
+		}
 	}
-	sort.Strings(out)
-	return slices.Compact(out)
+	return out
 }
 
 // MatchDomain reports whether host matches pattern: an exact host, or

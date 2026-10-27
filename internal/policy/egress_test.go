@@ -44,8 +44,8 @@ func TestEgressRulesDedupe(t *testing.T) {
 			n++
 		}
 	}
-	if n != 1 || !slices.IsSorted(r.Allow) {
-		t.Fatalf("allow = %v, want sorted with github.com once", r.Allow)
+	if n != 1 || r.Allow[0] != "github.com" {
+		t.Fatalf("allow = %v, want github.com once, first (authored order)", r.Allow)
 	}
 }
 
