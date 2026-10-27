@@ -44,11 +44,23 @@ Generated from `schemas/unit.schema.json`; do not edit. Nested fields use dotted
 | `overlay.mcp.managedOnly` | boolean |  |  |  |  | Block every server not listed. |
 | `overlay.mcp.servers` | array of object |  |  |  |  | Allowed MCP servers. |
 | `overlay.mcp.servers[]` | object |  |  |  |  | An allowed MCP server. |
+| `overlay.mcp.servers[].auth` | object |  |  |  |  | How clients authorize to a remote server (ADR-0029). |
+| `overlay.mcp.servers[].auth.clientID` | string |  |  |  |  | Pre-registered OAuth client id (oauth, enterprise). |
+| `overlay.mcp.servers[].auth.clientIDMetadataURL` | string |  |  |  | format uri; pattern ^https:// | https URL of an org-hosted Client ID Metadata Document (oauth); the URL is the client id. |
+| `overlay.mcp.servers[].auth.issuer` | string |  |  |  | format uri; pattern ^https:// | Authorization server issuer (oauth, enterprise). |
+| `overlay.mcp.servers[].auth.mode` | string |  |  | none, oauth, enterprise, halos |  | none (default) \| oauth (the server's authorization server) \| enterprise (Enterprise-Managed Authorization: an ID-JAG from identity.issuer) \| halos (halo-server mints audience-bound tokens). |
+| `overlay.mcp.servers[].auth.scopes` | array of string |  |  |  |  | Scopes to request (oauth, enterprise). |
+| `overlay.mcp.servers[].auth.scopes[]` | string |  |  |  | pattern ^\S+$ |  |
 | `overlay.mcp.servers[].command` | array of string |  |  |  |  | stdio command line (exclusive with url). |
 | `overlay.mcp.servers[].command[]` | string |  |  |  |  |  |
 | `overlay.mcp.servers[].headers` | object |  |  |  |  | HTTP headers. |
 | `overlay.mcp.servers[].headers.*` | string |  |  |  |  |  |
 | `overlay.mcp.servers[].name` | string | yes |  |  |  | Server name. |
+| `overlay.mcp.servers[].tools` | object |  |  |  |  | Narrows the server's tools (ADR-0029). deny wins over allow; empty allow = every tool. |
+| `overlay.mcp.servers[].tools.allow` | array of string |  |  |  |  | Only these tools (where the harness supports an allowlist; else a manifest warning). |
+| `overlay.mcp.servers[].tools.allow[]` | string |  |  |  | pattern ^[A-Za-z0-9_.-]&#123;1,128}$ |  |
+| `overlay.mcp.servers[].tools.deny` | array of string |  |  |  |  | Never these tools. |
+| `overlay.mcp.servers[].tools.deny[]` | string |  |  |  | pattern ^[A-Za-z0-9_.-]&#123;1,128}$ |  |
 | `overlay.mcp.servers[].url` | string |  |  |  | format uri | https URL (exclusive with command). |
 | `overlay.models` | object |  |  |  |  | Model policy. |
 | `overlay.models.allowed` | array of string |  |  |  |  | Allowed model aliases. |

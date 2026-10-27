@@ -23,11 +23,23 @@ Generated from `schemas/toggle.schema.json`; do not edit. Nested fields use dott
 | `client.harnesses.*.hooks[].matcher` | string |  |  |  |  |  |
 | `client.harnesses.*.mcpServers` | array of object |  |  |  |  | MCP servers to add: exactly one of url (https) or command. |
 | `client.harnesses.*.mcpServers[]` | object |  |  |  |  |  |
+| `client.harnesses.*.mcpServers[].auth` | object |  |  |  |  | How clients authorize to a remote server (ADR-0029). |
+| `client.harnesses.*.mcpServers[].auth.clientID` | string |  |  |  |  | Pre-registered OAuth client id (oauth, enterprise). |
+| `client.harnesses.*.mcpServers[].auth.clientIDMetadataURL` | string |  |  |  | format uri; pattern ^https:// | https URL of an org-hosted Client ID Metadata Document (oauth); the URL is the client id. |
+| `client.harnesses.*.mcpServers[].auth.issuer` | string |  |  |  | format uri; pattern ^https:// | Authorization server issuer (oauth, enterprise). |
+| `client.harnesses.*.mcpServers[].auth.mode` | string |  |  | none, oauth, enterprise, halos |  | none (default) \| oauth (the server's authorization server) \| enterprise (Enterprise-Managed Authorization: an ID-JAG from identity.issuer) \| halos (halo-server mints audience-bound tokens). |
+| `client.harnesses.*.mcpServers[].auth.scopes` | array of string |  |  |  |  | Scopes to request (oauth, enterprise). |
+| `client.harnesses.*.mcpServers[].auth.scopes[]` | string |  |  |  | pattern ^\S+$ |  |
 | `client.harnesses.*.mcpServers[].command` | array of string |  |  |  |  |  |
 | `client.harnesses.*.mcpServers[].command[]` | string |  |  |  |  |  |
 | `client.harnesses.*.mcpServers[].headers` | object |  |  |  |  | Use $&#123;VAR} references, never literal credentials. |
 | `client.harnesses.*.mcpServers[].headers.*` | string |  |  |  |  |  |
 | `client.harnesses.*.mcpServers[].name` | string | yes |  |  |  |  |
+| `client.harnesses.*.mcpServers[].tools` | object |  |  |  |  | Narrows the server's tools (ADR-0029). deny wins over allow; empty allow = every tool. |
+| `client.harnesses.*.mcpServers[].tools.allow` | array of string |  |  |  |  | Only these tools (where the harness supports an allowlist; else a manifest warning). |
+| `client.harnesses.*.mcpServers[].tools.allow[]` | string |  |  |  | pattern ^[A-Za-z0-9_.-]&#123;1,128}$ |  |
+| `client.harnesses.*.mcpServers[].tools.deny` | array of string |  |  |  |  | Never these tools. |
+| `client.harnesses.*.mcpServers[].tools.deny[]` | string |  |  |  | pattern ^[A-Za-z0-9_.-]&#123;1,128}$ |  |
 | `client.harnesses.*.mcpServers[].url` | string |  |  |  | pattern ^https:// |  |
 | `client.harnesses.*.overrides` | object |  |  |  |  | Harness-native keys, restricted to the same allowlist as profile overrides. |
 | `default` | boolean |  |  |  |  | State when no rule matches. |

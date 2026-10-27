@@ -66,6 +66,41 @@ Generated from `schemas/halos.schema.json`; do not edit. Nested fields use dotte
 | `identity.roles.viewer[]` | string |  |  |  | minLength 1 |  |
 | `identity.userClaim` | string |  |  |  |  | JWT claim holding the user id (default "email"). |
 | `kind` | string |  |  | const Halos |  | Document kind. |
+| `mcp` | object |  |  |  |  | Approved MCP server registry (ADR-0029). Releases render each ring's and unit's servers into every harness's native MCP settings; halod reports other or version-drifted servers in user configs. |
+| `mcp.mode` | string |  |  | allowlist, warn |  | allowlist (default): the registry is each harness's managed MCP allowlist and profiles, units and toggles may name only registry servers. warn: render the registry, block nothing else, report drift. |
+| `mcp.servers` | array of object | yes |  |  |  |  |
+| `mcp.servers[]` | object |  |  |  |  | One approved MCP server: exactly one transport (url, package, or command with a binary package), pinned. |
+| `mcp.servers[].auth` | object |  |  |  |  | How clients authorize to a remote server (ADR-0029). |
+| `mcp.servers[].auth.clientID` | string |  |  |  |  | Pre-registered OAuth client id (oauth, enterprise). |
+| `mcp.servers[].auth.clientIDMetadataURL` | string |  |  |  | format uri; pattern ^https:// | https URL of an org-hosted Client ID Metadata Document (oauth); the URL is the client id. |
+| `mcp.servers[].auth.issuer` | string |  |  |  | format uri; pattern ^https:// | Authorization server issuer (oauth, enterprise). |
+| `mcp.servers[].auth.mode` | string |  |  | none, oauth, enterprise, halos |  | none (default) \| oauth (the server's authorization server) \| enterprise (Enterprise-Managed Authorization: an ID-JAG from identity.issuer) \| halos (halo-server mints audience-bound tokens). |
+| `mcp.servers[].auth.scopes` | array of string |  |  |  |  | Scopes to request (oauth, enterprise). |
+| `mcp.servers[].auth.scopes[]` | string |  |  |  | pattern ^\S+$ |  |
+| `mcp.servers[].command` | array of string |  |  |  |  | stdio command line; only with a binary package (the executable first). |
+| `mcp.servers[].command[]` | string |  |  |  |  |  |
+| `mcp.servers[].headers` | object |  |  |  |  | HTTP headers; secrets as $&#123;VAR} references resolved on the client. |
+| `mcp.servers[].headers.*` | string |  |  |  |  |  |
+| `mcp.servers[].id` | string | yes |  |  | pattern ^[a-z0-9][a-z0-9-]&#123;0,62}$ | Server name rendered into every harness (no '_' or '.': harnesses join it into tool names). |
+| `mcp.servers[].package` | object |  |  |  |  | Pins a stdio server's code. |
+| `mcp.servers[].package.args` | array of string |  |  |  |  | Appended to the derived command line. |
+| `mcp.servers[].package.args[]` | string |  |  |  |  |  |
+| `mcp.servers[].package.identifier` | string |  |  |  |  | Package name (npm, pypi) or image reference without tag or digest (oci). |
+| `mcp.servers[].package.sha256` | string |  |  |  | pattern ^sha256:[0-9a-f]&#123;64}$ | Image digest (oci) or executable digest (binary); required for both. |
+| `mcp.servers[].package.type` | string | yes |  | npm, pypi, oci, binary |  |  |
+| `mcp.servers[].package.version` | string |  |  |  |  | Exact version (npm, pypi): no range, tag or latest. |
+| `mcp.servers[].registryName` | string |  |  |  |  | Official MCP Registry server.json name it was imported from. |
+| `mcp.servers[].rings` | array of string |  |  |  |  | Rings whose members get it. |
+| `mcp.servers[].rings[]` | string |  |  |  |  |  |
+| `mcp.servers[].tools` | object |  |  |  |  | Narrows the server's tools (ADR-0029). deny wins over allow; empty allow = every tool. |
+| `mcp.servers[].tools.allow` | array of string |  |  |  |  | Only these tools (where the harness supports an allowlist; else a manifest warning). |
+| `mcp.servers[].tools.allow[]` | string |  |  |  | pattern ^[A-Za-z0-9_.-]&#123;1,128}$ |  |
+| `mcp.servers[].tools.deny` | array of string |  |  |  |  | Never these tools. |
+| `mcp.servers[].tools.deny[]` | string |  |  |  | pattern ^[A-Za-z0-9_.-]&#123;1,128}$ |  |
+| `mcp.servers[].units` | array of string |  |  |  |  | Units (and units below them) whose members get it. Rings and units both empty = approved only (a toggle may deliver it). |
+| `mcp.servers[].units[]` | string |  |  |  |  |  |
+| `mcp.servers[].url` | string |  |  |  | format uri; pattern ^https:// | Remote (streamable HTTP) server URL; also the audience of Halos-minted tokens. |
+| `mcp.servers[].version` | string |  |  |  |  | server.json version it was imported at. |
 | `models` | object |  |  |  |  | Simple mode: model alias -> provider model id, or a list of ids in failover order. An id may be prefixed &lt;provider>/ (required with provider multi). The default alias is required. |
 | `models.*` |  |  |  |  |  |  |
 | `org` | string | yes |  |  | minLength 1 | Organisation name. |

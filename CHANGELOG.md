@@ -4,6 +4,9 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added
+- MCP registry and authorization (ADR-0029): `halos.yaml` `mcp` lists the approved MCP servers, each pinned (an https URL, or an npm/pypi package at an exact version, an OCI image or binary by digest), with tool allow/deny lists, an auth mode (`none`, `oauth` with a client id or Client ID Metadata Document, `enterprise`, `halos`) and the rings and units that get it; `mode: allowlist` (default) or `warn`. Releases render each ring's and unit's servers into all six harnesses' native MCP settings (Claude Code tool denies and `headersHelper`, Codex `enabled_tools`/`disabled_tools`, Gemini CLI `includeTools`/`excludeTools` and `oauth`, OpenCode `tools` and `oauth`) and warn per server for what a harness cannot express. `halod` reports unapproved and version-drifted servers in users' own MCP configs (`mcpDrift`, with fix hints). halo-server mints 5-minute tokens whose audience is one registry server (`POST /api/v1/token/exchange` with `resource`; `halo mcp token`), never passing the caller's credential on. `halo mcp registry import` turns an official MCP Registry `server.json` into a pinned entry.
+
 ## [0.3.0] - 2026-10-23
 
 ### Added
