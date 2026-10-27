@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -357,4 +358,20 @@ func TestRevocationLogMerge(t *testing.T) {
 	}
 	defer l2.close()
 	check(l2, "replayed")
+}
+
+// TestRevocationCap: past maxActiveRevocations live rows a new key is a 409
+// (the gateway list stays bounded); re-revoking a listed key still works.
+func TestRevocationCap(t *testing.T) {
+	e := newEnv(t, nil)
+	ctx := context.Background()
+	for i := range maxActiveRevocations {
+		if err := e.s.revs.PutRevocation(ctx, pgstore.Revocation{Kind: revokeJTI, Key: fmt.Sprintf("j%d", i), Expires: e.now.Add(time.Hour)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if w := e.as(admin, "POST", "/api/v1/revocations", `{"jti":"one-more","reason":"x"}`); w.Code != http.StatusConflict {
+		t.Fatalf("revocation past the cap: %d %s", w.Code, w.Body)
+	}
+	e.revoke(t, `{"jti":"j7","reason":"again"}`)
 }
