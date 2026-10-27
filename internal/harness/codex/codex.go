@@ -65,12 +65,12 @@ var approval = map[string]string{
 func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []string, error) {
 	warns := hutil.WarnUnsupported(name, p,
 		"models.default", "permissions.mode", "permissions.sandbox", "permissions.disableBypass",
-		"mcp.servers", "telemetry.enabled", "telemetry.logPrompts", "telemetry.attributes",
+		"mcp.servers", "mcp.tools.allow", "mcp.tools.deny", "mcp.auth", "telemetry.enabled", "telemetry.logPrompts", "telemetry.attributes",
 		"extensions.marketplaces", "extensions.plugins.enabled", "extensions.plugins.blocked", "login")
 	warns = append(warns, "codex cannot self-enforce version; halod enforces")
 	win := c.OS == harness.Windows
 	if win {
-		warns = append(warns, "codex: Windows has no system-wide managed_config.toml (only ~/.codex); model, gateway, telemetry and MCP server definitions are not rendered, only requirements.toml")
+		warns = append(warns, "codex: Windows has no system-wide managed_config.toml (only ~/.codex); model, gateway, telemetry and MCP server definitions (with their tool lists) are not rendered, only requirements.toml")
 	}
 
 	cfg := map[string]any{}
@@ -146,6 +146,20 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 				}
 			default:
 				return nil, nil, fmt.Errorf("codex: mcp server %q has neither url nor command", sv.Name)
+			}
+			// enabled_tools is the allowlist, disabled_tools applied after it.
+			// https://learn.chatgpt.com/docs/config-file/config-reference
+			if len(sv.Tools.Allow) > 0 {
+				e["enabled_tools"] = sv.Tools.Allow
+			}
+			if len(sv.Tools.Deny) > 0 {
+				e["disabled_tools"] = sv.Tools.Deny
+			}
+			if hutil.HasAuth(sv) {
+				// The schema (config.schema.json) has http_headers_helper, oauth.client_id,
+				// scopes and auth = "ema_auth", but mcp_servers entries reject unknown
+				// keys, so a pin that predates one would refuse to start.
+				warns = append(warns, fmt.Sprintf("codex: mcp server %q auth mode %s is not rendered: codex rejects unknown mcp_servers keys and support for http_headers_helper, oauth and auth = \"ema_auth\" at the pinned version is unverified, so the server is rendered without auth (users authorize OAuth servers with codex mcp login)", sv.Name, sv.Auth.Mode))
 			}
 			servers[sv.Name] = e
 		}

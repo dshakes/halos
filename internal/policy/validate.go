@@ -65,6 +65,7 @@ func (o *Org) Validate() []Issue {
 	v.workloads()
 	v.agents()
 	v.vendorAdmin()
+	v.mcpRegistry()
 	for _, g := range builtinGuardrails {
 		v.issues = append(v.issues, g(o)...)
 	}
@@ -86,8 +87,9 @@ func (o *Org) Validate() []Issue {
 // widen what runs on members' machines: workload federation (tenant pinning,
 // subjects, TTLs), unit overlays and delegation (loosenings, forbidden env
 // keys, hooks, MCP servers), and agents (delegation depth and lifetime caps,
-// unpinned or plain-http remote AgentCards; ADR-0024).
-var securityPaths = []string{"workloads", "units[", "delegation", "agents"}
+// unpinned or plain-http remote AgentCards; ADR-0024), and the MCP registry
+// (unpinned packages, auth modes; ADR-0029).
+var securityPaths = []string{"workloads", "units[", "delegation", "agents", "mcp"}
 
 // SecurityIssues returns o's error-severity Validate issues on security fields
 // (securityPaths). halo-server and the gateways run it on every policy load

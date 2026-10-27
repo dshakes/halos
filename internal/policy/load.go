@@ -33,6 +33,8 @@ type Root struct {
 	Agents *Agents `yaml:"agents,omitempty" json:"agents,omitempty"`
 	// VendorAdmin drives the vendors' cloud admin consoles (ADR-0025).
 	VendorAdmin *VendorAdmin `yaml:"vendorAdmin,omitempty" json:"vendorAdmin,omitempty"`
+	// MCP is the approved MCP server registry (ADR-0029).
+	MCP *MCPRegistry `yaml:"mcp,omitempty" json:"mcp,omitempty"`
 	// Delegation is what units may add beyond the baseline (ADR-0018).
 	Delegation *Delegation `yaml:"delegation,omitempty" json:"delegation,omitempty"`
 	// Simple mode fields (tools, provider, models, ...): see simple.go.
@@ -91,7 +93,7 @@ func Load(dir string) (*Org, error) {
 		return nil, err
 	}
 
-	org := &Org{Name: root.Org, Identity: root.Identity, SelfService: root.SelfService, Workloads: root.Workloads, Agents: root.Agents, VendorAdmin: root.VendorAdmin, Delegation: root.Delegation, Profiles: map[string]*Profile{}}
+	org := &Org{Name: root.Org, Identity: root.Identity, SelfService: root.SelfService, Workloads: root.Workloads, Agents: root.Agents, VendorAdmin: root.VendorAdmin, MCP: root.MCP, Delegation: root.Delegation, Profiles: map[string]*Profile{}}
 	if root.APIVersion == APIVersionV1Alpha1 {
 		org.Deprecations = append(org.Deprecations, deprecation(dir, rootPath))
 	}

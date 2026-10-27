@@ -62,7 +62,7 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 	warns := hutil.WarnUnsupported(name, p,
 		"models.default", "models.allowed", "models.enforce",
 		"permissions.mode", "permissions.allow", "permissions.deny", "permissions.ask", "permissions.disableBypass", "permissions.sandbox",
-		"mcp.managedOnly", "mcp.servers", "mcp.denied", "hooks.managedOnly", "hooks.items",
+		"mcp.managedOnly", "mcp.servers", "mcp.denied", "mcp.tools.allow", "mcp.tools.deny", "mcp.auth", "hooks.managedOnly", "hooks.items",
 		"telemetry.enabled", "telemetry.logPrompts", "telemetry.attributes",
 		"egress.allowedDomains", "instructions", "env",
 		"extensions.marketplaces", "extensions.blockedMarketplaces", "extensions.plugins.enabled", "extensions.plugins.blocked",
@@ -193,6 +193,17 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 	}
 	for _, n := range p.Extensions.Subagents.Deny {
 		deny = append(deny, "Agent("+n+")")
+	}
+	// A bare-name deny rule removes the MCP tool from Claude's context; there is
+	// no per-server allowlist (deny always wins over allow), so tools.allow warns.
+	// https://code.claude.com/docs/en/permissions
+	for _, sv := range p.MCP.Servers {
+		for _, t := range sv.Tools.Deny {
+			deny = append(deny, "mcp__"+sv.Name+"__"+t)
+		}
+		if len(sv.Tools.Allow) > 0 {
+			warns = append(warns, fmt.Sprintf("%s: mcp server %q tools.allow is not rendered: Claude Code has no per-server tool allowlist (a deny rule always wins over allow), so every tool the server exposes stays available; deny the others with tools.deny", name, sv.Name))
+		}
 	}
 	perms := map[string]any{}
 	for k, v := range map[string][]string{"allow": p.Permissions.Allow, "deny": deny, "ask": p.Permissions.Ask} {
@@ -370,6 +381,7 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 					}
 					e["headers"] = sv.Headers
 				}
+				warns = append(warns, claudeAuth(e, sv)...)
 				servers[sv.Name] = e
 			case len(sv.Command) > 0:
 				e := map[string]any{"command": sv.Command[0]}
@@ -391,6 +403,40 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 		files = append(files, harness.File{Path: hutil.Join(c.OS, d, "CLAUDE.md"), Mode: 0o644, Data: []byte(p.Instructions)})
 	}
 	return files, warns, nil
+}
+
+// claudeAuth renders a remote server's authorization into its managed-mcp.json
+// entry e: oauth.clientId and oauth.scopes (a space-separated string) for mode
+// oauth, headersHelper running `halo mcp token` for mode halos.
+// https://code.claude.com/docs/en/mcp (pre-configured OAuth credentials, headersHelper)
+func claudeAuth(e map[string]any, sv policy.MCPServer) []string {
+	a := sv.Auth
+	var warns []string
+	switch a.Mode {
+	case policy.MCPAuthOAuth:
+		o := map[string]any{}
+		if a.ClientID != "" {
+			o["clientId"] = a.ClientID
+		}
+		if len(a.Scopes) > 0 {
+			o["scopes"] = strings.Join(a.Scopes, " ")
+		}
+		if len(o) > 0 {
+			e["oauth"] = o
+		}
+		if a.ClientIDMetadataURL != "" {
+			warns = append(warns, fmt.Sprintf("%s: mcp server %q auth.clientIDMetadataURL is not rendered: Claude Code presents its own Client ID Metadata Document and has no setting for an org-hosted one", name, sv.Name))
+		}
+		if a.Issuer != "" {
+			warns = append(warns, fmt.Sprintf("%s: mcp server %q auth.issuer is not rendered: Claude Code discovers the authorization server (RFC 9728, then RFC 8414)", name, sv.Name))
+		}
+	case policy.MCPAuthEnterprise:
+		warns = append(warns, fmt.Sprintf("%s: mcp server %q auth mode enterprise is not rendered: Claude Code documents no Enterprise-Managed Authorization (ID-JAG) client; users authorize the server with /mcp", name, sv.Name))
+	case policy.MCPAuthHalos:
+		// Managed servers' helpers run from ~/.claude with the user's environment.
+		e["headersHelper"] = hutil.MCPTokenHelper(sv.URL)
+	}
+	return warns
 }
 
 // hooks groups hooks by event then matcher, preserving first-seen order.

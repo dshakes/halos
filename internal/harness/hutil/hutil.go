@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 
@@ -95,6 +96,9 @@ func Populated(p *policy.Profile) []string {
 	add(p.MCP.ManagedOnly, "mcp.managedOnly")
 	add(len(p.MCP.Servers) > 0, "mcp.servers")
 	add(len(p.MCP.Denied) > 0, "mcp.denied")
+	add(slices.ContainsFunc(p.MCP.Servers, func(s policy.MCPServer) bool { return len(s.Tools.Allow) > 0 }), "mcp.tools.allow")
+	add(slices.ContainsFunc(p.MCP.Servers, func(s policy.MCPServer) bool { return len(s.Tools.Deny) > 0 }), "mcp.tools.deny")
+	add(slices.ContainsFunc(p.MCP.Servers, HasAuth), "mcp.auth")
 	add(p.Hooks.ManagedOnly, "hooks.managedOnly")
 	add(len(p.Hooks.Hooks) > 0, "hooks.items")
 	add(p.Telemetry.Enabled, "telemetry.enabled")
@@ -116,6 +120,19 @@ func Populated(p *policy.Profile) []string {
 	add(e.StatusLine.Command != "", "extensions.statusLine")
 	add(p.Login != "", "login")
 	return out
+}
+
+// HasAuth reports whether s declares an MCP authorization mode other than none.
+func HasAuth(s policy.MCPServer) bool {
+	return s.Auth.Mode != "" && s.Auth.Mode != policy.MCPAuthNone
+}
+
+// MCPTokenHelper is the command a harness runs for a header-producing helper
+// (Claude Code headersHelper) for a server with auth mode halos: it prints
+// {"Authorization": "Bearer <token>"}, a token halo-server mints for exactly
+// that server (ADR-0029). url is a validated registry URL (no quotes or spaces).
+func MCPTokenHelper(url string) string {
+	return "halo mcp token --resource " + ShQuote(url) + " --format headers"
 }
 
 // WarnUnsupported returns one warning per populated profile field not in handled.
