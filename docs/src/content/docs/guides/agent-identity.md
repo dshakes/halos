@@ -108,8 +108,20 @@ curl -fsS https://halo.acme.example/api/v1/agents/egress \
 
 The decision uses the root's ring, unit and profile from the verified credential, re-checks every agent of the chain and the root's profile and unit `maxDepth`, and is audited. An allow is fail closed: when `agent.egress.allow` cannot be recorded the answer is a 500, never an allow. A refusal (`agent.egress.deny`) is best-effort; a failed append increments `halo_server_audit_append_errors_total`. A human root whose sessions were revoked after it authenticated, or who was deprovisioned, gets a 403. An expired agent credential gets a 401 but does not spend the IP's failure budget: long agent runs outlive their credentials, and only a holder of the signing key can produce one.
 
+## Revoke a credential
+
+An admin revokes one credential (and every credential exchanged from it) by its `jti`, from the `agent.token.exchange` or `workload.token.exchange` audit entry, or every credential issued so far for an agent, a workload or a human root ([ADR-0026](/halos/adr/0026-per-credential-revocation/)):
+
+```sh
+export HALO_SERVER=https://halo.acme.example HALO_SESSION=...   # an admin session
+halo agents revoke --jti 3f9c0e7a-... --reason "leaked in CI log, run 812"
+halo agents revoke --subject agent:planner --reason "prompt-injected in run 42"
+halo agents revocations
+```
+
+halo-server refuses a revoked credential at the next exchange or egress decision on every replica; gateways with `directory.url` refuse it (401 `credential_revoked`) within 30 seconds. New credentials for a revoked agent or workload are refused for one minute (the clock-skew pad); revoking a human id also ends their sessions, and they can log in and delegate again at once.
+
 ## Limits
 
-- A delegated credential cannot be revoked on its own. It dies at `exp` (at most `maxTTLSeconds`), when any agent of its chain leaves `actors`, or when its root is deprovisioned.
-- The gateway has no session revocation list. Revoking a human's sessions stops their agents' exchanges and egress decisions at once, and their model calls when the credential expires.
+- Revocation reaches a gateway only through its directory (`directory.url`), within 30 seconds. A gateway without one keeps accepting a revoked credential until `exp` (at most `maxTTLSeconds`), until any agent of its chain leaves `actors`, or until its root is deprovisioned.
 - The egress API is advisory until a proxy enforces it.

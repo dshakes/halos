@@ -51,6 +51,10 @@ type Backend interface {
 	// (atomic across replicas; see pgstore.DB.ClaimPending). ReleasePending drops it.
 	ClaimPending(ctx context.Context, dedupe, requestID string, holder func(id string) (known, pending bool)) (bool, error)
 	ReleasePending(ctx context.Context, dedupe, requestID string) error
+	// failureCounter shares the failed-auth limiters' counts across replicas.
+	failureCounter
+	// revocationStore holds credential revocations (ADR-0026).
+	revocationStore
 	// Ping fails when the backend is unreachable (/readyz).
 	Ping(ctx context.Context) error
 }

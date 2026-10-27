@@ -85,6 +85,21 @@ With the Postgres backend (`--database-url-file`, [ADR-0021](/halos/adr/0021-ha-
 | `halo_server_audit_forward_last_success_timestamp_seconds{sink}` | gauge | Unix time of the last delivered batch (0 since start: none yet) |
 | `halo_server_audit_rotate_errors_total` | counter | Failed audit log rotations; entries keep going to the active segment |
 
+## Server request and security metrics
+
+`halo-server --metrics-listen` serves these with or without `--controller`. Every label is bounded: `route` is the matched route pattern (`GET /api/v1/devices/{id}`), never a raw path, or `unmatched`; `status` is a class (`2xx`..`5xx`).
+
+| Metric | Type | Meaning |
+|---|---|---|
+| `halo_server_requests_total{route,status}` | counter | HTTP requests |
+| `halo_server_request_duration_seconds{route,status}` | histogram | Request latency, 5 ms to 30 s buckets |
+| `halo_server_authz_denied_total{route}` | counter | Console and API requests refused for a missing permission (403, also audited as `authz.deny`) |
+| `halo_server_auth_failures_total{flow,reason}` | counter | Failed authentications. `flow`: `login` (reasons such as `invalid_state`, `nonce`, `id_token`, `not_provisioned`), `enroll` (`invalid_token`, `deprovisioned`, `no_ring`), `token_exchange` (`unverified`, `discovery`, `claims_rejected`, `denied`), `delegation` (`unverified`, `parent_invalid`, `parent_refused`, `denied`, `unavailable`) |
+| `halo_server_auth_limited_total{route}` | counter | Requests refused by a failed-authentication limiter (429) |
+| `halo_server_gateway_lookups_total{kind,outcome}` | counter | Gateway lookups: `directory` (`active`, `inactive`), `posture` (`compliant`, `noncompliant`), `revocations` (`ok`, `error`) |
+
+A rising `halo_server_auth_limited_total` on one route with flat `auth_failures_total` elsewhere is usually one client guessing; `gateway_lookups_total{kind="revocations",outcome="error"}` means gateways are serving their cached revocation list and will apply their directory fail mode past `grace`.
+
 ## Metrics listeners
 
 These processes expose Prometheus text on a **separate, unauthenticated** address. None of them share a public listener.
@@ -93,7 +108,7 @@ These processes expose Prometheus text on a **separate, unauthenticated** addres
 |---|---|---|---|
 | `halo-proxy` | `--admin-listen` (also `/healthz`) | `127.0.0.1:9090` | `halo_proxy_requests_total{ring,variant,status}`, `halo_proxy_upstream_ttfb_seconds`, `halo_proxy_request_duration_seconds`, `halo_proxy_auth_failures_total`, `halo_proxy_shadow_dropped_total`, `halo_proxy_shadow_failed_total` |
 | `halo-shadow` | `-metrics-listen` (env `HALO_SHADOW_METRICS_LISTEN`) | off | `halo_shadow_mirrored_total`, `halo_shadow_dropped_total`, `halo_shadow_errors_total`, `halo_shadow_spend_usd`, `halo_shadow_budget_usd` |
-| `halo-server` | `--metrics-listen` | off | `halo_server_audit_*`; with `--controller`, `halo_controller_*`; with `--database-url-file`, `halo_leader*` and `halo_db_*` above |
+| `halo-server` | `--metrics-listen` | off | `halo_server_audit_*`, the request and security metrics above; with `--controller`, `halo_controller_*`; with `--database-url-file`, `halo_leader*` and `halo_db_*` above |
 
 ## Verification status
 

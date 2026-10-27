@@ -224,5 +224,12 @@ func (w *WorkloadJWT) Verify(r *http.Request) (policy.Subject, error) {
 	if err != nil {
 		return policy.Subject{}, err
 	}
-	return policy.Subject{ID: c.Subject, Groups: c.Groups, Kind: policy.SubjectWorkload}, nil
+	return c.AsSubject(), nil
+}
+
+// AsSubject is the verified workload caller, with its credential attached
+// for revocation checks (ADR-0026).
+func (c WorkloadClaims) AsSubject() policy.Subject {
+	return policy.Subject{ID: c.Subject, Groups: c.Groups, Kind: policy.SubjectWorkload,
+		Credential: &policy.CredentialRef{IDs: []string{c.ID}, IssuedAt: c.IssuedAt}}
 }

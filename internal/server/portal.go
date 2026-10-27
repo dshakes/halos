@@ -613,6 +613,7 @@ func (s *Server) postEnroll(w http.ResponseWriter, r *http.Request) {
 	}
 	p, issued, ok := s.enroll.consume(body.Token)
 	if !ok {
+		s.metrics.authFailure("enroll", "invalid_token")
 		s.authFails.fail(ip)
 		s.cfg.Log.Warn("enrollment rejected", "remote", r.RemoteAddr)
 		apiErr(w, http.StatusUnauthorized, "invalid, expired or already used token")
@@ -624,6 +625,7 @@ func (s *Server) postEnroll(w http.ResponseWriter, r *http.Request) {
 		ring = org.ResolveRing(p.subject())
 	}
 	if ring == nil {
+		s.metrics.authFailure("enroll", "no_ring")
 		apiErr(w, http.StatusConflict, "no ring assigned")
 		return
 	}
@@ -645,6 +647,7 @@ func (s *Server) postEnroll(w http.ResponseWriter, r *http.Request) {
 			apiErr(w, http.StatusInternalServerError, "store failed")
 			return
 		}
+		s.metrics.authFailure("enroll", "deprovisioned")
 		s.cfg.Log.Warn("enrollment raced a deprovisioning; device revoked", "device", dev.ID, "user", p.ID)
 		apiErr(w, http.StatusUnauthorized, "invalid, expired or already used token")
 		return

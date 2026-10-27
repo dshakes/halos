@@ -39,10 +39,24 @@ type memShared struct {
 	batches map[string]bool
 	buckets map[[3]string]pgstore.BudgetCounter
 	pending map[string]string
+	fails   map[string]int64
+	*revocationLog
 }
 
 func newMemShared() *memShared {
-	return &memShared{streams: map[string][][]byte{}, docs: map[string][]byte{}}
+	revs, _ := openRevocationLog(storage.Dir(""), time.Now) // memory only: cannot fail
+	return &memShared{streams: map[string][][]byte{}, docs: map[string][]byte{}, revocationLog: revs}
+}
+
+// CountAuthFailure: ponytail: no window expiry; tests stay within one window.
+func (b *memShared) CountAuthFailure(_ context.Context, key string, _ time.Duration) (int64, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.fails == nil {
+		b.fails = map[string]int64{}
+	}
+	b.fails[key]++
+	return b.fails[key], nil
 }
 
 type memLog struct {
@@ -527,6 +541,9 @@ func TestImportDataDir(t *testing.T) {
 	if err := e.s.revoked.revoke("u", time.Now()); err != nil {
 		t.Fatal(err)
 	}
+	if err := e.s.revs.PutRevocation(ctx, pgstore.Revocation{Kind: revokeJTI, Key: "j1", Expires: time.Now().Add(time.Hour), Record: []byte(`{}`)}); err != nil {
+		t.Fatal(err)
+	}
 	st := rollout.NewState("r1")
 	if err := st.Save(filepath.Join(dir, "rollouts")); err != nil {
 		t.Fatal(err)
@@ -544,7 +561,7 @@ func TestImportDataDir(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]int64{"audit": int64(len(src)), "journal/devices": 1, "journal/requests": 1, "journal/session-revocations": 1, "reports": 2, "docs/rollout-state": 1}
+	want := map[string]int64{"audit": int64(len(src)), "journal/devices": 1, "journal/requests": 1, "journal/session-revocations": 1, "reports": 2, "docs/rollout-state": 1, "revocations": 1}
 	for k, n := range want {
 		if rep.Copied[k] != n {
 			t.Errorf("copied %s = %d, want %d (%v)", k, rep.Copied[k], n, rep.Copied)
@@ -557,6 +574,9 @@ func TestImportDataDir(t *testing.T) {
 	pg := newEnv(t, func(c *Config) { c.Backend, c.Store = b, NewPGStore(db) })
 	if d := decode[[]Device](t, pg.as(admin, "GET", "/api/v1/devices", "")); len(d) != 1 {
 		t.Fatalf("devices after import: %+v", d)
+	}
+	if got, err := b.RevocationsFor(ctx, []string{"j1"}, nil); err != nil || len(got) != 1 {
+		t.Fatalf("revocations after import: %+v %v", got, err)
 	}
 	if hosts := pg.s.cfg.Store.All(); len(hosts) != 2 || hosts[0].Ring != "ring1" {
 		t.Fatalf("reports after import: %+v", hosts)

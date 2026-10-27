@@ -685,6 +685,7 @@ func (s *Server) WriteMetrics(w io.Writer) {
 	fmt.Fprintf(w, "# HELP halo_server_policy_refused_total Policy loads refused for security validation errors (the last good policy keeps serving).\n# TYPE halo_server_policy_refused_total counter\nhalo_server_policy_refused_total %d\n", s.pol.refused.Load())
 	fmt.Fprintf(w, "# HELP halo_server_policy_tightened_total Refused policy loads whose workload rule removals were applied over the last good policy.\n# TYPE halo_server_policy_tightened_total counter\nhalo_server_policy_tightened_total %d\n", s.pol.tightened.Load())
 	fmt.Fprintf(w, "# HELP halo_server_workload_rules_skipped Workload rules in the policy in effect that pin no tenant, so token exchange never matches them.\n# TYPE halo_server_workload_rules_skipped gauge\nhalo_server_workload_rules_skipped %d\n", s.pol.skipped.Load())
+	s.metrics.write(w)
 	fmt.Fprintf(w, "# HELP halo_server_workload_denied_audit_suppressed_total Denied workload token exchanges not audited because one issuer+IP already wrote a denial audit entry this minute (logged instead).\n# TYPE halo_server_workload_denied_audit_suppressed_total counter\nhalo_server_workload_denied_audit_suppressed_total %d\n", s.wl.deniedSuppressed.Load())
 	if len(s.forwarders) == 0 {
 		return

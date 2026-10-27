@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/dshakes/halos/internal/budget"
 	"github.com/dshakes/halos/internal/pgstore"
@@ -78,6 +79,11 @@ func ImportDataDir(ctx context.Context, dir string, b *PGBackend) (ImportReport,
 				return fmt.Errorf("import: %w", err)
 			}
 		}
+		for _, r := range src.revocations {
+			if err := im.PutRevocation(r); err != nil {
+				return fmt.Errorf("import: %w", err)
+			}
+		}
 		return verifyImport(im, src, &rep)
 	})
 	return rep, err
@@ -91,6 +97,9 @@ type dataDir struct {
 	budgets  []pgstore.BudgetCounter
 	cursors  map[string]json.RawMessage
 	rollouts map[string][]byte
+	// revocations: the credential revocation log replayed (one row per
+	// target, ADR-0026), so none is lost moving to the database.
+	revocations []pgstore.Revocation
 }
 
 func readDataDir(dir string, rep *ImportReport) (dataDir, error) {
@@ -193,6 +202,24 @@ func readDataDir(dir string, rep *ImportReport) (dataDir, error) {
 	}
 	if len(names) > 0 {
 		rep.Copied["docs/"+rollout.DocKind] = int64(len(names))
+	}
+
+	revs, skipped, err := readJSONL[pgstore.Revocation](filepath.Join(dir, revocationLogName+".jsonl"), func(r pgstore.Revocation) bool { return r.Key != "" })
+	if err != nil {
+		return src, err
+	}
+	if skipped > 0 {
+		rep.Skipped[revocationLogName+".jsonl"] = skipped
+	}
+	rl := &revocationLog{m: map[[2]string]pgstore.Revocation{}, now: time.Now}
+	for _, r := range revs {
+		rl.merge(r)
+	}
+	for _, r := range rl.m { // expired rows too: the database skips and prunes them
+		src.revocations = append(src.revocations, r)
+	}
+	if len(src.revocations) > 0 {
+		rep.Copied["revocations"] = int64(len(src.revocations))
 	}
 	return src, nil
 }
