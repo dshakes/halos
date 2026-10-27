@@ -4,6 +4,11 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added
+- Change governance ([ADR-0030](https://dshakes.github.io/halos/adr/0030-change-governance/)). `halos.yaml` `governance.freezes` declares weekly and one-off change-freeze windows (IANA zones, wall-clock across DST, scoped to rings or units); halo-server adds an audit-strict incident freeze (`POST /api/v1/freeze`, admin; `halo freeze on|off --reason`). During a freeze the rollout controller does not advance, and `halo rollout advance`, `halo exp promote` and the MCP `propose_rollout_advance`/`propose_promotion` tools refuse with the windows and the next open time. Rollbacks, pauses and the kill switch are never held. `halo freeze status` shows each ring; `halo freeze check` is a required status check for policy-repo PRs (rollback branches always pass).
+- Approver quorums (`governance.approvals`): N approvals from IdP or SCIM groups, never counting the requester, optionally from distinct groups and with a ticket pattern. Enforced on access requests and rollout steps (`POST /api/v1/rollouts/{name}/approve`, `halo rollout approve --ticket`), every approval audit-strict; advance PR bodies record the ticket and approvers.
+- Impact preview: `halo plan --diff <git ref>` (and the MCP `plan` tool's `diff_base`) counts the users, devices and agents whose ring, experiment variant or effective settings change, by org unit, with examples, over halo-server's enrolled fleet with `--server` or a policy-only estimate. Assignment goes through `internal/assign`.
+
 ## [0.3.0] - 2026-10-23
 
 ### Added

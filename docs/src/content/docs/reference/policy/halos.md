@@ -46,6 +46,35 @@ Generated from `schemas/halos.schema.json`; do not edit. Nested fields use dotte
 | `delegation.envKeys[]` | string |  |  |  | minLength 1 |  |
 | `gateway` | string |  |  |  | format uri | Simple mode: the gateway base URL clients are pointed at. |
 | `gatewayEngine` | string |  |  | halo-proxy, kong, external |  | Simple mode: what serves gateway: halo-proxy (default), kong, or external (your own API gateway; clients are sent provider model ids). |
+| `governance` | object |  |  |  |  | Change governance (ADR-0030): freeze windows that hold rollout advances and promotions (never rollbacks or the kill switch), and approver quorums with separation of duties. halo-server adds an incident freeze (`halo freeze on\|off`). |
+| `governance.approvals` | array of object |  |  |  |  | Approver quorums. Every rule whose scope covers a change (access request, rollout step) must be met; the requester never counts. |
+| `governance.approvals[]` | object |  |  |  |  |  |
+| `governance.approvals[].distinctGroups` | boolean |  |  |  |  | Each counted approval must come from a different group. |
+| `governance.approvals[].groups` | array of string | yes |  |  | minItems 1 | IdP or SCIM groups an approver must hold one of. |
+| `governance.approvals[].groups[]` | string |  |  |  | minLength 1 |  |
+| `governance.approvals[].name` | string | yes |  |  | pattern ^[a-z0-9][a-z0-9._-]&#123;0,62}$ | Unique rule name. |
+| `governance.approvals[].quorum` | integer | yes |  |  | minimum 1 | Approvals needed. |
+| `governance.approvals[].scope` | object |  |  |  |  | What a window or rule covers: changes to any listed ring, or reaching any listed unit's members (a ring change reaches every unit). Empty = org-wide. |
+| `governance.approvals[].scope.rings` | array of string |  |  |  |  | Ring names. |
+| `governance.approvals[].scope.rings[]` | string |  |  |  | minLength 1 |  |
+| `governance.approvals[].scope.units` | array of string |  |  |  |  | Unit names (ADR-0018). |
+| `governance.approvals[].scope.units[]` | string |  |  |  | minLength 1 |  |
+| `governance.approvals[].ticket` | string |  |  |  |  | Regular expression (matched whole) a change ticket reference must match, e.g. CHG[0-9]&#123;7}. Recorded in the audit log and PR body. |
+| `governance.freezes` | array of object |  |  |  |  | Change-freeze windows: one-off (start, end) or weekly, in a time zone. |
+| `governance.freezes[]` | object |  |  |  |  |  |
+| `governance.freezes[].end` | string |  |  |  |  | One-off end (exclusive), same formats as start. |
+| `governance.freezes[].name` | string | yes |  |  | pattern ^[a-z0-9][a-z0-9._-]&#123;0,62}$ | Unique window name (not `incident`, halo-server's incident freeze). |
+| `governance.freezes[].reason` | string | yes |  |  | minLength 1 | Shown to whoever the freeze stops. |
+| `governance.freezes[].scope` | object |  |  |  |  | What a window or rule covers: changes to any listed ring, or reaching any listed unit's members (a ring change reaches every unit). Empty = org-wide. |
+| `governance.freezes[].scope.rings` | array of string |  |  |  |  | Ring names. |
+| `governance.freezes[].scope.rings[]` | string |  |  |  | minLength 1 |  |
+| `governance.freezes[].scope.units` | array of string |  |  |  |  | Unit names (ADR-0018). |
+| `governance.freezes[].scope.units[]` | string |  |  |  | minLength 1 |  |
+| `governance.freezes[].start` | string |  |  |  |  | One-off start: 2026-12-18T18:00, 2026-12-18 (midnight) or RFC 3339 with an offset. |
+| `governance.freezes[].timezone` | string |  |  |  |  | IANA time zone, e.g. America/New_York (default UTC). Times are wall-clock there: DST moves the instant, not the time. |
+| `governance.freezes[].weekly` | object |  |  |  |  | Recurs every week from `from` to `to`; a `to` at or before `from` ends the next week. |
+| `governance.freezes[].weekly.from` | string | yes |  |  | pattern ^[A-Za-z]&#123;3} [0-2][0-9]:[0-5][0-9]$ | Day and 24-hour time, e.g. "Fri 18:00". |
+| `governance.freezes[].weekly.to` | string | yes |  |  | pattern ^[A-Za-z]&#123;3} [0-2][0-9]:[0-5][0-9]$ | Day and 24-hour time, e.g. "Mon 06:00". |
 | `identity` | object |  |  |  |  | The org's OIDC provider (any compliant IdP: Okta, Entra ID, Google, Keycloak, Ping, Auth0...). Used by the portal, halo-proxy / halo-kong and enrollment. |
 | `identity.adminGroups` | array of string |  |  |  |  | Groups holding halo-server's admin role. Same as roles.admin; kept for existing policy repos. |
 | `identity.adminGroups[]` | string |  |  |  |  |  |

@@ -17,6 +17,7 @@
         "internal/gateway/kong",
         "internal/harness",
         "internal/harness/all",
+        "internal/impact",
         "internal/intent",
         "internal/mcpserver",
         "internal/onboard",
@@ -275,6 +276,13 @@
       "imports": []
     },
     {
+      "path": "internal/impact",
+      "imports": [
+        "internal/policy",
+        "internal/promote"
+      ]
+    },
+    {
       "path": "internal/intent",
       "imports": [
         "internal/fsutil",
@@ -289,6 +297,7 @@
         "internal/eval",
         "internal/harness",
         "internal/harness/all",
+        "internal/impact",
         "internal/intent",
         "internal/onboard",
         "internal/policy",

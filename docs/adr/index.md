@@ -34,5 +34,6 @@ Decisions that shape Halos. New ADRs use [MADR](https://adr.github.io/madr/): co
 | [0023](/halos/adr/0023-workload-identity-federation/) | Workload identity federation for headless CI and cloud agents |
 | [0024](/halos/adr/0024-agent-identity-and-delegation/) | Agent identity and delegation: RFC 8693 act chains, root-principal routing, remote A2A agent allowlist |
 | [0025](/halos/adr/0025-vendor-admin-sync/) | Vendor admin sync: one policy drives the vendors' cloud admin consoles, with drift detection (amended after security review) |
+| [0030](/halos/adr/0030-change-governance/) | Change governance: freeze windows and an incident freeze (never holding rollbacks), approver quorums with separation of duties, and an impact preview |
 
 The canonical files live in `docs/adr/` in the repository; the docs build copies them into the site.
