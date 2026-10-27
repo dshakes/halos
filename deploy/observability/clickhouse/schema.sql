@@ -195,6 +195,32 @@ ENGINE = MergeTree
 PARTITION BY toYYYYMM(ts)
 ORDER BY (suite, task, variant, run_id, repeat);
 
+-- Delivery outcomes per pull/merge request (`halo roi ingest`, ADR-0027): the
+-- input to `halo roi report`. No titles, bodies or diffs. author is the SCM
+-- login (lowercased); subject is set only when the export knew the Halos user
+-- id, otherwise the identity roster maps author at report time. Re-ingesting a
+-- window replaces rows (ReplacingMergeTree on ingested_at; read with FINAL), so
+-- late reverts and merges land.
+CREATE TABLE IF NOT EXISTS halo.halo_delivery_prs
+(
+    source         LowCardinality(String),   -- github | file | the export's own label
+    repo           String,
+    number         UInt64,
+    author         String,
+    subject        String,
+    bot            Bool,
+    opened_at      DateTime64(3),
+    merged_at      Nullable(DateTime64(3)),
+    review_rounds  UInt32,                   -- change requests + 1 once reviewed
+    additions      UInt32,
+    deletions      UInt32,
+    change_failure Bool,                     -- reverted, or referenced by a merged hotfix
+    ingested_at    DateTime64(3)
+)
+ENGINE = ReplacingMergeTree(ingested_at)
+PARTITION BY toYYYYMM(opened_at)
+ORDER BY (source, repo, number);
+
 -- Shadow traffic: first-turn request mirrored to a candidate, with judge scores.
 CREATE TABLE IF NOT EXISTS halo.halo_shadow_pairs
 (

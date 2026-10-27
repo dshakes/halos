@@ -113,6 +113,7 @@ export default defineConfig({
                 'guides/reliable-upgrades',
                 'guides/cli-upgrade-ab',
                 'guides/model-upgrade-canary',
+                'guides/delivery-roi',
                 'guides/writing-evals',
                 'guides/agentic-operations',
               ],

@@ -60,7 +60,18 @@ func (o *Org) ResolveRing(s Subject) *Ring {
 // ResolveVariant returns the experiment variant for a subject, or nil if the
 // subject's ring is not enrolled or the experiment isn't running.
 func (e *Experiment) ResolveVariant(s Subject, ring string) *Variant {
-	if e.Status != "running" || !slices.Contains(e.Rings, ring) {
+	if e.Status != "running" {
+		return nil
+	}
+	return e.AssignVariant(s, ring)
+}
+
+// AssignVariant is the variant a subject in ring is (or was) assigned while
+// the experiment runs, whatever its status now; nil when the ring is not
+// enrolled. Analyses of a paused or concluded experiment use it to recover
+// the arms exactly as ResolveVariant served them.
+func (e *Experiment) AssignVariant(s Subject, ring string) *Variant {
+	if !slices.Contains(e.Rings, ring) {
 		return nil
 	}
 	w := make([]float64, len(e.Variants))

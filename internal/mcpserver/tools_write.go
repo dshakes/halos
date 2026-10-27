@@ -51,6 +51,8 @@ type writeOut struct {
 	PR      string `json:"pr,omitempty"`
 	Verdict string `json:"verdict,omitempty"`
 	Note    string `json:"note,omitempty"`
+	// ROI is the delivery-ROI section of a promotion PR body (informational).
+	ROI string `json:"roi,omitempty"`
 	// NextSteps names the next tool call, or the exact human command at a gate.
 	NextSteps []string `json:"next_steps"`
 }
@@ -247,6 +249,11 @@ func (s *srv) proposePromotion(ctx context.Context, _ *mcp.CallToolRequest, in p
 		}
 		out.Verdict = string(rep.Verdict)
 	}
+	// Delivery ROI is informational: a failure never blocks the proposal.
+	var roiNote []string
+	if out.ROI, err = s.roiSection(ctx, org, e); err != nil {
+		out.ROI, roiNote = "", []string{"delivery ROI left out of the PR (informational, not a gate): " + err.Error()}
+	}
 	if out.DryRun {
 		out.Note = "dry run: no PR opened"
 		switch {
@@ -257,17 +264,18 @@ func (s *srv) proposePromotion(ctx context.Context, _ *mcp.CallToolRequest, in p
 		default:
 			out.NextSteps = []string{gateApprove, "the release digest must already be published (halo release publish is the human's step)"}
 		}
+		out.NextSteps = append(out.NextSteps, roiNote...)
 		return nil, out, nil
 	}
 	if s.ClickHouse == nil {
 		return nil, writeOut{}, errors.New("opening a promotion PR needs evidence: " + gateEvidence)
 	}
 	o := reasonOpener{reason: reason, gh: s.prOpener()}
-	if out.PR, err = promote.OpenPR(ctx, o, t, ch, e, rep, in.Base); err != nil {
+	if out.PR, err = promote.OpenPR(ctx, o, t, ch, e, rep, in.Base, out.ROI); err != nil {
 		return nil, writeOut{}, err
 	}
 	out.Applied, out.Note = true, "PR opened; a human reviews and merges"
-	out.NextSteps = []string{gateMerge + ": " + out.PR, "after the merge: wait_for kind=rollout (if one backs this experiment) or status to confirm the ring points at the release"}
+	out.NextSteps = append([]string{gateMerge + ": " + out.PR, "after the merge: wait_for kind=rollout (if one backs this experiment) or status to confirm the ring points at the release"}, roiNote...)
 	return nil, out, nil
 }
 

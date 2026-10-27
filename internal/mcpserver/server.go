@@ -56,6 +56,12 @@ type Options struct {
 	// AdminBaseURLs overrides admin_plan's vendor API base URLs (tests);
 	// empty = the vendors' public APIs. Never a tool argument.
 	AdminBaseURLs map[string]string
+	// ROIIdentities is the identity roster CSV for roi_report and for the
+	// delivery-ROI section of propose_promotion PRs (`halo mcp serve
+	// --roi-identities`); ROIStore a local JSONL store of PR outcomes, else
+	// they come from ClickHouse. Never tool arguments.
+	ROIIdentities string
+	ROIStore      string
 }
 
 func (s *srv) prOpener() promote.PROpener {

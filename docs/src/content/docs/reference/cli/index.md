@@ -51,6 +51,7 @@ halo
 | [`halo quickstart`](/halos/reference/cli/quickstart/) | Try it: bring up the whole stack on Docker (make demo), open the console and print a guided tour |
 | [`halo release`](/halos/reference/cli/release/) | Build, publish and promote releases |
 | [`halo render`](/halos/reference/cli/render/) | Render a ring's harness config files under --out, mirroring absolute paths |
+| [`halo roi`](/halos/reference/cli/roi/) | Delivery ROI of a policy change: PR outcomes per experiment arm (ADR-0027) |
 | [`halo rollback`](/halos/reference/cli/rollback/) | Point a ring (and its experiment channels) back at an earlier signed release (version or manifest digest) |
 | [`halo rollout`](/halos/reference/cli/rollout/) | Phased rollouts: plan, status, simulate; advance opens a PR, never merges |
 | [`halo status`](/halos/reference/cli/status/) | One screen: rings, rollouts, live experiments, toggles and policy health |
