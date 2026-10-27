@@ -24,7 +24,7 @@ func TestAccessDelegatedAgent(t *testing.T) {
 	org := &policy.Org{
 		Name: "acme",
 		Gateway: &policy.Gateway{
-			Models:    map[string]policy.ModelRoute{"sonnet": {Upstream: "orch", Model: "us.anthropic.claude-sonnet-4-5"}},
+			Models:    map[string]policy.ModelRoute{"sonnet": {Upstream: "orch", Model: "us.anthropic.claude-sonnet-5-5"}},
 			Upstreams: map[string]policy.Upstream{"orch": {URL: "https://orch.internal:8443", Kind: "anthropic"}},
 		},
 		Rings: []*policy.Ring{

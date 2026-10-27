@@ -16,8 +16,8 @@ tools:                                         # exact version pins
   codex: {version: 0.99.0, model: codex}       # codex speaks the OpenAI wire: its own start model
 provider: anthropic                            # anthropic | bedrock | vertex | openai | gemini | multi
 models:
-  default: claude-sonnet-4-5                   # required: what every tool starts on unless it names its own
-  strong: claude-opus-4-1
+  default: claude-sonnet-5-5                   # required: what every tool starts on unless it names its own
+  strong: claude-opus-5-5
   codex: openai/gpt-5-codex
 gateway: https://ai.acme.example
 identity: {issuer: https://login.acme.example, audience: halos, adminGroups: [ai-platform]}
@@ -29,7 +29,7 @@ rollout: standard                              # fast | standard | careful
 |---|---|
 | `tools` | `harnesses` in the `default` profile, plus the gateway protocol each tool speaks. `{version, model}` sets that tool's start model to one of the `models` aliases (`harnesses.<tool>.model`); a bare version starts it on `default`. Give a tool whose wire the default provider cannot serve (codex is `openai-responses`, gemini-cli is `gemini`) a model on a provider that can |
 | `provider` | One gateway upstream. A mapping sets options: `{name: bedrock, region: eu-west-1}`, `{name: vertex, project: acme-ai, region: us-east5}`, `{name: anthropic, url: https://llm.internal}` |
-| `models` | One gateway alias per key, all of them allowed and enforced in the profile. A list is a failover order: `default: [eu.anthropic.claude-sonnet-4-5-20250929-v1:0, anthropic/claude-sonnet-4-5]`. A `<provider>/` prefix picks another provider; with `provider: multi` every id needs one |
+| `models` | One gateway alias per key, all of them allowed and enforced in the profile. A list is a failover order: `default: [eu.anthropic.claude-sonnet-4-5-20250929-v1:0, anthropic/claude-sonnet-5-5]`. A `<provider>/` prefix picks another provider; with `provider: multi` every id needs one |
 | `gateway` | The gateway's `baseURL` |
 | `telemetry` | Optional OTLP/HTTP endpoint. Telemetry is always on |
 | `team` | Optional ring0 members: IdP groups, or user ids containing `@`. Default `identity.adminGroups`, else `<org>-ai-platform` |
@@ -37,7 +37,7 @@ rollout: standard                              # fast | standard | careful
 
 Decoding is strict, as everywhere: a misspelled key (`saftey:`) is an error with its line.
 
-`halo init` never leaves a tool on a model it cannot reach. It gives `default` the provider's current model. For each tool whose wire the default model's provider cannot answer (codex speaks OpenAI Responses, gemini-cli speaks Gemini), it adds a model alias named after the tool on that vendor (`codex: openai/gpt-5-codex`, `gemini-cli: gemini/gemini-2.5-pro`, or `claude-code: anthropic/claude-sonnet-4-5` on an OpenAI or Gemini org), and prints a `note:` naming it:
+`halo init` never leaves a tool on a model it cannot reach. It gives `default` the provider's current model. For each tool whose wire the default model's provider cannot answer (codex speaks OpenAI Responses, gemini-cli speaks Gemini), it adds a model alias named after the tool on that vendor (`codex: openai/gpt-5-codex`, `gemini-cli: gemini/gemini-2.5-pro`, or `claude-code: anthropic/claude-sonnet-5-5` on an OpenAI or Gemini org), and prints a `note:` naming it:
 
 ```console
 $ halo init --org acme --tools claude-code@2.1.280,codex@0.99.0

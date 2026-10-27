@@ -26,7 +26,7 @@ baseURL: https://ai.acme.example
 protocols: {claude-code: anthropic-messages}
 auth: {helperCommand: acme-sso-token --audience halos-gateway, ttlSeconds: 900}
 models:
-  sonnet: {upstream: anthropic, model: claude-sonnet-4-5}
+  sonnet: {upstream: anthropic, model: claude-sonnet-5-5}
 upstreams:
   anthropic: {url: https://api.anthropic.com, kind: anthropic}
 ```

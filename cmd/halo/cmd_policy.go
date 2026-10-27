@@ -99,7 +99,6 @@ func (a *app) cmdRender() *cobra.Command {
 	c.Flags().StringVar(&osName, "os", runtime.GOOS, "target OS: darwin|linux|windows")
 	c.Flags().StringVar(&out, "out", "rendered", "output directory")
 	c.Flags().StringVar(&ver, "release-version", "0.0.0-dev", "release version label stamped into config")
-	_ = c.MarkFlagRequired("ring")
 	return c
 }
 

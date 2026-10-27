@@ -342,7 +342,7 @@ func TestKong(t *testing.T) {
 		srv, got := who(t)
 		d := or.decide(plain, nil, "sonnet")
 		check(t, g, "valid JWT is routed; alias rewritten; ring and release stamped",
-			r.code == 200 && srv == "a" && got.model() == "claude-sonnet-4-5" && got.h("x-halo-ring") == d.Ring && got.h("x-halo-release") == d.Release && d.Release != "",
+			r.code == 200 && srv == "a" && got.model() == "claude-sonnet-5-5" && got.h("x-halo-ring") == d.Ring && got.h("x-halo-release") == d.Release && d.Release != "",
 			"%d via mock-%s, upstream model %q, x-halo-ring=%q x-halo-release=%q", r.code, srv, got.model(), got.h("x-halo-ring"), got.h("x-halo-release"))
 
 		reset(t)
@@ -380,7 +380,7 @@ func TestKong(t *testing.T) {
 		reset(t)
 		r = call(t, "/v1/messages/count_tokens", mint(t, plain), msg("sonnet"), nil)
 		_, got = who(t)
-		check(t, g, "count_tokens is routed and rewritten", r.code == 200 && got.model() == "claude-sonnet-4-5" && strings.Contains(r.body, "input_tokens"),
+		check(t, g, "count_tokens is routed and rewritten", r.code == 200 && got.model() == "claude-sonnet-5-5" && strings.Contains(r.body, "input_tokens"),
 			"%s; upstream model %q", r, got.model())
 
 		reset(t)
@@ -432,7 +432,7 @@ func TestKong(t *testing.T) {
 		var ev []string
 		for _, u := range []string{treated, control} {
 			want := map[string]string{treated: "b", control: "a"}[u]
-			wantModel := map[string]string{treated: "claude-opus-next", control: "claude-opus-4-1"}[u]
+			wantModel := map[string]string{treated: "claude-opus-next", control: "claude-opus-5-5"}[u]
 			wantVar := map[string]string{treated: "opus-5-5", control: "control"}[u]
 			for i := 0; i < 3; i++ {
 				reset(t)
@@ -476,7 +476,7 @@ func TestKong(t *testing.T) {
 		reset(t)
 		r = call(t, "/v1/messages", mint(t, plain), msg("sonnet"), nil)
 		srv, got = who(t)
-		check(t, g, "traffic toggle off for everyone else", r.code == 200 && srv == "a" && got.model() == "claude-sonnet-4-5", "%s -> mock-%s model %q", plain, srv, got.model())
+		check(t, g, "traffic toggle off for everyone else", r.code == 200 && srv == "a" && got.model() == "claude-sonnet-5-5", "%s -> mock-%s model %q", plain, srv, got.model())
 
 		// Per-alias selection: both canaries cover this user's ring, each only claims its own alias.
 		u := or.find(t, nil, "opus", func(d gateway.Decision) bool { return d.Experiment == "opus-5-5-canary" })
@@ -511,7 +511,7 @@ func TestKong(t *testing.T) {
 		r = call(t, "/v1/messages", u, msg("bedrock-alias"), nil)
 		srv, got = who(t)
 		check(t, g, "no wire translation: a bedrock target gets the anthropic path/body (only the model is swapped) and no SigV4",
-			r.code == 200 && srv == "a" && got.Path == "/v1/messages" && got.model() == "us.anthropic.claude-opus-4-1:0" && got.h("Authorization") == "" && got.h("x-amz-date") == "",
+			r.code == 200 && srv == "a" && got.Path == "/v1/messages" && got.model() == "us.anthropic.claude-opus-5-5:0" && got.h("Authorization") == "" && got.h("x-amz-date") == "",
 			"%d path %q model %q Authorization %q x-amz-date %q", r.code, got.Path, got.model(), got.h("Authorization"), got.h("x-amz-date"))
 
 		reset(t)
@@ -540,7 +540,7 @@ func TestKong(t *testing.T) {
 			return s == "a"
 		})
 		check(t, g, "kill via halo-server: halo-kong honours the signed list within its poll interval; user is on control with no experiment attribution",
-			code == 200 && ok && got.model() == "claude-opus-4-1" && got.h("x-halo-experiment") == "",
+			code == 200 && ok && got.model() == "claude-opus-5-5" && got.h("x-halo-experiment") == "",
 			"kill %d, control after %s (poll is 10s), experiment header %q", code, el.Round(time.Second), got.h("x-halo-experiment"))
 
 		code = serverPost(t, "/api/v1/experiments/opus-5-5-canary/unkill", "")

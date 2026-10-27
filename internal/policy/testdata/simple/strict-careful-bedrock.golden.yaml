@@ -11,7 +11,7 @@ models:
       - upstream: bedrock
         model: eu.anthropic.claude-sonnet-4-5-20250929-v1:0
       - upstream: anthropic
-        model: claude-sonnet-4-5
+        model: claude-sonnet-5-5
         priority: 1
   strong:
     upstream: bedrock

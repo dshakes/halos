@@ -7,6 +7,14 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 ### Added
 
 - Console: a **Rollouts** page (step timeline, per-gate status, bake countdown, halt and rollback events, ring-to-release pointers) and a **Cost & budgets** page (spend against limit per scope, window, warn/enforce mode and `alertAt` thresholds); Fleet gains per-ring compliance, a drift count per device and an "in sync" filter; Device lists the drifted settings; Overview links to both new pages. Read-only; no server API changes.
+- **Copilot CLI lines of code in `halo.loc`.** `github.copilot.code.lines_added` and `github.copilot.code.lines_removed` are mapped to `halo.loc` with a `type` attribute (`added` / `removed`), like Claude Code's lines-of-code metric. Codex's native lines metric stays unmapped (vendor metric name not verified).
+
+### Changed
+
+- **Actionable CLI errors.** A missing `halos.yaml` now says `no halos.yaml in <dir>; run 'halo init' (or 'halo onboard company'), or pass --policy-dir`. A missing `--ring` (`plan`, `render`, `release build|publish|refresh`, `rollback`, `exp promote`) lists the rings in the policy; `rollback` never defaults a ring. `release promote` also lists them for `--from-ring` / `--to-ring`.
+- **`halo --help` is grouped** (Get started, Policy & releases, Rollouts & experiments, Fleet & gateway, Agents & MCP, Admin). Command names are unchanged.
+- **Current Anthropic model names in examples, docs, scaffolds and fixtures** (`claude-sonnet-5-5`, `claude-opus-5-5`, `claude-haiku-5-5`), including the simple-mode defaults. OpenAI and Google names and the dated Bedrock / Vertex ids are unchanged.
+- README and AGENTS.md list every binary `make build` produces (adds `halo-proxy`, `halo-kong`).
 
 ## [0.3.0] - 2026-10-23
 

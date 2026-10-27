@@ -111,7 +111,34 @@ func newRoot(out, errw io.Writer) *cobra.Command {
 		a.cmdModel(), a.cmdEnable(), a.cmdKill(), a.cmdStatus(), a.cmdExplain(), a.cmdEject(), a.cmdMigrate(),
 		a.cmdDoctor(), a.cmdOnboard(), a.cmdQuickstart(), a.cmdUnits(), a.cmdAudit(), a.cmdBudget(), a.cmdCI(), a.cmdAgents(), a.cmdAdmin())
 	addPolicyDirFlags(root)
+	groupCommands(root)
 	return root
+}
+
+// helpGroups orders `halo --help`; it only groups, every command keeps its name.
+var helpGroups = []struct {
+	id, title string
+	cmds      []string
+}{
+	{"start", "Get started:", []string{"quickstart", "init", "onboard", "doctor", "status", "version"}},
+	{"policy", "Policy & releases:", []string{"validate", "explain", "render", "plan", "release", "rollback", "keys", "export", "eject", "migrate", "harnesses", "whoami", "units", "model", "enable"}},
+	{"rollout", "Rollouts & experiments:", []string{"exp", "rollout", "toggle", "eval", "upgrade", "controller", "kill"}},
+	{"fleet", "Fleet & gateway:", []string{"gateway", "telemetry", "audit", "budget", "ci"}},
+	{"agents", "Agents & MCP:", []string{"agents", "mcp"}},
+	{"admin", "Admin:", []string{"admin"}},
+}
+
+func groupCommands(root *cobra.Command) {
+	for _, g := range helpGroups {
+		root.AddGroup(&cobra.Group{ID: g.id, Title: g.title})
+		for _, n := range g.cmds {
+			for _, c := range root.Commands() {
+				if c.Name() == n {
+					c.GroupID = g.id
+				}
+			}
+		}
+	}
 }
 
 // run executes halo and returns the process exit code.
@@ -206,7 +233,27 @@ func findRing(org *policy.Org, name string) (*policy.Ring, error) {
 		}
 		names = append(names, r.Name)
 	}
+	if name == "" { // never default a ring: acting on the wrong one is the failure to avoid
+		return nil, fmt.Errorf("--ring is required (rings in policy: %s)", strings.Join(names, ", "))
+	}
 	return nil, fmt.Errorf("unknown ring %q (have: %s)", name, strings.Join(names, ", "))
+}
+
+// needRing is the empty-flag error for commands that take a ring name but do
+// not load policy themselves (registry commands): it lists the rings of the
+// policy at --policy-dir (default ".") when one loads, and never defaults.
+func (a *app) needRing(cmd *cobra.Command, flag string) error {
+	msg := "--" + flag + " is required"
+	if dir, err := policyDir(cmd, nil); err == nil {
+		if org, err := policy.Load(dir); err == nil && len(org.Rings) > 0 {
+			names := make([]string, len(org.Rings))
+			for i, r := range org.Rings {
+				names[i] = r.Name
+			}
+			msg += " (rings in policy: " + strings.Join(names, ", ") + ")"
+		}
+	}
+	return errors.New(msg)
 }
 
 func (a *app) buildRelease(dir, ring, ver string) (*release.Release, error) {

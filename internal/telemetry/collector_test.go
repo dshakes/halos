@@ -288,7 +288,8 @@ func TestNewCLIMappings(t *testing.T) {
 		{"copilot tool calls", "copilot-cli", "github.copilot.tool.call.count", "halo.tool.calls"},
 		{"copilot tokens via shared gen_ai name", "gemini-cli", "gen_ai.client.token.usage", "halo.tokens"},
 		{"copilot duration via shared gen_ai name", "gemini-cli", "gen_ai.client.operation.duration", "halo.operation.duration"},
-		{"copilot lines added not mapped", "copilot-cli", "github.copilot.code.lines_added", ""},
+		{"copilot lines added", "copilot-cli", "github.copilot.code.lines_added", "halo.loc"},
+		{"copilot lines removed", "copilot-cli", "github.copilot.code.lines_removed", "halo.loc"},
 		{"cursor has no OTel", "cursor-agent", "cursor.", ""},
 		{"opencode has no OTLP metrics", "opencode", "opencode.", ""},
 	}
@@ -322,5 +323,32 @@ func TestNewCLIMappings(t *testing.T) {
 	}
 	if !strings.Contains(s, `service.name"] == "github-copilot" and resource.attributes["halo.harness"] == nil`) {
 		t.Error("copilot stamp must keep a client-set halo.harness")
+	}
+}
+
+// Copilot's separate lines_added / lines_removed counters feed the one halo.loc
+// metric, split by the type attribute, stamped before the rename.
+func TestCopilotLinesMapToLocWithType(t *testing.T) {
+	got, err := Generate(Options{ClickHouseEndpoint: "tcp://ch:9000"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(got)
+	idx := func(sub string) int {
+		i := strings.Index(s, sub)
+		if i < 0 {
+			t.Fatalf("config lacks %s", sub)
+		}
+		return i
+	}
+	for _, tt := range []struct{ typ, from string }{
+		{"added", "github.copilot.code.lines_added"},
+		{"removed", "github.copilot.code.lines_removed"},
+	} {
+		stamp := idx(`set(datapoint.attributes["type"], "` + tt.typ + `") where metric.name == "` + tt.from + `"`)
+		rename := idx(`set(name, "halo.loc") where name == "` + tt.from + `"`)
+		if stamp > rename {
+			t.Errorf("%s: type must be stamped before the metric is renamed", tt.from)
+		}
 	}
 }

@@ -19,7 +19,7 @@ func testOrg() *policy.Org {
 		Gateway: &policy.Gateway{
 			Auth: policy.GatewayAuth{IdentityHeader: "x-acme-user"},
 			Models: map[string]policy.ModelRoute{
-				"sonnet": rt("orch", "us.anthropic.claude-sonnet-4-5"),
+				"sonnet": rt("orch", "us.anthropic.claude-sonnet-5-5"),
 			},
 			Upstreams: map[string]policy.Upstream{
 				"orch":      {URL: "https://orch.internal:8443", Kind: "orchestrator"},
@@ -62,9 +62,9 @@ func TestDecideRingRouting(t *testing.T) {
 		wantUp    string
 		wantModel string
 	}{
-		{"group ring0", RequestInfo{UserID: "alice", Groups: []string{"ai-platform"}, ModelAlias: "sonnet"}, "ring0", "sha256:r0", "https://orch.internal:8443", "us.anthropic.claude-sonnet-4-5"},
+		{"group ring0", RequestInfo{UserID: "alice", Groups: []string{"ai-platform"}, ModelAlias: "sonnet"}, "ring0", "sha256:r0", "https://orch.internal:8443", "us.anthropic.claude-sonnet-5-5"},
 		{"unknown alias passes through", RequestInfo{UserID: "alice", Groups: []string{"ai-platform"}, ModelAlias: "mystery"}, "ring0", "sha256:r0", "", ""},
-		{"missing identity", RequestInfo{ModelAlias: "sonnet", Groups: []string{"ai-platform"}}, "unknown", "", "https://orch.internal:8443", "us.anthropic.claude-sonnet-4-5"},
+		{"missing identity", RequestInfo{ModelAlias: "sonnet", Groups: []string{"ai-platform"}}, "unknown", "", "https://orch.internal:8443", "us.anthropic.claude-sonnet-5-5"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -108,7 +108,7 @@ func TestCanarySplitAndSticky(t *testing.T) {
 			if d.Upstream != "https://api.anthropic.com" || d.UpstreamModel != "claude-sonnet-4-5-20250929" {
 				t.Fatalf("canary variant did not override route: %+v", d)
 			}
-		} else if d.UpstreamModel != "us.anthropic.claude-sonnet-4-5" {
+		} else if d.UpstreamModel != "us.anthropic.claude-sonnet-5-5" {
 			t.Fatalf("control routed wrongly: %+v", d)
 		}
 		// sticky, independent of session/model-turn state
@@ -316,7 +316,7 @@ func TestSpoofingImpossible(t *testing.T) {
 		if d.Headers[HeaderRing] != "unknown" || d.Experiment != "" || d.Headers[HeaderExperiment] != "" || d.Headers[HeaderVariant] != "" || d.Headers[HeaderRelease] != "" {
 			t.Fatalf("spoof succeeded: %+v", d.Headers)
 		}
-		if d.UpstreamModel != "us.anthropic.claude-sonnet-4-5" {
+		if d.UpstreamModel != "us.anthropic.claude-sonnet-5-5" {
 			t.Fatalf("anonymous request not on default route: %+v", d)
 		}
 	})
@@ -364,7 +364,7 @@ func TestPrepareRejects(t *testing.T) {
 	}{
 		{"configured alias", "/v1/messages", org, first("sonnet"), 0, ""},
 		{"unknown model", "/v1/messages", org, first("claude-opus-4"), 400, `"invalid_request_error"`},
-		{"upstream id is not an alias", "/v1/messages", org, first("us.anthropic.claude-sonnet-4-5"), 400, "allowed models: sonnet"},
+		{"upstream id is not an alias", "/v1/messages", org, first("us.anthropic.claude-sonnet-5-5"), 400, "allowed models: sonnet"},
 		{"no model", "/v1/messages", org, []byte(`{"messages":[]}`), 400, `"type":"error"`},
 		{"nil body", "/v1/messages", org, nil, 400, ""},
 		{"count_tokens unknown model", PathCountTokens, org, first("opus"), 400, ""},
@@ -380,7 +380,7 @@ func TestPrepareRejects(t *testing.T) {
 		{"responses subpath", "/v1/responses/compact", org, []byte(`{"model":"sonnet"}`), 404, `"code":"unknown_url"`},
 		{"bedrock unknown op", "/model/sonnet/foo", org, []byte(`{}`), 404, `{"message":`},
 		{"non-model path passes", "/v1/models", org, nil, 0, ""},
-		{"model detail passes", "/v1/models/claude-sonnet-4-5", org, nil, 0, ""},
+		{"model detail passes", "/v1/models/claude-sonnet-5-5", org, nil, 0, ""},
 		{"chat completions refused", "/v1/chat/completions", org, []byte(`{"model":"gpt-5"}`), 404, `"not_found_error"`},
 		{"legacy complete refused", "/v1/complete", org, nil, 404, ""},
 		{"gemini model call is allowlisted (unlisted alias 400)", "/v1beta/models/gemini-2.5-pro:generateContent", org, nil, 400, "INVALID_ARGUMENT"},
@@ -429,7 +429,7 @@ func TestPrepareVerifiedIgnoresHeaders(t *testing.T) {
 	if res.Decision.Ring != "ring0" || !res.Rewritten {
 		t.Fatalf("got %+v", res.Decision)
 	}
-	if !strings.Contains(string(res.Body), "us.anthropic.claude-sonnet-4-5") {
+	if !strings.Contains(string(res.Body), "us.anthropic.claude-sonnet-5-5") {
 		t.Fatalf("body not rewritten: %s", res.Body)
 	}
 	if anon := PrepareVerified(org, nil, h, "/v1/messages", body); anon.Decision.Ring != RingUnknown {

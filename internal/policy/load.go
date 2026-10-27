@@ -39,10 +39,22 @@ type Root struct {
 	Simple `yaml:",inline"`
 }
 
+// notFoundError carries an actionable message and still unwraps to fs.ErrNotExist.
+type notFoundError struct {
+	msg string
+	err error
+}
+
+func (e *notFoundError) Error() string { return e.msg }
+func (e *notFoundError) Unwrap() error { return e.err }
+
 // ReadRoot strictly decodes dir's halos.yaml.
 func ReadRoot(dir string) (*Root, error) {
 	rootPath := filepath.Join(dir, RootFile)
 	rb, err := os.ReadFile(rootPath)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, &notFoundError{fmt.Sprintf("no %s in %s; run 'halo init' (or 'halo onboard company'), or pass --policy-dir", RootFile, dir), err}
+	}
 	if err != nil {
 		return nil, fmt.Errorf("policy: read %s: %w", rootPath, err)
 	}

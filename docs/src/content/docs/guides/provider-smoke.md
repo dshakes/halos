@@ -43,7 +43,7 @@ Cheapest models by default, overridable with repository **variables** (Actions, 
 
 | Variable | Default |
 |---|---|
-| `HALO_SMOKE_ANTHROPIC_MODEL` | `claude-haiku-4-5` |
+| `HALO_SMOKE_ANTHROPIC_MODEL` | `claude-haiku-5-5` |
 | `HALO_SMOKE_OPENAI_MODEL` | `gpt-4.1-nano` |
 | `HALO_SMOKE_GEMINI_MODEL` | `gemini-2.5-flash-lite` |
 | `HALO_SMOKE_BEDROCK_MODEL` | `us.anthropic.claude-haiku-4-5-20251001-v1:0` |

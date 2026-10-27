@@ -12,7 +12,7 @@ import (
 
 func agentOrg() *policy.Org {
 	org := testOrg()
-	org.Gateway.Models["haiku"] = policy.ModelRoute{Upstream: "orch", Model: "us.anthropic.claude-haiku-4-5"}
+	org.Gateway.Models["haiku"] = policy.ModelRoute{Upstream: "orch", Model: "us.anthropic.claude-haiku-5-5"}
 	org.Agents = &policy.Agents{
 		AllowedModels: []string{"sonnet", "haiku"},
 		DeniedTools:   []string{"Bash"},
@@ -62,7 +62,7 @@ func TestDelegatedCohortIsRoot(t *testing.T) {
 	if agent.Reject != nil || agent.Decision.Ring != root.Decision.Ring || agent.Decision.Release != root.Decision.Release {
 		t.Fatalf("agent cohort %+v, root %+v", agent.Decision, root.Decision)
 	}
-	if agent.Decision.Experiment != "" || len(agent.Decision.Shadow) != 0 || agent.Decision.UpstreamModel != "us.anthropic.claude-sonnet-4-5" {
+	if agent.Decision.Experiment != "" || len(agent.Decision.Shadow) != 0 || agent.Decision.UpstreamModel != "us.anthropic.claude-sonnet-5-5" {
 		t.Fatalf("agent enrolled by default: %+v", agent.Decision)
 	}
 	org.Agents.Experiments = true

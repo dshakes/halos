@@ -19,8 +19,8 @@ org: acme
 tools: {claude-code: 2.1.280, codex: {version: 0.99.0, model: codex}}
 provider: anthropic
 models:
-  default: claude-sonnet-4-5
-  strong: claude-opus-4-1
+  default: claude-sonnet-5-5
+  strong: claude-opus-5-5
   codex: openai/gpt-5-codex
 gateway: https://ai.acme.example
 identity: {issuer: https://login.acme.example, audience: halos, adminGroups: [ai-platform]}
@@ -216,7 +216,7 @@ func TestSwitchModel(t *testing.T) {
 		if ro.Axis != policy.AxisTraffic || ro.Change.Alias != "strong" || !ro.Steps[len(ro.Steps)-1].Gates.Approval {
 			t.Errorf("rollout = %+v", ro)
 		}
-		if g := after.Org.Gateway; g.BaseURL != "https://ai.acme.example" || g.Models["strong"].Model != "claude-opus-4-1" {
+		if g := after.Org.Gateway; g.BaseURL != "https://ai.acme.example" || g.Models["strong"].Model != "claude-opus-5-5" {
 			t.Errorf("gateway stub changed the effective route: %+v", g.Models)
 		}
 	})
@@ -456,9 +456,9 @@ func TestEjectRefusesToClobber(t *testing.T) {
 func TestInitFileValidates(t *testing.T) {
 	dir := t.TempDir()
 	b := InitFile(InitOptions{Org: "globex", Tools: map[string]string{"claude-code": "2.1.280"}, Provider: "bedrock",
-		Models:  map[string]string{"strong": "anthropic.claude-opus-4-1", "default": "anthropic.claude-sonnet-4-5"},
+		Models:  map[string]string{"strong": "anthropic.claude-opus-5-5", "default": "anthropic.claude-sonnet-5-5"},
 		Gateway: "https://ai.globex.example", Issuer: "https://login.globex.example", Safety: "strict", Rollout: "careful"})
-	if !strings.Contains(string(b), "models:\n  default: anthropic.claude-sonnet-4-5\n") {
+	if !strings.Contains(string(b), "models:\n  default: anthropic.claude-sonnet-5-5\n") {
 		t.Errorf("default model not first:\n%s", b)
 	}
 	if err := os.WriteFile(filepath.Join(dir, policy.RootFile), b, 0o644); err != nil {
@@ -545,7 +545,7 @@ func TestInitToolModelOverrides(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if o.Models["codex"] != "openai/gpt-5.1-codex" || o.Models["gemini-cli"] != "gemini/gemini-3-pro" || o.Models["default"] != "claude-sonnet-4-5" {
+	if o.Models["codex"] != "openai/gpt-5.1-codex" || o.Models["gemini-cli"] != "gemini/gemini-3-pro" || o.Models["default"] != "claude-sonnet-5-5" {
 		t.Errorf("models = %v", o.Models)
 	}
 	if len(asked) != 1 || asked[0] != "gemini/gemini-2.5-pro" || len(notes) != 1 || !strings.Contains(notes[0], "gemini-cli") {

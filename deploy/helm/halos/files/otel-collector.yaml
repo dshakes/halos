@@ -40,6 +40,10 @@ processors:
   transform/halo:
     error_mode: ignore
     metric_statements:
+      - context: datapoint
+        statements:
+          - set(datapoint.attributes["type"], "added") where metric.name == "github.copilot.code.lines_added"
+          - set(datapoint.attributes["type"], "removed") where metric.name == "github.copilot.code.lines_removed"
       - context: metric
         statements:
           - set(resource.attributes["halo.harness"], "copilot-cli") where IsMatch(name, "^gen_ai\\.client\\.") and resource.attributes["service.name"] == "github-copilot" and resource.attributes["halo.harness"] == nil
@@ -56,6 +60,8 @@ processors:
           - set(resource.attributes["halo.harness"], "gemini-cli") where name == "gemini_cli.session.count" and resource.attributes["halo.harness"] == nil
           - set(resource.attributes["halo.harness"], "gemini-cli") where name == "gemini_cli.tool.call.count" and resource.attributes["halo.harness"] == nil
           - set(resource.attributes["halo.harness"], "copilot-cli") where name == "github.copilot.tool.call.count" and resource.attributes["halo.harness"] == nil
+          - set(resource.attributes["halo.harness"], "copilot-cli") where name == "github.copilot.code.lines_added" and resource.attributes["halo.harness"] == nil
+          - set(resource.attributes["halo.harness"], "copilot-cli") where name == "github.copilot.code.lines_removed" and resource.attributes["halo.harness"] == nil
           - set(name, "halo.cost.usd") where name == "claude_code.cost.usage"
           - set(name, "halo.tokens") where name == "claude_code.token.usage"
           - set(name, "halo.edit.decision") where name == "claude_code.code_edit_tool.decision"
@@ -69,6 +75,8 @@ processors:
           - set(name, "halo.sessions") where name == "gemini_cli.session.count"
           - set(name, "halo.tool.calls") where name == "gemini_cli.tool.call.count"
           - set(name, "halo.tool.calls") where name == "github.copilot.tool.call.count"
+          - set(name, "halo.loc") where name == "github.copilot.code.lines_added"
+          - set(name, "halo.loc") where name == "github.copilot.code.lines_removed"
   transform/source-cli:
     error_mode: ignore
     metric_statements:

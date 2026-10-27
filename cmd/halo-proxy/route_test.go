@@ -406,7 +406,7 @@ func TestAnthropicClientToBedrockStreamsSSE(t *testing.T) {
 		w.Write(esFrame(`{"type":"message_stop"}`))
 	})
 	e := routeEnv(t, map[string]policy.Upstream{"b": {URL: srv.URL, Kind: "bedrock", Region: "us-west-2"}},
-		[]policy.RouteTarget{{Upstream: "b", Model: "us.anthropic.claude-opus-4-1:0"}}, func(c *Config) { c.SignHosts = []string{"127.0.0.1"} })
+		[]policy.RouteTarget{{Upstream: "b", Model: "us.anthropic.claude-opus-5-5:0"}}, func(c *Config) { c.SignHosts = []string{"127.0.0.1"} })
 	e.p.sigv4.Credentials = aws.CredentialsProviderFunc(func(context.Context) (aws.Credentials, error) {
 		return aws.Credentials{AccessKeyID: "AKID", SecretAccessKey: "SECRET"}, nil
 	})
@@ -417,7 +417,7 @@ func TestAnthropicClientToBedrockStreamsSSE(t *testing.T) {
 		t.Fatalf("status %d ct %q body %q", resp.StatusCode, resp.Header.Get("Content-Type"), b)
 	}
 	_, h, body, raw := s.get()
-	if raw != "/model/us.anthropic.claude-opus-4-1%3A0/invoke-with-response-stream" || !strings.HasPrefix(h.Get("Authorization"), "AWS4-HMAC-SHA256") ||
+	if raw != "/model/us.anthropic.claude-opus-5-5%3A0/invoke-with-response-stream" || !strings.HasPrefix(h.Get("Authorization"), "AWS4-HMAC-SHA256") ||
 		strings.Contains(body, `"model"`) || strings.Contains(body, `"stream"`) || !strings.Contains(body, "bedrock-2023-05-31") {
 		t.Errorf("bedrock request: path %q auth %q body %s", raw, h.Get("Authorization"), body)
 	}
@@ -428,7 +428,7 @@ func TestBedrockPrimaryFailsOverToAnthropicDirect(t *testing.T) {
 	aSrv, aSeen := upstream(t, respond(200, `{"from":"anthropic-direct"}`))
 	var calls atomic.Int32
 	e := routeEnv(t, map[string]policy.Upstream{"p": {URL: bSrv.URL, Kind: "bedrock", Region: "us-west-2"}, "s": anthropic(aSrv.URL)},
-		[]policy.RouteTarget{{Upstream: "p", Model: "us.anthropic.x"}, {Upstream: "s", Model: "claude-opus-4-1", Priority: 1}},
+		[]policy.RouteTarget{{Upstream: "p", Model: "us.anthropic.x"}, {Upstream: "s", Model: "claude-opus-5-5", Priority: 1}},
 		func(c *Config) { c.SignHosts = []string{"127.0.0.1"} })
 	e.p.sigv4.Credentials = aws.CredentialsProviderFunc(func(context.Context) (aws.Credentials, error) {
 		calls.Add(1)

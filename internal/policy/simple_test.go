@@ -33,11 +33,11 @@ func TestSimpleExpandGolden(t *testing.T) {
 		"standard": "", // examples/simple/halos.yaml
 		"strict-careful-bedrock": hdr + "kind: Halos\norg: bank\ntools: {claude-code: 2.1.280}\n" +
 			"provider: {name: bedrock, region: eu-west-1}\n" +
-			"models:\n  default: [eu.anthropic.claude-sonnet-4-5-20250929-v1:0, anthropic/claude-sonnet-4-5]\n  strong: eu.anthropic.claude-opus-4-1-20250805-v1:0\n" +
+			"models:\n  default: [eu.anthropic.claude-sonnet-4-5-20250929-v1:0, anthropic/claude-sonnet-5-5]\n  strong: eu.anthropic.claude-opus-4-1-20250805-v1:0\n" +
 			"gateway: https://ai.bank.example\ntelemetry: https://otel.bank.example:4318\nteam: [ai-platform, alice@bank.example]\n" +
 			"safety: strict\nrollout: careful\n",
 		"relaxed-fast-multi": hdr + "kind: Halos\norg: startup\ntools: {claude-code: 2.1.280, codex: {version: 0.58.0, model: codex}, gemini-cli: {version: 0.12.0, model: gemini}}\n" +
-			"provider: multi\nmodels: {default: anthropic/claude-sonnet-4-5, codex: openai/gpt-5-codex, gemini: gemini/gemini-2.5-pro}\n" +
+			"provider: multi\nmodels: {default: anthropic/claude-sonnet-5-5, codex: openai/gpt-5-codex, gemini: gemini/gemini-2.5-pro}\n" +
 			"gateway: https://ai.startup.example\nsafety: relaxed\nrollout: fast\n",
 		"vertex": hdr + "kind: Halos\norg: gco\ntools: {claude-code: 2.1.280}\n" +
 			"provider: {name: vertex, project: gco-ai, region: us-east5}\nmodels: {default: claude-sonnet-4-5@20250929}\ngateway: https://ai.gco.example\n",
@@ -121,7 +121,7 @@ func TestSimpleSafetyNeverBypasses(t *testing.T) {
 			t.Errorf("safety %q: %+v", s, p)
 		}
 	}
-	root := hdr + "kind: Halos\norg: x\ntools: {claude-code: 2.1.280}\nprovider: anthropic\nmodels: {default: claude-sonnet-4-5}\ngateway: https://ai.x.example\nsafety: relaxed\n"
+	root := hdr + "kind: Halos\norg: x\ntools: {claude-code: 2.1.280}\nprovider: anthropic\nmodels: {default: claude-sonnet-5-5}\ngateway: https://ai.x.example\nsafety: relaxed\n"
 	for name, overlay := range map[string]string{
 		"mode":     hdr + "kind: Profile\nname: default\npermissions: {mode: bypassPermissions}\n",
 		"override": hdr + "kind: Profile\nname: default\nharnesses:\n  claude-code:\n    version: 2.1.280\n    overrides:\n      permissions: {defaultMode: bypassPermissions}\n",
@@ -172,7 +172,7 @@ func TestSimpleLoadErrors(t *testing.T) {
 // expansion; deny lists only grow; other documents add alongside.
 func TestSimpleOverlay(t *testing.T) {
 	root := hdr + "kind: Halos\norg: x\ntools: {claude-code: 2.1.280}\nprovider: anthropic\n" +
-		"models: {default: claude-sonnet-4-5, strong: claude-opus-4-1}\ngateway: https://ai.x.example\n"
+		"models: {default: claude-sonnet-5-5, strong: claude-opus-5-5}\ngateway: https://ai.x.example\n"
 	org, err := Load(writeRepo(t, map[string]string{
 		RootFile: root,
 		"profiles/default.yaml": hdr + "kind: Profile\nname: default\npermissions:\n  mode: plan\n  deny: [Read(./private/**)]\n" +
@@ -270,7 +270,7 @@ func TestSimpleSchema(t *testing.T) {
 // and a profile may set ANTHROPIC_CUSTOM_HEADERS, which the renderer merges.
 func TestExternalGatewayFullValidate(t *testing.T) {
 	dir := writeRepo(t, map[string]string{
-		RootFile: hdr + "kind: Halos\norg: corp\ntools: {claude-code: 2.1.280}\nprovider: anthropic\nmodels: {default: claude-sonnet-4-5}\n" +
+		RootFile: hdr + "kind: Halos\norg: corp\ntools: {claude-code: 2.1.280}\nprovider: anthropic\nmodels: {default: claude-sonnet-5-5}\n" +
 			"gateway: https://ai-gw.corp.example\ngatewayEngine: external\n",
 		"gateway.yaml": hdr + "kind: Gateway\nname: corp-gateway\nbaseURL: https://ai-gw.corp.example\nengine: external\n" +
 			"models: {default: {model: corp-sonnet}}\n",

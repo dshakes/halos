@@ -96,7 +96,7 @@ func testPolicy(t *testing.T) string {
 	org := &policy.Org{
 		Name: "acme",
 		Gateway: &policy.Gateway{
-			Models: map[string]policy.ModelRoute{"sonnet": {Upstream: "orch", Model: "us.anthropic.claude-sonnet-4-5"}},
+			Models: map[string]policy.ModelRoute{"sonnet": {Upstream: "orch", Model: "us.anthropic.claude-sonnet-5-5"}},
 			Upstreams: map[string]policy.Upstream{
 				"orch": {URL: "https://orch.internal:8443/base", Kind: "bedrock"},
 				"cand": {URL: "https://cand.internal", Kind: "anthropic"},
@@ -196,7 +196,7 @@ func TestAccess(t *testing.T) {
 				if fmt.Sprintf("%s:%d", k.host, k.port) != tc.wantTarget || k.scheme != "https" || k.newPath != "/base/v1/messages" {
 					t.Fatalf("target %s://%s:%d%s", k.scheme, k.host, k.port, k.newPath)
 				}
-				if !strings.Contains(k.newBody, "us.anthropic.claude-sonnet-4-5") {
+				if !strings.Contains(k.newBody, "us.anthropic.claude-sonnet-5-5") {
 					t.Fatalf("body not rewritten: %s", k.newBody)
 				}
 			}

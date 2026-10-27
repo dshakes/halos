@@ -118,7 +118,7 @@ func (a *app) cmdInit() *cobra.Command {
 		Long: "Writes a simple-mode halos.yaml: tools, provider, models, gateway, safety and rollout presets.\n" +
 			"Load expands it into the Gateway, Profile and Rings; `halo explain` shows them, `halo eject` writes them out.",
 		Example: "  halo init --org acme --tools claude-code@2.1.280,codex@0.99.0 --provider bedrock \\\n" +
-			"    --model default=claude-sonnet-4-5 --model strong=claude-opus-4-1 --gateway https://ai.acme.com",
+			"    --model default=claude-sonnet-5-5 --model strong=claude-opus-5-5 --gateway https://ai.acme.com",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dir, err := policyDir(cmd, args)
@@ -485,7 +485,7 @@ func (a *app) cmdModel() *cobra.Command {
 	sw := &cobra.Command{
 		Use:   "switch <alias> <model>",
 		Short: "Point an alias at a model: in place, or with --canary as a guardrailed traffic rollout",
-		Long: "<model> is a provider model id, optionally prefixed <provider>/ (e.g. bedrock/anthropic.claude-opus-4-1).\n" +
+		Long: "<model> is a provider model id, optionally prefixed <provider>/ (e.g. bedrock/anthropic.claude-opus-5-5).\n" +
 			"Without --canary the route is edited in place (halos.yaml models.<alias> in simple mode).\n" +
 			"With --canary it writes a traffic-axis Rollout from the rollout preset plus its experiment.",
 		Args: cobra.ExactArgs(2), Annotations: policyDirAnno,

@@ -216,7 +216,7 @@ func TestKillSwitchApplyRoutesControl(t *testing.T) {
 	if d.Experiment != "" || d.Variant != "" || len(d.Shadow) != 0 {
 		t.Fatalf("killed experiments still assigned: %+v", d)
 	}
-	if d.Upstream != "https://orch.internal:8443" || d.UpstreamModel != "us.anthropic.claude-sonnet-4-5" {
+	if d.Upstream != "https://orch.internal:8443" || d.UpstreamModel != "us.anthropic.claude-sonnet-5-5" {
 		t.Fatalf("killed user not on control route: %+v", d)
 	}
 	if _, ok := d.Headers[HeaderExperiment]; ok {

@@ -5,7 +5,7 @@ Halos: OSS Go control plane for AI coding CLIs (Claude Code, Codex, Gemini). Pol
 ## Commands
 
 ```
-make build        # halo halod halo-shadow halo-server into bin/
+make build        # halo halod halo-shadow halo-server halo-proxy halo-kong into bin/
 make test         # go test -race ./...
 make lint         # golangci-lint run ./...
 make vuln         # govulncheck

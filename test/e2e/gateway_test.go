@@ -50,7 +50,7 @@ upstreams:
   primary: {url: "`+primary+`", kind: anthropic}
   candidate: {url: "`+candidate+`", kind: anthropic}
 models:
-  sonnet: {upstream: primary, model: claude-sonnet-4-5}
+  sonnet: {upstream: primary, model: claude-sonnet-5-5}
 `)
 	writeFile(t, filepath.Join(dir, "experiments/shadow.yaml"), `apiVersion: halos.dev/v1
 kind: Experiment
@@ -179,7 +179,7 @@ func TestGatewayTrafficPlane(t *testing.T) {
 			if got := resp.Header.Get("X-Seen-X-Halo-Variant"); got == "sonnet-next" {
 				t.Fatalf("spoofed x-halo-variant reached the upstream")
 			}
-			if resp.Header.Get("X-Mock-Served-By") != "primary" || resp.Header.Get("X-Mock-Model") != "claude-sonnet-4-5" {
+			if resp.Header.Get("X-Mock-Served-By") != "primary" || resp.Header.Get("X-Mock-Model") != "claude-sonnet-5-5" {
 				t.Fatalf("alias not rewritten/routed: served-by=%q model=%q", resp.Header.Get("X-Mock-Served-By"), resp.Header.Get("X-Mock-Model"))
 			}
 		})
@@ -253,7 +253,7 @@ func TestGatewayTrafficPlane(t *testing.T) {
 
 	t.Run("count_tokens routed", func(t *testing.T) {
 		resp, body := send("/v1/messages/count_tokens", `{"model":"sonnet","messages":[{"role":"user","content":"hi"}]}`, auth)
-		if resp.StatusCode != 200 || !strings.Contains(body, `"input_tokens":7`) || resp.Header.Get("X-Mock-Model") != "claude-sonnet-4-5" {
+		if resp.StatusCode != 200 || !strings.Contains(body, `"input_tokens":7`) || resp.Header.Get("X-Mock-Model") != "claude-sonnet-5-5" {
 			t.Fatalf("status %d model %q: %s", resp.StatusCode, resp.Header.Get("X-Mock-Model"), body)
 		}
 	})
@@ -269,7 +269,7 @@ func TestGatewayTrafficPlane(t *testing.T) {
 				}
 				if p.Control.Status == 200 && p.Candidate.Status == 200 &&
 					strings.Contains(string(p.Candidate.Response), "served-by=candidate model=claude-sonnet-next") &&
-					strings.Contains(string(p.Control.Response), "served-by=primary model=claude-sonnet-4-5") {
+					strings.Contains(string(p.Control.Response), "served-by=primary model=claude-sonnet-5-5") {
 					return
 				}
 				t.Logf("pair not matching yet: %s", line)

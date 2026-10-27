@@ -172,7 +172,6 @@ func (a *app) cmdRelease() *cobra.Command {
 	build.Flags().StringVarP(&out, "out", "o", "release.tar", "output tarball")
 	build.Flags().StringVar(&ver, "release-version", "0.0.0-dev", "release version label")
 	build.Flags().BoolVar(&noArt, "no-artifacts", false, noArtHelp)
-	_ = build.MarkFlagRequired("ring")
 
 	var pRing, pVer string
 	var pNoArt bool
@@ -242,19 +241,24 @@ func (a *app) cmdRelease() *cobra.Command {
 	publish.Flags().BoolVar(&pNoArt, "no-artifacts", false, noArtHelp)
 	pf.add(publish, true, false)
 	ppf.add(publish, "")
-	_ = publish.MarkFlagRequired("ring")
 	_ = publish.MarkFlagRequired("release-version")
 
 	var from, to string
 	var prf regFlags
 	var pp ptrFlags
 	promote := &cobra.Command{
-		Use:   "promote",
-		Short: "Point --to-ring at the release --from-ring's signed pointer names; experiment channels stay with the ring they were built for",
+		Use:         "promote",
+		Annotations: policyDirAnno,
+		Short:       "Point --to-ring at the release --from-ring's signed pointer names; experiment channels stay with the ring they were built for",
 		Long: "The source release is taken from --from-ring's signed pointer (signature, ring, org, expiry and\n" +
 			"--state-file continuity checked), never from the unauthenticated ring-<name> tag.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			for _, r := range []struct{ flag, v string }{{"from-ring", from}, {"to-ring", to}} {
+				if r.v == "" {
+					return a.needRing(cmd, r.flag)
+				}
+			}
 			return a.retag(cmd.Context(), &prf, &pp, bundle.Source{Ring: from}, to, "promoted")
 		},
 	}
@@ -262,8 +266,6 @@ func (a *app) cmdRelease() *cobra.Command {
 	promote.Flags().StringVar(&to, "to-ring", "", "destination ring (required)")
 	prf.add(promote, true, false)
 	pp.add(promote, "refuse unless --from-ring serves this release digest (sha256:...)")
-	_ = promote.MarkFlagRequired("from-ring")
-	_ = promote.MarkFlagRequired("to-ring")
 
 	c.AddCommand(build, publish, promote, a.cmdRefresh())
 	return c
@@ -332,8 +334,9 @@ func (a *app) cmdRefresh() *cobra.Command {
 	var rf regFlags
 	var pf ptrFlags
 	c := &cobra.Command{
-		Use:   "refresh",
-		Short: "Re-sign a ring's pointer and its experiment channel pointers (same releases, new seq and expiry)",
+		Use:         "refresh",
+		Annotations: policyDirAnno,
+		Short:       "Re-sign a ring's pointer and its experiment channel pointers (same releases, new seq and expiry)",
 		Long: "Pointers expire after 7 days and halod then refuses the ring. Run refresh on a schedule\n" +
 			"well inside that window (e.g. daily); see .github/workflows/refresh-pointers.yml.example.\n" +
 			"The pointers of every client-axis experiment channel the ring's current release routes to\n" +
@@ -345,6 +348,9 @@ func (a *app) cmdRefresh() *cobra.Command {
 			"--expect-digest with the release digest the ring must be serving.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if ring == "" {
+				return a.needRing(cmd, "ring")
+			}
 			s, err := rf.signer()
 			if err != nil {
 				return err
@@ -367,7 +373,6 @@ func (a *app) cmdRefresh() *cobra.Command {
 	c.Flags().StringVar(&ring, "ring", "", "ring to refresh (required)")
 	rf.add(c, true, false)
 	pf.add(c, "refuse unless the ring currently serves this release digest (sha256:...); the stateless replay guard for CI")
-	_ = c.MarkFlagRequired("ring")
 	return c
 }
 
@@ -376,12 +381,16 @@ func (a *app) cmdRollback() *cobra.Command {
 	var rf regFlags
 	var pf ptrFlags
 	c := &cobra.Command{
-		Use:   "rollback",
-		Short: "Point a ring (and its experiment channels) back at an earlier signed release (version or manifest digest)",
+		Use:         "rollback",
+		Annotations: policyDirAnno,
+		Short:       "Point a ring (and its experiment channels) back at an earlier signed release (version or manifest digest)",
 		Long: "--to <version> resolves tag v<version> and refuses the release unless its signed manifest\n" +
 			"carries that version (a retagged v-tag is refused); --to sha256:<manifest digest> is content-addressed.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if ring == "" { // rollback never defaults a ring
+				return a.needRing(cmd, "ring")
+			}
 			src := bundle.Source{Version: strings.TrimPrefix(to, "v")}
 			if strings.HasPrefix(to, "sha256:") {
 				src = bundle.Source{Manifest: to}
@@ -393,7 +402,6 @@ func (a *app) cmdRollback() *cobra.Command {
 	c.Flags().StringVar(&to, "to", "", "release version or sha256 manifest digest (required)")
 	rf.add(c, true, false)
 	pf.add(c, "refuse unless --to names this release digest (sha256:...)")
-	_ = c.MarkFlagRequired("ring")
 	_ = c.MarkFlagRequired("to")
 	return c
 }
@@ -507,7 +515,6 @@ func (a *app) cmdPlan() *cobra.Command {
 	c.Flags().StringVar(&against, "against", "", "release.tar or registry ref host/org/name[:tag] (default: none, the first release)")
 	c.Flags().StringVar(&ver, "release-version", "0.0.0-dev", "release version label")
 	rf.add(c, false, true)
-	_ = c.MarkFlagRequired("ring")
 	return c
 }
 

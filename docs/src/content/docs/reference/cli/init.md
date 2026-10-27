@@ -41,7 +41,7 @@ halo init [flags]
 
 ```console
 halo init --org acme --tools claude-code@2.1.280,codex@0.99.0 --provider bedrock \
-    --model default=claude-sonnet-4-5 --model strong=claude-opus-4-1 --gateway https://ai.acme.com
+    --model default=claude-sonnet-5-5 --model strong=claude-opus-5-5 --gateway https://ai.acme.com
 ```
 
 ## Parent

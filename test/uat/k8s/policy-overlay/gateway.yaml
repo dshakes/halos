@@ -18,7 +18,7 @@ upstreams:
   mock-responses: {url: "http://mock-b.uat-infra.svc.cluster.local:9000/v1/responses", kind: openai}
   mock-gemini: {url: "http://mock-b.uat-infra.svc.cluster.local:9000", kind: gemini}
 models:
-  sonnet: {upstream: mock-a, model: claude-sonnet-4-5}
+  sonnet: {upstream: mock-a, model: claude-sonnet-5-5}
   opus:
     targets:
       - {upstream: mock-down, model: claude-opus-primary, timeoutSeconds: 5}
@@ -27,7 +27,7 @@ models:
     targets: # 50/50 split, sticky per user+session
       - {upstream: mock-a, model: claude-split-a, weight: 50}
       - {upstream: mock-b, model: claude-split-b, weight: 50}
-  haiku: {upstream: mock-a, model: claude-haiku-4-5}
+  haiku: {upstream: mock-a, model: claude-haiku-5-5}
   fast: {upstream: mock-a, model: fast-base}
   slow: {upstream: mock-a, model: slow-base}
   codex-default: {upstream: mock-responses, model: gpt-5-codex}

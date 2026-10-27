@@ -28,11 +28,11 @@ func TestBuildOutbound(t *testing.T) {
 	vertex := policy.Upstream{Kind: "vertex", Project: "proj", Region: "us-east5"}
 
 	t.Run("bedrock stream", func(t *testing.T) {
-		o, err := BuildOutbound(ProtoAnthropic, policy.Upstream{Kind: "bedrock"}, "us.anthropic.claude-opus-4-1:0", PathMessages, msg)
+		o, err := BuildOutbound(ProtoAnthropic, policy.Upstream{Kind: "bedrock"}, "us.anthropic.claude-opus-5-5:0", PathMessages, msg)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if o.Path != "/model/us.anthropic.claude-opus-4-1%3A0/invoke-with-response-stream" || !o.SSE || !o.SetQuery {
+		if o.Path != "/model/us.anthropic.claude-opus-5-5%3A0/invoke-with-response-stream" || !o.SSE || !o.SetQuery {
 			t.Fatalf("%+v", o)
 		}
 		if jsonField(t, o.Body, "model") != nil || jsonField(t, o.Body, "stream") != nil || jsonField(t, o.Body, "anthropic_version") != "bedrock-2023-05-31" {

@@ -30,7 +30,7 @@ func TestAccessGates(t *testing.T) {
 		org := &policy.Org{
 			Name: "acme",
 			Gateway: &policy.Gateway{
-				Models:    map[string]policy.ModelRoute{"sonnet": {Upstream: "up", Model: "claude-sonnet-4-5"}},
+				Models:    map[string]policy.ModelRoute{"sonnet": {Upstream: "up", Model: "claude-sonnet-5-5"}},
 				Upstreams: map[string]policy.Upstream{"up": {URL: "https://up.internal", Kind: "anthropic"}},
 			},
 			Profiles: map[string]*policy.Profile{"base": {Meta: policy.Meta{Name: "base"}, Harnesses: map[string]policy.HarnessSpec{"claude-code": {Version: "2.1.280"}}}},
