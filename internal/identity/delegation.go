@@ -50,17 +50,17 @@ type DelegatedClaims struct {
 	Models []string `json:"models,omitempty"`
 	// AuthTime is when the root authenticated (OIDC auth_time): a session
 	// revoked after it kills the credential at its next exchange.
-	AuthTime  int64  `json:"auth_time,omitempty"`
-	Parent    string `json:"parent_jti,omitempty"` // jti of the credential it was exchanged from
+	AuthTime int64  `json:"auth_time,omitempty"`
+	Parent   string `json:"parent_jti,omitempty"` // jti of the credential it was exchanged from
 	// Ancestors are the jtis of the credentials before the parent (its
 	// parent first), so revoking any ancestor's jti (ADR-0026) also kills
 	// this credential. Absent when the parent was minted from a session or
 	// from nothing with a jti.
 	Ancestors []string `json:"anc_jti,omitempty"`
-	IssuedAt  int64  `json:"iat"`
-	NotBefore int64  `json:"nbf"`
-	Expiry    int64  `json:"exp"`
-	ID        string `json:"jti"`
+	IssuedAt  int64    `json:"iat"`
+	NotBefore int64    `json:"nbf"`
+	Expiry    int64    `json:"exp"`
+	ID        string   `json:"jti"`
 }
 
 // Chain returns the actors root-side first (the current actor last).

@@ -311,3 +311,50 @@ type brokenRevocations struct{ revocationStore }
 func (brokenRevocations) RevocationsFor(context.Context, []string, []string) ([]pgstore.Revocation, error) {
 	return nil, errors.New("connection refused")
 }
+
+// TestRevocationLogMerge: the single-replica store keeps PutRevocation's
+// semantics (a live row's epoch and expiry only move forward, the record
+// follows the larger epoch, an expired row is replaced) in memory and after
+// a restart replays the log.
+func TestRevocationLogMerge(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Now()
+	exp := now.Add(time.Hour)
+	l, err := openRevocationLog(storage.Dir(dir), time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range []pgstore.Revocation{
+		{Kind: revokeSubject, Key: "agent:planner", Epoch: 200, Expires: exp, Record: []byte(`"second"`)},
+		{Kind: revokeSubject, Key: "agent:planner", Epoch: 100, Expires: exp.Add(-time.Minute), Record: []byte(`"first"`)},
+		{Kind: revokeSubject, Key: "agent:old", Epoch: 900, Expires: now.Add(-time.Second)},
+		{Kind: revokeSubject, Key: "agent:old", Epoch: 50, Expires: exp},
+	} {
+		if err := l.PutRevocation(context.Background(), r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	check := func(l *revocationLog, when string) {
+		t.Helper()
+		got, _ := l.Revocations(context.Background())
+		if len(got) != 2 {
+			t.Fatalf("%s: rows %+v", when, got)
+		}
+		if o := got[0]; o.Key != "agent:old" || o.Epoch != 50 {
+			t.Fatalf("%s: an expired row must be replaced, not kept: %+v", when, o)
+		}
+		if p := got[1]; p.Epoch != 200 || string(p.Record) != `"second"` || !p.Expires.Equal(exp) {
+			t.Fatalf("%s: epoch/expiry/record moved backwards: %+v", when, p)
+		}
+	}
+	check(l, "live")
+	if err := l.close(); err != nil {
+		t.Fatal(err)
+	}
+	l2, err := openRevocationLog(storage.Dir(dir), time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l2.close()
+	check(l2, "replayed")
+}
