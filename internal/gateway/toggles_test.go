@@ -34,7 +34,7 @@ func TestTrafficToggleRoutesAlias(t *testing.T) {
 	}{
 		{"ring0 user is routed by the toggle", ring0, "claude-sonnet-5-5"},
 		{"other alias unaffected", RequestInfo{UserID: "alice", Groups: ring0.Groups, ModelAlias: "opus"}, ""}, // control route of opus
-		{"anonymous caller keeps the default route", RequestInfo{ModelAlias: "sonnet", Groups: ring0.Groups}, "us.anthropic.claude-sonnet-4-5"},
+		{"anonymous caller keeps the default route", RequestInfo{ModelAlias: "sonnet", Groups: ring0.Groups}, "us.anthropic.claude-sonnet-5-5"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -67,7 +67,7 @@ func TestKilledTrafficToggleIsOff(t *testing.T) {
 	k := &KillSwitch{}
 	k.Restore(KillList{Toggles: []string{"sonnet-next"}, IssuedAt: time.Unix(1, 0)})
 	d := Decide(k.Apply(org), req)
-	if d.UpstreamModel != "us.anthropic.claude-sonnet-4-5" {
+	if d.UpstreamModel != "us.anthropic.claude-sonnet-5-5" {
 		t.Fatalf("killed toggle still routes: %+v", d)
 	}
 	if len(org.Toggles) != 1 {

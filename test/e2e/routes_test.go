@@ -92,7 +92,7 @@ func TestRoutes(t *testing.T) {
 		}
 		fmt.Fprintf(&models, "  %s:\n    targets:\n      - {upstream: %s, model: m-%s}\n      - {upstream: %s, model: m-%s, priority: 1}\n", alias, a, a, b, b)
 	}
-	fmt.Fprintf(&models, "  sonnet: {upstream: sa, model: claude-sonnet-4-5}\n") // the e2e profile's default alias
+	fmt.Fprintf(&models, "  sonnet: {upstream: sa, model: claude-sonnet-5-5}\n") // the e2e profile's default alias
 	pair("split", "sa", "sb", true)
 	pair("failover", "fp", "fs", false)
 	pair("midstream", "mp", "ms", false)
@@ -275,7 +275,7 @@ upstreams:
   anthropic: {url: "`+up.URL+`", kind: anthropic}
   gemini: {url: "`+up.URL+`", kind: gemini}
 models:
-  sonnet: {upstream: anthropic, model: claude-sonnet-4-5}
+  sonnet: {upstream: anthropic, model: claude-sonnet-5-5}
   gemini-default: {upstream: gemini, model: gemini-2.5-pro}
 `)
 	if r := run(t, nil, "", "halo", "validate", pol); r.code != 0 {

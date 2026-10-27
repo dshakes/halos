@@ -16,9 +16,9 @@ func org() *policy.Org {
 	return &policy.Org{Gateway: &policy.Gateway{
 		Auth: policy.GatewayAuth{IdentityHeader: "x-acme-user"},
 		Models: map[string]policy.ModelRoute{
-			"sonnet": {Upstream: "orch", Model: "us.anthropic.claude-sonnet-4-5"},
-			"haiku":  {Upstream: "orch", Model: "us.anthropic.claude-haiku-4-5"},
-			"opus":   {Upstream: "anthropic", Model: "claude-opus-4-1"},
+			"sonnet": {Upstream: "orch", Model: "us.anthropic.claude-sonnet-5-5"},
+			"haiku":  {Upstream: "orch", Model: "us.anthropic.claude-haiku-5-5"},
+			"opus":   {Upstream: "anthropic", Model: "claude-opus-5-5"},
 		},
 		Upstreams: map[string]policy.Upstream{
 			"orch":      {URL: "https://orchestrator.internal:8443", Kind: "orchestrator"},

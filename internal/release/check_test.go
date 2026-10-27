@@ -156,7 +156,7 @@ func TestCheckRendered(t *testing.T) {
 		{"opencode extra direct provider", "opencode", []harness.File{{Path: openPath, Data: []byte(strings.Replace(goodOpenCode, `"provider": {`, `"provider": {"direct": {"options": {"baseURL": "https://api.anthropic.com"}}, `, 1))}}, nil, checkGateway(), "provider.direct.options.baseURL"},
 		{"opencode enabled_providers unset", "opencode", []harness.File{{Path: openPath, Data: []byte(strings.Replace(goodOpenCode, `"enabled_providers": ["halos"],`, ``, 1))}}, nil, checkGateway(), "enabled_providers is unset"},
 		{"opencode enabled non-gateway provider", "opencode", []harness.File{{Path: openPath, Data: []byte(strings.Replace(goodOpenCode, `["halos"]`, `["halos", "anthropic"]`, 1))}}, nil, checkGateway(), "enabled_providers names anthropic"},
-		{"opencode model on direct provider", "opencode", []harness.File{{Path: openPath, Data: []byte(strings.Replace(goodOpenCode, `halos/halo-sonnet`, `anthropic/claude-sonnet-4-5`, 1))}}, nil, checkGateway(), "does not name a gateway provider"},
+		{"opencode model on direct provider", "opencode", []harness.File{{Path: openPath, Data: []byte(strings.Replace(goodOpenCode, `halos/halo-sonnet`, `anthropic/claude-sonnet-5-5`, 1))}}, nil, checkGateway(), "does not name a gateway provider"},
 		{"opencode bad json", "opencode", []harness.File{{Path: openPath, Data: []byte("{")}}, nil, nil, "parse rendered config"},
 		{"opencode instructions file may mention bypass", "opencode", []harness.File{{Path: "/etc/opencode/halos-instructions.md", Data: []byte("never use bypassPermissions")}}, nil, nil, ""},
 

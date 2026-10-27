@@ -99,7 +99,7 @@ The stack in `deploy/observability/` (otel-collector-contrib, ClickHouse, Grafan
 | `gen_ai.client.token.usage` | histogram, `{token}` | `gen_ai.token.type` is `input` or `output`; recorded only when the provider reported usage |
 | `gen_ai.client.operation.duration` | histogram, `s` | `error.type` is the HTTP status for responses of 400 and above |
 | `gen_ai.server.time_to_first_token` | histogram, `s` | streams only; request receipt to the first body byte, a close proxy for the first token |
-| span `{operation} {model}` (e.g. `chat claude-sonnet-4-5`) | client span | opt-in; joins the caller's W3C `traceparent` when one is sent |
+| span `{operation} {model}` (e.g. `chat claude-sonnet-5-5`) | client span | opt-in; joins the caller's W3C `traceparent` when one is sent |
 
 Every signal carries `gen_ai.operation.name` (`chat`, or `generate_content` on the Gemini wire), `gen_ai.provider.name` (`anthropic`, `openai`, `aws.bedrock`, `gcp.vertex_ai`, `gcp.gemini`, `azure.ai.openai`), `gen_ai.request.model` (the real model the policy routed to), `gen_ai.response.model` (when the response names one) and the cohort (`halo.ring`, `halo.release`, `halo.experiment`, `halo.variant`, `halo.harness`). Spans add `gen_ai.usage.*_tokens`, `http.response.status_code` and `halo.unit`, the same salted hash as the `halo.gateway.*` series. Token counts are read from the response as it streams (OpenAI chat and Responses, Anthropic, Gemini), without buffering or delaying it. Bedrock event streams and compressed bodies report duration only.
 

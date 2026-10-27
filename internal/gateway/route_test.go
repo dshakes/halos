@@ -144,7 +144,7 @@ func TestBreaker(t *testing.T) {
 func TestDecideAndPrepareWithTargets(t *testing.T) {
 	org := testOrg()
 	org.Gateway.Models["opus"] = policy.ModelRoute{Targets: []policy.RouteTarget{
-		{Upstream: "anthropic", Model: "claude-opus-4-1", Priority: 1}, {Upstream: "orch", Model: "arn:opus"}}}
+		{Upstream: "anthropic", Model: "claude-opus-5-5", Priority: 1}, {Upstream: "orch", Model: "arn:opus"}}}
 	// A traffic-axis variant may swap a whole route, targets included.
 	org.Experiments[0].Variants[1].Routes["opus"] = policy.ModelRoute{Targets: []policy.RouteTarget{{Upstream: "anthropic", Model: "opus-next"}}}
 

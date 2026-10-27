@@ -93,7 +93,7 @@ upstreams:
   primary: {url: "http://127.0.0.1:1", kind: anthropic}
   candidate: {url: "http://127.0.0.1:1", kind: anthropic}
 models:
-  sonnet: {upstream: primary, model: claude-sonnet-4-5}
+  sonnet: {upstream: primary, model: claude-sonnet-5-5}
 `)
 	writeFile(t, filepath.Join(pol, "experiments/sonnet-next-canary.yaml"), `apiVersion: halos.dev/v1
 kind: Experiment
@@ -329,8 +329,8 @@ tools:
   claude-code: `+pin+`
 provider: anthropic
 models:
-  default: claude-sonnet-4-5
-  opus: claude-opus-4-1
+  default: claude-sonnet-5-5
+  opus: claude-opus-5-5
 gateway: https://ai.acme.example
 `)
 	repo := gitRepo(t, dir, pol)

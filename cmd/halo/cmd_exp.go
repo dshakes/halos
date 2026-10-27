@@ -152,6 +152,9 @@ func (a *app) cmdExp() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if _, err := findRing(org, ring); err != nil {
+				return err
+			}
 			e, err := a.findExp(org, args[0])
 			if err != nil {
 				return err
@@ -195,7 +198,6 @@ func (a *app) cmdExp() *cobra.Command {
 	prom.Flags().StringVar(&rel, "release", "", "release digest to pin (required)")
 	prom.Flags().StringVar(&base, "base", "", "PR base branch")
 	prom.Flags().BoolVar(&dry, "dry-run", false, "print the patch instead of opening a PR")
-	_ = prom.MarkFlagRequired("ring")
 	_ = prom.MarkFlagRequired("release")
 
 	exp.AddCommand(analyze, prom)

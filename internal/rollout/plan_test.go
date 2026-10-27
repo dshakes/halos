@@ -281,7 +281,7 @@ func TestPlanCompleteSimpleMode(t *testing.T) {
 	override := func(labels, extra, route string) string {
 		return "apiVersion: halos.dev/v1\nkind: Gateway\nname: acme-gateway\n" + labels + extra + "models:\n  opus:\n" + route
 	}
-	single := "    upstream: anthropic\n    model: claude-opus-4-1\n"
+	single := "    upstream: anthropic\n    model: claude-opus-5-5\n"
 	tests := []struct {
 		name       string
 		opus       string // halos.yaml models.opus
@@ -291,27 +291,27 @@ func TestPlanCompleteSimpleMode(t *testing.T) {
 		wantGW     string // "deleted", "kept" or "" (no file)
 		wantManual bool
 	}{
-		{name: "generated override is deleted", opus: "claude-opus-4-1", candidate: "{upstream: anthropic, model: claude-opus-5-5}",
+		{name: "generated override is deleted", opus: "claude-opus-5-5", candidate: "{upstream: anthropic, model: claude-opus-5-5}",
 			gateway: override(generated, "", single), wantRoot: "opus: claude-opus-5-5", wantGW: "deleted"},
-		{name: "no override: halos.yaml only", opus: "claude-opus-4-1", candidate: "{upstream: anthropic, model: claude-opus-5-5}",
+		{name: "no override: halos.yaml only", opus: "claude-opus-5-5", candidate: "{upstream: anthropic, model: claude-opus-5-5}",
 			wantRoot: "opus: claude-opus-5-5"},
-		{name: "another provider is prefixed", opus: "claude-opus-4-1", candidate: "{upstream: bedrock, model: anthropic.claude-opus-5-5}",
+		{name: "another provider is prefixed", opus: "claude-opus-5-5", candidate: "{upstream: bedrock, model: anthropic.claude-opus-5-5}",
 			gateway: override(generated, "", single), wantRoot: "opus: bedrock/anthropic.claude-opus-5-5", wantGW: "deleted"},
-		{name: "hand-written override is kept in step", opus: "claude-opus-4-1", candidate: "{upstream: anthropic, model: claude-opus-5-5}",
+		{name: "hand-written override is kept in step", opus: "claude-opus-5-5", candidate: "{upstream: anthropic, model: claude-opus-5-5}",
 			gateway: override("", "", single), wantRoot: "opus: claude-opus-5-5", wantGW: "kept"},
-		{name: "override generated for another rollout is kept", opus: "claude-opus-4-1", candidate: "{upstream: anthropic, model: claude-opus-5-5}",
+		{name: "override generated for another rollout is kept", opus: "claude-opus-5-5", candidate: "{upstream: anthropic, model: claude-opus-5-5}",
 			gateway: override("labels:\n  halos.dev/generated-by: rollout/other\n", "", single), wantRoot: "opus: claude-opus-5-5", wantGW: "kept"},
-		{name: "generated override with more in it is kept", opus: "claude-opus-4-1", candidate: "{upstream: anthropic, model: claude-opus-5-5}",
+		{name: "generated override with more in it is kept", opus: "claude-opus-5-5", candidate: "{upstream: anthropic, model: claude-opus-5-5}",
 			gateway: override(generated, "baseURL: https://ai.acme.example\n", single), wantRoot: "opus: claude-opus-5-5", wantGW: "kept"},
-		{name: "failover list is a manual step", opus: "[claude-opus-4-1, bedrock/anthropic.claude-opus-4-1]", candidate: "{upstream: anthropic, model: claude-opus-5-5}",
-			gateway: override(generated, "", "    targets:\n      - {upstream: anthropic, model: claude-opus-4-1}\n      - {upstream: bedrock, model: anthropic.claude-opus-4-1, priority: 1}\n"),
+		{name: "failover list is a manual step", opus: "[claude-opus-5-5, bedrock/anthropic.claude-opus-5-5]", candidate: "{upstream: anthropic, model: claude-opus-5-5}",
+			gateway: override(generated, "", "    targets:\n      - {upstream: anthropic, model: claude-opus-5-5}\n      - {upstream: bedrock, model: anthropic.claude-opus-5-5, priority: 1}\n"),
 			wantGW:  "kept", wantManual: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
 			mustWrite(t, filepath.Join(dir, "halos.yaml"), "org: acme\ntools:\n  claude-code: 2.1.300\nprovider: anthropic\nmodels:\n"+
-				"  default: claude-sonnet-4-5\n  opus: "+tc.opus+"\n  haiku: bedrock/anthropic.claude-haiku-4-5\ngateway: https://ai.acme.example\n")
+				"  default: claude-sonnet-5-5\n  opus: "+tc.opus+"\n  haiku: bedrock/anthropic.claude-haiku-5-5\ngateway: https://ai.acme.example\n")
 			mustWrite(t, filepath.Join(dir, "experiments/opus-next.yaml"), `apiVersion: halos.dev/v1
 kind: Experiment
 name: opus-next

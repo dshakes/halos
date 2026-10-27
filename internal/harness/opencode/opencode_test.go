@@ -207,16 +207,16 @@ func TestExternalGatewayUsesProviderModelID(t *testing.T) {
 	p, g := hutiltest.Fixture()
 	g.Engine = policy.EngineExternal
 	g.Models = map[string]policy.ModelRoute{
-		"halo-sonnet": {Upstream: "x", Model: "claude-sonnet-4-5"},
-		"halo-haiku":  {Upstream: "x", Model: "claude-haiku-4-5"},
+		"halo-sonnet": {Upstream: "x", Model: "claude-sonnet-5-5"},
+		"halo-haiku":  {Upstream: "x", Model: "claude-haiku-5-5"},
 	}
 	files, _ := render(t, p, harness.Context{Gateway: g, OS: harness.Linux})
 	m := decode(t, files[0])
-	if m["model"] != "halos/claude-sonnet-4-5" {
+	if m["model"] != "halos/claude-sonnet-5-5" {
 		t.Errorf("model = %v", m["model"])
 	}
 	models := m["provider"].(map[string]any)["halos"].(map[string]any)["models"].(map[string]any)
-	if !slices.Equal(sortedKeys(models), []string{"claude-haiku-4-5", "claude-sonnet-4-5"}) {
+	if !slices.Equal(sortedKeys(models), []string{"claude-haiku-5-5", "claude-sonnet-5-5"}) {
 		t.Errorf("models = %v", models)
 	}
 }
@@ -238,7 +238,7 @@ func TestWithoutGateway(t *testing.T) {
 		warn  string
 	}{
 		{"alias", "halo-sonnet", "", `models.default "halo-sonnet" is not rendered without a gateway`},
-		{"provider/model", "anthropic/claude-sonnet-4-5", `"model": "anthropic/claude-sonnet-4-5"`, "no gateway configured"},
+		{"provider/model", "anthropic/claude-sonnet-5-5", `"model": "anthropic/claude-sonnet-5-5"`, "no gateway configured"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p := &policy.Profile{Models: policy.Models{Default: tc.model, Allowed: []string{tc.model}}}

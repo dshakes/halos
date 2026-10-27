@@ -248,7 +248,7 @@ traffic:
 		if code, b := api("POST", "/api/v1/toggles/e2e-route/kill", `{"reason":"candidate is slow"}`); code != 200 {
 			t.Fatalf("kill: %d %s", code, b)
 		}
-		waitFor(t, 8*time.Second, "gateway stops routing the killed toggle", func() bool { return routed() == "primary/claude-sonnet-4-5" })
+		waitFor(t, 8*time.Second, "gateway stops routing the killed toggle", func() bool { return routed() == "primary/claude-sonnet-5-5" })
 		if k := listToggles()["e2e-route"].Kill; k == nil || k.By != "admin@acme.com" || k.Reason != "candidate is slow" {
 			t.Fatalf("kill state = %+v", k)
 		}

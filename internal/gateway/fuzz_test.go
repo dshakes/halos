@@ -184,18 +184,18 @@ func FuzzKillSwitchRefresh(f *testing.F) {
 // never forwarded; rejections render as JSON.
 func FuzzPrepareVerified(f *testing.F) {
 	org := testOrg()
-	org.Gateway.Models["claude-sonnet-4-5"] = policy.ModelRoute{Upstream: "anthropic", Model: "claude-sonnet-4-5"} // identity alias: no rewrite needed
+	org.Gateway.Models["claude-sonnet-5-5"] = policy.ModelRoute{Upstream: "anthropic", Model: "claude-sonnet-5-5"} // identity alias: no rewrite needed
 	org.Gateway.Models["gem"] = policy.ModelRoute{Upstream: "anthropic", Model: "gemini-2.5-pro"}
 	first := `{"model":"sonnet","messages":[{"role":"user","content":"hi"}]}`
 	for _, s := range []struct{ path, body, hn, hv, user string }{
 		{PathMessages, first, "X-Halo-Ring", "ring0", "alice"},
 		{PathMessages, first, "x-HALO-experiment", "sonnet-canary", ""},
-		{PathMessages, `{"model":"claude-opus-4","Model":"claude-sonnet-4-5"}`, "x-claude-code-session-id", "s1", "bob"},
-		{PathMessages, `{"model":"claude-opus-4","model":"claude-sonnet-4-5"}`, "", "", "bob"},
+		{PathMessages, `{"model":"claude-opus-4","Model":"claude-sonnet-5-5"}`, "x-claude-code-session-id", "s1", "bob"},
+		{PathMessages, `{"model":"claude-opus-4","model":"claude-sonnet-5-5"}`, "", "", "bob"},
 		{PathCountTokens, first, "", "", "alice"},
 		{PathResponses, `{"model":"sonnet","input":"hi"}`, "", "", "carol"},
 		{"/model/sonnet/invoke-with-response-stream", `{}`, "", "", "dave"},
-		{"/model/claude-sonnet-4-5/converse", `{"model":"x"}`, "", "", ""},
+		{"/model/claude-sonnet-5-5/converse", `{"model":"x"}`, "", "", ""},
 		{"/v1beta/models/gem:streamGenerateContent", `{"contents":[]}`, "", "", "erin"},
 		{"/v1/messages/batches", first, "", "", "alice"},
 		{"/v1/models/%2e%2e", "", "", "", "alice"},

@@ -29,7 +29,7 @@ $ halo validate
 OK: policy valid (0 warnings)
 ```
 
-`halos.yaml` is the whole policy: Claude Code `2.1.280`, provider `anthropic`, model `claude-sonnet-4-5`, `safety: standard`, `rollout: standard`. `halo explain` prints the gateway, profile and four rings it expands to.
+`halos.yaml` is the whole policy: Claude Code `2.1.280`, provider `anthropic`, model `claude-sonnet-5-5`, `safety: standard`, `rollout: standard`. `halo explain` prints the gateway, profile and four rings it expands to.
 
 ## 3. See who lands where
 
