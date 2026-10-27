@@ -4,6 +4,10 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added
+
+- Console: a **Rollouts** page (step timeline, per-gate status, bake countdown, halt and rollback events, ring-to-release pointers) and a **Cost & budgets** page (spend against limit per scope, window, warn/enforce mode and `alertAt` thresholds); Fleet gains per-ring compliance, a drift count per device and an "in sync" filter; Device lists the drifted settings; Overview links to both new pages. Read-only; no server API changes.
+
 ## [0.3.0] - 2026-10-23
 
 ### Added
