@@ -28,6 +28,12 @@ Before finishing: `gofmt -l .` empty, `go build ./... && go vet ./... && go test
 - `internal/roi` delivery ROI (ADR-0027): PR outcome ingest (GitHub, CSV/JSONL), identity roster, per-arm effects; `halo roi`.
 - `internal/vendoradmin` vendor admin console sync (ADR-0025): render, read, diff, apply; `halo admin`.
 - `internal/ledger` agent session ledger (ADR-0031): normalized per-session records from gateway, OTel, Anthropic Compliance API, GitHub audit log and JSONL; redaction and identity join; `halo sessions`.
+- `internal/supplychain` agent supply chain (ADR-0028): digest-pinned skills/plugins/hooks artifacts, fetch, static scan, signatures, CycloneDX AI-BOM + SLSA provenance; `halo artifact`.
+- `internal/impact` change impact preview (ADR-0030): who changes ring, variant or settings, by unit; `halo plan --diff`.
+- `internal/budget` gateway spend metering (ADR-0017). `internal/controller` automated experiment loop. `internal/rollout` rollout step state machine. `internal/toggle` feature-toggle targeting.
+- `internal/intent` intent-level requests to policy file changes. `internal/upgrade` upstream CLI/model watcher -> eval-gated PRs. `internal/onboard` core of `halo doctor`/`halo onboard`.
+- `internal/telemetry` OTel Collector config + halo.* metric mapping. `internal/storage` record log/KV seam; `internal/pgstore` Postgres backend (ADR-0021).
+- `internal/delivery/{mdm,devcontainer}` MDM and Dev Container exports. Helpers: `internal/docgen` + `internal/tools/gendocs` reference docs, `internal/yamledit` byte-splice YAML edits, `internal/fsutil`.
 - `internal/mcpserver` MCP server behind `halo mcp serve`. `plugins/claude-code` Claude Code plugin. `schemas/` JSON Schemas. `examples/acme-corp` example policy repo.
 
 ## Invariants (do not break; flag rather than bend)
