@@ -4,6 +4,12 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Security
+- Invariant 1 could be bypassed through command strings: a hook, status line or MCP server command such as `claude --permission-mode bypassPermissions` or `codex --sandbox=danger-full-access` passed `halo validate` and the release build, which only matched exact, case-sensitive values in env and overrides of parseable JSON/TOML. One shared check (`policy.BypassToken`) now matches bypass modes and the harnesses' bypass CLI flags (`--dangerously-skip-permissions`, `--dangerously-bypass-approvals-and-sandbox`, `--yolo`, `--approval-mode yolo`, `--allow-all*`) in any case. Validation runs it on every string in the policy; the release build on every decoded value and then every raw byte of every rendered file, parseable or not; vendor admin sync and `halo ci config` call the same function. Errors name the field or file and the token. Behaviour change: an instructions file (managed `CLAUDE.md`, `AGENTS.md`, ...) that names a bypass token no longer builds.
+- MCP: `eval_run` and `eval_harvest` require a `reason` for a real run (a preview accepts one), like every other write tool.
+- MCP: copy-paste commands in tool output (`halo kill`, `halo eval run|harvest|steps run`, `halo release publish`, `halo onboard ...`, `git push` / `gh pr create`) single-quote every interpolated value, so a hostile name, reason, path or redaction pattern cannot run a command when pasted.
+- MCP: tool path arguments (eval suite, upgrade config, harvest output) are resolved through symlinks with the same containment as policy resources; a symlink that escapes `--policy-dir`, or a dangling one, is refused.
+
 ## [0.3.0] - 2026-10-23
 
 ### Added
