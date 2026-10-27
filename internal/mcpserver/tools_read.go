@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/dshakes/halos/internal/harness"
 	_ "github.com/dshakes/halos/internal/harness/all" // register adapters
+	"github.com/dshakes/halos/internal/impact"
 	"github.com/dshakes/halos/internal/policy"
 	"github.com/dshakes/halos/internal/promote"
 	"github.com/dshakes/halos/internal/release"
@@ -38,6 +40,7 @@ type planIn struct {
 	Ring           string `json:"ring" jsonschema:"ring to plan"`
 	Against        string `json:"against,omitempty" jsonschema:"path to a baseline release.tar (registry refs are not supported over MCP); empty = first release, everything shows as added"`
 	ReleaseVersion string `json:"release_version,omitempty" jsonschema:"release version label (default 0.0.0-dev)"`
+	DiffBase       string `json:"diff_base,omitempty" jsonschema:"git ref of the policy to compare with (e.g. main): adds the impact preview (who changes ring, variant or effective settings, by unit); the release diff is against that policy's release unless against is set"`
 }
 
 type planOut struct {
@@ -46,6 +49,9 @@ type planOut struct {
 	To       string   `json:"to"`
 	Versions []string `json:"versions"`
 	Diff     string   `json:"diff"`
+	// Impact is set with diff_base: over halo-server's enrolled fleet when
+	// --server and HALO_SESSION are set, else a policy-only estimate.
+	Impact *impact.Report `json:"impact,omitempty"`
 }
 
 type renderIn struct {
@@ -101,7 +107,7 @@ var readOnly = &mcp.ToolAnnotations{ReadOnlyHint: true}
 
 func (s *srv) addReadTools(m *mcp.Server) {
 	mcp.AddTool(m, &mcp.Tool{Name: "validate", Description: "Load and validate the policy repo.", Annotations: readOnly}, s.validate)
-	mcp.AddTool(m, &mcp.Tool{Name: "plan", Description: "Diff the release a ring would get against a baseline release.tar.", Annotations: readOnly}, s.plan)
+	mcp.AddTool(m, &mcp.Tool{Name: "plan", Description: "Diff the release a ring would get against a baseline release.tar; with diff_base (a git ref), against that policy, plus who is affected (users, devices, agents changing ring, variant or effective settings, by unit).", Annotations: readOnly}, s.plan)
 	mcp.AddTool(m, &mcp.Tool{Name: "render_preview", Description: "Render a ring's harness config files for an OS and return their contents. Writes nothing.", Annotations: readOnly}, s.renderPreview)
 	mcp.AddTool(m, &mcp.Tool{Name: "whoami", Description: "Show the ring and experiment variants a user would be assigned.", Annotations: readOnly}, s.whoami)
 	mcp.AddTool(m, &mcp.Tool{Name: "list_rings", Description: "List rollout rings in order.", Annotations: readOnly}, s.listRings)
@@ -168,7 +174,7 @@ func openRelease(p string) (*release.Release, error) {
 	return rel, nil
 }
 
-func (s *srv) plan(_ context.Context, _ *mcp.CallToolRequest, in planIn) (*mcp.CallToolResult, planOut, error) {
+func (s *srv) plan(ctx context.Context, _ *mcp.CallToolRequest, in planIn) (*mcp.CallToolResult, planOut, error) {
 	cur, err := s.buildRelease(in.Ring, in.ReleaseVersion)
 	if err != nil {
 		return nil, planOut{}, err
@@ -179,7 +185,58 @@ func (s *srv) plan(_ context.Context, _ *mcp.CallToolRequest, in planIn) (*mcp.C
 			return nil, planOut{}, err
 		}
 	}
-	return nil, diffOut(prev, cur), nil
+	if in.DiffBase == "" {
+		return nil, diffOut(prev, cur), nil
+	}
+	baseDir, cleanup, err := impact.CheckoutAt(ctx, s.dir, in.DiffBase)
+	if err != nil {
+		return nil, planOut{}, err
+	}
+	defer cleanup()
+	base, err := policy.Load(baseDir)
+	if err != nil {
+		return nil, planOut{}, fmt.Errorf("policy at %s: %w", in.DiffBase, err)
+	}
+	if in.Against == "" { // the base policy's release for the ring, when it has one
+		if b, err := release.Build(base, ringProfile(base, in.Ring), in.Ring, release.Options{Version: cmp.Or(in.ReleaseVersion, "0.0.0-dev")}); err == nil {
+			prev = b
+		}
+	}
+	org, err := s.loadValid()
+	if err != nil {
+		return nil, planOut{}, err
+	}
+	members := impact.PolicyMembers(1000, base, org)
+	source := "policy"
+	if s.serverURL() != "" && s.session() != "" {
+		var fleet struct {
+			Hosts []impact.FleetHost `json:"hosts"`
+		}
+		var devs struct {
+			Items []impact.FleetDevice `json:"items"`
+		}
+		if err := s.serverInto(ctx, "/api/v1/fleet", &fleet); err != nil {
+			return nil, planOut{}, fmt.Errorf("impact: %w", err)
+		}
+		if err := s.serverInto(ctx, "/api/v1/devices", &devs); err != nil {
+			return nil, planOut{}, fmt.Errorf("impact: %w", err)
+		}
+		members, source = impact.FleetMembers(fleet.Hosts, devs.Items, base, org), "fleet"
+	}
+	rep := impact.Compute(base, org, members, 8)
+	rep.Source = source
+	out := diffOut(prev, cur)
+	out.Impact = &rep
+	return nil, out, nil
+}
+
+func ringProfile(org *policy.Org, ring string) string {
+	for _, r := range org.Rings {
+		if r.Name == ring {
+			return r.Profile
+		}
+	}
+	return ""
 }
 
 func diffOut(prev, cur *release.Release) planOut {
