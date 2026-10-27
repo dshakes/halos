@@ -104,3 +104,31 @@ func TestExtensionsAbsentWhenUnset(t *testing.T) {
 		}
 	}
 }
+
+// Supply-chain artifacts land in the managed directory (ADR-0028), tagged
+// with their artifact so halod can check them against the pinned digest.
+func TestArtifactsPlaced(t *testing.T) {
+	p := &policy.Profile{Harnesses: map[string]policy.HarnessSpec{"claude-code": {Version: "2.0.0"}}}
+	p.Extensions.Artifacts = []string{"rev", "audit", "pl"}
+	p.Resolved = []policy.ResolvedArtifact{
+		{Name: "rev", Kind: policy.ArtifactAgent, Files: map[string][]byte{"rev.md": []byte("r")}},
+		{Name: "audit", Kind: policy.ArtifactHook, Files: map[string][]byte{"audit.sh": []byte("#!/bin/sh\n")}},
+		{Name: "pl", Kind: policy.ArtifactPlugin, Files: map[string][]byte{"plugin.json": []byte("{}")}},
+	}
+	files, warns, err := Adapter{}.Render(p, harness.Context{OS: harness.Linux})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"/etc/claude-code/.claude/agents/rev.md": "rev", "/etc/claude-code/hooks/audit/audit.sh": "audit"}
+	for _, f := range files {
+		if a, ok := want[f.Path]; ok && f.Artifact == a {
+			delete(want, f.Path)
+		}
+	}
+	if len(want) != 0 {
+		t.Fatalf("not placed: %v", want)
+	}
+	if !strings.Contains(strings.Join(warns, "\n"), `artifact "pl" (plugin) was not rendered`) {
+		t.Fatalf("plugin not warned: %v", warns)
+	}
+}
