@@ -87,6 +87,34 @@ Generated from `schemas/halos.schema.json`; do not edit. Nested fields use dotte
 | `selfService.launchers[]` |  |  |  | devcontainer, codespaces, coder, laptop |  |  |
 | `selfService.requestable` | array |  |  |  |  | Kinds of access developers may request (approval opens a policy PR). |
 | `selfService.requestable[]` |  |  |  | mcp-server, model, ring-opt-in, harness |  |  |
+| `supplyChain` | object |  |  |  |  | Agent supply chain (ADR-0028): the skills, plugins, hooks, slash commands and agent definitions releases deliver, each pinned by content digest, statically scanned at `halo validate` and `halo release build`, optionally signature-checked, and listed in the release AI-BOM. |
+| `supplyChain.allowFindings` | array of object |  |  |  |  | Scan findings suppressed by content digest; changed content is scanned afresh. An entry that suppresses nothing warns. |
+| `supplyChain.allowFindings[]` | object |  |  |  |  | A justified scan-finding suppression. |
+| `supplyChain.allowFindings[].digest` | string | yes |  |  | pattern ^sha256:[0-9a-f]&#123;64}$ | The artifact digest (any of its files) or one file's sha256 (that file only). |
+| `supplyChain.allowFindings[].path` | string |  |  |  | pattern ^[A-Za-z0-9._@+-]+(/[A-Za-z0-9._@+-]+)*$ | File inside the artifact (default any). |
+| `supplyChain.allowFindings[].reason` | string | yes |  |  | minLength 1 | Why the finding is acceptable. |
+| `supplyChain.allowFindings[].rule` |  | yes |  | hidden-unicode, html-comment-instruction, permission-bypass, remote-exec, credential-path, exfil-url, base64-blob, executable-binary |  | Scan rule id. |
+| `supplyChain.artifacts` | array of object |  |  |  |  | Extension artifacts, referenced by name from a profile's extensions.artifacts. |
+| `supplyChain.artifacts[]` | object |  |  |  |  | One extension artifact. Set exactly one source: path, git or oci. |
+| `supplyChain.artifacts[].digest` | string |  |  |  | pattern ^sha256:[0-9a-f]&#123;64}$ | Artifact digest (`halo artifact digest &lt;path>`): sha256 of the sorted `sha256sum` listing of its files. Required for git and oci; checked for path when set. |
+| `supplyChain.artifacts[].git` | object |  |  |  |  | A git repository pinned to a full commit id (branches and tags are refused). |
+| `supplyChain.artifacts[].git.commit` | string | yes |  |  | pattern ^([0-9a-f]&#123;40}\|[0-9a-f]&#123;64})$ | Full commit id. |
+| `supplyChain.artifacts[].git.path` | string |  |  |  | pattern ^[A-Za-z0-9._@+-]+(/[A-Za-z0-9._@+-]+)*$ | Path within the repository (default its root). |
+| `supplyChain.artifacts[].git.url` | string | yes |  |  | pattern ^(https\|ssh\|file):// | https://, ssh:// or file:// URL. |
+| `supplyChain.artifacts[].kind` |  | yes |  | skill, plugin, hook, command, agent |  | skill: a directory holding SKILL.md; plugin: a plugin directory; hook: scripts a hooks.items command runs; command: one Markdown slash command; agent: one Markdown subagent definition. |
+| `supplyChain.artifacts[].name` | string | yes |  |  | pattern ^[a-z0-9][a-z0-9._-]&#123;0,62}$ | Name profiles reference. |
+| `supplyChain.artifacts[].oci` | string |  |  |  | pattern @sha256:[0-9a-f]&#123;64}$ | Digest-pinned OCI reference host/repo@sha256:&lt;hex>; each layer is one file named by its org.opencontainers.image.title annotation (`oras push`). |
+| `supplyChain.artifacts[].path` | string |  |  |  | pattern ^[A-Za-z0-9._@+-]+(/[A-Za-z0-9._@+-]+)*$ | File or directory in the policy repo, relative to its root. |
+| `supplyChain.artifacts[].signature` | object |  |  |  |  | Signature over the artifact digest. |
+| `supplyChain.artifacts[].signature.file` | string | yes |  |  | pattern ^[A-Za-z0-9._@+-]+(/[A-Za-z0-9._@+-]+)*$ | Signature file in the policy repo: base64 ed25519 (`halo artifact sign`) or cosign sign-blob output. |
+| `supplyChain.artifacts[].signature.identity` | string | yes |  |  |  | A supplyChain.trustedIdentities name. |
+| `supplyChain.requireSignatures` | boolean |  |  |  |  | Refuse a git or oci artifact unless it is signed by a trusted identity. |
+| `supplyChain.scan` |  |  |  | off, warn, enforce |  | Static scan mode: warn (default) reports findings as warnings, enforce makes them errors (as does `--strict`), off skips the scan. |
+| `supplyChain.trustedIdentities` | array of object |  |  |  |  | Keys artifact signatures may be made with. |
+| `supplyChain.trustedIdentities[]` | object |  |  |  |  | A signing identity. Set exactly one of publicKey and cosignKey. |
+| `supplyChain.trustedIdentities[].cosignKey` | string |  |  |  | minLength 1 | cosign public key reference: a file in the policy repo, an absolute path, or a KMS URI. |
+| `supplyChain.trustedIdentities[].name` | string | yes |  |  | pattern ^[a-z0-9][a-z0-9._-]&#123;0,62}$ | Name signatures reference. |
+| `supplyChain.trustedIdentities[].publicKey` | string |  |  |  | pattern ^[A-Za-z0-9._@+-]+(/[A-Za-z0-9._@+-]+)*$ | ed25519 public key PEM in the policy repo (`halo keys generate`). |
 | `team` | array of string |  |  |  |  | Simple mode: ring0 members, IdP groups or user ids (containing @). Default: identity.adminGroups, else &lt;org>-ai-platform. |
 | `team[]` | string |  |  |  | minLength 1 |  |
 | `telemetry` | string |  |  |  | format uri | Simple mode: OTLP/HTTP endpoint. Telemetry is always on. |

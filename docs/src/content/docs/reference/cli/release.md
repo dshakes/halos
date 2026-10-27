@@ -25,6 +25,7 @@ None.
 
 | Command | Description |
 |---|---|
+| [`halo release bom`](/halos/reference/cli/release-bom/) | Print and verify a release's CycloneDX AI-BOM (or --provenance, its in-toto SLSA provenance) |
 | [`halo release build`](/halos/reference/cli/release-build/) | Build a release tarball for a ring |
 | [`halo release promote`](/halos/reference/cli/release-promote/) | Point --to-ring at the release --from-ring's signed pointer names; experiment channels stay with the ring they were built for |
 | [`halo release publish`](/halos/reference/cli/release-publish/) | Build, sign and push a ring release (and its client-axis experiment channels); tags v&lt;version> and ring-&lt;ring> |

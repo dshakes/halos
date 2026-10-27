@@ -4,6 +4,15 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added
+
+- **Agent supply chain and AI-BOM** ([ADR-0028](https://dshakes.github.io/halos/adr/0028-agent-supply-chain-and-ai-bom/)).
+  - `supplyChain.artifacts` in `halos.yaml` declares skills, plugins, hooks, slash commands and agent definitions from the policy repo (`path`), a git commit (`git`) or a digest-pinned OCI artifact (`oci`). Each is pinned by sha256 of its sorted `sha256sum` listing (`halo artifact digest`). Profiles deliver them with `extensions.artifacts`; Claude Code places them in its managed directory, other adapters warn.
+  - `halo release build` fetches remote artifacts and fails on a digest mismatch, a branch or tag instead of a commit or digest, or a bad signature. The release manifest pins each artifact's digest and file listing, and halod checks every artifact file against it before writing; a mismatch is refused and reported as drift.
+  - Static scan at `halo validate` and `halo release build` (and `halo artifact scan`): hidden Unicode, instructions in HTML comments, permission-bypass tokens, fetch-and-execute, credential paths, exfiltration URLs, large base64 blobs and native executables. Warnings by default; errors with `supplyChain.scan: enforce` or `--strict`. `supplyChain.allowFindings` suppresses by content digest with a mandatory reason.
+  - Optional signatures: `supplyChain.trustedIdentities` (ed25519 or cosign keys), per-artifact `signature`, `requireSignatures`; `halo artifact sign`.
+  - Every release build writes a CycloneDX 1.6 AI-BOM (harnesses, rendered files, artifacts, models as `machine-learning-model` components, MCP servers, A2A agents, policy commit) and an in-toto Statement v1 with SLSA provenance v1. `release publish` attaches them as a signed OCI referrer. `halo release bom <tar | ref>` prints and verifies them.
+
 ## [0.3.0] - 2026-10-23
 
 ### Added

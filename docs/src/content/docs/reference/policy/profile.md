@@ -21,6 +21,8 @@ Generated from `schemas/profile.schema.json`; do not edit. Nested fields use dot
 | `env.*` | string |  |  |  |  |  |
 | `extends` | string |  |  |  |  | Parent profile. Scalars: child wins; lists: child replaces; maps: merged. |
 | `extensions` | object |  |  |  |  | Plugin, skill, subagent, output style and status line governance. Unset means unrestricted; each adapter renders what its harness can enforce and warns about the rest. |
+| `extensions.artifacts` | array of string |  |  |  |  | Supply-chain artifacts (halos.yaml supplyChain.artifacts names) this profile delivers (ADR-0028). Claude Code places skills, agents, commands and hooks in its managed directory; other adapters warn. |
+| `extensions.artifacts[]` | string |  |  |  | minLength 1 |  |
 | `extensions.blockedMarketplaces` | array of object |  |  |  |  | Marketplace sources users may never use (Claude Code blockedMarketplaces). Unions down an extends chain. |
 | `extensions.blockedMarketplaces[]` | object |  |  |  |  | A plugin marketplace source. |
 | `extensions.blockedMarketplaces[].hostPattern` | string |  |  |  |  | Regular expression over marketplace hosts (source hostPattern). |

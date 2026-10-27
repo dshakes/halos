@@ -26,6 +26,7 @@ halo release publish [flags]
 | `--release-version` |  | string |  | release version, becomes tag v&lt;version> (required) |
 | `--ring` |  | string |  | ring to publish (required) |
 | `--state-file` |  | string |  | signer state file recording the last pointer written per registry repo and ring; a registry serving an older pointer (replay) is refused. Default $XDG_STATE_HOME/halos/pointers.json (~/.local/state/halos/pointers.json). CI: cache this file between runs |
+| `--strict` |  | bool | false | treat supply-chain scan findings as errors (same as supplyChain.scan: enforce) |
 
 ## Global flags
 
