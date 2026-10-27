@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/dshakes/halos/internal/policy"
@@ -83,38 +84,177 @@ func (r *DLPReport) Count(kind string) int {
 }
 
 type detector struct {
-	id    string
-	keys  []string // prefilter: at least one must occur in the text (nil = always run)
-	re    *regexp.Regexp
-	group int               // capture group that is the secret; 0 = whole match
-	check func(string) bool // extra validation of the secret; nil = none
+	id string
+	// anchors are literals the secret starts at or contains. The regex runs
+	// only on a window of back bytes before and fwd bytes after each anchor
+	// occurrence, so its cost follows the candidates, not the text. nil = the
+	// whole text (org patterns).
+	anchors   []string
+	fold      bool // anchors are lower case and searched case-insensitively (ASCII)
+	back, fwd int
+	require   string // a literal that must occur somewhere in the text; "" = none
+	re        *regexp.Regexp
+	group     int               // capture group that is the secret; 0 = whole match
+	check     func(string) bool // extra validation of the secret; nil = none
+	// gate, when set, is a cheap test at anchor offset i that must pass
+	// before the regex runs on that window.
+	gate func(s string, i int) bool
 }
 
 // builtinDetectors are high-precision: a token format with a fixed prefix or
 // structure, or (generic-secret) a key name next to a high-entropy value.
 var builtinDetectors = []*detector{
-	{id: "aws-access-key-id", keys: []string{"AKIA", "ASIA", "ABIA", "ACCA"}, re: regexp.MustCompile(`\b(?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}\b`),
+	{id: "aws-access-key-id", anchors: []string{"AKIA", "ASIA", "ABIA", "ACCA"}, back: 1, fwd: 21, re: regexp.MustCompile(`\b(?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}\b`),
 		check: func(s string) bool { return !strings.HasSuffix(s, "EXAMPLE") }}, // AWS's documentation key
-	{id: "github-token", keys: []string{"ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_"}, re: regexp.MustCompile(`\b(?:gh[pousr]_[A-Za-z0-9]{36,255}|github_pat_[A-Za-z0-9]{22}_[A-Za-z0-9]{59})\b`)},
-	{id: "gitlab-token", keys: []string{"glpat-", "glptt-", "gldt-", "glrt-"}, re: regexp.MustCompile(`\b(?:glpat|glptt|gldt|glrt)-[A-Za-z0-9_-]{20,64}\b`)},
-	{id: "slack-token", keys: []string{"xox"}, re: regexp.MustCompile(`\bxox[abposr]-[0-9]{6,}-[0-9A-Za-z-]{10,}`)},
-	{id: "slack-webhook", keys: []string{"hooks.slack.com"}, re: regexp.MustCompile(`https://hooks\.slack\.com/(?:services|workflows)/T[A-Z0-9]{6,}/[A-Z0-9]{6,}/[A-Za-z0-9]{16,}`)},
-	{id: "stripe-key", keys: []string{"_live_"}, re: regexp.MustCompile(`\b(?:sk|rk)_live_[A-Za-z0-9]{20,}\b`)},
-	{id: "anthropic-api-key", keys: []string{"sk-ant-"}, re: regexp.MustCompile(`\bsk-ant-(?:api|admin|oat)[0-9]{2}-[A-Za-z0-9_-]{32,}`)},
-	{id: "openai-api-key", keys: []string{"T3BlbkFJ"}, re: regexp.MustCompile(`\bsk-(?:(?:proj|svcacct|admin)-)?[A-Za-z0-9_-]{16,}T3BlbkFJ[A-Za-z0-9_-]{16,}`)},
+	{id: "github-token", anchors: []string{"ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_"}, back: 1, fwd: 260, re: regexp.MustCompile(`\b(?:gh[pousr]_[A-Za-z0-9]{36,255}|github_pat_[A-Za-z0-9]{22}_[A-Za-z0-9]{59})\b`)},
+	{id: "gitlab-token", anchors: []string{"glpat-", "glptt-", "gldt-", "glrt-"}, back: 1, fwd: 71, re: regexp.MustCompile(`\b(?:glpat|glptt|gldt|glrt)-[A-Za-z0-9_-]{20,64}\b`)},
+	{id: "slack-token", anchors: []string{"xox"}, back: 1, fwd: 256, re: regexp.MustCompile(`\bxox[abposr]-[0-9]{6,}-[0-9A-Za-z-]{10,}`)},
+	{id: "slack-webhook", anchors: []string{"https://hooks.slack.com/"}, fwd: 256, re: regexp.MustCompile(`https://hooks\.slack\.com/(?:services|workflows)/T[A-Z0-9]{6,}/[A-Z0-9]{6,}/[A-Za-z0-9]{16,}`)},
+	{id: "stripe-key", anchors: []string{"_live_"}, back: 3, fwd: 256, re: regexp.MustCompile(`\b(?:sk|rk)_live_[A-Za-z0-9]{20,}\b`)},
+	{id: "anthropic-api-key", anchors: []string{"sk-ant-"}, back: 1, fwd: 512, re: regexp.MustCompile(`\bsk-ant-(?:api|admin|oat)[0-9]{2}-[A-Za-z0-9_-]{32,}`)},
+	{id: "openai-api-key", anchors: []string{"T3BlbkFJ"}, back: 256, fwd: 264, re: regexp.MustCompile(`\bsk-(?:(?:proj|svcacct|admin)-)?[A-Za-z0-9_-]{16,}T3BlbkFJ[A-Za-z0-9_-]{16,}`)},
 	// A JWT: base64url JSON header and payload ({" encodes to eyJ) and a signature.
-	{id: "jwt", keys: []string{"eyJ"}, re: regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{16,}`)},
+	{id: "jwt", anchors: []string{"eyJ"}, back: 1, fwd: 8192, re: regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{16,}`)},
 	// PEM private keys with a real body (documentation stubs like "..." do not match).
-	{id: "private-key", keys: []string{"PRIVATE KEY"}, re: regexp.MustCompile(`-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----(?:\\[nr]|[\s])*[A-Za-z0-9+/=\s\\:-]{64,}?-----END (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----`)},
+	{id: "private-key", anchors: []string{"-----BEGIN "}, fwd: 16 << 10, re: regexp.MustCompile(`-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----(?:\\[nr]|[\s])*[A-Za-z0-9+/=\s\\:-]{64,}?-----END (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----`)},
 	// A GCP service-account key file: its private_key_id. Its private_key is the PEM detector's.
-	{id: "gcp-service-account", keys: []string{"service_account"}, re: regexp.MustCompile(`"private_key_id"\s*:\s*\\?"([a-f0-9]{40})\\?"`), group: 1},
+	{id: "gcp-service-account", require: "service_account", anchors: []string{`"private_key_id`}, fwd: 96, re: regexp.MustCompile(`"private_key_id\\?"\s*:\s*\\?"([a-f0-9]{40})\\?"`), group: 1},
 	// generic-secret: a secret-ish key name assigned a high-entropy value.
-	{id: "generic-secret", keys: nil, re: regexp.MustCompile(`(?i)(?:secret|token|passw(?:or)?d|pwd|api[_-]?key|access[_-]?key|private[_-]?key|credential|auth)[A-Za-z0-9_.-]{0,20}\\?["']?\s*(?:[:=]|:=|=>)\s*\\?["'\x60]?([A-Za-z0-9+/_~.=-]{24,256})`), group: 1,
-		check: highEntropy},
+	{id: "generic-secret", anchors: []string{"secret", "token", "passw", "pwd", "key", "credential", "auth"}, fold: true, back: 16, fwd: 300,
+		re: regexp.MustCompile(`(?i)(?:secret|token|passw(?:or)?d|pwd|api[_-]?key|access[_-]?key|private[_-]?key|credential|auth)[A-Za-z0-9_.-]{0,20}\\?["']?\s*(?:[:=]|:=|=>)\s*\\?["'\x60]?([A-Za-z0-9+/_~.=-]{24,256})`), group: 1,
+		check: highEntropy, gate: assignedLongValue},
 }
 
-// genericKeyHints is generic-secret's prefilter (case-insensitive).
-var genericKeyHints = []string{"secret", "token", "passw", "pwd", "key", "credential", "auth"}
+// assignedLongValue reports whether the key name at s[i:] is followed, within
+// a few bytes, by an assignment and a run of at least 24 value characters:
+// generic-secret's regex only runs where it can match.
+func assignedLongValue(s string, i int) bool {
+	end := min(len(s), i+48)
+	j := strings.IndexAny(s[i:end], ":=")
+	if j < 0 {
+		return false
+	}
+	k := i + j + 1
+	for k < len(s) && k < i+j+8 && strings.IndexByte(" \t=>\"'`\\", s[k]) >= 0 {
+		k++
+	}
+	n := 0
+	for k+n < len(s) && n < 24 && isValueByte(s[k+n]) {
+		n++
+	}
+	return n >= 24
+}
+
+func isValueByte(c byte) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.IndexByte("+/_~.=-", c) >= 0
+}
+
+var builtinAnchors = func() *anchorIndex {
+	x := newAnchorIndex(len(builtinDetectors))
+	for i, d := range builtinDetectors {
+		x.add(i, d.fold, d.anchors...)
+	}
+	return x
+}()
+
+// asciiLower lower-cases ASCII letters only, so byte offsets stay valid in s.
+func asciiLower(s string) string {
+	b := []byte(s)
+	for i, c := range b {
+		if c >= 'A' && c <= 'Z' {
+			b[i] = c + 32
+		}
+	}
+	return string(b)
+}
+
+// anchorIndex finds every anchor occurrence for a set of detectors (or
+// injection signals) in one pass over the text: a table keyed by an anchor's
+// first two bytes, then a prefix compare. Anchors are at least 2 bytes.
+type anchorIndex struct {
+	tab  [2]*[1 << 16]bool // [0] exact, [1] ASCII case-folded
+	refs [2]map[uint16][]anchorRef
+	n    int
+}
+
+type anchorRef struct {
+	a   string
+	idx int // detector or signal index
+}
+
+func newAnchorIndex(n int) *anchorIndex {
+	x := &anchorIndex{n: n}
+	for i := range x.tab {
+		x.tab[i], x.refs[i] = new([1 << 16]bool), map[uint16][]anchorRef{}
+	}
+	return x
+}
+
+func (x *anchorIndex) add(idx int, fold bool, anchors ...string) {
+	f := 0
+	if fold {
+		f = 1
+	}
+	for _, a := range anchors {
+		k := uint16(a[0])<<8 | uint16(a[1])
+		x.tab[f][k] = true
+		x.refs[f][k] = append(x.refs[f][k], anchorRef{a, idx})
+	}
+}
+
+// hits returns, per index, the sorted offsets where one of its anchors starts.
+func (x *anchorIndex) hits(s, lower string) [][]int {
+	out := make([][]int, x.n)
+	for i := 0; i+1 < len(s); i++ {
+		for f, hay := range [2]string{s, lower} {
+			k := uint16(hay[i])<<8 | uint16(hay[i+1])
+			if !x.tab[f][k] {
+				continue
+			}
+			for _, r := range x.refs[f][k] {
+				if strings.HasPrefix(hay[i:], r.a) && (len(out[r.idx]) == 0 || out[r.idx][len(out[r.idx])-1] != i) {
+					out[r.idx] = append(out[r.idx], i)
+				}
+			}
+		}
+	}
+	return out
+}
+
+// near runs re on the window [i-back, i+fwd) around every anchor offset in
+// at (or on all of s when at is nil and whole is set) and calls fn with each
+// match's submatch offsets in s. fn returns false to stop.
+func near(re *regexp.Regexp, s string, at []int, whole bool, back, fwd int, gate func(string, int) bool, fn func(m []int) bool) {
+	if whole {
+		for _, m := range re.FindAllStringSubmatchIndex(s, 64) {
+			if !fn(m) {
+				return
+			}
+		}
+		return
+	}
+	scanned := -1 // windows are scanned left to right; skip a match already reported
+	for _, i := range at {
+		if gate != nil && !gate(s, i) {
+			continue
+		}
+		lo, hi := max(0, i-back), min(len(s), i+fwd)
+		for _, m := range re.FindAllStringSubmatchIndex(s[lo:hi], 8) {
+			for k := range m {
+				if m[k] >= 0 {
+					m[k] += lo
+				}
+			}
+			if m[0] <= scanned {
+				continue
+			}
+			scanned = m[0]
+			if !fn(m) {
+				return
+			}
+		}
+	}
+}
 
 // highEntropy accepts values that look generated: letters and digits mixed,
 // at least 3.5 bits of Shannon entropy per character and no placeholder
@@ -135,6 +275,15 @@ func highEntropy(s string) bool {
 		}
 	}
 	if !digit || !(lower && upper) {
+		return false
+	}
+	words := 0 // path- or sentence-like: two or more lowercase words between separators
+	for _, seg := range strings.FieldsFunc(s, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) }) {
+		if len(seg) >= 4 && strings.ToLower(seg) == seg && strings.IndexFunc(seg, unicode.IsDigit) < 0 {
+			words++
+		}
+	}
+	if words >= 2 {
 		return false
 	}
 	l := strings.ToLower(s)
@@ -173,8 +322,8 @@ func DetectorIDs() []string {
 
 // dlpEngine is the compiled detector set for one policy DLP block.
 type dlpEngine struct {
-	cfg  *policy.DLP
-	dets []*detector
+	off []bool      // per builtinDetectors: disabled by policy
+	org []*detector // org patterns
 }
 
 var dlpEngines struct {
@@ -190,11 +339,9 @@ func engineFor(d *policy.DLP) *dlpEngine {
 	if e, ok := dlpEngines.m[d]; ok {
 		return e
 	}
-	e := &dlpEngine{cfg: d}
-	for _, b := range builtinDetectors {
-		if !slices.Contains(d.Secrets.Disable, b.id) {
-			e.dets = append(e.dets, b)
-		}
+	e := &dlpEngine{off: make([]bool, len(builtinDetectors))}
+	for i, b := range builtinDetectors {
+		e.off[i] = slices.Contains(d.Secrets.Disable, b.id)
 	}
 	for _, p := range d.Secrets.Patterns {
 		re, err := regexp.Compile(p.Regex)
@@ -205,7 +352,7 @@ func engineFor(d *policy.DLP) *dlpEngine {
 		if re.NumSubexp() > 0 {
 			g = 1
 		}
-		e.dets = append(e.dets, &detector{id: p.ID, re: re, group: g})
+		e.org = append(e.org, &detector{id: p.ID, re: re, group: g})
 	}
 	if dlpEngines.m == nil || len(dlpEngines.m) >= 8 { // ponytail: old snapshots are dropped wholesale; a handful live at once
 		dlpEngines.m = map[*policy.DLP]*dlpEngine{}
@@ -223,29 +370,15 @@ type secretMatch struct {
 // secrets returns the non-overlapping secrets in s, in order.
 func (e *dlpEngine) secrets(s string) []secretMatch {
 	var out []secretMatch
-	var lower string
-	for _, d := range e.dets {
-		if d.keys != nil && !containsAny(s, d.keys) {
+	hits := builtinAnchors.hits(s, asciiLower(s))
+	for di, d := range builtinDetectors {
+		if e.off[di] || len(hits[di]) == 0 || (d.require != "" && !strings.Contains(s, d.require)) {
 			continue
 		}
-		if d.id == "generic-secret" {
-			if lower == "" {
-				lower = strings.ToLower(s)
-			}
-			if !containsAny(lower, genericKeyHints) {
-				continue
-			}
-		}
-		for _, m := range d.re.FindAllStringSubmatchIndex(s, 64) {
-			a, b := m[0], m[1]
-			if d.group > 0 && len(m) > 2*d.group+1 && m[2*d.group] >= 0 {
-				a, b = m[2*d.group], m[2*d.group+1]
-			}
-			if a >= b || (d.check != nil && !d.check(s[a:b])) {
-				continue
-			}
-			out = append(out, secretMatch{det: d.id, start: a, end: b})
-		}
+		near(d.re, s, hits[di], false, d.back, d.fwd, d.gate, func(m []int) bool { return e.add(&out, d, s, m) })
+	}
+	for _, d := range e.org {
+		near(d.re, s, nil, true, 0, 0, nil, func(m []int) bool { return e.add(&out, d, s, m) })
 	}
 	if len(out) == 0 {
 		return nil
@@ -266,6 +399,18 @@ func (e *dlpEngine) secrets(s string) []secretMatch {
 		kept = append(kept, m)
 	}
 	return kept
+}
+
+// add records match m of d; false once enough was found.
+func (e *dlpEngine) add(out *[]secretMatch, d *detector, s string, m []int) bool {
+	a, b := m[0], m[1]
+	if d.group > 0 && len(m) > 2*d.group+1 && m[2*d.group] >= 0 {
+		a, b = m[2*d.group], m[2*d.group+1]
+	}
+	if a < b && (d.check == nil || d.check(s[a:b])) {
+		*out = append(*out, secretMatch{det: d.id, start: a, end: b})
+	}
+	return len(*out) < 256
 }
 
 func containsAny(s string, subs []string) bool {
@@ -292,37 +437,59 @@ func RedactionMarker(detector, hash string) string {
 // ---- prompt injection ----
 
 type injSignal struct {
-	name   string
-	weight int
-	keys   []string // prefilter (lower-cased text); nil = always
-	re     *regexp.Regexp
+	name      string
+	weight    int
+	anchors   []string // lower-case literals the regex is run near (see near)
+	back, fwd int
+	re        *regexp.Regexp
 }
 
 // injectionSignals are conservative heuristics: each counts once per text,
 // and the default threshold needs two independent ones.
 var injectionSignals = []injSignal{
-	{"instruction-override", 3, []string{"ignore", "disregard", "forget", "override"},
+	{"instruction-override", 3, []string{"ignore", "disregard", "forget", "override"}, 1, 120,
 		regexp.MustCompile(`(?i)\b(?:ignore|disregard|forget|override)\s+(?:all\s+|any\s+|the\s+|your\s+)*(?:previous|prior|above|earlier|preceding|original|system)\s+(?:instructions?|prompts?|rules|directives|guidelines|messages)\b`)},
-	{"role-reassignment", 2, []string{"you are now", "new instructions", "from now on", "system prompt"},
+	{"role-reassignment", 2, []string{"you are now", "new instructions", "new system instructions", "from now on", "system prompt"}, 16, 64,
 		regexp.MustCompile(`(?i)\b(?:you are now (?:a|an|in|the|DAN)\b|new (?:system )?instructions?\s*:|from now on,? you (?:must|will|are)\b|(?:reveal|print|output|repeat) (?:your|the) system prompt)`)},
-	{"fake-turn", 2, []string{"<", "[inst]", "human:", "assistant:", "system:"},
-		regexp.MustCompile(`(?im)^\s*(?:</?(?:system|instructions|tool_result|function_results|antml:[a-z_]+)>|\[/?INST\]|<\|im_(?:start|end)\|>|(?:Human|Assistant|SYSTEM):\s)`)},
-	{"html-comment-imperative", 2, []string{"<!--"},
-		regexp.MustCompile(`(?is)<!--[^>]{0,2000}?\b(?:ignore (?:previous|prior|all)|you must|assistant|ai agent|do not (?:tell|mention|reveal)|curl |wget |send (?:the|all|your)|exfiltrate)\b[^>]{0,2000}?-->`)},
-	{"exfil-url", 2, []string{"http"},
+	{"fake-turn", 2, []string{"<system>", "</system>", "<instructions>", "</instructions>", "<tool_result>", "</tool_result>", "<function_results>", "</function_results>", "[inst]", "[/inst]", "<|im_", "human:", "assistant:", "system:"}, 64, 24,
+		regexp.MustCompile(`(?m)(?:^|\n)[ \t]*(?:</?(?:system|instructions|tool_result|function_results|antml:[a-z_]+)>|\[/?INST\]|<\|im_(?:start|end)\|>|(?:Human|Assistant|SYSTEM):\s)`)},
+	{"html-comment-imperative", 2, []string{"<!--"}, 0, 2100,
+		regexp.MustCompile(`(?is)<!--[^>]{0,1000}?\b(?:ignore (?:previous|prior|all)|you must|assistant|ai agent|do not (?:tell|mention|reveal)|curl |wget |send (?:the|all|your)|exfiltrate)\b[^>]{0,1000}?-->`)},
+	{"exfil-url", 2, []string{"!["}, 0, 800,
 		regexp.MustCompile(`(?i)!\[[^\]]{0,200}\]\(https?://[^)\s]{1,500}[?&][a-z0-9_]{1,40}=[^)\s&]{24,}`)},
 }
 
-// injectionScore scores one tool-result text. A URL carrying a detected
-// secret (secrets non-empty and inside a URL) and policy.BypassToken add
-// signals of their own.
-func injectionScore(s string, secrets []secretMatch) (score int, signals []string) {
-	lower := strings.ToLower(s)
-	for _, sg := range injectionSignals {
-		if sg.keys != nil && !containsAny(lower, sg.keys) {
-			continue
+var signalAnchors = func() *anchorIndex {
+	x := newAnchorIndex(len(injectionSignals) + 1)
+	for i, sg := range injectionSignals {
+		x.add(i, true, sg.anchors...)
+	}
+	x.add(len(injectionSignals), true, bypassHints...)
+	return x
+}()
+
+// bypassHints prefilter policy.BypassToken (a case-insensitive regex over the whole text).
+var bypassHints = []string{"bypass", "danger", "yolo", "allow-all"}
+
+// bypassNear runs policy.BypassToken on the window around each hint offset.
+func bypassNear(s string, at []int) bool {
+	for _, i := range at {
+		if policy.BypassToken(s[max(0, i-32):min(len(s), i+64)]) != "" {
+			return true
 		}
-		if sg.re.MatchString(s) {
+	}
+	return false
+}
+
+// injectionScore scores one tool-result text. A URL carrying a detected
+// secret and a permission-bypass token (policy.BypassToken) add signals of
+// their own.
+func injectionScore(s string, secrets []secretMatch) (score int, signals []string) {
+	hits := signalAnchors.hits(s, asciiLower(s))
+	for i, sg := range injectionSignals {
+		hit := false
+		near(sg.re, s, hits[i], false, sg.back, sg.fwd, nil, func([]int) bool { hit = true; return false })
+		if hit {
 			score += sg.weight
 			signals = append(signals, sg.name)
 		}
@@ -338,7 +505,7 @@ func injectionScore(s string, secrets []secretMatch) (score int, signals []strin
 			break
 		}
 	}
-	if policy.BypassToken(s) != "" {
+	if bypassNear(s, hits[len(injectionSignals)]) {
 		score += 2
 		signals = append(signals, "permission-bypass")
 	}
@@ -348,6 +515,9 @@ func injectionScore(s string, secrets []secretMatch) (score int, signals []strin
 // invisibleUnicode scores hidden characters: 3 for Unicode tag characters
 // (invisible ASCII smuggling), 2 for zero-width or bidi controls, else 0.
 func invisibleUnicode(s string) int {
+	if strings.IndexFunc(s, func(r rune) bool { return r >= 0x200B }) < 0 { // nothing at or above U+200B: nothing hidden
+		return 0
+	}
 	n := 0
 	for i, r := range s {
 		switch {
@@ -456,16 +626,19 @@ func ScanRequest(d *policy.DLP, proto, ring string, units []string, body []byte)
 		if len(st) > 0 && st[len(st)-1].obj && dlpSkipKeys[st[len(st)-1].key] {
 			return true
 		}
+		tool := toolData(proto, st)
 		var ms []secretMatch
-		if sa != policy.DLPOff {
+		if sa != policy.DLPOff || (tool && ia != policy.DLPOff) { // a secret in a URL is an injection signal too
 			ms = e.secrets(s)
 		}
-		tool := toolData(proto, st)
 		var loc string
 		if len(ms) > 0 || tool {
 			loc = pathOf(st)
 		}
 		for _, m := range ms {
+			if sa == policy.DLPOff {
+				break
+			}
 			rep.Findings = append(rep.Findings, DLPFinding{Kind: DLPSecret, Detector: m.det, Hash: m.hash, Location: loc, ToolData: tool})
 		}
 		if tool && ia != policy.DLPOff {

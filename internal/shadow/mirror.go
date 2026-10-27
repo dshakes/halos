@@ -128,9 +128,13 @@ func SharedMirrorer(url, token string) (*Mirrorer, error) {
 // Jobs builds the mirror jobs for a prepared gateway request: one per shadow
 // target, only the ReplayHeaders allowlist (never client credentials) and
 // never an upstream (halo-shadow resolves both sides from its own policy). It
-// returns nil when nothing should be mirrored or body exceeds maxBytes.
+// returns nil when nothing should be mirrored or body exceeds maxBytes. A
+// body the gateway's DLP redacted is mirrored redacted (ADR-0033).
 func Jobs(res gateway.Result, h http.Header, path string, body []byte, maxBytes int) []Job {
 	d := res.Decision
+	if res.DLP != nil && res.DLP.Redacted != nil {
+		body = res.DLP.Redacted
+	}
 	if len(d.Shadow) == 0 || len(body) == 0 || len(body) > maxBytes {
 		return nil
 	}
