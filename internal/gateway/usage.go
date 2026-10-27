@@ -59,8 +59,16 @@ type UsageResult struct {
 // a plain JSON body, its last 64 KiB. Counts merge by maximum, since every
 // wire reports cumulative totals.
 func UsageTap(proto, contentType, contentEncoding string, rc io.ReadCloser, done func(UsageResult)) io.ReadCloser {
+	return UsageTapText(proto, contentType, contentEncoding, rc, done, nil)
+}
+
+// UsageTapText is UsageTap that also hands each piece of generated output
+// text (what OutputText counts: text, thinking and tool-argument strings of
+// streamed delta events) to text, on the goroutine that scans, before done
+// runs. text may be nil. DLP response scanning reads the output this way.
+func UsageTapText(proto, contentType, contentEncoding string, rc io.ReadCloser, done func(UsageResult), text func(string)) io.ReadCloser {
 	mt, _, _ := mime.ParseMediaType(contentType)
-	t := &usageTap{src: rc, proto: proto, done: done, key: []byte(`"usage"`)}
+	t := &usageTap{src: rc, proto: proto, done: done, key: []byte(`"usage"`), onText: text}
 	if proto == ProtoGemini {
 		t.key = []byte(`"usageMetadata"`)
 	}
@@ -110,6 +118,7 @@ type usageTap struct {
 	cut   bool // SSE: the current line outgrew usageMaxLine and lost its head
 	// text and deltas measure generated output in streamed events (outputEvent).
 	text, deltas int64
+	onText       func(string) // nil = output text is only counted
 	once         sync.Once
 	done         func(UsageResult)
 }
@@ -594,10 +603,10 @@ func (t *usageTap) output(b []byte) {
 	if json.Unmarshal(b, &ev) != nil {
 		return
 	}
-	n := textBytes(ev.Delta)
+	n := textBytes(ev.Delta, t.onText)
 	for _, c := range ev.Candidates {
 		for _, p := range c.Content.Parts {
-			n += textBytes(p)
+			n += textBytes(p, t.onText)
 		}
 	}
 	if n > 0 {
@@ -607,8 +616,9 @@ func (t *usageTap) output(b []byte) {
 }
 
 // textBytes sums the decoded length of every string in a JSON value except
-// type tags and signatures (opaque, not generated tokens).
-func textBytes(raw json.RawMessage) int64 {
+// type tags and signatures (opaque, not generated tokens), handing each to
+// fn when it is not nil.
+func textBytes(raw json.RawMessage, fn func(string)) int64 {
 	if len(raw) == 0 {
 		return 0
 	}
@@ -622,6 +632,9 @@ func textBytes(raw json.RawMessage) int64 {
 		switch x := v.(type) {
 		case string:
 			n = int64(len(x))
+			if fn != nil {
+				fn(x)
+			}
 		case []any:
 			for _, e := range x {
 				n += walk(e)

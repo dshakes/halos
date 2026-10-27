@@ -28,21 +28,23 @@ import (
 // rewrite the model, mirror eligible requests, then forward. Response bodies
 // are streamed, never buffered.
 type Proxy struct {
-	cfg    Config
-	snap   *gateway.Snapshot
-	ids    identity.Resolver
-	next   *url.URL // nil unless nextHop
-	def    *url.URL // nil unless defaultUpstream
-	rp     *httputil.ReverseProxy
-	mirror *shadow.Mirrorer // nil = mirroring off
-	sigv4  *upstreamauth.Bedrock
-	kill   *gateway.KillSwitch      // nil = no kill switch
-	pc     *gateway.PostureClient   // nil = posture gate off
-	dir    *gateway.DirectoryClient // nil = groups from the verified identity alone
-	bc     *gateway.BudgetClient    // nil = budgets not metered or enforced
-	otlp   *gwmetrics.Emitter       // nil = request metrics export off
-	m      *metrics
-	log    *slog.Logger
+	cfg      Config
+	snap     *gateway.Snapshot
+	ids      identity.Resolver
+	next     *url.URL // nil unless nextHop
+	def      *url.URL // nil unless defaultUpstream
+	rp       *httputil.ReverseProxy
+	mirror   *shadow.Mirrorer // nil = mirroring off
+	sigv4    *upstreamauth.Bedrock
+	kill     *gateway.KillSwitch      // nil = no kill switch
+	pc       *gateway.PostureClient   // nil = posture gate off
+	dir      *gateway.DirectoryClient // nil = groups from the verified identity alone
+	bc       *gateway.BudgetClient    // nil = budgets not metered or enforced
+	dlpAudit *gateway.DLPReporter     // nil = DLP findings are counted and logged, not audited
+	dm       *dlpMetrics
+	otlp     *gwmetrics.Emitter // nil = request metrics export off
+	m        *metrics
+	log      *slog.Logger
 
 	budgetOff sync.Once // warns once that policy budgets have no budgets.url
 
@@ -69,6 +71,7 @@ type routeCtx struct {
 	proto  string       // model-call wire protocol; "" for other traffic
 	tap    *genaiTap    // GenAI observer on the response body; nil unless GenAI telemetry is on for this call
 	budget *budgetMeter // nil = response not metered
+	dlp    *dlpResponse // nil = response not scanned for secrets
 }
 
 type ctxKey struct{}
@@ -81,7 +84,7 @@ func (b *bufPool) Put(p []byte) { b.Pool.Put(&p) }
 var copyBufs = &bufPool{sync.Pool{New: func() any { b := make([]byte, 32<<10); return &b }}}
 
 func newProxy(cfg Config, log *slog.Logger) (*Proxy, error) {
-	p := &Proxy{cfg: cfg, snap: gateway.NewSnapshot(cfg.Policy), m: newMetrics(), log: log, sigv4: &upstreamauth.Bedrock{},
+	p := &Proxy{cfg: cfg, snap: gateway.NewSnapshot(cfg.Policy), m: newMetrics(), dm: newDLPMetrics(), log: log, sigv4: &upstreamauth.Bedrock{},
 		breaker: &gateway.Breaker{Threshold: cfg.Route.BreakerFailures, Cooldown: cfg.Route.BreakerCooldown}, getenv: os.Getenv}
 	var err error
 	if cfg.NextHop != "" {
@@ -109,6 +112,9 @@ func newProxy(cfg Config, log *slog.Logger) (*Proxy, error) {
 		return nil, err
 	}
 	if p.bc, err = cfg.Budgets.build(log); err != nil {
+		return nil, err
+	}
+	if p.dlpAudit, err = cfg.DLP.build(log); err != nil {
 		return nil, err
 	}
 	if p.otlp, err = gwmetrics.New(cfg.Telemetry); err != nil {
@@ -141,12 +147,17 @@ func newProxy(cfg Config, log *slog.Logger) (*Proxy, error) {
 				if f := p.meterResponse(resp, rc); f != nil {
 					sinks = append(sinks, f)
 				}
+				var text func(string)
+				if rc.dlp != nil && resp.StatusCode/100 == 2 { // monitor only: the response bytes are never changed
+					text = rc.dlp.s.Text
+					sinks = append(sinks, p.dlpResponseDone(rc.dlp, resp.Request.URL.Path))
+				}
 				if len(sinks) > 0 && rc.proto != "" {
-					resp.Body = gateway.UsageTap(rc.proto, ct, ce, resp.Body, func(r gateway.UsageResult) {
+					resp.Body = gateway.UsageTapText(rc.proto, ct, ce, resp.Body, func(r gateway.UsageResult) {
 						for _, f := range sinks {
 							f(r)
 						}
-					})
+					}, text)
 				}
 			}
 			return nil
@@ -221,6 +232,8 @@ func (p *Proxy) AdminHandler() http.Handler {
 			rep, fail, drop = p.bc.Counters()
 		}
 		p.m.writeBudget(w, rep, fail, drop)
+		sent, failed, dropped, deduped := p.dlpAudit.Counters()
+		p.dm.write(w, sent, failed, dropped, deduped)
 		//nolint:gosec // G705 false positive: a uint64 counter rendered with %d into a text/plain response
 		fmt.Fprintf(w, "# HELP halo_proxy_policy_refused_total Policy snapshots refused for security validation errors (the last good policy keeps serving).\n# TYPE halo_proxy_policy_refused_total counter\nhalo_proxy_policy_refused_total %d\n", p.snap.Refused())
 		var ms runtime.MemStats
@@ -237,6 +250,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ring, variant, experiment, upstream, model, actor := "none", "", "", "", "", ""
 	var rewriteErr error
 	var gates []string        // failed or unknown gate checks, for the request log
+	var dlpNote string        // DLP findings for the request log: detector ids, hashes and locations, never content
 	var gw *gwmetrics.Request // set once the request is a cohort-decided model call
 	defer func() {
 		status := sw.status
@@ -293,6 +307,9 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if len(gates) > 0 {
 			attrs = append(attrs, "gates", strings.Join(gates, "; "))
 		}
+		if dlpNote != "" {
+			attrs = append(attrs, "dlp", dlpNote)
+		}
 		p.log.Info("request", attrs...)
 	}()
 
@@ -344,6 +361,9 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	res := gateway.PrepareVerified(p.kill.Apply(org), sub, r.Header, escPath, body) // killed experiments: control, no shadow
+	if res.DLP != nil && res.DLP.Redacted != nil {
+		body = res.DLP.Redacted // every later use (per-target rewrite, mirror) starts from the redacted body (ADR-0033)
+	}
 	d := res.Decision
 	ring, variant, experiment, upstream, model = d.Ring, d.Variant, d.Experiment, d.UpstreamName, d.UpstreamModel
 	rewriteErr = res.RewriteErr
@@ -360,6 +380,16 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			gw.Subject = sub.ID // the root principal; a delegated agent is attributed below, never as the unit
 			if dl := sub.Delegation; dl.Depth() > 0 {
 				gw.Actor, gw.Chain, gw.ActorDepth = dl.Current().Agent, dl.Chain(), dl.Depth()
+			}
+		}
+	}
+	if res.Protocol != "" && org != nil && org.Gateway != nil && org.Gateway.DLP != nil {
+		units := gateway.SubjectUnits(org, sub)
+		base := dlpBase(sub, d.Ring, units, res.Protocol, gateway.HarnessFromUA(r.Header.Get("User-Agent")))
+		dlpNote = p.dlpRequest(res.DLP, base)
+		if res.Reject == nil && !gateway.IsCountTokens(escPath) {
+			if s := gateway.NewDLPResponseScanner(org.Gateway.DLP, d.Ring, units); s != nil {
+				rc.dlp = &dlpResponse{s: s, base: base}
 			}
 		}
 	}

@@ -68,6 +68,7 @@ type Config struct {
 	GatewayPostureToken    string
 	GatewayBudgetToken     string
 	GatewayDirectoryToken  string
+	GatewayDLPToken        string // POST /api/v1/gateway/dlp/events (ADR-0033)
 
 	// PostureMaxAge: a device whose last report is older is stale (GET
 	// /api/v1/gateway/posture, served whenever GatewayToken is set). 0 = DefaultPostureMaxAge.
@@ -128,6 +129,7 @@ type Server struct {
 	gwSums        map[gatewayCap][32]byte // sha256 of the token each enabled gateway capability accepts
 	scim          *scimService            // nil = SCIM off
 	budgets       *budgetStore
+	dlpBatches    dlpBatches // recent DLP audit batch ids (ADR-0033)
 	wl            workloadExchange
 	kv            storage.KV    // ephemeral state: Backend, else in process
 	auditFails    atomic.Uint64 // audit appends that failed (strict and best-effort)
@@ -372,6 +374,7 @@ func (s *Server) mux() *routeMux {
 	m.HandleFunc("GET /api/v1/gateway/killswitch", s.getGatewayKillswitch)
 	m.HandleFunc("GET /api/v1/gateway/posture", s.getGatewayPosture)
 	m.HandleFunc("POST /api/v1/gateway/budget/check", s.postGatewayBudgetCheck) // gateway token
+	m.HandleFunc("POST /api/v1/gateway/dlp/events", s.postGatewayDLPEvents)     // gateway token (ADR-0033)
 	m.HandleFunc("POST /api/v1/gateway/budget/usage", s.postGatewayBudgetUsage) // gateway token
 	s.route(m, "GET /api/v1/budgets", s.getBudgets)
 	s.route(m, "POST /api/v1/devices/{id}/revoke", s.revokeDevice)
