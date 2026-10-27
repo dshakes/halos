@@ -264,3 +264,48 @@ SELECT
 FROM halo.halo_metrics
 WHERE metric = 'halo.eval.judge.score'
 GROUP BY hour, experiment, variant, rubric, judge, source;
+
+-- Agent session ledger (ADR-0031): a query copy of the session records
+-- halo-server stores in its hash-chained audit log (action session.record),
+-- written by `halo sessions import --write-clickhouse`. The audit chain is
+-- the record of truth: record_sha256 is the SHA-256 of the record JSON in that
+-- entry's details.record. One row per stored version; ReplacingMergeTree keeps
+-- the latest per id.
+-- No column can hold prompt text: every string is an identifier, and repos
+-- and files are h:<hmac> hashes or empty (files_touched still counts them).
+CREATE TABLE IF NOT EXISTS halo.halo_session_ledger
+(
+    id               String,
+    session_id       String,
+    user             String,                  -- Halos identity (directory), '' when unresolved
+    vendor_user      String,                  -- identity the source reported
+    unit_id          String,                  -- halo.unit pseudonym (gateway evidence)
+    agents           Array(String),           -- delegated agent chain, root side first
+    harness          LowCardinality(String),
+    harness_version  LowCardinality(String),
+    release          String,
+    ring             LowCardinality(String),
+    experiment       LowCardinality(String),
+    variant          LowCardinality(String),
+    models           Array(LowCardinality(String)),
+    mcp_servers      Array(String),
+    tools            Array(String),
+    repos            Array(String),
+    files            Array(String),
+    files_touched    UInt32,
+    input_tokens     UInt64,
+    output_tokens    UInt64,
+    cost_usd         Float64,
+    started_at       DateTime64(3),
+    ended_at         DateTime64(3),           -- epoch when unknown
+    outcome          LowCardinality(String),  -- completed | error | cancelled | unknown
+    sources          Array(LowCardinality(String)),
+    confidence       LowCardinality(String),  -- high | medium | low
+    redacted         UInt32,
+    stored_at        DateTime64(3),
+    record_sha256    String
+)
+ENGINE = ReplacingMergeTree(stored_at)
+PARTITION BY toYYYYMM(started_at)
+ORDER BY (id)
+TTL toDateTime(started_at) + INTERVAL 400 DAY;

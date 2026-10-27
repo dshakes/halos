@@ -160,6 +160,14 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any, hdr
 	return resp.Header, nil
 }
 
+// Get is an authenticated GET under the same rules as the console calls: the
+// token only in the Authorization header and scrubbed from errors, no
+// redirects, https (or loopback http) only, body capped at 1 MiB. The session
+// ledger's vendor sources (internal/ledger) read audit APIs through it.
+func (c *Client) Get(ctx context.Context, path string, out any, hdr ...string) (http.Header, error) {
+	return c.do(ctx, http.MethodGet, path, nil, out, hdr...)
+}
+
 // Read returns the live values of the settings p desires, keyed like
 // Setting.Key, plus conflictsKey when other resources govern the target.
 func (c *Client) Read(ctx context.Context, p *Plan) (map[string]any, error) {

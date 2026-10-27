@@ -128,7 +128,7 @@ export default defineConfig({
             },
             {
               label: 'Operate',
-              items: ['guides/production-deployment', 'guides/operations', 'guides/siem-export', 'guides/scim-provisioning', 'guides/vendor-admin-sync', 'guides/new-harness-adapter'],
+              items: ['guides/production-deployment', 'guides/operations', 'guides/siem-export', 'guides/session-ledger', 'guides/scim-provisioning', 'guides/vendor-admin-sync', 'guides/new-harness-adapter'],
             },
           ],
         },

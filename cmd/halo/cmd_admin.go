@@ -22,19 +22,33 @@ var apiVendors = []string{"gemini", "copilot"}
 // neither in sync (0) nor drift (2). Never gate CI on it.
 const exitUnchecked = 3
 
-// adminFlags are the credential and endpoint flags of halo admin plan|apply.
+// adminFlags are the credential and endpoint flags of halo admin plan|apply,
+// and of halo sessions import (which sets names and envName).
 type adminFlags struct {
 	offline   bool
+	names     []string            // APIs that take a credential; nil = apiVendors
+	envName   func(string) string // default credential variable; nil = vendoradmin.TokenEnv
 	tokenFile map[string]*string
 	tokenEnv  map[string]*string
 	baseURL   map[string]*string
 }
 
+func (f *adminFlags) vendors() []string {
+	if f.names != nil {
+		return f.names
+	}
+	return apiVendors
+}
+
 func (f *adminFlags) add(c *cobra.Command, live bool) {
 	f.tokenFile, f.tokenEnv, f.baseURL = map[string]*string{}, map[string]*string{}, map[string]*string{}
-	for _, v := range apiVendors {
+	env := f.envName
+	if env == nil {
+		env = vendoradmin.TokenEnv
+	}
+	for _, v := range f.vendors() {
 		f.tokenFile[v] = c.Flags().String(v+"-token-file", "", "file holding the "+v+" API credential (read once, never logged)")
-		f.tokenEnv[v] = c.Flags().String(v+"-token-env", vendoradmin.TokenEnv(v), "environment variable holding the "+v+" API credential")
+		f.tokenEnv[v] = c.Flags().String(v+"-token-env", env(v), "environment variable holding the "+v+" API credential")
 		f.baseURL[v] = c.Flags().String(v+"-base-url", "", v+" API base URL: https, or http to a loopback host only (default the vendor's; e.g. a GitHub Enterprise Server API)")
 	}
 	if live {
@@ -44,7 +58,7 @@ func (f *adminFlags) add(c *cobra.Command, live bool) {
 
 func (f *adminFlags) creds() (map[string]vendoradmin.Cred, error) {
 	out := map[string]vendoradmin.Cred{}
-	for _, v := range apiVendors {
+	for _, v := range f.vendors() {
 		tok := os.Getenv(*f.tokenEnv[v])
 		if p := *f.tokenFile[v]; p != "" {
 			b, err := os.ReadFile(p) //nolint:gosec // operator-supplied credential path is the point
