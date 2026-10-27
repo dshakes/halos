@@ -14,10 +14,11 @@ Headers owned by the gateway (from `internal/gateway/decision.go`):
 | `x-halo-actor` | The verified agent chain of a [delegated credential](/halos/guides/agent-identity/), root side first (`planner>reviewer`). Absent for every other caller | `halo-proxy` / `halo-kong` |
 | `x-halo-actor-depth` | Length of that chain | `halo-proxy` / `halo-kong` |
 | `x-halo-killswitch` | The literal `misconfigured`, set only when `halo-kong`'s kill-switch config is invalid (bad key, missing token, cleartext URL without `killswitch_allow_insecure_in_cluster`). While present, kills are **not** being enforced by that plugin; alert on it. Traffic is not blocked | `halo-kong` |
+| `x-halo-gate` | Warn-mode and unknown [gate](/halos/concepts/delivery/#gateway-gates) outcomes, comma-separated (`version=warn,posture=unknown`). Absent when every gate passed | `halo-kong` |
 
 ## Rules
 
-1. **Everything under `x-halo-` is owned by the gateway.** Every client-supplied `x-halo-*` header is discarded before anything is computed, even if the host's header list was truncated.
+1. **Everything under `x-halo-` is owned by the gateway.** Every client-supplied `x-halo-*` header is discarded before anything is computed. Every name in the table above is cleared by name on every request, so a client copy is removed even if the host's header list did not include it; `halo-kong` answers 431 when Kong's header list reaches its 1000-line cap rather than derive identity from a possibly truncated list.
 2. The cohort is derived from the identity the gateway **verified**: the caller's OIDC JWT (issuer, audience, expiry), or, in `trusted_header` mode, headers set by a proxy whose address is in `trustedProxyCIDRs`. It is never taken from a client-provided value. No verified identity means 401, or, with `allowAnonymous` / `allow_unverified`, ring `unknown`, default routing and no experiments.
 3. The configured identity and groups headers are removed from the forwarded request once the subject is derived. In `trusted_header` mode a request carrying either header twice is a 400. The identity header may not be an `x-halo-*` name.
 4. Upstream services (auth gateway, orchestrator) may trust `x-halo-*` only if they are unreachable except through the gateway.
@@ -33,7 +34,7 @@ When an experiment is on the gateway's [kill list](/halos/concepts/experiments/#
 
 ## Errors
 
-Rejections are rendered in the caller's wire format so the CLI prints the reason: 400 (`invalid_request_error`) for a model that is not a policy alias or for the batches API, 404 for an unknown model endpoint, 413 for an oversize or unreadable body, 401 for a failed JWT (unless `allowAnonymous`), 503 while the policy is not loaded or when `trusted_header` has no CIDR pin.
+Rejections are rendered in the caller's wire format so the CLI prints the reason: 400 (`invalid_request_error`) for a model that is not a policy alias or for the batches API, 404 for an unknown model endpoint, 413 for an oversize or unreadable body, 431 when `halo-kong` sees 1000 or more header lines, 401 for a failed JWT (unless `allowAnonymous`), 503 while the policy is not loaded or when `trusted_header` has no CIDR pin.
 
 ## Shadow authentication
 

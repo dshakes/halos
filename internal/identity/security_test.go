@@ -155,20 +155,30 @@ func TestOIDCJWTRefetchesJWKSOnUnknownKid(t *testing.T) {
 	if _, err := v.Verify(reqWith(mint(old))); err != nil || jwksFetches.Load() != 1 {
 		t.Fatalf("cached kid: err=%v fetches=%d, want 1", err, jwksFetches.Load())
 	}
-	if _, err := v.Verify(reqWith(mint(rotated))); err == nil {
-		t.Fatal("kid k2 not yet published: want rejection")
+	now := time.Now()
+	v.keys.now = func() time.Time { return now }
+	now = now.Add(jwksUnknownKidEvery)
+	if _, err := v.Verify(reqWith(mint(rotated))); err == nil || jwksFetches.Load() != 2 {
+		t.Fatalf("kid k2 not yet published: err=%v fetches=%d, want a rejection after one refetch", err, jwksFetches.Load())
 	}
+	// Unknown kids are unauthenticated: within the window they never refetch.
 	rotatedIn.Store(true)
-	// go-oidc releases a waiter before it clears its in-flight marker, so a verify
-	// that lands in that gap joins the just-finished (stale) fetch; allow one retry.
-	var verr error
-	for attempt := 0; attempt < 2; attempt++ {
-		if _, verr = v.Verify(reqWith(mint(rotated))); verr == nil {
-			return
+	for range 20 {
+		if _, err := v.Verify(reqWith(mint(rotated))); err == nil {
+			t.Fatal("unknown kid accepted without a refetch")
 		}
-		time.Sleep(50 * time.Millisecond)
 	}
-	t.Fatalf("rotated key after refetch: %v", verr)
+	if n := jwksFetches.Load(); n != 2 {
+		t.Fatalf("unknown-kid flood: %d fetches, want 2 (throttled to one per %s)", n, jwksUnknownKidEvery)
+	}
+	if _, err := v.Verify(reqWith(mint(old))); err != nil {
+		t.Fatalf("cached kid during the throttle window: %v", err)
+	}
+	// Past the window the rotated key is fetched and accepted.
+	now = now.Add(jwksUnknownKidEvery)
+	if _, err := v.Verify(reqWith(mint(rotated))); err != nil || jwksFetches.Load() != 3 {
+		t.Fatalf("rotated key after the window: err=%v fetches=%d, want ok after 3", err, jwksFetches.Load())
+	}
 }
 
 // A cached JWKS older than jwksMaxAge is refetched before use, so a key the
