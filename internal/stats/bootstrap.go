@@ -2,6 +2,7 @@ package stats
 
 import (
 	"errors"
+	"math"
 	"math/rand/v2"
 	"sort"
 )
@@ -116,4 +117,87 @@ func PairedClusterBootstrap(control, treatment []float64, cluster []string, iter
 		d[i] = treatment[i] - control[i]
 	}
 	return ClusterBootstrapMean(d, cluster, iters, seed, alpha)
+}
+
+// Cluster is one cluster's contribution to a ratio estimator: the sums of a
+// numerator and a denominator over its observations, e.g. one developer's
+// total PR cycle hours (Num) over their merged PRs (Den).
+type Cluster struct{ Num, Den float64 }
+
+// DiffResult is a two-arm estimate of ratio(treatment) - ratio(control),
+// where an arm's ratio is sum(Num)/sum(Den) over its clusters.
+type DiffResult struct {
+	Control   float64 `json:"control"`
+	Treatment float64 `json:"treatment"`
+	Effect    float64 `json:"effect"` // Treatment - Control
+	CILo      float64 `json:"ciLo"`
+	CIHi      float64 `json:"ciHi"`
+	// Rel is Effect/Control with its CI (resamples whose control ratio is 0
+	// are left out of the relative CI); all 0 when Control is 0.
+	Rel     float64 `json:"rel"`
+	RelCILo float64 `json:"relCiLo"`
+	RelCIHi float64 `json:"relCiHi"`
+	SE      float64 `json:"se"` // bootstrap standard deviation of Effect
+	NC      int     `json:"nControl"`
+	NT      int     `json:"nTreatment"`
+}
+
+// ClusterBootstrapDiff is a percentile bootstrap CI of the difference between
+// two independent arms' ratio estimators. Whole clusters are resampled within
+// each arm (stratified by arm), so correlated observations of one cluster
+// never count as independent evidence. Every Den must be > 0. Deterministic
+// for a given seed.
+func ClusterBootstrapDiff(control, treatment []Cluster, iters int, seed uint64, alpha float64) (DiffResult, error) {
+	if len(control) == 0 || len(treatment) == 0 {
+		return DiffResult{}, errors.New("stats: bootstrap of an empty arm")
+	}
+	if iters < 2 {
+		return DiffResult{}, errors.New("stats: bootstrap iters must be >= 2")
+	}
+	for _, arm := range [][]Cluster{control, treatment} {
+		for _, c := range arm {
+			if !(c.Den > 0) {
+				return DiffResult{}, errors.New("stats: cluster denominator must be > 0")
+			}
+		}
+	}
+	ratio := func(cs []Cluster) float64 {
+		var n, d float64
+		for _, c := range cs {
+			n, d = n+c.Num, d+c.Den
+		}
+		return n / d
+	}
+	rng := rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15)) //nolint:gosec // seeded PRNG for reproducible bootstrap CIs; not security sensitive
+	resample := func(cs []Cluster) float64 {
+		var n, d float64
+		for range cs {
+			c := cs[rng.IntN(len(cs))]
+			n, d = n+c.Num, d+c.Den
+		}
+		return n / d
+	}
+	r := DiffResult{Control: ratio(control), Treatment: ratio(treatment), NC: len(control), NT: len(treatment)}
+	r.Effect = r.Treatment - r.Control
+	diffs, rels := make([]float64, iters), make([]float64, 0, iters)
+	var sum, sum2 float64
+	for i := range diffs {
+		c, t := resample(control), resample(treatment)
+		diffs[i] = t - c
+		if c != 0 {
+			rels = append(rels, (t-c)/c)
+		}
+		sum, sum2 = sum+diffs[i], sum2+diffs[i]*diffs[i]
+	}
+	n := float64(iters)
+	r.SE = math.Sqrt(max(0, (sum2-sum*sum/n)/(n-1)))
+	sort.Float64s(diffs)
+	sort.Float64s(rels)
+	at := func(s []float64, q float64) float64 { return s[int(q*float64(len(s)-1))] }
+	r.CILo, r.CIHi = at(diffs, alpha/2), at(diffs, 1-alpha/2)
+	if r.Control != 0 && len(rels) > 0 {
+		r.Rel = r.Effect / r.Control
+		r.RelCILo, r.RelCIHi = at(rels, alpha/2), at(rels, 1-alpha/2)
+	}
+	return r, nil
 }

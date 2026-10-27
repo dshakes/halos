@@ -24,6 +24,7 @@
         "internal/policy",
         "internal/promote",
         "internal/release",
+        "internal/roi",
         "internal/rollout",
         "internal/server",
         "internal/shadow",
@@ -294,6 +295,7 @@
         "internal/policy",
         "internal/promote",
         "internal/release",
+        "internal/roi",
         "internal/rollout",
         "internal/shadow",
         "internal/toggle",
@@ -347,6 +349,15 @@
         "internal/harness",
         "internal/policy",
         "internal/toggle"
+      ]
+    },
+    {
+      "path": "internal/roi",
+      "imports": [
+        "internal/policy",
+        "internal/promote",
+        "internal/stats",
+        "internal/vendoradmin"
       ]
     },
     {

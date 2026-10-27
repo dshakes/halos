@@ -245,8 +245,10 @@ type PROpener interface {
 
 // OpenPR builds the PR for a promotion verdict and hands it to the opener. It
 // is the only path by which a promotion reaches the policy repo; a human
-// merges.
-func OpenPR(ctx context.Context, o PROpener, t Target, ch *Change, exp *policy.Experiment, rep Report, base string) (string, error) {
+// merges. roi, when non-empty, is a delivery-ROI section (internal/roi,
+// ADR-0027) added to the body for the reviewer: it is informational and
+// plays no part in the verdict.
+func OpenPR(ctx context.Context, o PROpener, t Target, ch *Change, exp *policy.Experiment, rep Report, base, roi string) (string, error) {
 	if rep.Verdict != Promote {
 		return "", fmt.Errorf("promote: refusing to open a promotion PR for verdict %q", rep.Verdict)
 	}
@@ -255,6 +257,9 @@ func OpenPR(ctx context.Context, o PROpener, t Target, ch *Change, exp *policy.E
 		exp.Name, rep.Verdict, rep.Reason, rep.Control, rep.NControl, rep.Treatment, rep.NTreatment, rep.Effect, rep.PValue)
 	for _, g := range rep.Guardrails {
 		body += fmt.Sprintf("- Guardrail `%s`: %s (regression %.1f%%)\n", g.Metric, g.Result.Status, 100*g.Result.Regression)
+	}
+	if roi != "" {
+		body += "\n" + strings.TrimSpace(roi) + "\n"
 	}
 	body += "\n```diff\n" + ch.Patch + "```\n\nThis PR was opened by Halos and must be reviewed and merged by a human.\n"
 	return o.OpenPR(ctx, PRRequest{

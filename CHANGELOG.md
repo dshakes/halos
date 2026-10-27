@@ -4,6 +4,9 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added
+- Randomized delivery ROI (ADR-0027): `halo roi ingest github|file` imports pull-request outcomes (cycle time, review rounds, lines changed, a revert/hotfix change-failure proxy) read-only from GitHub GraphQL or a generic CSV/JSONL export into ClickHouse `halo_delivery_prs` or a local JSONL store. `halo roi report --experiment X` maps authors to Halos subjects with an identity roster, recovers each developer's variant with the fleet's own assignment, and estimates per-arm effects with developer-clustered bootstrap CIs, an SRM check, novelty time slices, an honest `insufficient_power` state and cost per merged PR; `--rings` comparisons are labelled observational. The MCP tool `roi_report` is read-only, and promotion PRs (`halo exp promote --roi-identities`, `propose_promotion`) carry an informational ROI section that never affects the verdict. `internal/stats` gains `ClusterBootstrapDiff` and `SRM`.
+
 ## [0.3.0] - 2026-10-23
 
 ### Added
