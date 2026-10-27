@@ -44,9 +44,9 @@ mcp:
       units: [payments] # and toggles/github-mcp delivers it to 10% of ring1-canary
     - id: playwright
       registryName: io.github.microsoft/playwright-mcp
-      version: 0.0.41
+      version: 0.0.82
       package:
         type: npm
         identifier: "@playwright/mcp"
-        version: 0.0.41
+        version: 0.0.82
       rings: [ring0-harness-team]

@@ -29,7 +29,7 @@ func TestValidateMCPRegistry(t *testing.T) {
 		},
 			[]string{"mcp.servers[0]"}},
 		{"plain http url", func(o *Org) { o.MCP.Servers[0].URL = "http://mcp-wiki.internal.acme.example/mcp" }, []string{"mcp.servers[0].url"}},
-		{"npm range", func(o *Org) { o.MCP.Servers[2].Package.Version = "^0.0.41" }, []string{"mcp.servers[2].package.version"}},
+		{"npm range", func(o *Org) { o.MCP.Servers[2].Package.Version = "^0.0.82" }, []string{"mcp.servers[2].package.version"}},
 		{"npm latest", func(o *Org) { o.MCP.Servers[2].Package.Version = "latest" }, []string{"mcp.servers[2].package.version"}},
 		{"oci without digest, with tag", func(o *Org) {
 			o.MCP.Servers[2].Package = &MCPPackage{Type: MCPPackageOCI, Identifier: "ghcr.io/acme/mcp:1.0"}
@@ -132,7 +132,7 @@ func TestWithMCPRegistry(t *testing.T) {
 		t.Fatal(err)
 	}
 	if w, pw := p.MCP.Servers[own], p.MCP.Servers[own+1]; w.Auth.Mode != MCPAuthHalos || !slices.Equal(w.Tools.Deny, []string{"delete_page"}) ||
-		!slices.Equal(pw.Command, []string{"npx", "-y", "@playwright/mcp@0.0.41"}) {
+		!slices.Equal(pw.Command, []string{"npx", "-y", "@playwright/mcp@0.0.82"}) {
 		t.Errorf("acme-wiki = %+v, playwright = %+v", w, pw)
 	}
 	// A server the profile already lists by name is kept as is.
@@ -163,7 +163,7 @@ func TestMCPPins(t *testing.T) {
 			t.Errorf("%s pins %v, want %v", ring, got, want)
 		}
 	}
-	if pins := o.MCP.MCPPins("ring0-harness-team"); pins[2].Package == nil || !slices.Equal(pins[2].Command, []string{"npx", "-y", "@playwright/mcp@0.0.41"}) {
+	if pins := o.MCP.MCPPins("ring0-harness-team"); pins[2].Package == nil || !slices.Equal(pins[2].Command, []string{"npx", "-y", "@playwright/mcp@0.0.82"}) {
 		t.Errorf("playwright pin = %+v", pins[2])
 	}
 	if (*MCPRegistry)(nil).MCPPins("ring3-ga") != nil {

@@ -45,6 +45,6 @@ func (a *app) cmdMCP() *cobra.Command {
 	serve.Flags().StringVar(&ch.url, "clickhouse", "", "ClickHouse HTTP URL; enables analyze_experiment")
 	serve.Flags().StringVar(&ch.db, "database", "", "ClickHouse database")
 	serve.Flags().StringVar(&ch.user, "user", "", "ClickHouse user (password from HALO_CLICKHOUSE_PASSWORD)")
-	c.AddCommand(serve)
+	c.AddCommand(serve, a.cmdMCPRegistry(), a.cmdMCPToken())
 	return c
 }
