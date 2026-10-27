@@ -30,7 +30,13 @@ func (s *Server) getGatewayPosture(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, http.StatusBadRequest, "subject required (<=256 chars)")
 		return
 	}
-	writeJSON(w, http.StatusOK, s.posture(r.Context(), sub))
+	v := s.posture(r.Context(), sub)
+	outcome := "noncompliant"
+	if v.Compliant {
+		outcome = "compliant"
+	}
+	s.metrics.lookup("posture", outcome)
+	writeJSON(w, http.StatusOK, v)
 }
 
 // posture is compliant when the subject has at least one enrolled device and
@@ -38,9 +44,18 @@ func (s *Server) getGatewayPosture(w http.ResponseWriter, r *http.Request) {
 // with no drift, on its ring's current release or one of that release's
 // experiment channels. Every device counts: stopping halod on one machine
 // cannot be hidden behind a second, healthy one. The release check is skipped
-// when no registry is configured or no verified pointer is known.
+// when no registry is configured or nothing is published for the ring; a
+// release that cannot be checked (registry unreachable with no verified
+// pointer cached, or the release's channels unreadable) is unknown, never
+// current. Devices are read after catching up with the shared registry, so a
+// device enrolled on another replica counts; if that fails the verdict is
+// unknown (not compliant), never a pass on a partial view.
 func (s *Server) posture(ctx context.Context, subject string) gateway.PostureVerdict {
 	now := s.cfg.Now()
+	if err := s.devices.sharedCatchup(); err != nil {
+		s.cfg.Log.Error("posture: device registry unavailable", "err", err)
+		return gateway.PostureVerdict{Reason: "device registry unavailable: posture unknown; retry shortly"}
+	}
 	devs := s.devices.active(subject, now)
 	if len(devs) == 0 {
 		return gateway.PostureVerdict{Reason: "no enrolled device for this user; enroll this machine with halod"}
@@ -74,7 +89,10 @@ func (s *Server) posture(ctx context.Context, subject string) gateway.PostureVer
 				ring = rg.Name
 			}
 		}
-		if ok := s.onRingRelease(ctx, org, ring, h.Digest, now); !ok {
+		switch on, known := s.onRingRelease(ctx, org, ring, h.Digest, now); {
+		case !known:
+			return gateway.PostureVerdict{Reason: fmt.Sprintf("device %s runs release %s, which cannot be checked against ring %s now (registry unreachable): posture unknown", name, short(h.Digest), ring)}
+		case !on:
 			return gateway.PostureVerdict{Reason: fmt.Sprintf("device %s runs release %s, not ring %s's current release", name, short(h.Digest), ring)}
 		}
 	}
@@ -82,11 +100,13 @@ func (s *Server) posture(ctx context.Context, subject string) gateway.PostureVer
 }
 
 // onRingRelease reports whether digest is ring's current verified release or
-// one of its experiment channels'. Unknown (no registry, nothing published,
-// no ring) counts as on it: posture never fails on the server's own blind spot.
-func (s *Server) onRingRelease(ctx context.Context, org *policy.Org, ring, digest string, now time.Time) bool {
+// one of its experiment channels'. Nothing to check against (no registry
+// configured, nothing published, no ring) counts as on it. known=false when
+// the check could not be made: the registry failed with no verified pointer
+// cached, or the release's channel list is unreadable.
+func (s *Server) onRingRelease(ctx context.Context, org *policy.Org, ring, digest string, now time.Time) (on, known bool) {
 	if org == nil || ring == "" || s.cfg.Portal.Registry == "" || s.cfg.Portal.PubKeyPEM == "" {
-		return true
+		return true, true
 	}
 	s.relCache.mu.Lock()
 	defer s.relCache.mu.Unlock()
@@ -94,21 +114,22 @@ func (s *Server) onRingRelease(ctx context.Context, org *policy.Org, ring, diges
 	defer cancel()
 	pv := s.lookup(ctx, ring, org.Name, now)
 	if !pv.found {
-		return true
+		ok := pv.err == "" // nothing published: on it; the registry failed: unknown
+		return ok, ok
 	}
 	if digest == pv.p.Digest {
-		return true
+		return true, true
 	}
 	chans, err := s.channels(ctx, pv.p)
 	if err != nil {
-		return true // the channel list is unknown: do not fail the device on it
+		return false, false
 	}
 	for _, ch := range chans {
 		if cv := s.lookup(ctx, ch, org.Name, now); cv.found && cv.p.Digest == digest {
-			return true
+			return true, true
 		}
 	}
-	return false
+	return false, true
 }
 
 func short(digest string) string {

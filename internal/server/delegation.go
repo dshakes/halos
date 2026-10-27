@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/ed25519"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dshakes/halos/internal/gateway"
 	"github.com/dshakes/halos/internal/identity"
 	"github.com/dshakes/halos/internal/policy"
 )
@@ -64,8 +66,11 @@ func (s *Server) workloadPub() []ed25519.PublicKey {
 // this server. A human root must still have a live session epoch and be
 // provisioned in the SCIM directory. A credential that is ours but no longer
 // usable (expired, revoked, deprovisioned) fails with
-// identity.ErrClaimsRejected; anything else failed to verify.
-func (s *Server) verifyParent(raw, typ string, now time.Time) (parentCred, error) {
+// identity.ErrClaimsRejected or errParentRefused; anything else failed to
+// verify. A workload or delegated parent whose credential is revoked
+// (ADR-0026) is errParentRefused; errRevocationsUnavailable when the
+// revocation store cannot be read.
+func (s *Server) verifyParent(ctx context.Context, raw, typ string, now time.Time) (parentCred, error) {
 	switch {
 	case typ == tokenTypeSession:
 		p, err := s.unseal(raw)
@@ -98,7 +103,8 @@ func (s *Server) verifyParent(raw, typ string, now time.Time) (parentCred, error
 		if err != nil {
 			return parentCred{}, err
 		}
-		return parentCred{sub: policy.Subject{ID: c.Subject, Groups: c.Groups, Kind: policy.SubjectWorkload}, exp: time.Unix(c.Expiry, 0), authTime: c.IssuedAt, jti: c.ID, via: "workload"}, nil
+		pc := parentCred{sub: c.AsSubject(), exp: time.Unix(c.Expiry, 0), authTime: c.IssuedAt, jti: c.ID, via: "workload"}
+		return pc, s.parentRevoked(ctx, pc.sub)
 	case identity.DelegatedTokenType:
 		c, err := identity.VerifyDelegatedToken(s.workloadPub(), raw, now)
 		if err != nil {
@@ -112,9 +118,20 @@ func (s *Server) verifyParent(raw, typ string, now time.Time) (parentCred, error
 			}
 			sub.Groups = g
 		}
-		return parentCred{sub: sub, exp: time.Unix(c.Expiry, 0), authTime: c.AuthTime, jti: c.ID, via: "agent"}, nil
+		pc := parentCred{sub: sub, exp: time.Unix(c.Expiry, 0), authTime: c.AuthTime, jti: c.ID, via: "agent"}
+		return pc, s.parentRevoked(ctx, sub)
 	}
 	return parentCred{}, errors.New("subject_token is not a Halos credential")
+}
+
+// parentRevoked is checkRevoked for a parent credential: a revoked one is
+// errParentRefused (audited, not an authentication failure).
+func (s *Server) parentRevoked(ctx context.Context, sub policy.Subject) error {
+	err := s.checkRevoked(ctx, sub)
+	if errors.Is(err, gateway.ErrCredentialRevoked) {
+		return fmt.Errorf("%w: %w", errParentRefused, err)
+	}
+	return err
 }
 
 var (
@@ -185,11 +202,16 @@ func (s *Server) delegate(w http.ResponseWriter, r *http.Request, org *policy.Or
 		bad(http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	parent, err := s.verifyParent(f.Get("subject_token"), f.Get("subject_token_type"), now)
+	parent, err := s.verifyParent(r.Context(), f.Get("subject_token"), f.Get("subject_token_type"), now)
 	switch {
+	case errors.Is(err, errRevocationsUnavailable): // ours, but whether it is revoked cannot be told: fail closed, no penalty
+		s.metrics.authFailure("delegation", "unavailable")
+		oauthErr(w, http.StatusServiceUnavailable, "temporarily_unavailable", "revocations cannot be checked; retry")
+		return
 	case errors.Is(err, errParentRefused):
 		// The credential verified: an authenticated refusal, audited and not
 		// counted against the client's failed-authentication budget.
+		s.metrics.authFailure("delegation", "parent_refused")
 		d := map[string]string{"reason": err.Error(), "via": parent.via}
 		if parent.jti != "" {
 			d["parentJti"] = parent.jti
@@ -201,11 +223,13 @@ func (s *Server) delegate(w http.ResponseWriter, r *http.Request, org *policy.Or
 		tooManyFailures(w)
 		return
 	case !signedOnly(err):
+		s.metrics.authFailure("delegation", "unverified")
 		s.agentFails.fail(ip) // malformed, forged or not ours: an authentication failure
 		s.cfg.Log.Info("delegation subject token rejected", "err", err.Error(), "remote", ip)
 		oauthErr(w, http.StatusBadRequest, "invalid_grant", "subject_token rejected")
 		return
 	case err != nil: // ours, but expired or its session gone: not counted
+		s.metrics.authFailure("delegation", "parent_invalid")
 		s.cfg.Log.Info("delegation subject token no longer valid", "err", err.Error(), "remote", ip)
 		oauthErr(w, http.StatusBadRequest, "invalid_grant", "subject_token rejected")
 		return
@@ -223,6 +247,7 @@ func (s *Server) delegate(w http.ResponseWriter, r *http.Request, org *policy.Or
 	// deny is a policy refusal of an authenticated caller: audited, not counted
 	// as an authentication failure.
 	deny := func(code, reason string) {
+		s.metrics.authFailure("delegation", "denied")
 		d := map[string]string{"reason": reason}
 		for k, v := range details {
 			d[k] = v
@@ -292,10 +317,30 @@ func (s *Server) delegate(w http.ResponseWriter, r *http.Request, org *policy.Or
 	if root.Kind == policy.SubjectWorkload {
 		rootKind = policy.SubjectWorkload
 	}
+	// The credential about to be minted must not be born revoked: an agent or
+	// root whose epoch (padded by revocationSkew) is not yet behind us gets
+	// no new credential until it is (ADR-0026).
+	id, lineage := randB64(16), []string(nil)
+	if parent.sub.Credential != nil {
+		lineage = parent.sub.Credential.IDs
+	}
+	child := policy.Subject{ID: root.ID, Kind: root.Kind, Delegation: &policy.DelegationChain{Actors: chain, AuthTime: parent.authTime},
+		Credential: &policy.CredentialRef{IDs: append([]string{id}, lineage...), IssuedAt: now.Unix()}}
+	if err := s.checkRevoked(r.Context(), child); errors.Is(err, errRevocationsUnavailable) {
+		oauthErr(w, http.StatusServiceUnavailable, "temporarily_unavailable", "revocations cannot be checked; retry")
+		return
+	} else if err != nil {
+		deny("invalid_grant", err.Error()+"; a new credential can be issued once the revocation epoch has passed")
+		return
+	}
+	var ancestors []string
+	if len(lineage) > 1 {
+		ancestors = lineage[1:]
+	}
 	exp := now.Add(ttl)
 	c := identity.DelegatedClaims{Issuer: identity.WorkloadIssuer, Subject: root.ID, Audience: identity.WorkloadAudience, Groups: root.Groups,
 		Kind: identity.KindAgent, RootKind: rootKind, Act: identity.ActFromChain(chain), Models: models, AuthTime: parent.authTime, Parent: parent.jti,
-		IssuedAt: now.Unix(), NotBefore: now.Unix(), Expiry: exp.Unix(), ID: randB64(16)}
+		Ancestors: ancestors, IssuedAt: now.Unix(), NotBefore: now.Unix(), Expiry: exp.Unix(), ID: id}
 	tok, err := identity.SignDelegatedToken(s.cfg.WorkloadKey, c)
 	if err != nil {
 		s.cfg.Log.Error("sign delegated token", "agent", agent, "err", err)
@@ -453,6 +498,14 @@ func (s *Server) postAgentEgress(w http.ResponseWriter, r *http.Request) {
 			d["chain"], d["jti"] = chainDetail(dl.Actors), dl.ID
 		}
 		return d
+	}
+	if err := s.checkRevoked(r.Context(), sub); errors.Is(err, errRevocationsUnavailable) {
+		apiErr(w, http.StatusServiceUnavailable, "revocations cannot be checked; retry")
+		return
+	} else if err != nil { // a revoked credential (ADR-0026): refused and audited
+		s.Audit(r.Context(), sub.ID, "agent.egress.deny", target, details(policy.RemoteDecision{Reason: err.Error()}))
+		apiErr(w, http.StatusForbidden, err.Error())
+		return
 	}
 	if sub.Kind == "" && sub.Delegation != nil { // a human root: revoked sessions and deprovisioned users kill their agents
 		g, err := s.liveHumanRoot(sub.ID, sub.Groups, sub.Delegation.AuthTime)

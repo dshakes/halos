@@ -88,6 +88,8 @@ var routePerms = map[string]perm{
 	"POST /api/v1/devices/{id}/revoke":        permAdmin,
 	"POST /api/v1/users/{id}/revoke-sessions": permAdmin,
 	"POST /api/v1/toggles/{name}/propose":     permAdmin,
+	"POST /api/v1/revocations":                permAdmin, // per-credential revocation (ADR-0026)
+	"GET /api/v1/revocations":                 permAdmin,
 }
 
 // rolesFor returns the roles groups hold under id, in Roles order.
@@ -166,6 +168,7 @@ func (s *Server) route(m *routeMux, pattern string, next authedHandler) {
 // deny answers 403 and audits the attempt. Best effort: the request is refused
 // either way, and failing it with 500 on an audit error would hide the 403.
 func (s *Server) deny(w http.ResponseWriter, r *http.Request, p Principal, route string, need perm) {
+	s.metrics.deny(route)
 	s.Audit(r.Context(), p.ID, "authz.deny", r.URL.Path, map[string]string{
 		"route": route, "method": r.Method, "need": string(need), "roles": strings.Join(p.Roles, ","),
 	})

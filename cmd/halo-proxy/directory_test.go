@@ -84,8 +84,10 @@ func TestDirectoryIsAuthoritative(t *testing.T) {
 // credential (not in SCIM) keeps its identity, groups and Kind.
 func TestDirectoryKeepsWorkloads(t *testing.T) {
 	var hits atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		hits.Add(1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Has("subject") { // the revocation list (ADR-0026) is fetched, a SCIM lookup must not be
+			hits.Add(1)
+		}
 		_ = json.NewEncoder(w).Encode(gateway.DirectoryEntry{})
 	}))
 	t.Cleanup(srv.Close)

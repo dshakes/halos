@@ -129,6 +129,8 @@ type Server struct {
 	wl            workloadExchange
 	kv            storage.KV    // ephemeral state: Backend, else in process
 	auditFails    atomic.Uint64 // audit appends that failed (strict and best-effort)
+	revs          revocationStore
+	metrics       serverMetrics
 }
 
 // New validates cfg and returns a Server. It does not require the policy dir to load yet.
@@ -208,6 +210,15 @@ func New(cfg Config) (*Server, error) {
 		return nil, err
 	}
 	closers = append(closers, revoked.close)
+	var revs revocationStore = cfg.Backend
+	if cfg.Backend == nil {
+		rl, err := openRevocationLog(logs, cfg.Now)
+		if err != nil {
+			return nil, err
+		}
+		closers = append(closers, rl.close)
+		revs = rl
+	}
 	al, err := openAuditLog(auditDir)
 	if err != nil {
 		return nil, err
@@ -227,7 +238,16 @@ func New(cfg Config) (*Server, error) {
 		cfg.Log.Warn("no --data-dir: gateway budget counters are in memory and reset on restart")
 	}
 	s := &Server{cfg: cfg, tokSum: sha256.Sum256([]byte(cfg.Token)), pol: &policyHolder{dir: cfg.PolicyDir, log: cfg.Log}, reqs: reqs, devices: devs, revoked: revoked,
-		auditLog: al, forwarders: fwds, relCache: &releaseCache{byKey: map[string]cachedPointer{}, chans: map[string][]string{}}, budgets: bs, kv: kv}
+		auditLog: al, forwarders: fwds, relCache: &releaseCache{byKey: map[string]cachedPointer{}, chans: map[string][]string{}}, budgets: bs, kv: kv, revs: revs}
+	for _, l := range []struct {
+		a     *authLimiter
+		class string
+	}{{&s.authFails, "device"}, {&s.loginFails, "login"}, {&s.gwFails, "gateway"}, {&s.exchangeFails, "exchange"}, {&s.agentFails, "agent"}, {&s.scimFails, "scim"}} {
+		l.a.class, l.a.log = l.class, cfg.Log
+		if cfg.Backend != nil { // one budget across replicas (ADR-0021, amended)
+			l.a.shared = cfg.Backend
+		}
+	}
 	s.oidc.kv, s.enroll.kv = kv, kv
 	s.relFetch, s.relChannels = s.registryFetch, s.registryChannels
 	if s.kills = cfg.KillStore; s.kills == nil {
@@ -257,6 +277,9 @@ func New(cfg Config) (*Server, error) {
 // KillStore passed in via Config stays the caller's to close.
 func (s *Server) Close() error {
 	errs := []error{s.reqs.close(), s.devices.close(), s.revoked.close(), s.auditLog.close(), s.scim.close(), s.budgets.save(s.cfg.Now(), true)}
+	if c, ok := s.revs.(*revocationLog); ok {
+		errs = append(errs, c.close())
+	}
 	if s.cfg.KillStore == nil && s.kills != nil {
 		errs = append(errs, s.kills.Close())
 	}
@@ -343,6 +366,8 @@ func (s *Server) mux() *routeMux {
 	s.route(m, "GET /api/v1/budgets", s.getBudgets)
 	s.route(m, "POST /api/v1/devices/{id}/revoke", s.revokeDevice)
 	s.route(m, "POST /api/v1/users/{id}/revoke-sessions", s.revokeSessions)
+	s.route(m, "POST /api/v1/revocations", s.postRevocation)
+	s.route(m, "GET /api/v1/revocations", s.listRevocations)
 	s.route(m, "GET /api/v1/fleet", s.getFleet)
 	s.route(m, "GET /api/v1/policy", s.getPolicy)
 	s.route(m, "GET /api/v1/experiments", s.listExperiments)
@@ -413,7 +438,9 @@ func (s *Server) logging(next http.Handler) http.Handler {
 		w.Header().Set("X-Request-Id", id)
 		r = r.WithContext(withReqMeta(r.Context(), reqMeta{ip: s.clientIP(r), id: id}))
 		next.ServeHTTP(rec, r)
-		s.cfg.Log.Info("request", "method", r.Method, "path", r.URL.Path, "status", rec.code, "dur", time.Since(t), "remote", r.RemoteAddr)
+		d := time.Since(t)
+		s.metrics.request(r.Pattern, rec.code, d) // the mux set Pattern on r: a bounded route label, never the raw path
+		s.cfg.Log.Info("request", "method", r.Method, "path", r.URL.Path, "status", rec.code, "dur", d, "remote", r.RemoteAddr)
 	})
 }
 

@@ -289,22 +289,26 @@ func (s *Server) exchange(w http.ResponseWriter, r *http.Request, org *policy.Or
 		tooManyFailures(w)
 		return
 	case errors.Is(err, identity.ErrDiscovery): // the issuer is down: nothing was judged, so no penalty
+		s.metrics.authFailure("token_exchange", "discovery")
 		s.cfg.Log.Error("workload issuer discovery failed", "issuer", wi.URL, "err", err)
 		oauthErr(w, http.StatusServiceUnavailable, "temporarily_unavailable", "issuer discovery failed; retry")
 		return
 	case !signedOnly(err): // malformed, unknown issuer or bad signature: the only failures counted
+		s.metrics.authFailure("token_exchange", "unverified")
 		s.exchangeFails.fail(ip)
 		// Unverified input is logged, not audited: anyone can send garbage.
 		s.cfg.Log.Info("workload token rejected", "err", err.Error(), "remote", ip)
 		oauthErr(w, http.StatusBadRequest, "invalid_grant", "subject_token rejected")
 		return
 	case err != nil: // signed by the issuer, claims rejected: not counted (mintable on a shared runner)
+		s.metrics.authFailure("token_exchange", "claims_rejected")
 		s.cfg.Log.Info("workload token claims rejected", "issuer", wi.URL, "err", err.Error(), "remote", ip)
 		oauthErr(w, http.StatusBadRequest, "invalid_grant", "subject_token rejected")
 		return
 	}
 	ciSub, _ := policy.ClaimString(claims, "sub")
 	deny := func(reason error) { // a verified token: audited (coalesced per issuer+IP), never counted against the IP
+		s.metrics.authFailure("token_exchange", "denied")
 		if s.wl.auditDenied(wi.URL+"\x00"+ip, now) {
 			s.Audit(r.Context(), wi.Name+":"+ciSub, "workload.token.denied", "", map[string]string{"issuer": wi.URL, "reason": reason.Error()})
 		} else {
@@ -329,11 +333,22 @@ func (s *Server) exchange(w http.ResponseWriter, r *http.Request, org *policy.Or
 		deny(err)
 		return
 	}
+	// Not born revoked: a workload subject whose epoch (ADR-0026, padded by
+	// revocationSkew) is not yet behind us gets no new credential until it is.
+	id := randB64(16)
+	if err := s.checkRevoked(r.Context(), policy.Subject{ID: subject, Kind: policy.SubjectWorkload,
+		Credential: &policy.CredentialRef{IDs: []string{id}, IssuedAt: now.Unix()}}); errors.Is(err, errRevocationsUnavailable) {
+		oauthErr(w, http.StatusServiceUnavailable, "temporarily_unavailable", "revocations cannot be checked; retry")
+		return
+	} else if err != nil {
+		deny(fmt.Errorf("%w; a new credential can be issued once the revocation epoch has passed", err))
+		return
+	}
 	ttl := rule.TTL()
 	exp := now.Add(ttl)
 	tok, err := identity.SignWorkloadToken(s.cfg.WorkloadKey, identity.WorkloadClaims{
 		Issuer: identity.WorkloadIssuer, Subject: subject, Audience: identity.WorkloadAudience, Groups: rule.Groups,
-		Kind: policy.SubjectWorkload, Rule: rule.Name, IssuedAt: now.Unix(), NotBefore: now.Unix(), Expiry: exp.Unix(), ID: randB64(16),
+		Kind: policy.SubjectWorkload, Rule: rule.Name, IssuedAt: now.Unix(), NotBefore: now.Unix(), Expiry: exp.Unix(), ID: id,
 	})
 	if err != nil {
 		s.cfg.Log.Error("sign workload token", "rule", rule.Name, "err", err)

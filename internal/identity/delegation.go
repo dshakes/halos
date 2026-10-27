@@ -52,6 +52,11 @@ type DelegatedClaims struct {
 	// revoked after it kills the credential at its next exchange.
 	AuthTime  int64  `json:"auth_time,omitempty"`
 	Parent    string `json:"parent_jti,omitempty"` // jti of the credential it was exchanged from
+	// Ancestors are the jtis of the credentials before the parent (its
+	// parent first), so revoking any ancestor's jti (ADR-0026) also kills
+	// this credential. Absent when the parent was minted from a session or
+	// from nothing with a jti.
+	Ancestors []string `json:"anc_jti,omitempty"`
 	IssuedAt  int64  `json:"iat"`
 	NotBefore int64  `json:"nbf"`
 	Expiry    int64  `json:"exp"`
@@ -85,11 +90,21 @@ func ActFromChain(chain []policy.Actor) *Act {
 	return act
 }
 
-// Subject is the verified caller the gateway routes: the root principal with
-// the delegation attached.
+// AsSubject is the verified caller the gateway routes: the root principal
+// with the delegation and the credential's lineage (for revocation) attached.
 func (c DelegatedClaims) AsSubject() policy.Subject {
 	return policy.Subject{ID: c.Subject, Groups: c.Groups, Kind: c.RootKind,
-		Delegation: &policy.DelegationChain{Actors: c.Chain(), Models: c.ModelScope(), ID: c.ID, AuthTime: c.AuthTime}}
+		Delegation: &policy.DelegationChain{Actors: c.Chain(), Models: c.ModelScope(), ID: c.ID, AuthTime: c.AuthTime},
+		Credential: &policy.CredentialRef{IDs: c.Lineage(), IssuedAt: c.IssuedAt}}
+}
+
+// Lineage is the credential's jti, then its parent's and the ancestors'.
+func (c DelegatedClaims) Lineage() []string {
+	ids := []string{c.ID}
+	if c.Parent != "" {
+		ids = append(ids, c.Parent)
+	}
+	return append(ids, c.Ancestors...)
 }
 
 // SignDelegatedToken signs c with the workload key. It refuses claims
@@ -143,6 +158,8 @@ func (c DelegatedClaims) check(now time.Time) error {
 		return errors.New("not yet valid (nbf/iat in the future)")
 	case exp.Sub(iat) > policy.MaxWorkloadTTL:
 		return fmt.Errorf("lifetime %s exceeds %s", exp.Sub(iat), policy.MaxWorkloadTTL)
+	case len(c.Ancestors) > policy.MaxAgentDepth || (len(c.Ancestors) > 0 && c.Parent == "") || slices.Contains(c.Ancestors, ""):
+		return errors.New("anc_jti: at most one per possible ancestor, non-empty, and only with a parent_jti")
 	}
 	return CheckChain(c.Chain())
 }

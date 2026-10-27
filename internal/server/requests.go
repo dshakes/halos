@@ -282,25 +282,40 @@ func (s *Server) decide(approve bool) authedHandler {
 			apiErr(w, http.StatusForbidden, "you cannot decide your own request")
 			return
 		}
-		finish := func(status, pr, note string) Request { // caller holds mu
+		// finish records the decision and answers it (caller holds mu). Nothing
+		// is reported decided unless it was persisted: a failed save puts the
+		// request back to pending (500, the admin retries) and a failed audit
+		// append is a 500 (AuditStrict; the persisted decision stands, as for
+		// session revocation).
+		finish := func(status, pr, note string) {
+			prev := *req
 			now := s.cfg.Now().UTC()
 			req.Status, req.DecidedBy, req.DecidedAt, req.PRURL, req.Note = status, p.ID, &now, pr, note
+			if err := l.save(req); err != nil {
+				*req = prev
+				req.Status = StatusPending // also out of approving: nothing was recorded
+				s.cfg.Log.Error("persist decision", "id", req.ID, "pr", pr, "err", err)
+				msg := "store failed: decision not recorded"
+				if pr != "" {
+					msg += "; the policy PR is open: " + pr
+				}
+				apiErr(w, http.StatusInternalServerError, msg)
+				return
+			}
+			s.releasePending(req)
 			action := "request.deny"
 			if approve {
 				action = "request.approve"
 			}
-			s.Audit(r.Context(), p.ID, action, req.ID, map[string]string{"user": req.User, "kind": req.Kind, "item": req.Item, "prUrl": pr})
-			if err := l.save(req); err != nil {
-				s.cfg.Log.Error("persist decision", "id", req.ID, "err", err)
-			} else {
-				s.releasePending(req)
+			if err := s.AuditStrict(r.Context(), p.ID, action, req.ID, map[string]string{"user": req.User, "kind": req.Kind, "item": req.Item, "prUrl": pr}); err != nil {
+				apiErr(w, http.StatusInternalServerError, errAuditFailed)
+				return
 			}
-			return *req
+			writeJSON(w, http.StatusOK, *req)
 		}
 		if !approve {
-			out := finish(StatusDenied, "", "")
+			finish(StatusDenied, "", "")
 			l.mu.Unlock()
-			writeJSON(w, http.StatusOK, out)
 			return
 		}
 		req.Status = StatusApproving // blocks double-approval while the PR opens
@@ -326,12 +341,10 @@ func (s *Server) decide(approve bool) authedHandler {
 		defer l.mu.Unlock()
 		switch {
 		case err == nil:
-			out := finish(StatusApproved, pr, "")
 			s.cfg.Log.Info("request approved", "id", req.ID, "by", p.ID, "pr", pr)
-			writeJSON(w, http.StatusOK, out)
+			finish(StatusApproved, pr, "")
 		case errors.Is(err, ErrManual):
-			out := finish(StatusApproved, "", "Approved; no automatic change available, a policy owner must apply it.")
-			writeJSON(w, http.StatusOK, out)
+			finish(StatusApproved, "", "Approved; no automatic change available, a policy owner must apply it.")
 		default:
 			req.Status = StatusPending // nothing lost: admin can retry
 			s.cfg.Log.Error("policy writer failed", "id", req.ID, "err", err)

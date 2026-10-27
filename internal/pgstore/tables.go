@@ -301,6 +301,7 @@ func counts(ctx context.Context, q rowQuerier) (map[string]int64, error) {
 		{"", `SELECT 'kv', count(*) FROM halo_kv`},
 		{"", `SELECT 'leases', count(*) FROM halo_leases`},
 		{"", `SELECT 'request-pending', count(*) FROM halo_request_pending`},
+		{"", `SELECT 'revocations', count(*) FROM halo_revocations`},
 		{"", `SELECT 'shadow-pairs', count(*) FROM halo_shadow_pairs`},
 	} {
 		if err := count(ctx, q, c.prefix, c.sql, out); err != nil {

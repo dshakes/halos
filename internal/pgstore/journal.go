@@ -238,6 +238,25 @@ func (d *DB) Raise(ctx context.Context, ns, key string, at int64, exp time.Time)
 	return nil
 }
 
+// kvAuthFail is the namespace of the shared failed-authentication counts.
+const kvAuthFail = "auth-fail"
+
+// CountAuthFailure adds one to key's failure count and returns it, in one
+// upsert: a live row (younger than window on the database clock) is
+// incremented, an expired or absent one restarts at 1 with a new window.
+func (d *DB) CountAuthFailure(ctx context.Context, key string, window time.Duration) (int64, error) {
+	var n int64
+	err := d.db.QueryRowContext(ctx, `INSERT INTO halo_kv (ns, rkey, val, expires_at) VALUES ($1, $2, '\x31'::bytea, now() + $3 * interval '1 millisecond')
+		ON CONFLICT (ns, rkey) DO UPDATE SET
+			val = CASE WHEN halo_kv.expires_at > now() THEN convert_to((convert_from(halo_kv.val, 'UTF8')::bigint + 1)::text, 'UTF8') ELSE EXCLUDED.val END,
+			expires_at = CASE WHEN halo_kv.expires_at > now() THEN halo_kv.expires_at ELSE EXCLUDED.expires_at END
+		RETURNING convert_from(val, 'UTF8')::bigint`, kvAuthFail, key, window.Milliseconds()).Scan(&n)
+	if err != nil {
+		return 0, d.fail(fmt.Errorf("pgstore: count auth failure: %w", err))
+	}
+	return n, d.reap(ctx, kvAuthFail)
+}
+
 // reap drops ns's expired rows (index on expires_at keeps it cheap).
 func (d *DB) reap(ctx context.Context, ns string) error {
 	if _, err := d.db.ExecContext(ctx, `DELETE FROM halo_kv WHERE ns = $1 AND expires_at <= now()`, ns); err != nil {

@@ -15,6 +15,18 @@ type Subject struct {
 	// Delegation is set when an agent acts for this subject (ADR-0024); ID,
 	// Groups and Kind are then the root principal's.
 	Delegation *DelegationChain
+	// Credential is set when the subject was verified from a credential
+	// halo-server signed (workload or delegated agent): what revocation
+	// (ADR-0026) is checked against.
+	Credential *CredentialRef
+}
+
+// CredentialRef identifies a halo-server-signed credential for revocation checks.
+type CredentialRef struct {
+	// IDs is the credential's jti, then its ancestors' (parent first).
+	IDs []string
+	// IssuedAt is the credential's iat (unix seconds).
+	IssuedAt int64
 }
 
 // ringSalt keeps ring hashing independent from experiment hashing.

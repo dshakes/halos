@@ -482,11 +482,7 @@ func (c Config) access(kong kongAPI) {
 
 	if dc, invalid := c.directoryClient(kong); dc != nil {
 		if sub, err = dc.Resolve(context.Background(), sub); err != nil { // a deprovisioned caller is refused, never anonymous
-			rej := gateway.RejectNotProvisioned(path)
-			if errors.Is(err, gateway.ErrDirectoryUnavailable) {
-				rej = gateway.RejectDirectoryUnavailable(path)
-			}
-			exit(kong, rej)
+			exit(kong, gateway.DirectoryReject(path, err)) // revoked, unavailable or not provisioned
 			return
 		}
 	} else if invalid {

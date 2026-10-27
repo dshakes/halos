@@ -207,16 +207,14 @@ func (s *Server) scimRoutes(m *routeMux) {
 // scimAuth accepts only the SCIM bearer token: any configured hash matches
 // (two during a rotation), compared in constant time over every hash. Session
 // cookies are never looked at. Failures count against SCIM's own per-IP
-// budget (scimFails), so SCIM noise cannot lock out gateways or devices.
+// budget (scimFails), so SCIM noise cannot lock out gateways or devices, and,
+// as in gatewayAuth, a valid token is accepted even from a blocked IP: the
+// IdP's egress address is often shared, and bad tokens from a neighbour must
+// not hold up a deprovisioning. Tokens are long random secrets compared by
+// hash, so the blocked guesser learning when a guess is right is no help.
 func (s *Server) scimAuth(w http.ResponseWriter, r *http.Request) bool {
 	if s.scim == nil {
 		scimError(w, http.StatusNotFound, "", "SCIM provisioning is not enabled on this server")
-		return false
-	}
-	ip := s.clientIP(r)
-	if s.scimFails.blocked(ip) {
-		w.Header().Set("Retry-After", "60")
-		scimError(w, http.StatusTooManyRequests, "", "too many failed attempts")
 		return false
 	}
 	a := r.Header.Get("Authorization")
@@ -230,24 +228,38 @@ func (s *Server) scimAuth(w http.ResponseWriter, r *http.Request) bool {
 	for _, h := range s.scim.sums {
 		match |= subtle.ConstantTimeCompare(sum[:], h[:])
 	}
-	if !ok || tok == "" || match != 1 {
-		s.scimFails.fail(ip)
-		w.Header().Set("WWW-Authenticate", `Bearer realm="halos-scim"`)
-		scimError(w, http.StatusUnauthorized, "", "SCIM bearer token required")
+	if ok && tok != "" && match == 1 {
+		return true
+	}
+	ip := s.clientIP(r)
+	if s.scimFails.blocked(ip) {
+		w.Header().Set("Retry-After", "60")
+		scimError(w, http.StatusTooManyRequests, "", "too many failed attempts")
 		return false
 	}
-	return true
+	s.scimFails.fail(ip)
+	w.Header().Set("WWW-Authenticate", `Bearer realm="halos-scim"`)
+	scimError(w, http.StatusUnauthorized, "", "SCIM bearer token required")
+	return false
 }
 
 // getGatewayDirectory: GET /api/v1/gateway/directory?subject=<id> (gateway
 // token). Gateways with a directory configured route only active users with
 // these groups; a verified caller listed inactive here is refused (403).
+//
+// With ?revocations=1 it answers the credential revocation list instead
+// (gateway.RevocationList, ADR-0026), served whether or not SCIM is on.
 func (s *Server) getGatewayDirectory(w http.ResponseWriter, r *http.Request) {
-	if !s.gatewayEnabled(capDirectory) || s.scim == nil {
+	wantRevocations := r.URL.Query().Has("revocations")
+	if !s.gatewayEnabled(capDirectory) || (s.scim == nil && !wantRevocations) {
 		apiErr(w, http.StatusNotFound, "SCIM directory not configured")
 		return
 	}
 	if !s.gatewayAuth(w, r, capDirectory) {
+		return
+	}
+	if wantRevocations {
+		s.writeGatewayRevocations(w, r)
 		return
 	}
 	sub := r.URL.Query().Get("subject")
@@ -256,14 +268,17 @@ func (s *Server) getGatewayDirectory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(sub) > 256 { // no SCIM userName is this long: inactive, never an error a gateway could fail open on
+		s.metrics.lookup("directory", "inactive")
 		writeJSON(w, http.StatusOK, gateway.DirectoryEntry{})
 		return
 	}
 	u, groups, ok := s.scim.store.Lookup(sub)
 	if !ok || !u.Active {
+		s.metrics.lookup("directory", "inactive")
 		writeJSON(w, http.StatusOK, gateway.DirectoryEntry{})
 		return
 	}
+	s.metrics.lookup("directory", "active")
 	writeJSON(w, http.StatusOK, gateway.DirectoryEntry{Active: true, Groups: groups})
 }
 

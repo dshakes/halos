@@ -323,67 +323,68 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, http.StatusTooManyRequests, "too many failed logins")
 		return
 	}
-	fail := func(code int, msg string, err error) {
+	fail := func(reason string, code int, msg string, err error) { // reason: a fixed metric label
+		s.metrics.authFailure("login", reason)
 		s.loginFails.fail(ip)
 		s.cfg.Log.Warn("oidc callback failed", "msg", msg, "err", err)
 		apiErr(w, code, msg)
 	}
 	c, err := r.Cookie(oidcCookie)
 	if err != nil {
-		fail(http.StatusBadRequest, "missing login state", err)
+		fail("missing_state", http.StatusBadRequest, "missing login state", err)
 		return
 	}
 	st, err := s.unseal(c.Value)
 	if err != nil || st.State == "" {
-		fail(http.StatusBadRequest, "invalid login state", err)
+		fail("invalid_state", http.StatusBadRequest, "invalid login state", err)
 		return
 	}
 	s.setCookie(w, oidcCookie, "", "/auth", -time.Second) // state is single-use
 	if !s.oidc.consume(st.State, time.Unix(st.Exp, 0)) {
-		fail(http.StatusBadRequest, "login state already used", nil)
+		fail("state_reused", http.StatusBadRequest, "login state already used", nil)
 		return
 	}
 	if subtle.ConstantTimeCompare([]byte(r.URL.Query().Get("state")), []byte(st.State)) != 1 {
-		fail(http.StatusBadRequest, "state mismatch", nil)
+		fail("state_mismatch", http.StatusBadRequest, "state mismatch", nil)
 		return
 	}
 	if e := r.URL.Query().Get("error"); e != "" {
-		fail(http.StatusUnauthorized, "identity provider error: "+e, nil)
+		fail("idp_error", http.StatusUnauthorized, "identity provider error: "+e, nil)
 		return
 	}
 	oc, verifier, id, err := s.oidcConfig(r.Context())
 	if err != nil {
-		fail(http.StatusServiceUnavailable, "login unavailable", err)
+		fail("unavailable", http.StatusServiceUnavailable, "login unavailable", err)
 		return
 	}
 	tok, err := oc.Exchange(r.Context(), r.URL.Query().Get("code"), oauth2.VerifierOption(st.PKCE))
 	if err != nil {
-		fail(http.StatusUnauthorized, "code exchange failed", err)
+		fail("code_exchange", http.StatusUnauthorized, "code exchange failed", err)
 		return
 	}
 	raw, _ := tok.Extra("id_token").(string)
 	idt, err := verifier.Verify(r.Context(), raw)
 	if err != nil {
-		fail(http.StatusUnauthorized, "id token invalid", err)
+		fail("id_token", http.StatusUnauthorized, "id token invalid", err)
 		return
 	}
 	if subtle.ConstantTimeCompare([]byte(idt.Nonce), []byte(st.Nonce)) != 1 {
-		fail(http.StatusUnauthorized, "nonce mismatch", nil)
+		fail("nonce", http.StatusUnauthorized, "nonce mismatch", nil)
 		return
 	}
 	var claims map[string]any
 	if err := idt.Claims(&claims); err != nil {
-		fail(http.StatusUnauthorized, "claims unreadable", err)
+		fail("claims", http.StatusUnauthorized, "claims unreadable", err)
 		return
 	}
 	p, err := principalFromClaims(claims, id)
 	if err != nil {
-		fail(http.StatusForbidden, err.Error(), err)
+		fail("identity", http.StatusForbidden, err.Error(), err)
 		return
 	}
 	g, provisioned := s.directoryGroups(p.ID, p.Groups)
 	if !provisioned {
-		fail(http.StatusForbidden, "user is deactivated or not provisioned", nil)
+		fail("not_provisioned", http.StatusForbidden, "user is deactivated or not provisioned", nil)
 		return
 	}
 	// Directory groups may differ from the token's: roles follow the groups in force.

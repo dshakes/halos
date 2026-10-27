@@ -314,11 +314,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if p.dir != nil { // SCIM directory is authoritative: its groups; a deprovisioned caller is refused, never anonymous
 		if sub, err = p.dir.Resolve(r.Context(), sub); err != nil {
-			rej := gateway.RejectNotProvisioned(r.URL.EscapedPath())
-			if errors.Is(err, gateway.ErrDirectoryUnavailable) {
-				rej = gateway.RejectDirectoryUnavailable(r.URL.EscapedPath())
-			}
-			writeReject(sw, rej)
+			writeReject(sw, gateway.DirectoryReject(r.URL.EscapedPath(), err)) // revoked, unavailable or not provisioned
 			return
 		}
 	}
