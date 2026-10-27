@@ -36,7 +36,7 @@ func (Adapter) Capabilities() []harness.Capability {
 	return []harness.Capability{
 		harness.CapVersionPin, harness.CapModelLock, harness.CapMCPAllowlist, harness.CapHooksLock,
 		harness.CapPermissions, harness.CapGateway, harness.CapTelemetry, harness.CapInstructions, harness.CapHeaders,
-		harness.CapExtensions,
+		harness.CapExtensions, harness.CapSandbox, harness.CapEgress,
 	}
 }
 

@@ -53,7 +53,7 @@ func TestRenderGolden(t *testing.T) {
 			hutiltest.Golden(t, tc.golden, files[0].Data)
 			for _, want := range []string{
 				"cannot self-enforce version; halod enforces",
-				`"hooks.items" is not supported`, `"telemetry.enabled" is not supported`, `"egress.allowedDomains" is not supported`, `"env" is not supported`,
+				`"hooks.items" is not supported`, `"telemetry.enabled" is not supported`, "egress is rendered as the webfetch permission", `"env" is not supported`,
 				`"permissions.mode" is not supported`, `"permissions.sandbox" is not supported`, `"mcp.managedOnly" is not supported`,
 				"permissions.disableBypass cannot be enforced", "OPENCODE_PERMISSION", "no MCP allowlist",
 				"gateway.auth.helperCommand is not supported",

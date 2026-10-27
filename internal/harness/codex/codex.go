@@ -36,6 +36,8 @@ func (Adapter) Capabilities() []harness.Capability {
 		harness.CapMCPAllowlist,
 		harness.CapPermissions,
 		harness.CapExtensions, // partial: marketplace allowlist; plugin pins are defaults
+		harness.CapSandbox,    // allowed_sandbox_modes + deny_read; writable roots are defaults
+		harness.CapEgress,     // requirements.toml [experimental_network]
 	}
 }
 

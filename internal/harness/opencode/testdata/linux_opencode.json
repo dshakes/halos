@@ -38,7 +38,8 @@
     },
     "read": {
       ".env": "deny"
-    }
+    },
+    "webfetch": "ask"
   },
   "provider": {
     "halos": {

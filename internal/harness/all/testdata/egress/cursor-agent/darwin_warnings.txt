@@ -1,0 +1,12 @@
+cursor-agent: profile field "permissions.disableBypass" is not supported and was not rendered
+cursor-agent: profile field "permissions.sandbox" is not supported and was not rendered
+cursor-agent: profile field "egress.allowedDomains" is not supported and was not rendered
+cursor-agent: profile field "egress.default" is not supported and was not rendered
+cursor-agent: profile field "egress.deniedDomains" is not supported and was not rendered
+cursor-agent: profile field "egress.presets" is not supported and was not rendered
+cursor-agent: profile field "sandbox.writableRoots" is not supported and was not rendered
+cursor-agent: profile field "sandbox.protectedPaths" is not supported and was not rendered
+cursor-agent: sandbox and egress are not rendered: sandbox.mode, sandbox.networkAccess and WebFetch(domain)/Read(glob) deny rules live only in per-user ~/.cursor/cli-config.json (no system-wide location); set them with your device management and check with halo doctor
+cursor-agent: cannot self-enforce version; halod enforces, but Cursor's installer cannot pin one, so halod cannot install it
+cursor-agent: gateway not rendered; Cursor CLI talks to Cursor's backend and documents no base-URL override (-H/--header is a per-invocation flag); traffic is not routed through Halos
+cursor-agent: models, MCP allowlist, rules, telemetry and permissions are Cursor team settings (dashboard) or per-user files (~/.cursor/cli-config.json, ~/.cursor/mcp.json); no root-owned location is documented, so none is rendered

@@ -204,6 +204,16 @@ func VersionBefore(v string, major, minor int) bool {
 	return a < major || (a == major && b < minor)
 }
 
+// PatchBefore reports whether a "major.minor.patch[...]" version is below
+// major.minor.patch. Unparseable versions report false, like VersionBefore.
+func PatchBefore(v string, major, minor, patch int) bool {
+	var a, b, c int
+	if _, err := fmt.Sscanf(v, "%d.%d.%d", &a, &b, &c); err != nil {
+		return false
+	}
+	return a < major || (a == major && (b < minor || (b == minor && c < patch)))
+}
+
 // Model is the default model alias for harness name: its own harnesses.<name>.model,
 // else the profile's models.default.
 func Model(p *policy.Profile, name string) string {

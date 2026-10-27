@@ -24,6 +24,18 @@
   "permissions": {
     "disableBypassPermissionsMode": "disable"
   },
+  "sandbox": {
+    "allowBypass": false,
+    "enabled": true,
+    "userPolicy": {
+      "network": {
+        "allowedHosts": [
+          "example.com",
+          "github.com"
+        ]
+      }
+    }
+  },
   "strictKnownMarketplaces": [
     {
       "source": "github",
