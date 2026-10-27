@@ -442,3 +442,80 @@ export function useProposeToggle() {
     mutationFn: (a: { name: string; change: ToggleProposal }) => call("POST", `/api/v1/toggles/${encodeURIComponent(a.name)}/propose`, z.object({ prURL: z.string() }), a.change),
   });
 }
+
+// ---- rollouts (GET /api/v1/rollouts, internal/server/rollouts.go) ----
+const RolloutGate = z.object({ gate: z.string(), status: z.enum(["pass", "fail", "pending"]), value: z.string().optional(), threshold: z.string().optional(), detail: z.string().optional() });
+const RolloutEntry = z.object({
+  seq: z.number(),
+  at: z.string(),
+  event: z.string(),
+  index: z.number(),
+  step: z.string().optional(),
+  detail: z.string().optional(),
+  key: z.string().optional(),
+  source: z.string().optional(),
+  reason: z.string().optional(),
+});
+const RolloutStep = z.object({
+  index: z.number(),
+  name: z.string(),
+  strategy: z.string(),
+  ring: z.string(),
+  percent: z.number(),
+  exposure: z.string(),
+  bake: z.string().optional(),
+  minSamples: z.number().optional(),
+  gates: arr(z.string()),
+  onFailure: z.string(),
+  earliestStart: z.string(),
+  live: z.boolean().optional(),
+});
+export type RolloutStep = z.infer<typeof RolloutStep>;
+const RolloutView = z.object({
+  rollout: z.object({
+    name: z.string(),
+    axis: z.string(),
+    status: z.string().optional(),
+    step: z.string().optional(),
+    experiment: z.string().optional(),
+    change: z.object({ release: z.string().optional(), version: z.string().optional(), alias: z.string().optional() }),
+    baseline: z.object({ release: z.string().optional() }).nullish(),
+  }),
+  timeline: z.object({ rollout: z.string(), axis: z.string(), status: z.string(), experiment: z.string(), change: z.string(), steps: arr(RolloutStep), minDuration: z.string() }),
+  state: z
+    .object({
+      rollout: z.string(),
+      step: z.number(),
+      stepName: z.string().optional(),
+      enteredAt: z.string(),
+      halted: z.string().optional(),
+      haltSource: z.string().optional(),
+      haltReason: z.string().optional(),
+      last: z.object({ action: z.string(), step: z.number(), next: z.number(), reasons: arr(z.string()), gates: arr(RolloutGate), awaitingApproval: z.boolean().optional(), source: z.string().optional() }).nullish(),
+      lastAt: z.string(),
+      history: arr(RolloutEntry),
+    })
+    .nullish(),
+  stateError: z.string().optional(),
+});
+export type RolloutView = z.infer<typeof RolloutView>;
+export const useRollouts = () => useQuery({ queryKey: ["rollouts"], queryFn: () => get("/api/v1/rollouts", z.array(RolloutView)), refetchInterval: 15_000 });
+export const useRollout = (name: string) => useQuery({ queryKey: ["rollout", name], queryFn: () => get(`/api/v1/rollouts/${encodeURIComponent(name)}`, RolloutView), refetchInterval: 15_000 });
+
+// ---- budgets (GET /api/v1/budgets; internal/budget.Status) ----
+const BudgetStatus = z.object({
+  budget: z.string(),
+  scope: z.string(),
+  key: z.string(),
+  window: z.string(),
+  period: z.string().optional(),
+  action: z.string(),
+  limitUSD: z.number().optional(),
+  limitTokens: z.number().optional(),
+  spentUSD: z.number(),
+  spentTokens: z.number(),
+  alertAt: arr(z.number()),
+  resetAt: z.string(),
+});
+export type BudgetStatus = z.infer<typeof BudgetStatus>;
+export const useBudgets = () => useQuery({ queryKey: ["budgets"], queryFn: () => get("/api/v1/budgets", z.object({ budgets: arr(BudgetStatus), at: z.string() })), refetchInterval: 30_000 });

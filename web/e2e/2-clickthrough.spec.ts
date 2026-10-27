@@ -5,7 +5,7 @@
 import { test, type Locator, type Page } from "@playwright/test";
 import { expectHealthy, login, settle, watch } from "./helpers";
 
-const ADMIN_ROUTES = ["", "kiosk", "fleet", "releases", "experiments", "toggles", "policy", "debug", "approvals", "audit"];
+const ADMIN_ROUTES = ["", "kiosk", "fleet", "releases", "rollouts", "budgets", "experiments", "toggles", "policy", "debug", "approvals", "audit"];
 
 // Fill whatever form a click revealed with plausible values, then submit it.
 // The element to drive: the topmost open dialog (drawers and modals stack; a backdrop covers what is beneath), else main.
