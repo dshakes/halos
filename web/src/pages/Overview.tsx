@@ -118,7 +118,7 @@ export function Overview() {
       </Card>
       <div className="grid gap-3 md:grid-cols-2">
         <Tile label="Rollouts" value={rolls.data ? (rolls.data.length === 0 ? "none defined" : `${rolls.data.filter((r) => r.timeline.status === "active").length} active`) : "—"} tone={rolls.data?.some((r) => r.state?.halted) ? "bad" : undefined} href="#/rollouts" hint={rolls.data?.some((r) => r.state?.halted) ? "a rollout is halted" : "step timelines, gates and bake"} />
-        <Tile label="Cost and budgets" value={budgets.data ? (budgets.data.budgets.length === 0 ? "not configured" : overBudget > 0 ? `${overBudget} over alert` : "within limits") : "—"} tone={overBudget > 0 ? "warn" : undefined} href="#/budgets" hint="spend vs limit per scope" />
+        <Tile label="Cost and budgets" value={budgets.data ? (budgets.data.budgets.length === 0 ? "none set" : overBudget > 0 ? `${overBudget} over alert` : "within limits") : "—"} tone={overBudget > 0 ? "warn" : undefined} href="#/budgets" hint="spend vs limit per scope" />
       </div>
       <Card title="Experiments" right={<a href="#/experiments" className="text-accent hover:underline">all →</a>}>
         {exps.error ? <ErrorBox error={exps.error} /> : exps.isLoading ? <Empty>Loading…</Empty> : (exps.data ?? []).length === 0 ? <Empty>No experiments. Define one under <Mono>experiments:</Mono> in the policy repo; it starts from the Experiments page as a PR.</Empty> : (
