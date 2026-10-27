@@ -139,6 +139,7 @@ func (a *app) cmdExp() *cobra.Command {
 	analyze.Flags().StringVar(&verdictsFile, "verdicts-file", "", "upsert this verdict into a JSON array file read by halo-server")
 
 	var pch clickhouseFlags
+	var psf serverFlags
 	var ring, rel, base string
 	var dry bool
 	prom := &cobra.Command{
@@ -179,6 +180,15 @@ func (a *app) cmdExp() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// A change freeze refuses the PR (ADR-0030); rollbacks never are.
+			if fz, _, err := freezeFor(cmd.Context(), org, org.RingTarget(ring), psf, time.Now()); err != nil {
+				return err
+			} else if fz.Frozen {
+				if !dry {
+					return fmt.Errorf("promote %s into %s: %s", e.Name, ring, fz.String())
+				}
+				fmt.Fprintln(a.errw, a.yellow("warning:"), fz.String())
+			}
 			if dry {
 				fmt.Fprintf(a.out, "verdict: %s\n%s", rep.Verdict, change.Patch)
 				return nil
@@ -191,6 +201,7 @@ func (a *app) cmdExp() *cobra.Command {
 		},
 	}
 	pch.add(prom)
+	psf.add(prom, "for the incident freeze (ADR-0030)")
 	prom.Flags().StringVar(&ring, "ring", "", "ring to re-point (required)")
 	prom.Flags().StringVar(&rel, "release", "", "release digest to pin (required)")
 	prom.Flags().StringVar(&base, "base", "", "PR base branch")

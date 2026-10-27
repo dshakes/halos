@@ -641,6 +641,7 @@ func newController(o options, portal server.Portal, portalWriter server.PolicyWr
 		Notifier:     notifiers,
 		VerdictsPath: o.verdicts,
 		PolicyDir:    o.policyDir,
+		Governance:   srv.RolloutGovernance, // incident freeze and step approvals (ADR-0030)
 	}
 	if o.dataDir != "" { // rollouts need persistent state; GET /api/v1/rollouts reads it here (HA: set per leadership term)
 		c.RolloutStateDir = filepath.Join(o.dataDir, "rollouts")

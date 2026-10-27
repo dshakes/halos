@@ -35,6 +35,8 @@ type Root struct {
 	VendorAdmin *VendorAdmin `yaml:"vendorAdmin,omitempty" json:"vendorAdmin,omitempty"`
 	// Delegation is what units may add beyond the baseline (ADR-0018).
 	Delegation *Delegation `yaml:"delegation,omitempty" json:"delegation,omitempty"`
+	// Governance holds change-freeze windows and approval quorums (ADR-0030).
+	Governance *Governance `yaml:"governance,omitempty" json:"governance,omitempty"`
 	// Simple mode fields (tools, provider, models, ...): see simple.go.
 	Simple `yaml:",inline"`
 }
@@ -91,7 +93,7 @@ func Load(dir string) (*Org, error) {
 		return nil, err
 	}
 
-	org := &Org{Name: root.Org, Identity: root.Identity, SelfService: root.SelfService, Workloads: root.Workloads, Agents: root.Agents, VendorAdmin: root.VendorAdmin, Delegation: root.Delegation, Profiles: map[string]*Profile{}}
+	org := &Org{Name: root.Org, Identity: root.Identity, SelfService: root.SelfService, Workloads: root.Workloads, Agents: root.Agents, VendorAdmin: root.VendorAdmin, Delegation: root.Delegation, Governance: root.Governance, Profiles: map[string]*Profile{}}
 	if root.APIVersion == APIVersionV1Alpha1 {
 		org.Deprecations = append(org.Deprecations, deprecation(dir, rootPath))
 	}

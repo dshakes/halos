@@ -68,6 +68,10 @@ type Org struct {
 	// when unset, like Toggles.
 	VendorAdmin *VendorAdmin `json:",omitempty"`
 
+	// Governance holds change-freeze windows and approval quorums (ADR-0030);
+	// omitted when unset, like Toggles.
+	Governance *Governance `json:",omitempty"`
+
 	// Deprecations are load-time warnings (one per file still on a deprecated
 	// apiVersion) that Validate reports. Not part of the snapshot.
 	Deprecations []Issue `json:"-"`

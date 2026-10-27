@@ -46,17 +46,17 @@ func TestAuditChainAndEndpoint(t *testing.T) {
 		actions = append(actions, en.Action)
 	}
 	// the developer's 403 above is the first entry: denials are audited
-	want := "authz.deny,request.create,request.approve,device.enroll,device.revoke,session.revoke,experiment.kill"
-	if got := strings.Join(actions, ","); got != want || !resp.Verified || resp.Total != 7 {
+	want := "authz.deny,request.create,request.approval,request.approve,device.enroll,device.revoke,session.revoke,experiment.kill"
+	if got := strings.Join(actions, ","); got != want || !resp.Verified || resp.Total != 8 {
 		t.Fatalf("actions %s verified=%v total=%d (%s)", got, resp.Verified, resp.Total, resp.VerifyError)
 	}
-	if ap := resp.Entries[2]; ap.Actor != admin.ID || ap.Details["prUrl"] != "https://git.example/pr/1" || ap.RequestID == "" {
+	if ap := resp.Entries[3]; ap.Actor != admin.ID || ap.Details["prUrl"] != "https://git.example/pr/1" || ap.RequestID == "" {
 		t.Errorf("approve entry: %+v", ap)
 	}
 
 	// pagination: newest page without since, then forward by cursor
 	p1 := decode[AuditResponse](t, e.as(admin, "GET", "/api/v1/audit?limit=2", ""))
-	if len(p1.Entries) != 2 || p1.Entries[0].Seq != 6 || p1.Next != 7 {
+	if len(p1.Entries) != 2 || p1.Entries[0].Seq != 7 || p1.Next != 8 {
 		t.Fatalf("tail page: %+v", p1)
 	}
 	p2 := decode[AuditResponse](t, e.as(admin, "GET", "/api/v1/audit?since=2&limit=2", ""))

@@ -20,3 +20,27 @@ selfService:
     - name: linear
       url: https://mcp.linear.app/sse
   enrollmentTTLSeconds: 900
+# Change governance (ADR-0030). Freeze windows hold rollout advances and
+# promotions into ring3-ga (never rollbacks or the kill switch); the approval
+# rule needs two approvers from different groups, never the requester, and a
+# change ticket before anything reaches GA.
+governance:
+  freezes:
+    - name: ga-weekend
+      reason: No GA changes over the weekend
+      timezone: America/New_York
+      scope: {rings: [ring3-ga]}
+      weekly: {from: "Fri 18:00", to: "Mon 06:00"}
+    - name: year-end
+      reason: Year-end change freeze
+      timezone: America/New_York
+      scope: {rings: [ring3-ga]}
+      start: "2026-12-18T18:00"
+      end: "2027-01-04T06:00"
+  approvals:
+    - name: ga-two-person
+      scope: {rings: [ring3-ga]}
+      quorum: 2
+      groups: [ai-platform, sre-leads]
+      distinctGroups: true
+      ticket: 'CHG[0-9]{7}'

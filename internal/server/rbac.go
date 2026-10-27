@@ -73,6 +73,9 @@ var routePerms = map[string]perm{
 	"GET /api/v1/toggles":            permRead,
 	"GET /api/v1/toggles/{name}":     permRead,
 	"GET /api/v1/killswitch":         permRead,
+	"GET /api/v1/freeze":             permRead, // incident freeze and every ring's freeze windows (ADR-0030)
+
+	"GET /api/v1/rollouts/{name}/approvals": permRead,
 
 	"POST /api/v1/experiments/{name}/status": permOperate,
 	"POST /api/v1/experiments/{name}/kill":   permOperate,
@@ -82,12 +85,15 @@ var routePerms = map[string]perm{
 
 	"POST /api/v1/requests/{id}/approve": permApprove,
 	"POST /api/v1/requests/{id}/deny":    permApprove,
+	// Approval rules (ADR-0030) narrow this further to their groups, in the handler.
+	"POST /api/v1/rollouts/{name}/approve": permApprove,
 
 	"GET /api/v1/audit": permAudit,
 
 	"POST /api/v1/devices/{id}/revoke":        permAdmin,
 	"POST /api/v1/users/{id}/revoke-sessions": permAdmin,
 	"POST /api/v1/toggles/{name}/propose":     permAdmin,
+	"POST /api/v1/freeze":                     permAdmin, // incident freeze on/off (ADR-0030)
 }
 
 // rolesFor returns the roles groups hold under id, in Roles order.

@@ -59,6 +59,12 @@ type Decision struct {
 	// Source is the evidence source of a breach: promote.SourceGateway,
 	// promote.SourceCLI or "scorecard". Only gateway evidence may auto-kill.
 	Source string `json:"source,omitempty"`
+	// Frozen is the change freeze holding an advance or completion (ADR-0030);
+	// rollback and pause are never held.
+	Frozen string `json:"frozen,omitempty"`
+	// Quorum is the approval quorum the advance needs, when a governance rule
+	// covers it.
+	Quorum *policy.QuorumResult `json:"quorum,omitempty"`
 }
 
 // Evidence is what the live step's gates are judged on.
@@ -70,7 +76,13 @@ type Evidence struct {
 	Scorecard    *eval.Scorecard `json:"-"`
 	ScorecardErr string          `json:"scorecardError,omitempty"`
 	// Approved: a human is advancing this step by hand (`halo rollout advance`).
+	// It does not satisfy an approval quorum (Quorum).
 	Approved bool `json:"approved,omitempty"`
+	// Freeze is the change freeze covering the advance; nil = not frozen.
+	Freeze *policy.FreezeStatus `json:"freeze,omitempty"`
+	// Quorum is the approval quorum covering the advance (ADR-0030); nil = no
+	// governance rule covers it. It replaces the approval gate.
+	Quorum *policy.QuorumResult `json:"quorum,omitempty"`
 }
 
 // Evaluate decides what to do with r now. It is pure: same inputs, same output.
@@ -80,13 +92,28 @@ type Evidence struct {
 // Order: (1) policy status and controller halts hold; (2) not started ->
 // advance to step 0; (3) a failed guardrail or scorecard -> the step's
 // onFailure, at any time; (4) bake, samples, guardrails, scorecard and
-// approval must all pass, else hold; (5) advance, or complete after the last.
+// approval (or the approval quorum) must all pass, else hold; (5) a change
+// freeze holds; (6) advance, or complete after the last.
 func Evaluate(r *policy.Rollout, st State, ev Evidence, now time.Time) Decision {
-	d := Decision{Step: st.Step, Next: -1, Reasons: []string{}, Gates: []GateResult{}}
+	d := Decision{Step: st.Step, Next: -1, Reasons: []string{}, Gates: []GateResult{}, Quorum: ev.Quorum}
+	if ev.Freeze != nil && ev.Freeze.Frozen {
+		// Reported whatever the gates say: a human advance (CLI, MCP) is
+		// refused on it even while other gates are pending.
+		d.Frozen = ev.Freeze.String()
+	}
 	hold := func(format string, a ...any) Decision {
 		d.Action = Hold
 		d.Reasons = append(d.Reasons, fmt.Sprintf(format, a...))
 		return d
+	}
+	// frozen holds a forward move; it never holds a rollback or pause.
+	frozen := func() bool {
+		if ev.Freeze == nil || !ev.Freeze.Frozen {
+			return false
+		}
+		d.Frozen = ev.Freeze.String()
+		hold("%s", d.Frozen)
+		return true
 	}
 	if s := r.EffectiveStatus(); s != policy.RolloutActive {
 		return hold("rollout is %s", s)
@@ -97,6 +124,14 @@ func Evaluate(r *policy.Rollout, st State, ev Evidence, now time.Time) Decision 
 	if st.Step < 0 || st.Step >= len(r.Steps) {
 		if len(r.Steps) == 0 {
 			return hold("rollout has no steps")
+		}
+		if q := ev.Quorum; q != nil && !q.Met {
+			d.Gates = append(d.Gates, quorumGate(q))
+			d.AwaitingApproval = true
+			return hold("approval: %s", q.String())
+		}
+		if frozen() {
+			return d
 		}
 		d.Action, d.Next = Advance, 0
 		d.Reasons = append(d.Reasons, "not started: propose step "+r.Steps[0].Name)
@@ -119,6 +154,7 @@ func Evaluate(r *policy.Rollout, st State, ev Evidence, now time.Time) Decision 
 		}
 	}
 	if len(d.Reasons) > 0 {
+		d.Frozen = "" // a freeze never holds the way back
 		d.Action = Rollback
 		if s.FailureAction() == "pause" {
 			d.Action = Pause
@@ -138,6 +174,9 @@ func Evaluate(r *policy.Rollout, st State, ev Evidence, now time.Time) Decision 
 		last := d.Gates[len(d.Gates)-1]
 		d.AwaitingApproval = pending == 1 && last.Gate == "approval" && last.Status == GatePending
 		d.Action = Hold
+		return d
+	}
+	if frozen() {
 		return d
 	}
 	if st.Step == len(r.Steps)-1 {
@@ -219,7 +258,10 @@ func gates(s policy.RolloutStep, st State, ev Evidence, now time.Time) []GateRes
 	if sc := s.Gates.Scorecard; sc != nil {
 		out = append(out, scorecardGate(sc, ev))
 	}
-	if s.Gates.Approval {
+	switch {
+	case ev.Quorum != nil: // a governance rule covers this advance: only its quorum approves it
+		out = append(out, quorumGate(ev.Quorum))
+	case s.Gates.Approval:
 		g := GateResult{Gate: "approval", Threshold: "human advance", Status: GatePending, Value: "none", Detail: "awaiting a human (halo rollout advance)"}
 		if ev.Approved {
 			g.Status, g.Value, g.Detail = GatePass, "approved", ""
@@ -227,6 +269,21 @@ func gates(s policy.RolloutStep, st State, ev Evidence, now time.Time) []GateRes
 		out = append(out, g)
 	}
 	return out
+}
+
+// quorumGate is the approval gate of a governance quorum (ADR-0030).
+func quorumGate(q *policy.QuorumResult) GateResult {
+	g := GateResult{Gate: "approval", Status: GatePending, Detail: "awaiting approvals (halo rollout approve): " + q.String()}
+	var have, need []string
+	for _, r := range q.Rules {
+		have = append(have, fmt.Sprint(r.Have))
+		need = append(need, fmt.Sprint(r.Need))
+	}
+	g.Value, g.Threshold = strings.Join(have, "+")+" approvals", strings.Join(need, "+")+" (quorum)"
+	if q.Met {
+		g.Status, g.Detail = GatePass, ""
+	}
+	return g
 }
 
 func scorecardGate(sc *policy.ScorecardGate, ev Evidence) GateResult {
