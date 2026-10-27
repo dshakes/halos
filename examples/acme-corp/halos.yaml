@@ -44,3 +44,22 @@ governance:
       groups: [ai-platform, sre-leads]
       distinctGroups: true
       ticket: 'CHG[0-9]{7}'
+
+# Agent supply chain (ADR-0028): extension artifacts releases deliver, pinned
+# by content digest (`halo artifact digest <path>`), statically scanned by
+# `halo validate` / `halo release build`, and listed in each release's AI-BOM.
+supplyChain:
+  scan: enforce
+  artifacts:
+    - name: pr-review
+      kind: skill
+      path: artifacts/skills/pr-review
+      digest: sha256:39a6210a056f9c0c889b5c13ef9a18f9b0584e7a7558fdb115b4812f24ab5186
+    - name: security-reviewer
+      kind: agent
+      path: artifacts/agents/security-reviewer.md
+      digest: sha256:858764f48a3e32de6d9f6f673be53c39c6b6fca23a117179e569c6689dd906d2
+    - name: audit-bash
+      kind: hook
+      path: artifacts/hooks/audit-bash
+      digest: sha256:0e2e2c237c5854be316839c26a7115e9b84f36721b52f12ade825df1d2ae0cad

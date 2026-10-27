@@ -18,11 +18,14 @@ import (
 )
 
 func (a *app) cmdValidate() *cobra.Command {
-	return &cobra.Command{
+	var strict bool
+	c := &cobra.Command{
 		Use:         "validate",
 		Annotations: policyDirAnno,
 		Short:       "Load and validate a policy repo (exit 2 on errors)",
-		Args:        cobra.MaximumNArgs(1),
+		Long: "Also scans the supply-chain artifacts in the policy repo (ADR-0028). Artifacts from git or oci\n" +
+			"are fetched, checked and scanned by `halo release build`; validate stays offline.",
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dir, err := policyDir(cmd, args)
 			if err != nil {
@@ -32,9 +35,12 @@ func (a *app) cmdValidate() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			strictScan(org, strict)
 			return a.report(org.Validate())
 		},
 	}
+	c.Flags().BoolVar(&strict, "strict", false, strictHelp)
+	return c
 }
 
 func (a *app) cmdRender() *cobra.Command {

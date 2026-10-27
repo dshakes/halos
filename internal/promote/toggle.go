@@ -148,8 +148,8 @@ func PlanToggle(dir string, name string, c ToggleChange) (*Change, error) {
 	return ch, nil
 }
 
-// errorIssues loads a copy of the policy under dir (YAML files only) with
-// files overlaid and returns its error-severity validation issues.
+// errorIssues loads a copy of the policy under dir (every regular file, so
+// supply-chain artifacts validate too: ADR-0028) with files overlaid and returns its error-severity validation issues.
 func errorIssues(dir string, files map[string][]byte) ([]string, error) {
 	tmp, err := os.MkdirTemp("", "halos-toggle-validate-")
 	if err != nil {
@@ -166,7 +166,7 @@ func errorIssues(dir string, files map[string][]byte) ([]string, error) {
 			}
 			return nil
 		}
-		if ext := filepath.Ext(p); !d.Type().IsRegular() || (ext != ".yaml" && ext != ".yml") { // symlinks are never followed
+		if !d.Type().IsRegular() { // symlinks are never followed
 			return nil
 		}
 		rel, _ := filepath.Rel(dir, p)

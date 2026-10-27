@@ -30,6 +30,7 @@
         "internal/rollout",
         "internal/server",
         "internal/shadow",
+        "internal/supplychain",
         "internal/telemetry",
         "internal/toggle",
         "internal/upgrade",
@@ -348,7 +349,8 @@
     {
       "path": "internal/policy",
       "imports": [
-        "internal/assign"
+        "internal/assign",
+        "internal/supplychain"
       ]
     },
     {
@@ -366,6 +368,7 @@
       "imports": [
         "internal/harness",
         "internal/policy",
+        "internal/supplychain",
         "internal/toggle"
       ]
     },
@@ -428,6 +431,10 @@
       "imports": [
         "internal/fsutil"
       ]
+    },
+    {
+      "path": "internal/supplychain",
+      "imports": []
     },
     {
       "path": "internal/telemetry",

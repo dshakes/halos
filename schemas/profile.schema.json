@@ -356,6 +356,15 @@
           },
           "required": [],
           "additionalProperties": false
+        },
+        "artifacts": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true,
+          "description": "Supply-chain artifacts (halos.yaml supplyChain.artifacts names) this profile delivers (ADR-0028). Claude Code places skills, agents, commands and hooks in its managed directory; other adapters warn."
         }
       },
       "required": [],

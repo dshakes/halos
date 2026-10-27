@@ -144,7 +144,7 @@ func (a *app) cmdRelease() *cobra.Command {
 	c := &cobra.Command{Use: "release", Short: "Build, publish and promote releases"}
 
 	var ring, out, ver, dir string
-	var noArt bool
+	var noArt, strict bool
 	build := &cobra.Command{
 		Use:         "build",
 		Annotations: policyDirAnno,
@@ -155,28 +155,38 @@ func (a *app) cmdRelease() *cobra.Command {
 			if dir, err = policyDir(cmd, args); err != nil {
 				return err
 			}
-			rel, err := a.buildRelease(dir, ring, ver)
+			rel, org, err := a.buildRelease(cmd.Context(), dir, ring, ver, strict)
 			if err != nil {
 				return err
 			}
 			if rel, err = a.resolveArtifacts(cmd.Context(), rel, noArt); err != nil {
 				return err
 			}
-			if err := writeFile(out, rel.Tar, 0o644); err != nil {
-				return fmt.Errorf("write %s: %w", out, err)
+			if err := a.attest(dir, org, rel); err != nil {
+				return err
 			}
-			return a.emit(map[string]string{"file": out, "digest": rel.Digest, "version": rel.Manifest.Version, "ring": ring}, func() {
-				fmt.Fprintf(a.out, "%s %s (%s)\n", a.green("built"), out, rel.Digest)
+			bomFile, provFile := attestationFiles(out)
+			for _, w := range []struct {
+				path string
+				data []byte
+			}{{out, rel.Tar}, {bomFile, rel.Attestations.BOM}, {provFile, rel.Attestations.Provenance}} {
+				if err := writeFile(w.path, w.data, 0o644); err != nil {
+					return fmt.Errorf("write %s: %w", w.path, err)
+				}
+			}
+			return a.emit(map[string]string{"file": out, "digest": rel.Digest, "version": rel.Manifest.Version, "ring": ring, "bom": bomFile, "provenance": provFile}, func() {
+				fmt.Fprintf(a.out, "%s %s (%s); AI-BOM %s, provenance %s\n", a.green("built"), out, rel.Digest, bomFile, provFile)
 			})
 		},
 	}
+	build.Flags().BoolVar(&strict, "strict", false, strictHelp)
 	build.Flags().StringVar(&ring, "ring", "", "ring to build (required)")
 	build.Flags().StringVarP(&out, "out", "o", "release.tar", "output tarball")
 	build.Flags().StringVar(&ver, "release-version", "0.0.0-dev", "release version label")
 	build.Flags().BoolVar(&noArt, "no-artifacts", false, noArtHelp)
 
 	var pRing, pVer string
-	var pNoArt bool
+	var pNoArt, pStrict bool
 	var pf regFlags
 	var ppf ptrFlags
 	publish := &cobra.Command{
@@ -197,7 +207,7 @@ func (a *app) cmdRelease() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			rel, variants, err := a.buildRing(dir, pRing, pVer)
+			rel, variants, org, err := a.buildRing(cmd.Context(), dir, pRing, pVer, pStrict)
 			if err != nil {
 				return err
 			}
@@ -209,6 +219,11 @@ func (a *app) cmdRelease() *cobra.Command {
 			}
 			for i := 0; i < len(variants) && !pNoArt; i++ { // --no-artifacts: warned once above
 				if variants[i], err = a.resolveArtifacts(cmd.Context(), variants[i], false); err != nil {
+					return err
+				}
+			}
+			for _, r := range append([]*release.Release{rel}, variants...) {
+				if err := a.attest(dir, org, r); err != nil {
 					return err
 				}
 			}
@@ -241,6 +256,7 @@ func (a *app) cmdRelease() *cobra.Command {
 	publish.Flags().StringVar(&pRing, "ring", "", "ring to publish (required)")
 	publish.Flags().StringVar(&pVer, "release-version", "", "release version, becomes tag v<version> (required)")
 	publish.Flags().BoolVar(&pNoArt, "no-artifacts", false, noArtHelp)
+	publish.Flags().BoolVar(&pStrict, "strict", false, strictHelp)
 	pf.add(publish, true, false)
 	ppf.add(publish, "")
 	_ = publish.MarkFlagRequired("release-version")
@@ -269,7 +285,7 @@ func (a *app) cmdRelease() *cobra.Command {
 	prf.add(promote, true, false)
 	pp.add(promote, "refuse unless --from-ring serves this release digest (sha256:...)")
 
-	c.AddCommand(build, publish, promote, a.cmdRefresh())
+	c.AddCommand(build, publish, promote, a.cmdRefresh(), a.cmdReleaseBOM())
 	return c
 }
 
@@ -551,7 +567,7 @@ func (a *app) cmdPlan() *cobra.Command {
 // planRing diffs ring's release against --against, else the base policy's
 // release for the ring (baseDir), else nothing (a first release).
 func (a *app) planRing(cmd *cobra.Command, dir, baseDir, ring, against, ver string, rf *regFlags) (map[string]any, func(), error) {
-	cur, err := a.buildRelease(dir, ring, ver)
+	cur, _, err := a.buildRelease(cmd.Context(), dir, ring, ver, false)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -562,7 +578,7 @@ func (a *app) planRing(cmd *cobra.Command, dir, baseDir, ring, against, ver stri
 			return nil, nil, err
 		}
 	case baseDir != "":
-		if b, err := a.buildRelease(baseDir, ring, ver); err == nil {
+		if b, _, err := a.buildRelease(cmd.Context(), baseDir, ring, ver, false); err == nil {
 			prev = b
 		} else {
 			fmt.Fprintf(a.errw, "%s ring %s at the --diff base does not build (%v); diffing against an empty release\n", a.yellow("warning:"), ring, err)

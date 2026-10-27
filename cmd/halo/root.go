@@ -109,7 +109,8 @@ func newRoot(out, errw io.Writer) *cobra.Command {
 		a.cmdRollback(), a.cmdKeys(), a.cmdWhoami(), a.cmdHarnesses(), a.cmdExport(),
 		a.cmdExp(), a.cmdController(), a.cmdGateway(), a.cmdTelemetry(), a.cmdEval(), a.cmdUpgrade(), a.cmdMCP(), a.cmdToggle(), a.cmdRollout(), a.cmdVersion(), a.cmdDocs(),
 		a.cmdModel(), a.cmdEnable(), a.cmdKill(), a.cmdStatus(), a.cmdExplain(), a.cmdEject(), a.cmdMigrate(),
-		a.cmdDoctor(), a.cmdOnboard(), a.cmdQuickstart(), a.cmdUnits(), a.cmdAudit(), a.cmdBudget(), a.cmdCI(), a.cmdAgents(), a.cmdAdmin(), a.cmdROI(), a.cmdSessions(), a.cmdFreeze())
+		a.cmdDoctor(), a.cmdOnboard(), a.cmdQuickstart(), a.cmdUnits(), a.cmdAudit(), a.cmdBudget(), a.cmdCI(), a.cmdAgents(), a.cmdAdmin(), a.cmdROI(), a.cmdSessions(), a.cmdFreeze(),
+		a.cmdArtifact())
 	addPolicyDirFlags(root)
 	groupCommands(root)
 	return root
@@ -121,7 +122,7 @@ var helpGroups = []struct {
 	cmds      []string
 }{
 	{"start", "Get started:", []string{"quickstart", "init", "onboard", "doctor", "status", "version"}},
-	{"policy", "Policy & releases:", []string{"validate", "explain", "render", "plan", "release", "rollback", "keys", "export", "eject", "migrate", "harnesses", "whoami", "units", "model", "enable"}},
+	{"policy", "Policy & releases:", []string{"validate", "explain", "render", "plan", "release", "artifact", "rollback", "keys", "export", "eject", "migrate", "harnesses", "whoami", "units", "model", "enable"}},
 	{"rollout", "Rollouts & experiments:", []string{"exp", "rollout", "toggle", "eval", "upgrade", "controller", "kill", "freeze", "roi"}},
 	{"fleet", "Fleet & gateway:", []string{"gateway", "telemetry", "audit", "budget", "ci"}},
 	{"agents", "Agents & MCP:", []string{"agents", "mcp", "sessions"}},
@@ -214,15 +215,23 @@ func (a *app) loadValid(dir string) (*policy.Org, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := a.checkValid(org); err != nil {
+		return nil, err
+	}
+	return org, nil
+}
+
+// checkValid refuses (exit 2) an org with validation errors.
+func (a *app) checkValid(org *policy.Org) error {
 	issues := org.Validate()
 	if policy.HasErrors(issues) {
 		// always human-readable on stderr so JSON stdout stays clean
 		for _, i := range issues {
 			fmt.Fprintln(a.errw, i.String())
 		}
-		return nil, &exitErr{code: exitValidation, err: errors.New("policy has validation errors; run `halo validate`")}
+		return &exitErr{code: exitValidation, err: errors.New("policy has validation errors; run `halo validate`")}
 	}
-	return org, nil
+	return nil
 }
 
 func findRing(org *policy.Org, name string) (*policy.Ring, error) {
@@ -256,26 +265,35 @@ func (a *app) needRing(cmd *cobra.Command, flag string) error {
 	return errors.New(msg)
 }
 
-func (a *app) buildRelease(dir, ring, ver string) (*release.Release, error) {
-	rel, _, err := a.buildRing(dir, ring, ver)
-	return rel, err
+func (a *app) buildRelease(ctx context.Context, dir, ring, ver string, strict bool) (*release.Release, *policy.Org, error) {
+	rel, _, org, err := a.buildRing(ctx, dir, ring, ver, strict)
+	return rel, org, err
 }
 
 // buildRing builds ring's release plus the variant releases of the running
-// client-axis experiments enrolling it (see release.BuildRing).
-func (a *app) buildRing(dir, ring, ver string) (*release.Release, []*release.Release, error) {
-	org, err := a.loadValid(dir)
+// client-axis experiments enrolling it (see release.BuildRing). Remote
+// supply-chain artifacts are fetched and every artifact is scanned and
+// signature-checked first (ADR-0028); strict makes scan findings errors.
+func (a *app) buildRing(ctx context.Context, dir, ring, ver string, strict bool) (*release.Release, []*release.Release, *policy.Org, error) {
+	org, err := a.load(dir)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
+	}
+	strictScan(org, strict)
+	if err := a.resolveSupplyChain(ctx, dir, org); err != nil {
+		return nil, nil, nil, err
+	}
+	if err := a.checkValid(org); err != nil {
+		return nil, nil, nil, err
 	}
 	if _, err := findRing(org, ring); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	rel, variants, err := release.BuildRing(org, ring, release.Options{Version: ver, Org: org.Name})
 	if err != nil {
-		return nil, nil, fmt.Errorf("build release for ring %s: %w", ring, err)
+		return nil, nil, nil, fmt.Errorf("build release for ring %s: %w", ring, err)
 	}
-	return rel, variants, nil
+	return rel, variants, org, nil
 }
 
 // refusePinned stops publish from moving a ring that policy pins to another
@@ -313,7 +331,7 @@ func writeFile(p string, data []byte, mode os.FileMode) error {
 	if mode == 0 {
 		mode = 0o644
 	}
-	return os.WriteFile(p, data, mode)
+	return os.WriteFile(p, data, mode) //nolint:gosec // p is the operator's own output path (-o / --out)
 }
 
 func (a *app) cmdVersion() *cobra.Command {

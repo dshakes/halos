@@ -752,6 +752,47 @@
         }
       },
       "additionalProperties": false
+    },
+    "supplyChain": {
+      "type": "object",
+      "description": "Agent supply chain (ADR-0028): the skills, plugins, hooks, slash commands and agent definitions releases deliver, each pinned by content digest, statically scanned at `halo validate` and `halo release build`, optionally signature-checked, and listed in the release AI-BOM.",
+      "properties": {
+        "scan": {
+          "enum": [
+            "off",
+            "warn",
+            "enforce"
+          ],
+          "description": "Static scan mode: warn (default) reports findings as warnings, enforce makes them errors (as does `--strict`), off skips the scan."
+        },
+        "requireSignatures": {
+          "type": "boolean",
+          "description": "Refuse a git or oci artifact unless it is signed by a trusted identity."
+        },
+        "artifacts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/artifact"
+          },
+          "description": "Extension artifacts, referenced by name from a profile's extensions.artifacts."
+        },
+        "trustedIdentities": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/trustedIdentity"
+          },
+          "description": "Keys artifact signatures may be made with."
+        },
+        "allowFindings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/allowFinding"
+          },
+          "description": "Scan findings suppressed by content digest; changed content is scanned afresh. An entry that suppresses nothing warns."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
     }
   },
   "required": [
@@ -811,6 +852,158 @@
           "description": "Unit names (ADR-0018)."
         }
       }
+    },
+    "artifact": {
+      "type": "object",
+      "description": "One extension artifact. Set exactly one source: path, git or oci.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,62}$",
+          "description": "Name profiles reference."
+        },
+        "kind": {
+          "enum": [
+            "skill",
+            "plugin",
+            "hook",
+            "command",
+            "agent"
+          ],
+          "description": "skill: a directory holding SKILL.md; plugin: a plugin directory; hook: scripts a hooks.items command runs; command: one Markdown slash command; agent: one Markdown subagent definition."
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._@+-]+(/[A-Za-z0-9._@+-]+)*$",
+          "description": "File or directory in the policy repo, relative to its root."
+        },
+        "git": {
+          "type": "object",
+          "description": "A git repository pinned to a full commit id (branches and tags are refused).",
+          "properties": {
+            "url": {
+              "type": "string",
+              "pattern": "^(https|ssh|file)://",
+              "description": "https://, ssh:// or file:// URL."
+            },
+            "commit": {
+              "type": "string",
+              "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$",
+              "description": "Full commit id."
+            },
+            "path": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._@+-]+(/[A-Za-z0-9._@+-]+)*$",
+              "description": "Path within the repository (default its root)."
+            }
+          },
+          "required": [
+            "url",
+            "commit"
+          ],
+          "additionalProperties": false
+        },
+        "oci": {
+          "type": "string",
+          "pattern": "@sha256:[0-9a-f]{64}$",
+          "description": "Digest-pinned OCI reference host/repo@sha256:<hex>; each layer is one file named by its org.opencontainers.image.title annotation (`oras push`)."
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "description": "Artifact digest (`halo artifact digest <path>`): sha256 of the sorted `sha256sum` listing of its files. Required for git and oci; checked for path when set."
+        },
+        "signature": {
+          "type": "object",
+          "description": "Signature over the artifact digest.",
+          "properties": {
+            "identity": {
+              "type": "string",
+              "description": "A supplyChain.trustedIdentities name."
+            },
+            "file": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._@+-]+(/[A-Za-z0-9._@+-]+)*$",
+              "description": "Signature file in the policy repo: base64 ed25519 (`halo artifact sign`) or cosign sign-blob output."
+            }
+          },
+          "required": [
+            "identity",
+            "file"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "name",
+        "kind"
+      ],
+      "additionalProperties": false
+    },
+    "trustedIdentity": {
+      "type": "object",
+      "description": "A signing identity. Set exactly one of publicKey and cosignKey.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,62}$",
+          "description": "Name signatures reference."
+        },
+        "publicKey": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._@+-]+(/[A-Za-z0-9._@+-]+)*$",
+          "description": "ed25519 public key PEM in the policy repo (`halo keys generate`)."
+        },
+        "cosignKey": {
+          "type": "string",
+          "minLength": 1,
+          "description": "cosign public key reference: a file in the policy repo, an absolute path, or a KMS URI."
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "allowFinding": {
+      "type": "object",
+      "description": "A justified scan-finding suppression.",
+      "properties": {
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "description": "The artifact digest (any of its files) or one file's sha256 (that file only)."
+        },
+        "rule": {
+          "enum": [
+            "hidden-unicode",
+            "html-comment-instruction",
+            "permission-bypass",
+            "remote-exec",
+            "credential-path",
+            "exfil-url",
+            "base64-blob",
+            "executable-binary"
+          ],
+          "description": "Scan rule id."
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._@+-]+(/[A-Za-z0-9._@+-]+)*$",
+          "description": "File inside the artifact (default any)."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Why the finding is acceptable."
+        }
+      },
+      "required": [
+        "digest",
+        "rule",
+        "reason"
+      ],
+      "additionalProperties": false
     }
   }
 }

@@ -36,6 +36,7 @@ Decisions that shape Halos. New ADRs use [MADR](https://adr.github.io/madr/): co
 | [0025](/halos/adr/0025-vendor-admin-sync/) | Vendor admin sync: one policy drives the vendors' cloud admin consoles, with drift detection (amended after security review) |
 | [0026](/halos/adr/0026-per-credential-revocation/) | Per-credential revocation: jti and per-subject epochs for agent and workload credentials, enforced by halo-server and gateways |
 | [0027](/halos/adr/0027-randomized-roi/) | Randomized delivery ROI: PR outcomes joined to experiment arms for causal effects; ring comparisons labelled observational |
+| [0028](/halos/adr/0028-agent-supply-chain-and-ai-bom/) | Agent supply chain and AI-BOM: digest-pinned, scanned and signed extensions; CycloneDX 1.6 AI-BOM with SLSA provenance |
 | [0030](/halos/adr/0030-change-governance/) | Change governance: freeze windows and an incident freeze (never holding rollbacks), approver quorums with separation of duties, and an impact preview |
 | [0031](/halos/adr/0031-agent-session-ledger/) | Agent session ledger: one identity-linked, redacted record per agent session, stored in the audit chain |
 

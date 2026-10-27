@@ -66,6 +66,7 @@ func (o *Org) Validate() []Issue {
 	v.agents()
 	v.vendorAdmin()
 	v.governance()
+	v.supplyChain()
 	for _, g := range builtinGuardrails {
 		v.issues = append(v.issues, g(o)...)
 	}

@@ -33,13 +33,14 @@ func mustWrite(t *testing.T, p, s string) {
 	}
 }
 
-// exampleCopy copies the example policy repo's YAML and JSON into a temp dir.
+// exampleCopy copies the example policy repo (YAML, JSON and the supply-chain
+// artifacts it pins) into a temp dir.
 func exampleCopy(t *testing.T) string {
 	t.Helper()
 	dst := t.TempDir()
 	err := filepath.WalkDir(exampleDir, func(p string, d fs.DirEntry, err error) error {
 		rel, _ := filepath.Rel(exampleDir, p)
-		if err != nil || d.IsDir() || (filepath.Ext(p) != ".yaml" && filepath.Ext(p) != ".json") || strings.HasPrefix(rel, ".") {
+		if err != nil || d.IsDir() || (filepath.Ext(p) != ".yaml" && filepath.Ext(p) != ".json" && !strings.HasPrefix(rel, "artifacts"+string(filepath.Separator))) || strings.HasPrefix(rel, ".") {
 			return err
 		}
 		mustWrite(t, filepath.Join(dst, rel), mustRead(t, p))

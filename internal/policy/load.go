@@ -33,6 +33,8 @@ type Root struct {
 	Agents *Agents `yaml:"agents,omitempty" json:"agents,omitempty"`
 	// VendorAdmin drives the vendors' cloud admin consoles (ADR-0025).
 	VendorAdmin *VendorAdmin `yaml:"vendorAdmin,omitempty" json:"vendorAdmin,omitempty"`
+	// SupplyChain pins, scans and signs extension artifacts (ADR-0028).
+	SupplyChain *SupplyChain `yaml:"supplyChain,omitempty" json:"supplyChain,omitempty"`
 	// Delegation is what units may add beyond the baseline (ADR-0018).
 	Delegation *Delegation `yaml:"delegation,omitempty" json:"delegation,omitempty"`
 	// Governance holds change-freeze windows and approval quorums (ADR-0030).
@@ -105,7 +107,9 @@ func Load(dir string) (*Org, error) {
 		return nil, err
 	}
 
-	org := &Org{Name: root.Org, Identity: root.Identity, SelfService: root.SelfService, Workloads: root.Workloads, Agents: root.Agents, VendorAdmin: root.VendorAdmin, Delegation: root.Delegation, Governance: root.Governance, Profiles: map[string]*Profile{}}
+	org := &Org{Name: root.Org, Identity: root.Identity, SelfService: root.SelfService, Workloads: root.Workloads, Agents: root.Agents, VendorAdmin: root.VendorAdmin, SupplyChain: root.SupplyChain, Delegation: root.Delegation, Governance: root.Governance, Profiles: map[string]*Profile{}}
+	org.loadLocalArtifacts(dir)
+	skip := artifactDirs(root)
 	if root.APIVersion == APIVersionV1Alpha1 {
 		org.Deprecations = append(org.Deprecations, deprecation(dir, rootPath))
 	}
@@ -128,6 +132,9 @@ func Load(dir string) (*Org, error) {
 			return nil
 		}
 		if rel, err := filepath.Rel(walkRoot, p); err == nil {
+			if underAny(filepath.ToSlash(rel), skip) {
+				return nil // artifact content, not policy
+			}
 			p = filepath.Join(dir, rel)
 		}
 		if p == rootPath {

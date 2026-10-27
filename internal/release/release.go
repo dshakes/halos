@@ -44,6 +44,10 @@ type FileEntry struct {
 	Path   string `json:"path"`
 	Mode   uint32 `json:"mode"`
 	SHA256 string `json:"sha256"`
+	// Artifact/ArtifactPath tie the file to a Manifest.SupplyChain entry and
+	// its path inside it; halod checks both before writing (ADR-0028).
+	Artifact     string `json:"artifact,omitempty"`
+	ArtifactPath string `json:"artifactPath,omitempty"`
 }
 
 // HarnessEntry is one harness's pinned version, installer and files, per OS.
@@ -84,6 +88,9 @@ type Manifest struct {
 	// units' members) may call, with each AgentCard's digest (ADR-0024):
 	// signed with the release, so a changed card is a policy change.
 	RemoteAgents []RemoteAgentEntry `json:"remoteAgents,omitempty"`
+	// SupplyChain pins the extension artifacts this release delivers
+	// (ADR-0028): each one's digest and file listing, signed with the release.
+	SupplyChain []SupplyChainEntry `json:"supplyChain,omitempty"`
 }
 
 // RemoteAgentEntry is one allowlisted remote agent in a release manifest.
@@ -118,6 +125,10 @@ type Release struct {
 	Blobs    map[string][]byte // sha256 hex -> content
 	Tar      []byte
 	Digest   string // "sha256:<hex>" of Tar
+	// Attestations (AI-BOM and provenance, see Attest) describe the release
+	// by digest; they are not part of Tar. bundle.Publish stores them as a
+	// signed OCI referrer when set.
+	Attestations *Attestations
 }
 
 // Content returns the bytes for a manifest file entry.
@@ -202,7 +213,7 @@ func Build(org ProfileResolver, profileName, ringName string, opts Options) (*Re
 				sum := sha256.Sum256(f.Data)
 				h := hex.EncodeToString(sum[:])
 				blobs[h] = f.Data
-				entries = append(entries, FileEntry{Path: f.Path, Mode: f.Mode, SHA256: h})
+				entries = append(entries, FileEntry{Path: f.Path, Mode: f.Mode, SHA256: h, Artifact: f.Artifact, ArtifactPath: f.ArtifactPath})
 			}
 			sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
 			he.Files[string(os)] = entries
@@ -211,6 +222,12 @@ func Build(org ProfileResolver, profileName, ringName string, opts Options) (*Re
 	}
 	toggles.finish()
 	units.finish()
+	if m.SupplyChain, err = supplyChainEntries(prof); err != nil {
+		return nil, fmt.Errorf("release: profile %q: %w", profileName, err)
+	}
+	if err := m.CheckArtifactFiles(); err != nil {
+		return nil, fmt.Errorf("release: profile %q: %w", profileName, err)
+	}
 	m.RemoteAgents = remoteAgents(org0, prof, ringName)
 	if len(m.RemoteAgents) > 0 {
 		for _, name := range names {
