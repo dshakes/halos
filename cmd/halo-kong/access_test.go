@@ -24,6 +24,7 @@ type fakeKong struct {
 	path    string
 	body    []byte
 	bodyErr error
+	hdrsErr error
 	peer    string
 
 	exitStatus int
@@ -38,7 +39,7 @@ type fakeKong struct {
 	logs       []string
 }
 
-func (f *fakeKong) Headers() (map[string][]string, error) { return f.hdrs, nil }
+func (f *fakeKong) Headers() (map[string][]string, error) { return f.hdrs, f.hdrsErr }
 func (f *fakeKong) Path() (string, error)                 { return f.path, nil }
 func (f *fakeKong) RawBody() ([]byte, error)              { return f.body, f.bodyErr }
 func (f *fakeKong) PeerIP() (string, error)               { return f.peer, nil }

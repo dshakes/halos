@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -84,5 +85,14 @@ func TestServeMetrics(t *testing.T) {
 		if !strings.Contains(string(b), want) {
 			t.Fatalf("metrics lack %q:\n%s", want, b)
 		}
+	}
+}
+
+func TestAccessRefusesUnreadableHeaders(t *testing.T) {
+	k := &fakeKong{peer: "10.1.2.3", path: "/v1/messages", body: []byte(firstTurn),
+		hdrs: map[string][]string{"x-acme-user": {"alice"}}, hdrsErr: errors.New("pdk: headers unavailable")}
+	trustedCfg(testPolicy(t)).access(k)
+	if k.exitStatus != http.StatusInternalServerError || len(k.set) != 0 {
+		t.Fatalf("unreadable headers: exit %d, set %v; want 500 and nothing stamped", k.exitStatus, k.set)
 	}
 }

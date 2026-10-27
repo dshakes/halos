@@ -519,8 +519,14 @@ func (c Config) access(kong kongAPI) {
 		// Fail open on routing (Kong's default service), never on header hygiene.
 		_ = kong.Err("halo-kong: policy: ", err.Error())
 	}
-	raw, _ := kong.Headers()
 	path, _ := kong.Path()
+	raw, err := kong.Headers()
+	if err != nil {
+		// Without the header view nothing can be stripped or verified: refuse, never forward.
+		_ = kong.Err("halo-kong: request refused: read headers: ", err.Error())
+		exit(kong, &gateway.Rejection{Status: http.StatusInternalServerError, Protocol: gateway.ProtocolForPath(path), Message: "halos: could not read request headers"})
+		return
+	}
 	if headerCapReached(raw) {
 		kmetrics.headerCapRejected()
 		_ = kong.Warn("halo-kong: request refused: header count reached the ", strconv.Itoa(maxHeaders), "-header cap")

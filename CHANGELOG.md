@@ -18,6 +18,7 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ### Security
 
+- halo-kong refuses a request (500) when Kong cannot return its headers, instead of verifying and stripping an empty header view.
 - `halo-kong`: when the directory config is invalid and `directory_fail_mode` is open, a delegated agent keeps its delegation chain. Before, it was treated as its human root: the agent policy (`deniedTools`, chain model scope, `maxDepth`) was skipped and the agent could be enrolled in experiments.
 - `halo-kong`: a posture config that is set but invalid (for example `posture_token` naming an unset env var) no longer turns the posture gate off. Enforce rings answer 403 and warn rings pass tagged `posture=unknown`.
 - Gateways: a posture lookup that `halo-server` refuses (any non-200 below 500, such as 401 or 404) is now a failed verdict. Before, it counted as unknown, and unknown passes.
