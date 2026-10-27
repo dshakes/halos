@@ -186,6 +186,7 @@ func (v *validator) gateway() {
 		v.route("gateway.models."+alias, g.Models[alias])
 	}
 	v.budgets(g)
+	v.dlp(g)
 }
 
 // upstreamKind checks the per-kind fields: where a provider's credential lives
