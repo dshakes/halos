@@ -14,13 +14,25 @@ func TestMissingPolicyIsActionable(t *testing.T) {
 	}
 }
 
+// plan has no required --ring since ADR-0030: without one it plans every ring.
+func TestPlanWithoutRingPlansEveryRing(t *testing.T) {
+	code, out, stderr := halo(t, "plan", "--policy-dir", "../../examples/acme-corp")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, stderr)
+	}
+	for _, want := range []string{"ring ring1-canary", "ring ring3-ga"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("stdout missing %q", want)
+		}
+	}
+}
+
 func TestMissingRingListsPolicyRings(t *testing.T) {
 	const ex = "../../examples/acme-corp"
 	tests := []struct {
 		name string
 		args []string
 	}{
-		{"plan", []string{"plan", "--policy-dir", ex}},
 		{"release build", []string{"release", "build", "--policy-dir", ex}},
 		{"render", []string{"render", "--policy-dir", ex}},
 		{"rollback", []string{"rollback", "--to", "1.0.0", "--policy-dir", ex}},
