@@ -84,6 +84,12 @@ type Manifest struct {
 	// units' members) may call, with each AgentCard's digest (ADR-0024):
 	// signed with the release, so a changed card is a policy change.
 	RemoteAgents []RemoteAgentEntry `json:"remoteAgents,omitempty"`
+	// MCPMode and MCPServers carry the halos.yaml mcp registry (ADR-0029):
+	// its mode and the servers ring's members (or some of its units' members)
+	// get, pinned, so halod reports unapproved and version-drifted servers in
+	// user configs. Empty when the policy has no registry.
+	MCPMode    string          `json:"mcpMode,omitempty"`
+	MCPServers []policy.MCPPin `json:"mcpServers,omitempty"`
 }
 
 // RemoteAgentEntry is one allowlisted remote agent in a release manifest.
@@ -137,6 +143,9 @@ func Build(org ProfileResolver, profileName, ringName string, opts Options) (*Re
 		}
 		if opts.Gateway == nil {
 			opts.Gateway = o.Gateway
+		}
+		if prof, err = o.WithMCPRegistry(prof, ringName, ""); err != nil {
+			return nil, fmt.Errorf("release: profile %q: mcp registry: %w", profileName, err)
 		}
 	}
 	oses := opts.OSes
@@ -212,6 +221,12 @@ func Build(org ProfileResolver, profileName, ringName string, opts Options) (*Re
 	toggles.finish()
 	units.finish()
 	m.RemoteAgents = remoteAgents(org0, prof, ringName)
+	if org0 != nil && org0.MCP != nil {
+		m.MCPMode, m.MCPServers = policy.MCPModeAllowlist, org0.MCP.MCPPins(ringName)
+		if !org0.MCP.Allowlist() {
+			m.MCPMode = policy.MCPModeWarn
+		}
+	}
 	if len(m.RemoteAgents) > 0 {
 		for _, name := range names {
 			m.Warnings = append(m.Warnings, name+": "+remoteAgentsWarning(name))

@@ -62,6 +62,9 @@ func newUnitBuild(org *policy.Org, prof *policy.Profile, m *Manifest) (*unitBuil
 	sort.Slice(ub.units, func(i, j int) bool { return ub.units[i].Name < ub.units[j].Name })
 	for _, u := range ub.units {
 		p, err := org.EffectiveProfile(prof, u.Name)
+		if err == nil {
+			p, err = org.WithMCPRegistry(p, m.Ring, u.Name) // prof already holds the ring's registry servers
+		}
 		if err != nil {
 			return nil, fmt.Errorf("unit %q: %w", u.Name, err)
 		}

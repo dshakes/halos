@@ -184,6 +184,70 @@
                     "additionalProperties": {
                       "type": "string"
                     }
+                  },
+                  "tools": {
+                    "type": "object",
+                    "description": "Narrows the server's tools (ADR-0029). deny wins over allow; empty allow = every tool.",
+                    "properties": {
+                      "allow": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_.-]{1,128}$"
+                        },
+                        "description": "Only these tools (where the harness supports an allowlist; else a manifest warning)."
+                      },
+                      "deny": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_.-]{1,128}$"
+                        },
+                        "description": "Never these tools."
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "auth": {
+                    "type": "object",
+                    "description": "How clients authorize to a remote server (ADR-0029).",
+                    "properties": {
+                      "mode": {
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "oauth",
+                          "enterprise",
+                          "halos"
+                        ],
+                        "description": "none (default) | oauth (the server's authorization server) | enterprise (Enterprise-Managed Authorization: an ID-JAG from identity.issuer) | halos (halo-server mints audience-bound tokens)."
+                      },
+                      "issuer": {
+                        "type": "string",
+                        "format": "uri",
+                        "pattern": "^https://",
+                        "description": "Authorization server issuer (oauth, enterprise)."
+                      },
+                      "clientID": {
+                        "type": "string",
+                        "description": "Pre-registered OAuth client id (oauth, enterprise)."
+                      },
+                      "clientIDMetadataURL": {
+                        "type": "string",
+                        "format": "uri",
+                        "pattern": "^https://",
+                        "description": "https URL of an org-hosted Client ID Metadata Document (oauth); the URL is the client id."
+                      },
+                      "scopes": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^\\S+$"
+                        },
+                        "description": "Scopes to request (oauth, enterprise)."
+                      }
+                    },
+                    "additionalProperties": false
                   }
                 },
                 "required": [

@@ -20,3 +20,33 @@ selfService:
     - name: linear
       url: https://mcp.linear.app/sse
   enrollmentTTLSeconds: 900
+# Approved MCP servers (ADR-0029). Releases render each ring's and unit's
+# servers into every harness's native MCP settings, toggles may deliver only
+# these, and halod reports any other server (or another version) in user
+# configs. mode: warn while profiles/base.yaml still declares acme-docs and
+# acme-tickets itself; move them here and switch to allowlist (the default) to
+# make the registry each harness's managed MCP allowlist.
+# Add one from the official MCP Registry: halo mcp registry import <name|url|file>.
+mcp:
+  mode: warn
+  servers:
+    - id: acme-wiki
+      url: https://mcp-wiki.internal.acme.example/mcp
+      rings: [ring0-harness-team, ring1-canary]
+      tools:
+        deny: [delete_page]
+      auth:
+        mode: halos # halo-server mints a 5-minute token whose audience is this URL
+    - id: github
+      url: https://api.githubcopilot.com/mcp/
+      headers:
+        Authorization: Bearer ${GITHUB_MCP_TOKEN}
+      units: [payments] # and toggles/github-mcp delivers it to 10% of ring1-canary
+    - id: playwright
+      registryName: io.github.microsoft/playwright-mcp
+      version: 0.0.41
+      package:
+        type: npm
+        identifier: "@playwright/mcp"
+        version: 0.0.41
+      rings: [ring0-harness-team]
