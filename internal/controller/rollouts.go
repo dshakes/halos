@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -136,6 +137,17 @@ func (c *Controller) rolloutStep(ctx context.Context, org *policy.Org, r *policy
 		if err != nil {
 			return save(c.fail(fmt.Errorf("controller: %w", err)))
 		}
+		var gov rollout.Governance
+		if c.Governance != nil {
+			if gov, err = c.Governance(ctx, r); err != nil {
+				// Unknown incident state holds advances (fail closed); a
+				// breach still rolls back, which a freeze never holds.
+				_ = c.fail(err) // recorded; the rollout is held below, not skipped
+				c.log().Error("change governance unreadable; holding advances", "rollout", r.Name, "err", err)
+				gov = rollout.Governance{Incident: &policy.ActiveFreeze{Reason: "governance state unreadable: " + err.Error()}}
+			}
+		}
+		gov.Apply(org, r, st, &ev, now)
 		d = rollout.Evaluate(rollout.Effective(org, r), st, ev, now)
 		st.Last, st.LastAt = &d, now
 		c.log().Info("rollout evaluated", "rollout", r.Name, "step", st.StepName, "action", d.Action, "reasons", strings.Join(d.Reasons, "; "))
@@ -153,6 +165,9 @@ func (c *Controller) rolloutStep(ctx context.Context, org *policy.Org, r *policy
 	case rollout.Advance, rollout.Complete:
 		return save(c.rolloutPropose(ctx, org, r, &st, d, persist))
 	default:
+		if d.Frozen != "" && slices.Contains(d.Reasons, d.Frozen) { // the freeze is what holds it: told once per step
+			return save(c.rolloutNotify(ctx, r, &st, Event{Verdict: "frozen"}, d, persist))
+		}
 		if d.AwaitingApproval {
 			return save(c.rolloutNotify(ctx, r, &st, Event{Verdict: "awaiting_approval"}, d, persist))
 		}

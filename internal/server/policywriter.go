@@ -138,8 +138,19 @@ func (w *GitPolicyWriter) Propose(ctx context.Context, org *policy.Org, req Requ
 	if err != nil {
 		return "", err
 	}
-	body := fmt.Sprintf("Access request `%s` from **%s** (%s `%s`), approved by %s.\n\nJustification:\n\n%s\n\n%s\n\nOpened by Halos; a human must review and merge.\n",
-		req.ID, req.User, req.Kind, req.Item, approver, fenceUntrusted(req.Justification), what)
+	gov := ""
+	if req.Ticket != "" { // ValidTicket: a short token, safe in a code span
+		gov += fmt.Sprintf("Ticket: `%s`\n\n", req.Ticket)
+	}
+	if len(req.Approvals) > 1 {
+		var by []string
+		for _, a := range req.Approvals {
+			by = append(by, a.By)
+		}
+		gov += "Approvals (ADR-0030): " + strings.Join(by, ", ") + "\n\n"
+	}
+	body := fmt.Sprintf("Access request `%s` from **%s** (%s `%s`), approved by %s.\n\n%sJustification:\n\n%s\n\n%s\n\nOpened by Halos; a human must review and merge.\n",
+		req.ID, req.User, req.Kind, req.Item, approver, gov, fenceUntrusted(req.Justification), what)
 	return w.Opener.OpenPR(ctx, promote.PRRequest{
 		RepoDir: w.RepoDir, Base: base, Branch: "halos/request-" + req.ID,
 		Title: title, Body: body, Files: map[string][]byte{filepath.ToSlash(rel): data},

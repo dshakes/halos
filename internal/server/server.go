@@ -104,6 +104,8 @@ type Server struct {
 	oidc   oidcState
 	enroll enrollments
 	reqs   *requestLog
+	// approvals are rollout-step approvals (ADR-0030).
+	approvals *approvalLog
 
 	devices *deviceStore
 	// Failed-auth budgets per client IP, one per endpoint class, so failures on
@@ -198,6 +200,11 @@ func New(cfg Config) (*Server, error) {
 		return nil, err
 	}
 	closers = append(closers, reqs.close)
+	approvals, err := openApprovalLog(logs)
+	if err != nil {
+		return nil, err
+	}
+	closers = append(closers, approvals.close)
 	devs, err := openDeviceStore(logs, cfg.DeviceTTL)
 	if err != nil {
 		return nil, err
@@ -226,7 +233,7 @@ func New(cfg Config) (*Server, error) {
 	if cfg.gatewayToken(capBudget) != "" && cfg.DataDir == "" && cfg.Backend == nil {
 		cfg.Log.Warn("no --data-dir: gateway budget counters are in memory and reset on restart")
 	}
-	s := &Server{cfg: cfg, tokSum: sha256.Sum256([]byte(cfg.Token)), pol: &policyHolder{dir: cfg.PolicyDir, log: cfg.Log}, reqs: reqs, devices: devs, revoked: revoked,
+	s := &Server{cfg: cfg, tokSum: sha256.Sum256([]byte(cfg.Token)), pol: &policyHolder{dir: cfg.PolicyDir, log: cfg.Log}, reqs: reqs, approvals: approvals, devices: devs, revoked: revoked,
 		auditLog: al, forwarders: fwds, relCache: &releaseCache{byKey: map[string]cachedPointer{}, chans: map[string][]string{}}, budgets: bs, kv: kv}
 	s.oidc.kv, s.enroll.kv = kv, kv
 	s.relFetch, s.relChannels = s.registryFetch, s.registryChannels
@@ -256,7 +263,7 @@ func New(cfg Config) (*Server, error) {
 // Close releases the files New opened under Config.DataDir. A Store or
 // KillStore passed in via Config stays the caller's to close.
 func (s *Server) Close() error {
-	errs := []error{s.reqs.close(), s.devices.close(), s.revoked.close(), s.auditLog.close(), s.scim.close(), s.budgets.save(s.cfg.Now(), true)}
+	errs := []error{s.reqs.close(), s.approvals.close(), s.devices.close(), s.revoked.close(), s.auditLog.close(), s.scim.close(), s.budgets.save(s.cfg.Now(), true)}
 	if s.cfg.KillStore == nil && s.kills != nil {
 		errs = append(errs, s.kills.Close())
 	}
@@ -352,6 +359,10 @@ func (s *Server) mux() *routeMux {
 	s.route(m, "GET /api/v1/experiments/{name}", s.getExperiment)
 	s.route(m, "GET /api/v1/rollouts", s.listRollouts)
 	s.route(m, "GET /api/v1/rollouts/{name}", s.getRollout)
+	s.route(m, "GET /api/v1/rollouts/{name}/approvals", s.getRolloutApprovals)
+	s.route(m, "POST /api/v1/rollouts/{name}/approve", s.postRolloutApprove)
+	s.route(m, "GET /api/v1/freeze", s.getFreeze)
+	s.route(m, "POST /api/v1/freeze", s.postFreeze)
 	s.route(m, "GET /api/v1/harnesses", s.getHarnesses)
 	s.route(m, "GET /api/v1/whoami", s.whoami) // developers: self only; read permission: any user
 	// developer self-service

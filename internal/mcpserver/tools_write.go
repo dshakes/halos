@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -241,6 +242,18 @@ func (s *srv) proposePromotion(ctx context.Context, _ *mcp.CallToolRequest, in p
 	if err != nil {
 		return nil, writeOut{}, err
 	}
+	// A change freeze refuses a promotion (ADR-0030); rollbacks never are.
+	g, _, err := s.governance(ctx, nil)
+	if err != nil {
+		return nil, writeOut{}, err
+	}
+	fz := org.FreezeAt(time.Now(), org.RingTarget(in.Ring))
+	if g.Incident != nil {
+		fz.AddIncident(g.Incident.By, g.Incident.Reason)
+	}
+	if fz.Frozen && !isDry(in.DryRun) {
+		return nil, writeOut{}, fmt.Errorf("promote %s into %s: %s; not opening a PR (propose_rollback is always allowed)", e.Name, in.Ring, fz.String())
+	}
 	out := writeOut{DryRun: isDry(in.DryRun), Patch: ch.Patch, Verdict: "unknown (no ClickHouse configured)"}
 	var rep promote.Report
 	if s.ClickHouse != nil {
@@ -263,6 +276,10 @@ func (s *srv) proposePromotion(ctx context.Context, _ *mcp.CallToolRequest, in p
 			out.NextSteps = []string{"verdict is " + out.Verdict + ", not promote: wait_for kind=experiment name=" + e.Name + " before proposing"}
 		default:
 			out.NextSteps = []string{gateApprove, "the release digest must already be published (halo release publish is the human's step)"}
+		}
+		if fz.Frozen {
+			out.Note += "; refused if applied now: " + fz.String()
+			out.NextSteps = []string{"wait: " + fz.String()}
 		}
 		out.NextSteps = append(out.NextSteps, roiNote...)
 		return nil, out, nil

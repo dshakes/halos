@@ -26,6 +26,7 @@ None.
 | Command | Description |
 |---|---|
 | [`halo rollout advance`](/halos/reference/cli/rollout-advance/) | Open a PR moving the rollout to its next step (or completing it); never merges |
+| [`halo rollout approve`](/halos/reference/cli/rollout-approve/) | Approve advancing a rollout from its live step on halo-server (audited; counts toward the approval quorum) |
 | [`halo rollout list`](/halos/reference/cli/rollout-list/) | List rollouts |
 | [`halo rollout pause`](/halos/reference/cli/rollout-pause/) | Open a PR pausing the rollout (exposure stays; no further steps) |
 | [`halo rollout plan`](/halos/reference/cli/rollout-plan/) | Show the rollout's steps, gates and earliest timeline |

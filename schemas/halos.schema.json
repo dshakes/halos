@@ -455,6 +455,119 @@
       ],
       "description": "Simple mode: rollout preset (rings and step template; default standard)."
     },
+    "governance": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Change governance (ADR-0030): freeze windows that hold rollout advances and promotions (never rollbacks or the kill switch), and approver quorums with separation of duties. halo-server adds an incident freeze (`halo freeze on|off`).",
+      "properties": {
+        "freezes": {
+          "type": "array",
+          "description": "Change-freeze windows: one-off (start, end) or weekly, in a time zone.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "reason"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9._-]{0,62}$",
+                "description": "Unique window name (not `incident`, halo-server's incident freeze)."
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Shown to whoever the freeze stops."
+              },
+              "scope": {
+                "$ref": "#/$defs/changeScope"
+              },
+              "timezone": {
+                "type": "string",
+                "description": "IANA time zone, e.g. America/New_York (default UTC). Times are wall-clock there: DST moves the instant, not the time."
+              },
+              "start": {
+                "type": "string",
+                "description": "One-off start: 2026-12-18T18:00, 2026-12-18 (midnight) or RFC 3339 with an offset."
+              },
+              "end": {
+                "type": "string",
+                "description": "One-off end (exclusive), same formats as start."
+              },
+              "weekly": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "from",
+                  "to"
+                ],
+                "description": "Recurs every week from `from` to `to`; a `to` at or before `from` ends the next week.",
+                "properties": {
+                  "from": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z]{3} [0-2][0-9]:[0-5][0-9]$",
+                    "description": "Day and 24-hour time, e.g. \"Fri 18:00\"."
+                  },
+                  "to": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z]{3} [0-2][0-9]:[0-5][0-9]$",
+                    "description": "Day and 24-hour time, e.g. \"Mon 06:00\"."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "approvals": {
+          "type": "array",
+          "description": "Approver quorums. Every rule whose scope covers a change (access request, rollout step) must be met; the requester never counts.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "quorum",
+              "groups"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9._-]{0,62}$",
+                "description": "Unique rule name."
+              },
+              "scope": {
+                "$ref": "#/$defs/changeScope"
+              },
+              "quorum": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Approvals needed."
+              },
+              "groups": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "uniqueItems": true,
+                "description": "IdP or SCIM groups an approver must hold one of."
+              },
+              "distinctGroups": {
+                "type": "boolean",
+                "description": "Each counted approval must come from a different group."
+              },
+              "ticket": {
+                "type": "string",
+                "description": "Regular expression (matched whole) a change ticket reference must match, e.g. CHG[0-9]{7}. Recorded in the audit log and PR body."
+              }
+            }
+          }
+        }
+      }
+    },
     "vendorAdmin": {
       "type": "object",
       "description": "Vendor admin sync (ADR-0025): drive the vendors' cloud admin consoles from one ring's profile with `halo admin plan|apply|export`. A vendor is managed when its key is present. Credentials never live here.",
@@ -671,6 +784,31 @@
             "experimental"
           ],
           "description": "Gemini Code Assist release channel (gemini only); unset leaves it unmanaged."
+        }
+      }
+    },
+    "changeScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "What a window or rule covers: changes to any listed ring, or reaching any listed unit's members (a ring change reaches every unit). Empty = org-wide.",
+      "properties": {
+        "rings": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true,
+          "description": "Ring names."
+        },
+        "units": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true,
+          "description": "Unit names (ADR-0018)."
         }
       }
     }

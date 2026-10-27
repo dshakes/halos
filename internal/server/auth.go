@@ -245,7 +245,11 @@ func policyGroups(org *policy.Org, groups []string) []string {
 			slices.ContainsFunc(org.Rings, func(r *policy.Ring) bool { return slices.Contains(r.Membership.Groups, g) }) ||
 			slices.ContainsFunc(org.Toggles, func(t *policy.Toggle) bool {
 				return slices.ContainsFunc(t.Rules, func(r policy.ToggleRule) bool { return slices.Contains(r.Groups, g) })
-			})
+			}) ||
+			// Units and approval rules (ADR-0030): a requester's unit decides which
+			// rules cover a request, and an approver's groups whether they count.
+			slices.ContainsFunc(org.Units, func(u *policy.Unit) bool { return slices.Contains(u.Members.Groups, g) }) ||
+			(org.Governance != nil && slices.ContainsFunc(org.Governance.Approvals, func(r policy.ApprovalRule) bool { return slices.Contains(r.Groups, g) }))
 		if keep && !slices.Contains(out, g) {
 			out = append(out, g)
 		}

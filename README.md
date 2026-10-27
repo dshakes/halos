@@ -196,6 +196,7 @@ Traffic goes through `halo-proxy` to Anthropic, Bedrock (SigV4), Vertex, OpenAI,
 | OTel GenAI | `gen_ai.*` semantic-convention metrics and opt-in content-free spans from the gateway | [evidence plane](https://dshakes.github.io/halos/concepts/evidence-plane/) |
 | HA on Postgres | Several `halo-server` replicas behind one load balancer with a fenced controller lease | [production deployment](https://dshakes.github.io/halos/guides/production-deployment/) |
 | Vendor admin sync | One policy drives the vendors' cloud admin consoles; `halo admin plan` fails CI on drift, `apply` writes what has a public API and never loosens | [vendor admin sync](https://dshakes.github.io/halos/guides/vendor-admin-sync/) |
+| Change governance | Freeze windows and an incident freeze hold advances and promotions, never rollbacks; N-of-M approvals with separation of duties and tickets; `halo plan --diff` previews who a change reaches | [change governance](https://dshakes.github.io/halos/guides/change-governance/) |
 
 ## Runs everywhere
 

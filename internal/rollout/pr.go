@@ -65,6 +65,9 @@ func Body(intro string, d Decision, manual []string, patch string) string {
 	for _, r := range d.Reasons {
 		b.WriteString("- " + r + "\n")
 	}
+	if g := GovernanceBody(d); g != "" {
+		b.WriteString("\n" + g)
+	}
 	for _, m := range manual {
 		b.WriteString("\n**Manual step before merging:** " + m + "\n")
 	}

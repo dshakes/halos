@@ -60,6 +60,11 @@ type Controller struct {
 	// VerdictDocs, when set, replaces VerdictsPath: one VerdictDocKind
 	// document per experiment, which every replica's console reads (HA).
 	VerdictDocs rollout.Docs
+	// Governance, when set, returns halo-server's incident freeze and the
+	// approvals recorded for a rollout's live step (ADR-0030). nil: policy
+	// freeze windows only, and a step an approval rule covers waits (its
+	// approvals live on halo-server).
+	Governance func(ctx context.Context, r *policy.Rollout) (rollout.Governance, error)
 
 	ticks, errs atomic.Uint64
 	vmu         sync.Mutex

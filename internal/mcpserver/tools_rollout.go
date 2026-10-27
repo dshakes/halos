@@ -2,7 +2,9 @@ package mcpserver
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -77,7 +79,74 @@ func (s *srv) evaluate(ctx context.Context, org *policy.Org, r *policy.Rollout) 
 	if err != nil {
 		return ev, rollout.Decision{}, err
 	}
+	g, _, err := s.governance(ctx, r)
+	if err != nil {
+		return ev, rollout.Decision{}, err
+	}
+	g.Apply(org, r, st, &ev, now)
 	return ev, rollout.Evaluate(rollout.Effective(org, r), st, ev, now), nil
+}
+
+// governance reads halo-server's incident freeze and, for r (nil = none),
+// the live step's approvals and the session's user (ADR-0030). ok is false
+// without --server and HALO_SESSION: policy freeze windows only, no approvals.
+func (s *srv) governance(ctx context.Context, r *policy.Rollout) (g rollout.Governance, ok bool, err error) {
+	if s.serverURL() == "" || s.session() == "" {
+		return g, false, nil
+	}
+	var fz struct {
+		Incident *policy.ActiveFreeze `json:"incident"`
+	}
+	if err := s.serverInto(ctx, "/api/v1/freeze", &fz); err != nil {
+		return g, false, fmt.Errorf("read the incident freeze: %w", err)
+	}
+	g.Incident = fz.Incident
+	if r == nil {
+		return g, true, nil
+	}
+	var ap struct {
+		Approvals []policy.Approval `json:"approvals"`
+	}
+	var me struct {
+		ID string `json:"id"`
+	}
+	if err := s.serverInto(ctx, "/api/v1/rollouts/"+url.PathEscape(r.Name)+"/approvals", &ap); err != nil {
+		return g, false, fmt.Errorf("read rollout approvals: %w", err)
+	}
+	if err := s.serverInto(ctx, "/api/v1/me", &me); err != nil {
+		return g, false, err
+	}
+	g.Approvals, g.Requester = ap.Approvals, me.ID
+	return g, true, nil
+}
+
+// serverInto GETs path from halo-server into out.
+func (s *srv) serverInto(ctx context.Context, path string, out any) error {
+	m, err := s.serverJSON(ctx, "GET", path, nil)
+	if err != nil {
+		return err
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(b, out)
+}
+
+// governanceBlock is why a forward change may not be proposed: a freeze, or
+// a short approval quorum ("" when neither).
+func governanceBlock(d rollout.Decision, governed bool) string {
+	if d.Frozen != "" {
+		return d.Frozen
+	}
+	if q := d.Quorum; q != nil && !q.Met {
+		msg := "approvals needed: " + q.String() + " (an approver runs halo rollout approve)"
+		if !governed {
+			msg += "; approvals are recorded on halo-server: start the MCP server with --server and HALO_SESSION"
+		}
+		return msg
+	}
+	return ""
 }
 
 func (s *srv) rolloutStatus(ctx context.Context, _ *mcp.CallToolRequest, in rolloutIn) (*mcp.CallToolResult, map[string]any, error) {
@@ -119,7 +188,7 @@ func (s *srv) proposeRollout(ctx context.Context, in rolloutWriteIn, advance boo
 	if err != nil {
 		return nil, writeOut{}, err
 	}
-	act, next, verdict := rollout.Rollback, -1, ""
+	act, next, verdict, block := rollout.Rollback, -1, "", ""
 	var d rollout.Decision
 	if advance {
 		if st := r.EffectiveStatus(); st == policy.RolloutAborted || st == policy.RolloutCompleted {
@@ -130,6 +199,10 @@ func (s *srv) proposeRollout(ctx context.Context, in rolloutWriteIn, advance boo
 		}
 		if d.Action == rollout.Rollback || d.Action == rollout.Pause {
 			return nil, writeOut{}, fmt.Errorf("rollout %s: a gate failed (%s); not proposing an advance", r.Name, strings.Join(d.Reasons, "; "))
+		}
+		governed := s.serverURL() != "" && s.session() != "" // evaluate read it (or failed)
+		if block = governanceBlock(d, governed); block != "" && !isDry(in.DryRun) {
+			return nil, writeOut{}, fmt.Errorf("rollout %s: %s; not proposing an advance (rollbacks are always allowed: propose_rollout_rollback)", r.Name, block)
 		}
 		act, next = rollout.NextAction(r)
 		verdict = string(d.Action)
@@ -150,6 +223,10 @@ func (s *srv) proposeRollout(ctx context.Context, in rolloutWriteIn, advance boo
 		return nil, writeOut{}, err
 	}
 	out.Verdict = verdict
+	if block != "" { // dry run only: a real proposal was refused above
+		out.Note += "; refused if applied now: " + block
+		out.NextSteps = []string{"wait: " + block, "rollbacks are never blocked: propose_rollout_rollback"}
+	}
 	if len(manual) > 0 {
 		out.Note += "; manual: " + strings.Join(manual, "; ")
 		out.NextSteps = append(out.NextSteps, "human steps after the merge: "+strings.Join(manual, "; "))
