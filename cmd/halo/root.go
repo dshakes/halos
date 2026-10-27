@@ -122,7 +122,7 @@ var helpGroups = []struct {
 }{
 	{"start", "Get started:", []string{"quickstart", "init", "onboard", "doctor", "status", "version"}},
 	{"policy", "Policy & releases:", []string{"validate", "explain", "render", "plan", "release", "rollback", "keys", "export", "eject", "migrate", "harnesses", "whoami", "units", "model", "enable"}},
-	{"rollout", "Rollouts & experiments:", []string{"exp", "rollout", "toggle", "eval", "upgrade", "controller", "kill"}},
+	{"rollout", "Rollouts & experiments:", []string{"exp", "rollout", "toggle", "eval", "upgrade", "controller", "kill", "roi"}},
 	{"fleet", "Fleet & gateway:", []string{"gateway", "telemetry", "audit", "budget", "ci"}},
 	{"agents", "Agents & MCP:", []string{"agents", "mcp"}},
 	{"admin", "Admin:", []string{"admin"}},
