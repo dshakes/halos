@@ -4,6 +4,16 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added
+- **Per-credential revocation** ([ADR-0026](https://dshakes.github.io/halos/adr/0026-per-credential-revocation/)). An admin revokes one workload or delegated agent credential by `jti` (it and every credential exchanged from it), or every credential issued so far for `agent:<name>`, `workload:<subject>` or a human root, without rotating the workload key: `POST`/`GET /api/v1/revocations` (`admin`, reason required, audited fail closed as `credential.revoke`) and `halo agents revoke` / `halo agents revocations`. halo-server refuses a revoked credential at the next exchange or egress decision on every replica (shared `halo_revocations` table, Postgres migration 0003; a JSONL log on a single replica) and fails closed if it cannot read the list. `halo-proxy` and `halo-kong` with `directory.url` fetch the list with the directory every 30 seconds and refuse with 401 `credential_revoked`, workload-rooted chains included; past `grace` without halo-server, `failMode: closed` refuses and `open` keeps the last list seen.
+- halo-server request and security metrics on `--metrics-listen`: `halo_server_requests_total` and `halo_server_request_duration_seconds` by route pattern and status class, `halo_server_authz_denied_total`, `halo_server_auth_failures_total{flow,reason}` (login, enrollment, token exchange, delegation), `halo_server_auth_limited_total` and `halo_server_gateway_lookups_total` (directory, posture, revocations).
+
+### Security
+- SCIM checks the bearer token before the failed-auth limiter, so a valid IdP token is accepted from an IP a guesser has blocked.
+- Failed-auth limiters key IPv6 clients by their /64, and with the Postgres backend count every failure in the database, so N replicas grant one budget per address and endpoint class instead of N (amends ADR-0021).
+- Access-request approve and deny are audited fail closed (`AuditStrict`): a decision that cannot be stored answers 500 and stays pending, and one whose audit append fails answers 500 instead of reporting success.
+- Gateway posture catches up with the shared device registry before judging (a device enrolled on another replica counts) and answers unknown, not compliant, when that or the release registry cannot be read.
+
 ## [0.3.0] - 2026-10-23
 
 ### Added

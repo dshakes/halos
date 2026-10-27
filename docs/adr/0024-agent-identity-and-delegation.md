@@ -137,8 +137,8 @@ Telemetry:
   - Delegation depth and lifetime are bounded twice: at issuance and at the gateway.
 - **Good.** A remote agent is a reviewed policy entry with a pinned card. A card change fails `halo agents verify` in CI.
 - **Bad.**
-  - Delegated credentials cannot be revoked one by one before `exp`. Their lifetime is capped, removing an actor or lowering `maxDepth` takes effect at the next gateway policy load, and deprovisioning the root takes effect at the next directory lookup.
-- **Bad.** The gateway has no session revocation list: a revoked human's agents stop exchanging and getting egress decisions at once, but their model calls continue until the credential expires (at most `maxTTLSeconds`) or SCIM deprovisioning reaches the gateway's directory.
+  - Delegated credentials could not be revoked one by one before `exp` (superseded by [ADR-0026](/halos/adr/0026-per-credential-revocation/): by jti or by subject). Their lifetime is capped, removing an actor or lowering `maxDepth` takes effect at the next gateway policy load, and deprovisioning the root takes effect at the next directory lookup.
+- **Bad.** (Superseded by [ADR-0026](/halos/adr/0026-per-credential-revocation/) for gateways with `directory.url`: revoking the human's id reaches them within 30 seconds.) The gateway has no session revocation list: a revoked human's agents stop exchanging and getting egress decisions at once, but their model calls continue until the credential expires (at most `maxTTLSeconds`) or SCIM deprovisioning reaches the gateway's directory.
 - **Bad.** Only the halo_session cookie and Halos credentials are accepted as parents. A human whose gateway credential is an IdP token must get a session first, from the portal login or `HALO_SESSION`.
 - **Bad.** The egress decision is advisory unless an egress proxy enforces it. Harnesses cannot be configured to consult it.
 - **Neutral.** Signature verification accepts the card as served, or with empty members dropped, because the spec's default-value rules need the proto schema. Both forms cover the same signed content.
@@ -174,4 +174,4 @@ Telemetry:
 | Egress decision API | `internal/server/delegation.go` | `TestAgentEgressDecision`, `internal/policy/agents_test.go` `TestDecideRemote` | Done |
 | A client command for the exchange (`halo agents token`) and MCP tools | | | Gap: the guide uses `curl` |
 | Gateway-side profile and unit depth; every actor re-checked | `internal/gateway/agents.go`, `internal/policy/agents.go` | `TestDelegatedChainRecheck`, `TestDecideRemoteRechecksChain` | Done (amendment) |
-| Per-credential revocation | | | Gap |
+| Per-credential revocation | [ADR-0026](/halos/adr/0026-per-credential-revocation/) | `TestRevokedJTIKillsLineage`, `TestRevokedSubjectEpoch` | Done (ADR-0026) |
