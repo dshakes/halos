@@ -197,32 +197,24 @@ func Sanitize(s string) string {
 	}, s)
 }
 
-// forbiddenValues are invariant 1: never emitted to any console.
-var forbiddenValues = []string{"bypassPermissions", "danger-full-access"}
-
-// CheckForbidden refuses a plan that would emit a permission-bypass mode.
+// CheckForbidden refuses a plan that would emit a permission-bypass token
+// (invariant 1; policy.BypassToken is the one shared check).
 func (p *Plan) CheckForbidden() error {
 	for _, s := range p.Desired {
-		b, _ := json.Marshal(s.Value)
-		if f := containsForbidden(string(b)); f != "" {
-			return fmt.Errorf("%s: %s would set %q (invariant 1)", p.Vendor, s.Key, f)
+		b, err := json.Marshal(s.Value)
+		if err != nil {
+			return fmt.Errorf("%s: %s: encode value for invariant 1 check: %w", p.Vendor, s.Key, err)
+		}
+		if f := policy.BypassToken(string(b)); f != "" {
+			return fmt.Errorf("%s: %s would set permission-bypass token %q (invariant 1)", p.Vendor, s.Key, f)
 		}
 	}
 	for _, a := range p.Artifacts {
-		if f := containsForbidden(a.Content); f != "" {
-			return fmt.Errorf("%s: artifact %s contains %q (invariant 1)", p.Vendor, a.Name, f)
+		if f := policy.BypassToken(a.Content); f != "" {
+			return fmt.Errorf("%s: artifact %s contains permission-bypass token %q (invariant 1)", p.Vendor, a.Name, f)
 		}
 	}
 	return nil
-}
-
-func containsForbidden(s string) string {
-	for _, f := range forbiddenValues {
-		if strings.Contains(s, f) {
-			return f
-		}
-	}
-	return ""
 }
 
 // Render renders every vendor vendorAdmin enables from the profile of

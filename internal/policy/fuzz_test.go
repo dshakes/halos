@@ -2,6 +2,7 @@ package policy
 
 import (
 	"bytes"
+	"encoding/json"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -62,16 +63,11 @@ func FuzzLoadValidate(f *testing.F) {
 			if err != nil {
 				t.Fatalf("profile %q validated but does not resolve: %v", name, err)
 			}
-			if p.Permissions.Mode == "bypassPermissions" || forbiddenValue(p.Env) {
-				t.Fatalf("profile %q validated with a bypass mode: %+v", name, p.Permissions)
+			if b, _ := json.Marshal(p); BypassToken(string(b)) != "" {
+				t.Fatalf("profile %q validated with a bypass token: %s", name, b)
 			}
 			if s := p.Permissions.Sandbox; s != "" && !slices.Contains(sandboxModes, s) {
 				t.Fatalf("profile %q validated with sandbox %q", name, s)
-			}
-			for h, spec := range p.Harnesses {
-				if forbiddenValue(spec.Overrides) {
-					t.Fatalf("profile %q validated with a forbidden %s override: %v", name, h, spec.Overrides)
-				}
 			}
 		}
 		for _, r := range o.Rings {

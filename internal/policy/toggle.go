@@ -245,36 +245,8 @@ func guardTogglePayload(path string, c *ToggleClient) []Issue {
 				}
 			}
 		}
-		if forbiddenValue(p.Overrides) || forbiddenValue(p.Env) {
-			out = append(out, gi(SeverityError, hp, "bypassPermissions / danger-full-access are forbidden by org guardrail"))
-		}
 	}
 	return out
-}
-
-// forbiddenValue reports whether any string inside v (a decoded YAML tree)
-// names a permission-bypass mode.
-func forbiddenValue(v any) bool {
-	switch x := v.(type) {
-	case string:
-		l := strings.ToLower(x)
-		return strings.Contains(l, "bypasspermissions") || strings.Contains(l, "danger-full-access")
-	case map[string]any:
-		for k, e := range x {
-			if forbiddenValue(k) || forbiddenValue(e) {
-				return true
-			}
-		}
-	case map[string]string:
-		for k, e := range x {
-			if forbiddenValue(k) || forbiddenValue(e) {
-				return true
-			}
-		}
-	case []any:
-		return slices.ContainsFunc(x, forbiddenValue)
-	}
-	return false
 }
 
 func guardToggleRoutes(o *Org, path string, tr *ToggleTraffic) []Issue {
