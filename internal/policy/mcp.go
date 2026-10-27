@@ -14,9 +14,8 @@ import (
 // with its tool allow/deny lists, its authorization mode and the rings and
 // units it is rendered for. Releases render the admitted servers into every
 // harness's native MCP settings, halod reports unapproved and version-drifted
-// servers in user configs, the gateway refuses model calls that declare a
-// denied tool, and halo-server mints audience-bound tokens for servers whose
-// authorization server is Halos.
+// servers in user configs, and halo-server mints audience-bound tokens for
+// servers whose authorization server is Halos.
 
 // Registry modes.
 const (
@@ -249,34 +248,6 @@ func (r *MCPRegistry) MCPPins(ring string) []MCPPin {
 		out = append(out, pin)
 	}
 	return out
-}
-
-// HasToolDenies reports whether any registry server denies a tool.
-func (r *MCPRegistry) HasToolDenies() bool {
-	return r != nil && slices.ContainsFunc(r.Servers, func(s RegistryServer) bool { return len(s.Tools.Deny) > 0 })
-}
-
-// DeniedTool reports whether name, a function tool a model call declares,
-// is a tool a registry server denies. Harnesses qualify MCP tool names with
-// the server name: Claude Code mcp__<server>__<tool>, Gemini CLI
-// mcp_<server>_<tool>. Registry ids hold no '_', so both split unambiguously.
-func (r *MCPRegistry) DeniedTool(name string) (server, tool string, denied bool) {
-	if r == nil {
-		return "", "", false
-	}
-	switch {
-	case strings.HasPrefix(name, "mcp__"):
-		server, tool, _ = strings.Cut(name[len("mcp__"):], "__")
-	case strings.HasPrefix(name, "mcp_"):
-		server, tool, _ = strings.Cut(name[len("mcp_"):], "_")
-	default:
-		return "", "", false
-	}
-	s := r.Server(server)
-	if s == nil || tool == "" || !slices.Contains(s.Tools.Deny, tool) {
-		return "", "", false
-	}
-	return server, tool, true
 }
 
 // CanonicalResource is u in the form MCP authorization compares resources in

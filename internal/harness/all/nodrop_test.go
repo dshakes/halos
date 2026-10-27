@@ -38,7 +38,8 @@ func TestNoSilentDrop(t *testing.T) {
 
 	fields := hutil.Populated(full)
 	for _, want := range []string{"permissions.deny", "mcp.denied", "hooks.items", "telemetry.enabled", "egress.allowedDomains", "env",
-		"instructions", "login", "extensions.marketplaces", "extensions.plugins.enabled", "extensions.statusLine"} {
+		"instructions", "login", "extensions.marketplaces", "extensions.plugins.enabled", "extensions.statusLine",
+		"mcp.tools.allow", "mcp.tools.deny", "mcp.auth"} {
 		if !slices.Contains(fields, want) {
 			t.Fatalf("fixture does not populate %s (populated: %v)", want, fields)
 		}
@@ -102,7 +103,24 @@ func clone(t *testing.T, p *policy.Profile) *policy.Profile {
 }
 
 // zeroField zeroes the field at a dotted json path ("extensions.statusLine").
+// mcp.tools.allow, mcp.tools.deny and mcp.auth are per-server fields
+// (hutil.Populated reports them once): they are zeroed on every server.
 func zeroField(p *policy.Profile, path string) bool {
+	for i := range p.MCP.Servers {
+		sv := &p.MCP.Servers[i]
+		switch path {
+		case "mcp.tools.allow":
+			sv.Tools.Allow = nil
+		case "mcp.tools.deny":
+			sv.Tools.Deny = nil
+		case "mcp.auth":
+			sv.Auth = policy.MCPAuth{}
+		}
+	}
+	switch path {
+	case "mcp.tools.allow", "mcp.tools.deny", "mcp.auth":
+		return true
+	}
 	v := reflect.ValueOf(p).Elem()
 	for _, part := range strings.Split(path, ".") {
 		found := false

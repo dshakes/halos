@@ -34,10 +34,11 @@ func TestGolden(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := []string{`mcp.denied "filesystem" is matched by name only`, `permissions.sandbox "off" overridden`}
+		want := []string{`mcp server "docs" tools.allow is not rendered`, `mcp.denied "filesystem" is matched by name only`, `permissions.sandbox "off" overridden`}
 		if os == harness.Windows {
 			want = append(want, "does not run on native Windows")
 		}
+		want = append(want, `mcp server "tickets" auth.issuer is not rendered`)
 		if len(warns) != len(want) {
 			t.Errorf("warnings = %v", warns)
 		}
@@ -223,7 +224,7 @@ func TestMCPAndSandbox(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := settings(t, files)
-	wantAllowed := []any{map[string]any{"serverUrl": "https://mcp.example.com/docs"}, map[string]any{"serverCommand": []any{"npx", "-y", "lint-mcp"}}}
+	wantAllowed := []any{map[string]any{"serverUrl": "https://mcp.example.com/docs"}, map[string]any{"serverCommand": []any{"npx", "-y", "lint-mcp"}}, map[string]any{"serverUrl": "https://mcp.example.com/tickets"}}
 	if !jsonEqual(m["allowedMcpServers"], wantAllowed) || m["allowManagedMcpServersOnly"] != true {
 		t.Errorf("allowlist = %v managedOnly = %v", m["allowedMcpServers"], m["allowManagedMcpServersOnly"])
 	}

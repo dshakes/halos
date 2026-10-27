@@ -9,6 +9,9 @@
         "-y",
         "lint-mcp"
       ]
+    },
+    {
+      "serverUrl": "https://mcp.example.com/tickets"
     }
   ],
   "deniedMcpServers": [

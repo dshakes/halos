@@ -53,7 +53,7 @@ func settingsPath(os harness.OS) string {
 
 func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []string, error) {
 	warns := hutil.WarnUnsupported(name, p,
-		"models.default", "permissions.disableBypass", "mcp.servers", "mcp.managedOnly", "mcp.denied", "telemetry.enabled", "telemetry.logPrompts", "telemetry.attributes",
+		"models.default", "permissions.disableBypass", "mcp.servers", "mcp.managedOnly", "mcp.denied", "mcp.tools.allow", "mcp.tools.deny", "mcp.auth", "telemetry.enabled", "telemetry.logPrompts", "telemetry.attributes",
 		"extensions.marketplaces", "extensions.plugins.enabled", "extensions.plugins.blocked")
 	warns = append(warns, "copilot-cli: cannot self-enforce version; halod enforces")
 	if c.Gateway != nil {
@@ -92,6 +92,17 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 				allow = append(allow, map[string]any{"serverCommand": sv.Command})
 			default:
 				return nil, nil, fmt.Errorf("copilot-cli: mcp server %q has neither url nor command", sv.Name)
+			}
+			// managed-settings.json only matches servers (allowedMcpServers); the
+			// definitions, their tool filters and credentials live in the user's
+			// ~/.copilot/mcp-config.json, which Halos does not write.
+			for field, l := range map[string][]string{"allow": sv.Tools.Allow, "deny": sv.Tools.Deny} {
+				if len(l) > 0 {
+					warns = append(warns, fmt.Sprintf("copilot-cli: mcp server %q tools.%s is not rendered: managed settings have no per-tool MCP key (only allowedMcpServers/deniedMcpServers)", sv.Name, field))
+				}
+			}
+			if hutil.HasAuth(sv) {
+				warns = append(warns, fmt.Sprintf("copilot-cli: mcp server %q auth mode %s is not rendered: managed settings allowlist servers but do not define them, so users authorize the server in their own mcp-config.json", sv.Name, sv.Auth.Mode))
 			}
 		}
 		s["allowedMcpServers"] = allow

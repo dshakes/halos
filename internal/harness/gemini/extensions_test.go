@@ -42,7 +42,7 @@ func TestSkillsSubagentsAndMCPExclude(t *testing.T) {
 		t.Errorf("agents = %v", got)
 	}
 	mcp := m["mcp"].(map[string]any)
-	if !reflect.DeepEqual(mcp["excluded"], []any{"filesystem"}) || !reflect.DeepEqual(mcp["allowed"], []any{"docs", "lint"}) {
+	if !reflect.DeepEqual(mcp["excluded"], []any{"filesystem"}) || !reflect.DeepEqual(mcp["allowed"], []any{"docs", "lint", "tickets"}) {
 		t.Errorf("mcp = %v", mcp)
 	}
 	// Everything Gemini cannot express must warn, never vanish (invariant 2).

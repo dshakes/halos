@@ -11,6 +11,9 @@
         "-y",
         "lint-mcp"
       ]
+    },
+    {
+      "serverUrl": "https://mcp.example.com/tickets"
     }
   ],
   "apiKeyHelper": "/opt/halo/token.sh",
@@ -87,7 +90,8 @@
     "deny": [
       "Read(./.env)",
       "Skill(skill:deploy)",
-      "Agent(Explore)"
+      "Agent(Explore)",
+      "mcp__docs__delete_page"
     ]
   },
   "requiredMaximumVersion": "2.1.280",

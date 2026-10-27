@@ -208,7 +208,7 @@ func modelSet(p *policy.Profile, c harness.Context, def string) []string {
 func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []string, error) {
 	warns := hutil.WarnUnsupported(name, p,
 		"models.default", "models.allowed", "permissions.allow", "permissions.deny", "permissions.ask",
-		"mcp.servers", "mcp.denied", "instructions")
+		"mcp.servers", "mcp.denied", "mcp.tools.allow", "mcp.tools.deny", "mcp.auth", "instructions")
 	warns = append(warns, "opencode: cannot self-enforce version; halod enforces")
 
 	cfg := map[string]any{}
@@ -276,7 +276,7 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 	}
 
 	if len(p.MCP.Servers) > 0 || len(p.MCP.Denied) > 0 {
-		mcp := map[string]any{}
+		mcp, disabled := map[string]any{}, map[string]any{}
 		for _, sv := range p.MCP.Servers {
 			if slices.Contains(p.MCP.Denied, sv.Name) {
 				return nil, nil, fmt.Errorf("opencode: mcp server %q is both defined and denied", sv.Name)
@@ -293,12 +293,25 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 			default:
 				return nil, nil, fmt.Errorf("opencode: mcp server %q has neither url nor command", sv.Name)
 			}
+			warns = append(warns, opencodeAuth(e, sv)...)
 			mcp[sv.Name] = e
+			// MCP tools are registered as <server>_<tool>; tools.<name>: false
+			// disables one (M). The order of mixed true/false globs is not
+			// documented, so an allowlist is not rendered.
+			for _, t := range sv.Tools.Deny {
+				disabled[sv.Name+"_"+t] = false
+			}
+			if len(sv.Tools.Allow) > 0 {
+				warns = append(warns, fmt.Sprintf("opencode: mcp server %q tools.allow is not rendered: OpenCode documents tools.<glob>: false to disable tools but not how a later true overrides an earlier false glob; deny the others with tools.deny", sv.Name))
+			}
 		}
 		for _, d := range p.MCP.Denied {
 			mcp[d] = map[string]any{"enabled": false}
 		}
 		cfg["mcp"] = mcp
+		if len(disabled) > 0 {
+			cfg["tools"] = disabled
+		}
 		warns = append(warns, "opencode: OpenCode has no MCP allowlist: user-defined servers still load, and mcp.denied disables by name only (a renamed server is not matched)")
 	}
 
@@ -325,4 +338,35 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 	}
 	files = append([]harness.File{{Path: hutil.Join(c.OS, dir, "opencode.json"), Mode: 0o644, Data: data}}, files...)
 	return files, warns, nil
+}
+
+// opencodeAuth renders a remote server's authorization into its mcp entry e:
+// oauth.clientId and oauth.scope (space-separated) for mode oauth (M).
+func opencodeAuth(e map[string]any, sv policy.MCPServer) []string {
+	a := sv.Auth
+	var warns []string
+	switch a.Mode {
+	case policy.MCPAuthOAuth:
+		o := map[string]any{}
+		if a.ClientID != "" {
+			o["clientId"] = a.ClientID
+		}
+		if len(a.Scopes) > 0 {
+			o["scope"] = strings.Join(a.Scopes, " ")
+		}
+		if len(o) > 0 {
+			e["oauth"] = o
+		}
+		if a.ClientIDMetadataURL != "" {
+			warns = append(warns, fmt.Sprintf("opencode: mcp server %q auth.clientIDMetadataURL is not rendered: OpenCode documents clientId or dynamic client registration only", sv.Name))
+		}
+		if a.Issuer != "" {
+			warns = append(warns, fmt.Sprintf("opencode: mcp server %q auth.issuer is not rendered: OpenCode discovers the authorization server after a 401", sv.Name))
+		}
+	case policy.MCPAuthEnterprise:
+		warns = append(warns, fmt.Sprintf("opencode: mcp server %q auth mode enterprise is not rendered: OpenCode documents no Enterprise-Managed Authorization (ID-JAG) client; users authorize with opencode mcp auth", sv.Name))
+	case policy.MCPAuthHalos:
+		warns = append(warns, fmt.Sprintf("opencode: mcp server %q auth mode halos is not rendered: OpenCode has no header helper ({env:VAR} headers are fixed per process), so a Halos token cannot be minted per connection", sv.Name))
+	}
+	return warns
 }

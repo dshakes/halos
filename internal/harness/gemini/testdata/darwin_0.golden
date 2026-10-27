@@ -9,7 +9,8 @@
   "mcp": {
     "allowed": [
       "docs",
-      "lint"
+      "lint",
+      "tickets"
     ],
     "excluded": [
       "filesystem"
@@ -17,10 +18,17 @@
   },
   "mcpServers": {
     "docs": {
+      "excludeTools": [
+        "delete_page"
+      ],
       "headers": {
         "X-Org": "acme"
       },
-      "httpUrl": "https://mcp.example.com/docs"
+      "httpUrl": "https://mcp.example.com/docs",
+      "includeTools": [
+        "search",
+        "fetch"
+      ]
     },
     "lint": {
       "args": [
@@ -28,6 +36,17 @@
         "lint-mcp"
       ],
       "command": "npx"
+    },
+    "tickets": {
+      "httpUrl": "https://mcp.example.com/tickets",
+      "oauth": {
+        "clientId": "halos-cli",
+        "enabled": true,
+        "issuer": "https://auth.example.com",
+        "scopes": [
+          "tickets:read"
+        ]
+      }
     }
   },
   "model": {

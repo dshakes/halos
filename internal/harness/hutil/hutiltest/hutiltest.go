@@ -24,8 +24,11 @@ func Fixture() (*policy.Profile, *policy.Gateway) {
 		MCP: policy.MCP{
 			ManagedOnly: true,
 			Servers: []policy.MCPServer{
-				{Name: "docs", URL: "https://mcp.example.com/docs", Headers: map[string]string{"X-Org": "acme"}},
+				{Name: "docs", URL: "https://mcp.example.com/docs", Headers: map[string]string{"X-Org": "acme"},
+					Tools: policy.MCPTools{Allow: []string{"search", "fetch"}, Deny: []string{"delete_page"}}, Auth: policy.MCPAuth{Mode: policy.MCPAuthHalos}},
 				{Name: "lint", Command: []string{"npx", "-y", "lint-mcp"}},
+				{Name: "tickets", URL: "https://mcp.example.com/tickets",
+					Auth: policy.MCPAuth{Mode: policy.MCPAuthOAuth, ClientID: "halos-cli", Issuer: "https://auth.example.com", Scopes: []string{"tickets:read"}}},
 			},
 			Denied: []string{"filesystem"},
 		},
