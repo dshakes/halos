@@ -161,7 +161,7 @@ func PrepareVerified(org *policy.Org, sub *policy.Subject, h http.Header, path s
 	// Always clear the owned names, even if the header list the host gave us
 	// was truncated (Kong's GetHeaders caps the count).
 	seen := map[string]bool{}
-	names := []string{HeaderRing, HeaderRelease, HeaderExperiment, HeaderVariant, HeaderActor, HeaderActorDepth}
+	names := []string{HeaderRing, HeaderRelease, HeaderExperiment, HeaderVariant, HeaderGate, HeaderKillswitch, HeaderActor, HeaderActorDepth}
 	for name := range h {
 		if l := strings.ToLower(name); strings.HasPrefix(l, HaloPrefix) {
 			names = append(names, l)

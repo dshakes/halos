@@ -179,3 +179,39 @@ func TestPostureClient(t *testing.T) {
 		t.Fatal("empty token accepted")
 	}
 }
+
+// TestPostureRefusedFailsClosed: a lookup halo-server refuses (401 bad token,
+// 404 posture not configured, 400, a redirect) is a non-compliant verdict,
+// never unknown, so a misconfigured gateway token cannot pass an enforce
+// ring. Warn mode still only flags it; a 5xx is still an outage (unknown).
+func TestPostureRefusedFailsClosed(t *testing.T) {
+	for _, c := range []struct {
+		status  int
+		unknown bool
+	}{{http.StatusUnauthorized, false}, {http.StatusNotFound, false}, {http.StatusBadRequest, false}, {http.StatusFound, false}, {http.StatusServiceUnavailable, true}} {
+		var calls atomic.Int32
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			calls.Add(1)
+			w.WriteHeader(c.status)
+		}))
+		pc, err := NewPostureClient(srv.URL, "gw", 0, 0, nil, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sub := &policy.Subject{ID: "dev@acme.com"}
+		f, unk := CheckPosture(context.Background(), pc, gateOrg("enforce", ""), "ga", sub)
+		if unk != c.unknown || (f == nil) != c.unknown {
+			t.Errorf("HTTP %d: finding %+v unknown %v, want unknown %v", c.status, f, unk, c.unknown)
+		}
+		if !c.unknown && f.Reject(ProtoAnthropic) == nil {
+			t.Errorf("HTTP %d: enforce did not refuse", c.status)
+		}
+		if f, _ := CheckPosture(context.Background(), pc, gateOrg("warn", ""), "ga", sub); f != nil && f.Reject(ProtoAnthropic) != nil {
+			t.Errorf("HTTP %d: warn mode refused", c.status)
+		}
+		if !c.unknown && calls.Load() != 2 {
+			t.Errorf("HTTP %d: a refusal was cached (%d calls)", c.status, calls.Load())
+		}
+		srv.Close()
+	}
+}

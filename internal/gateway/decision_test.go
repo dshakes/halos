@@ -290,7 +290,7 @@ func TestSpoofingImpossible(t *testing.T) {
 		h := http.Header{}
 		spoof(h)
 		res := PrepareVerified(org, carol, h, "/v1/messages", body)
-		if len(res.ClearHeaders) != 7 {
+		if len(res.ClearHeaders) != 9 {
 			t.Fatalf("ClearHeaders=%v", res.ClearHeaders)
 		}
 		for _, n := range res.ClearHeaders {
@@ -484,5 +484,17 @@ func TestDecideClientAxisAttribution(t *testing.T) {
 	cli.Status = "paused"
 	if d := Decide(withCli, RequestInfo{UserID: "u1@acme.com", Groups: []string{"ai-platform"}, ModelAlias: "sonnet"}); d.Experiment != "" {
 		t.Fatal("paused client-axis experiment still attributed")
+	}
+}
+
+// TestOwnedHeadersAlwaysCleared: every name the gateway stamps is cleared
+// even when the client copy is not in the header view the host handed over
+// (Kong's GetHeaders is capped), so a client cannot smuggle one upstream.
+func TestOwnedHeadersAlwaysCleared(t *testing.T) {
+	res := PrepareVerified(nil, nil, http.Header{}, "/v1/messages", nil)
+	for _, n := range []string{HeaderRing, HeaderRelease, HeaderExperiment, HeaderVariant, HeaderGate, HeaderKillswitch, HeaderActor, HeaderActorDepth} {
+		if !slices.Contains(res.ClearHeaders, n) {
+			t.Errorf("%s not in ClearHeaders %v", n, res.ClearHeaders)
+		}
 	}
 }

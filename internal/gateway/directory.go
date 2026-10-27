@@ -44,6 +44,10 @@ type DirectoryClient struct {
 	// FailClosed: refuse (ErrDirectoryUnavailable) instead of failing open
 	// when the directory cannot be asked (DirectoryFailClosed).
 	FailClosed bool
+	// Observe, when set, is told every Resolve outcome of a looked-up subject:
+	// ok, stale (cached entry served through an outage), failopen,
+	// unavailable (FailClosed) or not_provisioned. For metrics.
+	Observe func(outcome string)
 
 	mu    sync.Mutex
 	cache map[string]directoryEntry
@@ -69,6 +73,22 @@ func NewDirectoryClient(url, token string, ttl, grace time.Duration, log *slog.L
 		grace = DefaultDirectoryGrace
 	}
 	return &DirectoryClient{URL: url, Token: token, TTL: ttl, Grace: grace, Log: log}, nil
+}
+
+func (c *DirectoryClient) observe(outcome string) {
+	if c.Observe != nil {
+		c.Observe(outcome)
+	}
+}
+
+// FailOpenSubject is sub kept with no groups, as Resolve answers when the
+// directory cannot be asked under the open fail mode. Kind and Delegation
+// stay: a delegated agent keeps its chain, so the agent policy still applies.
+func FailOpenSubject(sub *policy.Subject) *policy.Subject {
+	if sub == nil {
+		return nil
+	}
+	return &policy.Subject{ID: sub.ID, Kind: sub.Kind, Delegation: sub.Delegation}
 }
 
 func (c *DirectoryClient) now() time.Time {
@@ -146,7 +166,7 @@ func (c *DirectoryClient) Resolve(ctx context.Context, sub *policy.Subject) (*po
 	c.mu.Lock()
 	ce, ok := c.cache[sub.ID]
 	c.mu.Unlock()
-	e := ce.e
+	e, outcome := ce.e, "ok"
 	if !ok || now.Sub(ce.at) >= c.TTL {
 		got, err := c.fetch(ctx, sub.ID)
 		switch {
@@ -159,30 +179,37 @@ func (c *DirectoryClient) Resolve(ctx context.Context, sub *policy.Subject) (*po
 			if c.Log != nil {
 				c.Log.Warn("directory refused the lookup; caller refused as not provisioned", "err", err)
 			}
+			c.observe("not_provisioned")
 			return nil, ErrNotProvisioned
 		case ok && !ce.e.Active:
 			// The last answer was inactive: an outage, however long, never
 			// re-admits a deactivated user (fail open included).
+			c.observe("not_provisioned")
 			return nil, ErrNotProvisioned
 		case ok && now.Sub(ce.at) < c.Grace:
 			if c.Log != nil {
 				c.Log.Warn("directory lookup failed; serving cached entry", "err", err)
 			}
+			outcome = "stale"
 		case c.FailClosed:
 			if c.Log != nil {
 				c.Log.Warn("directory lookup failed; request refused (failMode closed)", "err", err)
 			}
+			c.observe("unavailable")
 			return nil, fmt.Errorf("%w: %w", ErrDirectoryUnavailable, err)
 		default:
 			if c.Log != nil {
 				c.Log.Warn("directory lookup failed; caller keeps their identity with no groups", "err", err)
 			}
-			return &policy.Subject{ID: sub.ID, Kind: sub.Kind, Delegation: sub.Delegation}, nil
+			c.observe("failopen")
+			return FailOpenSubject(sub), nil
 		}
 	}
 	if !e.Active {
+		c.observe("not_provisioned")
 		return nil, ErrNotProvisioned
 	}
+	c.observe(outcome)
 	return &policy.Subject{ID: sub.ID, Groups: append([]string(nil), e.Groups...), Kind: sub.Kind, Delegation: sub.Delegation}, nil
 }
 

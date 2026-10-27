@@ -193,9 +193,12 @@ const (
 )
 
 // PostureClient asks halo-server for a subject's device posture and caches the
-// verdict. It fails closed only on a verdict halo-server returned: when the
-// server cannot be reached, the last verdict serves for Grace, and after that
-// the posture is unknown (callers let the request through and count it).
+// verdict. It fails closed on a verdict halo-server returned and on a lookup
+// it refused (a non-200 status below 500: a rejected token, posture not
+// configured on the server, a redirect): that is a misconfiguration, never an
+// outage. When the server cannot be reached (transport error or 5xx), the last
+// verdict serves for Grace, and after that the posture is unknown (callers let
+// the request through and count it).
 type PostureClient struct {
 	URL, Token string
 	TTL, Grace time.Duration
@@ -237,7 +240,8 @@ func (c *PostureClient) now() time.Time {
 }
 
 // Check returns subject's verdict; known=false when halo-server could not be
-// asked and no verdict younger than Grace is cached.
+// asked and no verdict younger than Grace is cached. A refused lookup is a
+// non-compliant verdict, not cached (a fixed token heals at once).
 // ponytail: concurrent misses for one subject each call halo-server; add
 // singleflight if a burst after TTL expiry shows up in the server's load.
 func (c *PostureClient) Check(ctx context.Context, subject string) (v PostureVerdict, known bool) {
@@ -249,6 +253,12 @@ func (c *PostureClient) Check(ctx context.Context, subject string) (v PostureVer
 		return e.v, true
 	}
 	got, err := c.fetch(ctx, subject)
+	if errors.Is(err, errPostureRefused) {
+		if c.Log != nil {
+			c.Log.Warn("posture lookup refused; treated as non-compliant", "err", err)
+		}
+		return PostureVerdict{Reason: "the gateway's posture lookup was refused by halo-server (" + err.Error() + "); check the gateway posture token and halo-server's posture config"}, true
+	}
 	if err != nil {
 		if c.Log != nil {
 			c.Log.Warn("posture lookup failed", "err", err, "cached", ok && now.Sub(e.at) < c.Grace)
@@ -277,6 +287,10 @@ func (c *PostureClient) Check(ctx context.Context, subject string) (v PostureVer
 	return got, true
 }
 
+// errPostureRefused: halo-server answered the lookup with a non-200 status
+// below 500. Only transport errors and 5xx are an outage that may be unknown.
+var errPostureRefused = errors.New("posture: lookup refused")
+
 func (c *PostureClient) fetch(ctx context.Context, subject string) (PostureVerdict, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -295,8 +309,11 @@ func (c *PostureClient) fetch(ctx context.Context, subject string) (PostureVerdi
 		return PostureVerdict{}, err
 	}
 	defer func() { _ = resp.Body.Close() }() // read-only response
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode >= 500 {
 		return PostureVerdict{}, fmt.Errorf("posture: HTTP %d", resp.StatusCode)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return PostureVerdict{}, fmt.Errorf("%w: HTTP %d", errPostureRefused, resp.StatusCode)
 	}
 	var v PostureVerdict
 	if err := json.NewDecoder(io.LimitReader(resp.Body, maxPostureBody)).Decode(&v); err != nil {
@@ -306,9 +323,11 @@ func (c *PostureClient) fetch(ctx context.Context, subject string) (PostureVerdi
 }
 
 // CheckPosture applies ring's posture gate to a verified subject. unknown
-// reports that the gate is on but no verdict was available (no client, an
-// anonymous caller, or halo-server unreachable past the grace window): the
-// request passes and callers count it.
+// reports that the gate is on but no verdict was available (an anonymous
+// caller, or halo-server unreachable past the grace window): the request
+// passes and callers count it. A nil client means the posture gate is not
+// configured: a gateway whose posture config is invalid must not pass nil
+// (halo-proxy refuses to start; halo-kong fails closed on enforce rings).
 func CheckPosture(ctx context.Context, c *PostureClient, org *policy.Org, ring string, sub *policy.Subject) (f *Finding, unknown bool) {
 	mode := RingGate(org, ring, GatePosture)
 	if mode == policy.GateOff || c == nil {

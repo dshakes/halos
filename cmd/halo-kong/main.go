@@ -32,7 +32,13 @@
 // posture_url (with posture_token) applies the posture gate of rings that set
 // posture warn|enforce; every ring's versionGate is applied from the policy
 // alone. Enforce answers 403; warn-mode failures and unknown posture pass,
-// logged at NOTICE and flagged upstream as x-halo-gate.
+// logged at NOTICE and flagged upstream as x-halo-gate. A posture config that
+// is set but invalid (an unset token env var, plain http) fails closed: enforce
+// rings answer 403, warn rings pass flagged posture=unknown.
+// A request that reaches the 1000-header cap of Kong's header view is a 431:
+// identity and the x-halo-* clear list are never derived from a truncated view.
+// With $HALO_KONG_METRICS_LISTEN set, gate, directory and admission outcomes
+// are counted on GET /metrics (metrics.go).
 // killswitch_url must be https unless it targets loopback or
 // killswitch_allow_insecure_in_cluster is true. An invalid kill-switch config
 // does not block traffic, but is logged at ERROR once a minute and flagged
@@ -47,6 +53,7 @@ import (
 	"os"
 	"regexp"
 	"runtime/debug"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -232,25 +239,26 @@ var (
 )
 
 // postureClient returns the process-wide client for this config (its verdict
-// cache is shared by every route); nil when unconfigured or invalid (logged).
-func (c Config) postureClient(kong kongAPI) *gateway.PostureClient {
+// cache is shared by every route); nil when unconfigured. invalid reports a
+// posture_url whose config is invalid (logged): the gate then fails closed.
+func (c Config) postureClient(kong kongAPI) (pc *gateway.PostureClient, invalid bool) {
 	if c.PostureURL == "" {
-		return nil
+		return nil, false
 	}
 	tok := secret(c.PostureToken)
 	key := c.PostureURL + "\x00" + tok + "\x00" + strconv.FormatBool(c.PostureAllowInsecure)
 	postureMu.Lock()
 	defer postureMu.Unlock()
 	if pc, ok := postureClients[key]; ok {
-		return pc
+		return pc, false
 	}
 	pc, err := gateway.NewPostureClient(c.PostureURL, tok, 0, 0, nil, c.PostureAllowInsecure)
 	if err != nil {
-		_ = kong.Err("halo-kong: posture config invalid; posture gate off: ", err.Error())
-		return nil
+		_ = kong.Err("halo-kong: posture config invalid; enforce rings refuse every caller (403), warn rings pass with posture=unknown: ", err.Error())
+		return nil, true
 	}
 	postureClients[key] = pc
-	return pc
+	return pc, false
 }
 
 var (
@@ -281,6 +289,7 @@ func (c Config) directoryClient(kong kongAPI) (dc *gateway.DirectoryClient, inva
 		return nil, true
 	}
 	dc.FailClosed = c.DirectoryFailMode == gateway.DirectoryFailClosed
+	dc.Observe = kmetrics.directoryOutcome
 	directoryClients[key] = dc
 	return dc, false
 }
@@ -295,13 +304,42 @@ func (c Config) directoryDown(sub *policy.Subject, path string) (*policy.Subject
 	if sub == nil || sub.Kind == policy.SubjectWorkload { // workloads are not in SCIM: unchanged, as Resolve does
 		return sub, nil
 	}
-	return &policy.Subject{ID: sub.ID, Kind: sub.Kind}, nil
+	return gateway.FailOpenSubject(sub), nil // a delegated agent keeps its chain and the agent policy
+}
+
+// posture applies ring's posture gate. A configured but invalid posture
+// client never turns the gate off: the posture is unknown and, under
+// enforce, the request is refused.
+func (c Config) posture(kong kongAPI, org *policy.Org, ring string, sub *policy.Subject) (f *gateway.Finding, unknown bool) {
+	mode := gateway.RingGate(org, ring, gateway.GatePosture)
+	pc, invalid := c.postureClient(kong)
+	switch {
+	case invalid && mode == policy.GateEnforce:
+		f, unknown = &gateway.Finding{Gate: gateway.GatePosture, Mode: mode, Reason: "the gateway's posture config is invalid, so no verdict can be checked"}, true
+	case invalid && mode != policy.GateOff:
+		unknown = true
+	default:
+		f, unknown = gateway.CheckPosture(context.Background(), pc, org, ring, sub)
+	}
+	if mode != policy.GateOff && (pc != nil || invalid) {
+		outcome := "pass"
+		switch {
+		case f != nil && f.Reject("") != nil:
+			outcome = "deny"
+		case f != nil:
+			outcome = "fail"
+		case unknown:
+			outcome = "unknown"
+		}
+		kmetrics.postureOutcome(ring, outcome)
+	}
+	return f, unknown
 }
 
 // gate applies the ring's posture and version gates; outcomes is what failed
 // or was unknown (for the x-halo-gate upstream header), rej the 403 to answer.
 func (c Config) gate(kong kongAPI, org *policy.Org, ring string, sub *policy.Subject, h http.Header, proto string) (outcomes []string, rej *gateway.Rejection) {
-	pf, unknown := gateway.CheckPosture(context.Background(), c.postureClient(kong), org, ring, sub)
+	pf, unknown := c.posture(kong, org, ring, sub)
 	if unknown {
 		outcomes = append(outcomes, "posture=unknown")
 	}
@@ -375,7 +413,11 @@ type kongAPI interface {
 
 type pdkAPI struct{ k *pdk.PDK }
 
-func (a pdkAPI) Headers() (map[string][]string, error) { return a.k.Request.GetHeaders(1000) }
+// maxHeaders is the most header lines Kong hands the plugin (go-pdk's cap).
+// Kong truncates silently, so reaching it is answered 431 (headerCapReached).
+const maxHeaders = 1000
+
+func (a pdkAPI) Headers() (map[string][]string, error) { return a.k.Request.GetHeaders(maxHeaders) }
 func (a pdkAPI) Path() (string, error)                 { return a.k.Request.GetPath() }
 func (a pdkAPI) RawBody() ([]byte, error)              { return a.k.Request.GetRawBody() }
 func (a pdkAPI) PeerIP() (string, error)               { return a.k.Client.GetIp() }
@@ -435,7 +477,29 @@ func exit(kong kongAPI, r *gateway.Rejection) {
 
 func New() interface{} { return &Config{} }
 
-func main() { _ = server.StartServer(New, version, priority) }
+func main() {
+	if addr := os.Getenv(metricsListenEnv); addr != "" && !dumpOnly(os.Args[1:]) {
+		serveMetrics(addr)
+	}
+	_ = server.StartServer(New, version, priority)
+}
+
+// dumpOnly: Kong runs the binary with -dump to read its schema and exit; that
+// run must not take the metrics port from the serving process.
+func dumpOnly(args []string) bool {
+	return slices.ContainsFunc(args, func(a string) bool { return strings.TrimLeft(a, "-") == "dump" })
+}
+
+// headerCapReached reports a header view at Kong's cap: it may be truncated,
+// so a duplicate identity header or an x-halo-* name past the cap would be
+// invisible. Counted per value, as Kong counts header lines.
+func headerCapReached(raw map[string][]string) bool {
+	n := 0
+	for _, vs := range raw {
+		n += max(len(vs), 1)
+	}
+	return n >= maxHeaders
+}
 
 func (c Config) Access(kong *pdk.PDK) { c.access(pdkAPI{kong}) }
 
@@ -456,13 +520,19 @@ func (c Config) access(kong kongAPI) {
 		_ = kong.Err("halo-kong: policy: ", err.Error())
 	}
 	raw, _ := kong.Headers()
+	path, _ := kong.Path()
+	if headerCapReached(raw) {
+		kmetrics.headerCapRejected()
+		_ = kong.Warn("halo-kong: request refused: header count reached the ", strconv.Itoa(maxHeaders), "-header cap")
+		exit(kong, &gateway.Rejection{Status: http.StatusRequestHeaderFieldsTooLarge, Protocol: gateway.ProtocolForPath(path), Message: "too many request headers"})
+		return
+	}
 	h := http.Header{}
 	for k, vs := range raw {
 		for _, v := range vs {
 			h.Add(k, v)
 		}
 	}
-	path, _ := kong.Path()
 	sub, enforced, err := c.verify(kong, org, h)
 	if err != nil {
 		exit(kong, &gateway.Rejection{Status: http.StatusBadRequest, Protocol: gateway.ProtocolForPath(path), Message: "identity header sent more than once"})
@@ -492,15 +562,21 @@ func (c Config) access(kong kongAPI) {
 	} else if invalid {
 		var rej *gateway.Rejection
 		if sub, rej = c.directoryDown(sub, path); rej != nil {
+			kmetrics.directoryOutcome("invalid_config_refused")
 			exit(kong, rej)
 			return
 		}
+		kmetrics.directoryOutcome("invalid_config_failopen")
 	}
 	ks, ksBad := c.killPoller(kong)
 	res := gateway.PrepareVerified(ks.Apply(org), sub, h, path, body) // killed experiments: control, no shadow
 	if res.Reject != nil {
 		if res.RewriteErr != nil {
 			_ = kong.Warn("halo-kong: rewrite failed: ", res.RewriteErr.Error())
+		}
+		if res.Reject.Code == gateway.CodeAgentNotPermitted {
+			kmetrics.agentDenied()
+			_ = kong.Notice("halo-kong: delegated agent refused: ", res.Reject.Message)
 		}
 		exit(kong, res.Reject)
 		return
@@ -515,9 +591,9 @@ func (c Config) access(kong kongAPI) {
 		}
 	}
 
-	// x-halo-killswitch is set below; clear any client copy even if Kong's
-	// header list (capped at 1000) was truncated before it.
-	for _, n := range append(append(res.ClearHeaders, "x-halo-killswitch"), c.identityOptions(org).HeaderNames(org)...) {
+	// res.ClearHeaders holds every owned name (x-halo-gate and
+	// x-halo-killswitch included) whether or not the client sent it.
+	for _, n := range append(res.ClearHeaders, c.identityOptions(org).HeaderNames(org)...) {
 		_ = kong.ClearHeader(n)
 	}
 	if !c.ForwardClientCredentials {
@@ -529,10 +605,10 @@ func (c Config) access(kong kongAPI) {
 		_ = kong.SetHeader(k, v)
 	}
 	if ksBad {
-		_ = kong.SetHeader("x-halo-killswitch", "misconfigured") // alertable; client copies were cleared above
+		_ = kong.SetHeader(gateway.HeaderKillswitch, "misconfigured") // alertable; client copies were cleared above
 	}
 	if len(gates) > 0 {
-		_ = kong.SetHeader("x-halo-gate", strings.Join(gates, ",")) // warn-mode and unknown outcomes, for the log pipeline
+		_ = kong.SetHeader(gateway.HeaderGate, strings.Join(gates, ",")) // warn-mode and unknown outcomes, for the log pipeline
 	}
 	prefix := ""
 	if d.Upstream != "" {
