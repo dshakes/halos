@@ -4,6 +4,9 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added
+- Agent session ledger ([ADR-0031](https://dshakes.github.io/halos/adr/0031-agent-session-ledger/)): one vendor-neutral, identity-linked record per agent session (who and the delegated agent chain, harness and version, release/ring/experiment variant, models, MCP servers and tools, hashed or dropped repos and files, tokens, cost, start/end, outcome, evidence sources and confidence). `halo sessions import` reads halo-proxy GenAI spans and Claude Code OTel events from ClickHouse, the Anthropic Compliance API, the GitHub enterprise audit log and JSONL; records are redacted fail-closed (no field can hold prompt text; paths dropped or HMAC-hashed) and stored by halo-server in the hash-chained audit log (`session.record`), so they are tamper-evident and reach the SIEM through the ADR-0016 exporter. Identity is joined server-side from the SCIM directory only. `halo sessions list|show|export`, `GET /api/v1/sessions[/{id}]` (audit role), `POST /api/v1/sessions` (admin), the read-only MCP tool `session_ledger`, and the ClickHouse table `halo_session_ledger` (`--write-clickhouse`).
+
 ## [0.3.0] - 2026-10-23
 
 ### Added

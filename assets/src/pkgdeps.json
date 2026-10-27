@@ -18,6 +18,7 @@
         "internal/harness",
         "internal/harness/all",
         "internal/intent",
+        "internal/ledger",
         "internal/mcpserver",
         "internal/onboard",
         "internal/pgstore",
@@ -284,6 +285,13 @@
       ]
     },
     {
+      "path": "internal/ledger",
+      "imports": [
+        "internal/promote",
+        "internal/vendoradmin"
+      ]
+    },
+    {
       "path": "internal/mcpserver",
       "imports": [
         "internal/eval",
@@ -371,6 +379,7 @@
         "internal/harness",
         "internal/harness/all",
         "internal/identity",
+        "internal/ledger",
         "internal/pgstore",
         "internal/policy",
         "internal/promote",

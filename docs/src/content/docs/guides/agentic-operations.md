@@ -41,6 +41,7 @@ Read tools are always on and annotated read-only.
 | `release_build` | Build a ring's release in memory: digest, per-harness versions, file list, adapter warnings, and the human's `halo release publish` command |
 | `wait_for` | Poll an experiment (until the verdict leaves `continue`; needs `--clickhouse`) or a rollout (until its decision leaves `hold`) with a bounded timeout (default 60 s, max 600 s); call again to keep waiting |
 | `kill_switch_status`, `fleet_status`, `audit_tail` | halo-server's kill list, devices per ring with drift, and the audit log (needs `--server` + `HALO_SESSION`) |
+| `session_ledger` | The agent session ledger: one record per agent session with who, harness, ring, models, tools, tokens, cost and evidence, and whether the audit chain verifies ([ADR-0031](/halos/adr/0031-agent-session-ledger/); needs `--server` + `HALO_SESSION` with the audit role) |
 | `plan` | Diff the release a ring would get against a baseline `release.tar` |
 | `render_preview` | Render a ring's harness files for an OS and return their contents; writes nothing |
 | `whoami` | Ring and experiment variants a user would be assigned |

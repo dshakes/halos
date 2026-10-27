@@ -31,7 +31,7 @@ const (
 	permRead    perm = "read"    // fleet, devices, releases, rollouts, experiments, toggles, policy, other users' assignments
 	permOperate perm = "operate" // kill switch, experiment status
 	permApprove perm = "approve" // decide access requests, see everyone's requests
-	permAudit   perm = "audit"   // read and export the audit log
+	permAudit   perm = "audit"   // read and export the audit log and the session ledger
 	permAdmin   perm = "admin"   // device and session revocation, toggle proposals, launcher setup
 )
 
@@ -84,10 +84,15 @@ var routePerms = map[string]perm{
 	"POST /api/v1/requests/{id}/deny":    permApprove,
 
 	"GET /api/v1/audit": permAudit,
+	// The session ledger (ADR-0031) is per-person activity stored in the audit
+	// chain: read under the audit permission, never read alone.
+	"GET /api/v1/sessions":      permAudit,
+	"GET /api/v1/sessions/{id}": permAudit,
 
 	"POST /api/v1/devices/{id}/revoke":        permAdmin,
 	"POST /api/v1/users/{id}/revoke-sessions": permAdmin,
 	"POST /api/v1/toggles/{name}/propose":     permAdmin,
+	"POST /api/v1/sessions":                   permAdmin, // ingest normalized session records (halo sessions import)
 }
 
 // rolesFor returns the roles groups hold under id, in Roles order.

@@ -144,6 +144,17 @@ type waitOut struct {
 	NextSteps      []string       `json:"next_steps"`
 }
 
+type sessionLedgerIn struct {
+	ID      string `json:"id,omitempty" jsonschema:"one session: ledger id or the harness session id (other filters are ignored)"`
+	User    string `json:"user,omitempty" jsonschema:"Halos identity, or the vendor identity of an unresolved session"`
+	Harness string `json:"harness,omitempty" jsonschema:"harness, e.g. claude-code or copilot-agent"`
+	Ring    string `json:"ring,omitempty" jsonschema:"ring"`
+	Tool    string `json:"tool,omitempty" jsonschema:"tool or MCP server the session used"`
+	Since   string `json:"since,omitempty" jsonschema:"RFC3339: sessions started at or after"`
+	Until   string `json:"until,omitempty" jsonschema:"RFC3339: sessions started before"`
+	Limit   int    `json:"limit,omitempty" jsonschema:"at most this many sessions, newest first (default 100, max 5000)"`
+}
+
 type auditIn struct {
 	Limit int    `json:"limit,omitempty" jsonschema:"entries to return, newest last (default server default)"`
 	Since string `json:"since,omitempty" jsonschema:"sequence number or RFC3339 time to start from"`
@@ -201,6 +212,8 @@ func (s *srv) addAutopilotTools(m *mcp.Server) {
 		Description: "Devices halo-server knows: hosts per ring, drift count, last report, releases applied. Needs --server/HALO_SERVER and HALO_SESSION."}, s.fleetStatus)
 	mcp.AddTool(m, &mcp.Tool{Name: "audit_tail", Annotations: readOnly,
 		Description: "Tail halo-server's audit log (kills, status changes, enrollments, approvals). Needs --server/HALO_SERVER and HALO_SESSION."}, s.auditTail)
+	mcp.AddTool(m, &mcp.Tool{Name: "session_ledger", Annotations: readOnly,
+		Description: "Read the agent session ledger (ADR-0031): one identity-linked record per agent session (who, harness and version, ring/experiment, models, MCP servers and tools, hashed repos/files, tokens, cost, outcome, evidence sources and confidence; never prompt text), with whether the audit chain holding it verifies. Read-only. Needs --server/HALO_SERVER and HALO_SESSION with the audit role."}, s.sessionLedger)
 	mcp.AddTool(m, &mcp.Tool{Name: "kill_switch", Annotations: &mcp.ToolAnnotations{DestructiveHint: boolp(false), IdempotentHint: true, OpenWorldHint: boolp(true)},
 		Description: "Kill (or unkill) an experiment, toggle or rollout fleet-wide through halo-server's signed kill list: the fast rollback, effective at the next poll and reversible. dry_run (default true) returns the request and the `halo kill` command; false sends it and, like every write, needs --allow-writes plus a reason. Never edits policy: pair it with propose_rollback or propose_rollout_rollback."}, s.killSwitch)
 	mcp.AddTool(m, &mcp.Tool{Name: "eval_run", Annotations: &mcp.ToolAnnotations{DestructiveHint: boolp(false), OpenWorldHint: boolp(true)},
@@ -586,6 +599,35 @@ func (s *srv) auditTail(ctx context.Context, _ *mcp.CallToolRequest, in auditIn)
 		return nil, nil, err
 	}
 	m["next_steps"] = []string{"pass the last entry's seq as `since` to tail from there"}
+	return nil, m, nil
+}
+
+func (s *srv) sessionLedger(ctx context.Context, _ *mcp.CallToolRequest, in sessionLedgerIn) (*mcp.CallToolResult, map[string]any, error) {
+	path := "/api/v1/sessions"
+	q := url.Values{}
+	if in.ID != "" {
+		path += "/" + url.PathEscape(in.ID)
+	} else {
+		for k, v := range map[string]string{"user": in.User, "harness": in.Harness, "ring": in.Ring, "tool": in.Tool, "since": in.Since, "until": in.Until} {
+			if v != "" {
+				q.Set(k, v)
+			}
+		}
+		if in.Limit > 0 {
+			q.Set("limit", strconv.Itoa(in.Limit))
+		}
+	}
+	if len(q) > 0 {
+		path += "?" + q.Encode()
+	}
+	m, err := s.serverJSON(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	m["next_steps"] = []string{
+		"verified=false means the audit chain was altered: a human runs `halo audit verify --data-dir <dir>` before trusting these records",
+		"an empty who.user is a session the directory could not resolve: who.vendorUser is the identity the vendor reported",
+	}
 	return nil, m, nil
 }
 

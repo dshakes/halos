@@ -53,6 +53,7 @@ halo
 | [`halo render`](/halos/reference/cli/render/) | Render a ring's harness config files under --out, mirroring absolute paths |
 | [`halo rollback`](/halos/reference/cli/rollback/) | Point a ring (and its experiment channels) back at an earlier signed release (version or manifest digest) |
 | [`halo rollout`](/halos/reference/cli/rollout/) | Phased rollouts: plan, status, simulate; advance opens a PR, never merges |
+| [`halo sessions`](/halos/reference/cli/sessions/) | Agent session ledger: one identity-linked record per agent session (ADR-0031) |
 | [`halo status`](/halos/reference/cli/status/) | One screen: rings, rollouts, live experiments, toggles and policy health |
 | [`halo telemetry`](/halos/reference/cli/telemetry/) | Telemetry pipeline artifacts |
 | [`halo toggle`](/halos/reference/cli/toggle/) | Feature toggles: list, evaluate, kill, find stale |

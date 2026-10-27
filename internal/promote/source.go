@@ -59,41 +59,14 @@ func (c *ClickHouse) table() (string, error) {
 	return t, nil
 }
 
-// query runs sql and streams JSONEachRow lines to fn.
-func (c *ClickHouse) query(ctx context.Context, sql string, params map[string]string, fn func(json.RawMessage) error) error {
-	u, err := url.Parse(c.URL)
+// Query runs sql with server-side parameters ({name:Type} in sql, values in
+// params) and streams JSONEachRow lines to fn.
+func (c *ClickHouse) Query(ctx context.Context, sql string, params map[string]string, fn func(json.RawMessage) error) error {
+	resp, err := c.post(ctx, sql+" FORMAT JSONEachRow", params)
 	if err != nil {
-		return fmt.Errorf("clickhouse: bad URL: %w", err)
-	}
-	q := u.Query()
-	if c.Database != "" {
-		q.Set("database", c.Database)
-	}
-	for k, v := range params {
-		q.Set("param_"+k, v)
-	}
-	u.RawQuery = q.Encode()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), strings.NewReader(sql+" FORMAT JSONEachRow"))
-	if err != nil {
-		return fmt.Errorf("clickhouse: %w", err)
-	}
-	if c.User != "" {
-		req.Header.Set("X-ClickHouse-User", c.User)
-		req.Header.Set("X-ClickHouse-Key", c.Password)
-	}
-	hc := c.Client
-	if hc == nil {
-		hc = &http.Client{Timeout: 30 * time.Second}
-	}
-	resp, err := hc.Do(req)
-	if err != nil {
-		return fmt.Errorf("clickhouse: request: %w", err)
+		return err
 	}
 	defer func() { _ = resp.Body.Close() }() // best effort
-	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return fmt.Errorf("clickhouse: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
-	}
 	sc := bufio.NewScanner(resp.Body)
 	sc.Buffer(make([]byte, 64<<10), 8<<20)
 	for sc.Scan() {
@@ -110,6 +83,66 @@ func (c *ClickHouse) query(ctx context.Context, sql string, params map[string]st
 	return nil
 }
 
+// Insert writes rows (each marshalled to one JSON object) into table.
+func (c *ClickHouse) Insert(ctx context.Context, table string, rows []any) error {
+	if !identRE.MatchString(table) {
+		return fmt.Errorf("clickhouse: invalid table name %q", table)
+	}
+	var b strings.Builder
+	b.WriteString("INSERT INTO " + table + " FORMAT JSONEachRow\n")
+	for _, r := range rows {
+		j, err := json.Marshal(r)
+		if err != nil {
+			return fmt.Errorf("clickhouse: encode row: %w", err)
+		}
+		b.Write(j)
+		b.WriteByte('\n')
+	}
+	resp, err := c.post(ctx, b.String(), nil)
+	if err != nil {
+		return err
+	}
+	return resp.Body.Close()
+}
+
+// post sends body to the HTTP interface and returns a 200 response.
+func (c *ClickHouse) post(ctx context.Context, body string, params map[string]string) (*http.Response, error) {
+	u, err := url.Parse(c.URL)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse: bad URL: %w", err)
+	}
+	q := u.Query()
+	if c.Database != "" {
+		q.Set("database", c.Database)
+	}
+	for k, v := range params {
+		q.Set("param_"+k, v)
+	}
+	u.RawQuery = q.Encode()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), strings.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse: %w", err)
+	}
+	if c.User != "" {
+		req.Header.Set("X-ClickHouse-User", c.User)
+		req.Header.Set("X-ClickHouse-Key", c.Password)
+	}
+	hc := c.Client
+	if hc == nil {
+		hc = &http.Client{Timeout: 30 * time.Second}
+	}
+	resp, err := hc.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse: request: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		_ = resp.Body.Close()
+		return nil, fmt.Errorf("clickhouse: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+	}
+	return resp, nil
+}
+
 // Window: first observation time and total halo.cost.usd for the experiment.
 func (c *ClickHouse) Window(ctx context.Context, experiment string) (Window, error) {
 	t, err := c.table()
@@ -119,7 +152,7 @@ func (c *ClickHouse) Window(ctx context.Context, experiment string) (Window, err
 	sql := "SELECT toFloat64(count()) AS n, toFloat64(toUnixTimestamp(min(ts))) AS start, " +
 		"toFloat64(sumIf(value, metric = 'halo.cost.usd')) AS spend FROM " + t + " WHERE experiment = {exp:String}"
 	var w Window
-	err = c.query(ctx, sql, map[string]string{"exp": experiment}, func(raw json.RawMessage) error {
+	err = c.Query(ctx, sql, map[string]string{"exp": experiment}, func(raw json.RawMessage) error {
 		var r struct{ N, Start, Spend float64 }
 		if err := json.Unmarshal(raw, &r); err != nil {
 			return err
@@ -239,7 +272,7 @@ func (c *ClickHouse) Samples(ctx context.Context, experiment, metric string) (ma
 		sql := "SELECT variant, toFloat64(" + se.expr + ") AS v FROM " + t +
 			" WHERE experiment = {exp:String} AND unit_id != '' AND " + metricFilter(derived) + " GROUP BY variant, unit_id HAVING v IS NOT NULL"
 		out := map[string][]float64{}
-		err = c.query(ctx, sql, map[string]string{"exp": experiment, "metric": metric}, func(raw json.RawMessage) error {
+		err = c.Query(ctx, sql, map[string]string{"exp": experiment, "metric": metric}, func(raw json.RawMessage) error {
 			var r struct {
 				Variant string  `json:"variant"`
 				V       float64 `json:"v"`

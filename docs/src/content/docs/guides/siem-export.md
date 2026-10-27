@@ -155,6 +155,10 @@ Every event carries the chain: `seq` (1, 2, 3, ... with no gaps), `prev` (the pr
 
 Delivery is at least once: a crash between a delivery and saving the cursor resends up to one batch. De-duplicate on `seq`.
 
+## Agent sessions
+
+Agent session ledger records ([ADR-0031](/halos/adr/0031-agent-session-ledger/)) are audit entries with `action` `session.record`, `target` the ledger id, and the record JSON in `details.record` (OCSF: `api.operation` and `unmapped.details.record`). They ship with the rest of the chain; no sink setting is needed. Filter on the action to route them to their own index. A session imported again is a new entry; the newest `seq` for a ledger id is the current version.
+
 ## Operate
 
 Metrics on `--metrics-listen` ([reference](/halos/reference/metrics/#audit-export-metrics)): `halo_server_audit_forward_sent_total`, `halo_server_audit_forward_failed_total`, `halo_server_audit_forward_lag_entries`, `halo_server_audit_forward_last_success_timestamp_seconds` per `sink`, and `halo_server_audit_rotate_errors_total`. The [operations guide](/halos/guides/operations/#alerts) has the alert rules, and [audit log rotation](/halos/guides/operations/#audit-log-rotation) covers segments, archiving and backups.
