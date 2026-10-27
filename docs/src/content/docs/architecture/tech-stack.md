@@ -64,9 +64,9 @@ Most of the core is the Go standard library:
 <!-- check: go.mod -->
 | Module | Version | Used for | Used by |
 | --- | --- | --- | --- |
-| `oras.land/oras-go/v2` | `v2.6.2` | Pushing and pulling release bundles and signed ring pointers as OCI artifacts ([`internal/bundle/bundle.go:50-125`](https://github.com/dshakes/halos/blob/main/internal/bundle/bundle.go#L50-L125)). | `cmd/halo`, `cmd/halod`, `internal/bundle`, `internal/server` |
-| `github.com/opencontainers/image-spec` | `v1.1.1` | OCI manifest and descriptor types. | `internal/bundle`; tests: `cmd/halo`, `cmd/halod` |
-| `github.com/opencontainers/go-digest` | `v1.0.0` | Content digests for blobs and pointer statements. | `internal/bundle` |
+| `oras.land/oras-go/v2` | `v2.6.2` | Pushing and pulling release bundles and signed ring pointers as OCI artifacts, and fetching digest-pinned supply-chain artifacts ([`internal/bundle/bundle.go:50-125`](https://github.com/dshakes/halos/blob/main/internal/bundle/bundle.go#L50-L125)). | `cmd/halo`, `cmd/halod`, `internal/bundle`, `internal/server`, `internal/supplychain` |
+| `github.com/opencontainers/image-spec` | `v1.1.1` | OCI manifest and descriptor types. | `internal/bundle`, `internal/supplychain`; tests: `cmd/halo`, `cmd/halod` |
+| `github.com/opencontainers/go-digest` | `v1.0.0` | Content digests for blobs and pointer statements. | `internal/bundle`, `internal/supplychain` |
 <!-- /check -->
 
 Signing itself uses the standard library: ed25519 primary signatures in [`internal/bundle/sign.go`](https://github.com/dshakes/halos/blob/main/internal/bundle/sign.go). cosign is an optional co-signer, called as an external `cosign sign-blob` process ([`internal/bundle/sign.go:103-190`](https://github.com/dshakes/halos/blob/main/internal/bundle/sign.go#L103-L190)); it is not a Go dependency.

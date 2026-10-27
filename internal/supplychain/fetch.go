@@ -54,7 +54,7 @@ func FetchGit(ctx context.Context, url, commit, sub string, run GitRunner) (Tree
 	defer func() { _ = os.RemoveAll(dir) }() // best effort
 	for _, args := range [][]string{
 		{"init", "-q"},
-		{"fetch", "-q", "--depth=1", "--no-tags", url, commit},
+		{"fetch", "-q", "--depth=1", "--no-tags", "--", url, commit}, // "--": a url is never an option
 		{"-c", "advice.detachedHead=false", "checkout", "-q", "--detach", "FETCH_HEAD"},
 	} {
 		if out, err := run(ctx, dir, args...); err != nil {

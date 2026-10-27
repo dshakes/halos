@@ -67,7 +67,7 @@ workloads:
       subject: "workload:gh:{repository}"
       groups: [ai-platform]
       maxTTLSeconds: 600
-`, iss.URL)
+`, iss.URL) + exampleSupplyChain(t)
 	if err := os.WriteFile(filepath.Join(dir, "halos.yaml"), []byte(root), 0o600); err != nil {
 		t.Fatal(err)
 	}
