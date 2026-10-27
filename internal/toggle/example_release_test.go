@@ -63,6 +63,9 @@ func TestFragmentMergeEqualsOnRender(t *testing.T) {
 	org := loadExample(t)
 	ring := org.Rings[1]
 	prof, err := org.ResolveProfile(ring.Profile)
+	if err == nil {
+		prof, err = org.WithMCPRegistry(prof, ring.Name, "") // as release.Build renders the ring
+	}
 	if err != nil {
 		t.Fatal(err)
 	}

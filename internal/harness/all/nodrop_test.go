@@ -2,7 +2,6 @@ package all_test
 
 import (
 	"encoding/json"
-	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -75,7 +74,7 @@ func TestNoSilentDrop(t *testing.T) {
 		}
 		for _, f := range fields {
 			p := clone(t, full)
-			if !zeroField(p, f) {
+			if !hutiltest.ZeroField(p, f) {
 				t.Fatalf("cannot resolve profile field %q by json tags", f)
 			}
 			got, err := render(p)
@@ -100,40 +99,4 @@ func clone(t *testing.T, p *policy.Profile) *policy.Profile {
 		t.Fatal(err)
 	}
 	return &out
-}
-
-// zeroField zeroes the field at a dotted json path ("extensions.statusLine").
-// mcp.tools.allow, mcp.tools.deny and mcp.auth are per-server fields
-// (hutil.Populated reports them once): they are zeroed on every server.
-func zeroField(p *policy.Profile, path string) bool {
-	for i := range p.MCP.Servers {
-		sv := &p.MCP.Servers[i]
-		switch path {
-		case "mcp.tools.allow":
-			sv.Tools.Allow = nil
-		case "mcp.tools.deny":
-			sv.Tools.Deny = nil
-		case "mcp.auth":
-			sv.Auth = policy.MCPAuth{}
-		}
-	}
-	switch path {
-	case "mcp.tools.allow", "mcp.tools.deny", "mcp.auth":
-		return true
-	}
-	v := reflect.ValueOf(p).Elem()
-	for _, part := range strings.Split(path, ".") {
-		found := false
-		for i := 0; i < v.NumField(); i++ {
-			if tag := strings.Split(v.Type().Field(i).Tag.Get("json"), ",")[0]; tag == part {
-				v, found = v.Field(i), true
-				break
-			}
-		}
-		if !found {
-			return false
-		}
-	}
-	v.Set(reflect.Zero(v.Type()))
-	return true
 }

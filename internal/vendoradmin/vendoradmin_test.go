@@ -452,18 +452,7 @@ func clone(t *testing.T, p *policy.Profile) *policy.Profile {
 
 func zeroField(t *testing.T, p *policy.Profile, path string) {
 	t.Helper()
-	v := reflect.ValueOf(p).Elem()
-	for _, part := range strings.Split(path, ".") {
-		found := false
-		for i := 0; i < v.NumField(); i++ {
-			if strings.Split(v.Type().Field(i).Tag.Get("json"), ",")[0] == part {
-				v, found = v.Field(i), true
-				break
-			}
-		}
-		if !found {
-			t.Fatalf("cannot resolve %q", path)
-		}
+	if !hutiltest.ZeroField(p, path) {
+		t.Fatalf("cannot resolve %q", path)
 	}
-	v.Set(reflect.Zero(v.Type()))
 }
