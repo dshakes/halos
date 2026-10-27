@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -20,10 +21,8 @@ func freezeNow(t *testing.T, dir string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := string(b)
-	if i := strings.Index(s, "\ngovernance:"); i >= 0 {
-		s = s[:i+1] // the example's sample is the last section
-	}
+	// drop the example's governance sample (indented or blank lines), keep later sections
+	s := regexp.MustCompile(`(?m)^governance:\n(?:[ \t].*\n|\n)*`).ReplaceAllString(string(b), "")
 	s += "governance:\n  freezes:\n    - name: year-end\n      reason: year-end freeze\n      start: \"" + now.Add(-time.Hour).Format(time.RFC3339) +
 		"\"\n      end: \"" + now.Add(time.Hour).Format(time.RFC3339) + "\"\n"
 	if err := os.WriteFile(p, []byte(s), 0o600); err != nil {
