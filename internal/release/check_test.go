@@ -118,7 +118,14 @@ func TestCheckRendered(t *testing.T) {
 		{"claude mcp not locked", "claude-code", claude(sub(`"allowManagedMcpServersOnly": true,`, ``)), nil, checkGateway(), "allowManagedMcpServersOnly"},
 		{"claude no gateway skips url checks", "claude-code", claude(sub("", "")), nil, nil, ""},
 		{"claude bad json", "claude-code", []harness.File{{Path: claudePath, Data: []byte("{")}}, nil, nil, "parse rendered config"},
-		{"claude CLAUDE.md may mention bypass", "claude-code", append(claude(sub("", "")), harness.File{Path: "/etc/claude-code/CLAUDE.md", Data: []byte("never use bypassPermissions")}), nil, checkGateway(), ""},
+		// Invariant 1 covers every byte of every file: instructions are rendered
+		// verbatim, so even prose naming a bypass token is refused.
+		{"claude CLAUDE.md naming bypass", "claude-code", append(claude(sub("", "")), harness.File{Path: "/etc/claude-code/CLAUDE.md", Data: []byte("never use bypassPermissions")}), nil, checkGateway(), `CLAUDE.md: security invariant violated: contains permission-bypass token "bypassPermissions"`},
+		{"claude hook command bypass any case", "claude-code", []harness.File{{Path: claudePath, Data: []byte(`{"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "claude --permission-mode BypassPermissions -p x"}]}]}}`)}}, nil, nil, `hooks.Stop[0].hooks[0].command = "claude --permission-mode BypassPermissions -p x" contains permission-bypass token "BypassPermissions"`},
+		{"claude status line skip permissions", "claude-code", []harness.File{{Path: claudePath, Data: []byte(`{"statusLine": {"type": "command", "command": "claude --dangerously-skip-permissions"}}`)}}, nil, nil, "statusLine.command"},
+		{"claude escaped token in json", "claude-code", []harness.File{{Path: claudePath, Data: []byte(`{"x": "bypass\u0050ermissions"}`)}}, nil, nil, `x = "bypassPermissions"`},
+		{"codex mcp args yolo", "codex", []harness.File{{Path: codexPath, Data: []byte(goodCodex + "[mcp_servers.x]\ncommand = \"codex\"\nargs = [\"--YOLO\"]\n")}}, nil, checkGateway(), `mcp_servers.x.args[0] = "--YOLO"`},
+		{"script file with codex bypass flag", "codex", []harness.File{{Path: "/etc/codex/hook.sh", Data: []byte("#!/bin/sh\nexec codex --dangerously-bypass-approvals-and-sandbox \"$@\"\n")}}, nil, nil, `hook.sh: security invariant violated: contains permission-bypass token "dangerously-bypass-approvals-and-sandbox"`},
 
 		{"codex good", "codex", []harness.File{{Path: codexPath, Data: []byte(goodCodex)}}, nil, checkGateway(), ""},
 		{"codex danger", "codex", []harness.File{{Path: codexPath, Data: []byte(strings.Replace(goodCodex, "workspace-write", "danger-full-access", 1))}}, nil, checkGateway(), "sandbox_mode"},
@@ -158,7 +165,7 @@ func TestCheckRendered(t *testing.T) {
 		{"opencode enabled non-gateway provider", "opencode", []harness.File{{Path: openPath, Data: []byte(strings.Replace(goodOpenCode, `["halos"]`, `["halos", "anthropic"]`, 1))}}, nil, checkGateway(), "enabled_providers names anthropic"},
 		{"opencode model on direct provider", "opencode", []harness.File{{Path: openPath, Data: []byte(strings.Replace(goodOpenCode, `halos/halo-sonnet`, `anthropic/claude-sonnet-5-5`, 1))}}, nil, checkGateway(), "does not name a gateway provider"},
 		{"opencode bad json", "opencode", []harness.File{{Path: openPath, Data: []byte("{")}}, nil, nil, "parse rendered config"},
-		{"opencode instructions file may mention bypass", "opencode", []harness.File{{Path: "/etc/opencode/halos-instructions.md", Data: []byte("never use bypassPermissions")}}, nil, nil, ""},
+		{"opencode instructions file naming bypass", "opencode", []harness.File{{Path: "/etc/opencode/halos-instructions.md", Data: []byte("never use bypassPermissions")}}, nil, nil, "halos-instructions.md"},
 
 		{"cursor good", "cursor-agent", []harness.File{{Path: cursorPath, Data: []byte(`{"version": 1, "hooks": {"preToolUse": [{"command": "/opt/halo/audit.sh", "matcher": "Shell", "type": "command"}], "stop": [{"command": "/x"}]}}`)}}, nil, nil, ""},
 		{"cursor prompt hook", "cursor-agent", []harness.File{{Path: cursorPath, Data: []byte(`{"version": 1, "hooks": {"stop": [{"command": "x", "type": "prompt"}]}}`)}}, nil, nil, "hooks.stop[0].type"},
@@ -167,6 +174,8 @@ func TestCheckRendered(t *testing.T) {
 
 		{"unknown harness tolerates non-json", "fake", []harness.File{{Path: "/x.json", Data: []byte("nope")}}, nil, nil, ""},
 		{"unknown harness still forbids bypass", "copilot-cli", []harness.File{{Path: "/x.json", Data: []byte(`{"mode": "bypassPermissions"}`)}}, nil, nil, "mode"},
+		{"non-strict harness unparseable file still scanned", "copilot-cli", []harness.File{{Path: "/x.json", Data: []byte(`{"hooks": "copilot --allow-all-tools"`)}}, nil, nil, `x.json: security invariant violated: contains permission-bypass token "--allow-all"`},
+		{"non-strict harness danger in any case", "copilot-cli", []harness.File{{Path: "/x.json", Data: []byte(`{"x": "codex -s DANGER-FULL-ACCESS"}`)}}, nil, nil, `"DANGER-FULL-ACCESS"`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

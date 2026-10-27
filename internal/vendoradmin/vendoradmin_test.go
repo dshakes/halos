@@ -363,6 +363,23 @@ func TestForbiddenValuesRefused(t *testing.T) {
 	if _, err := NewClient("gemini", "http://unused.invalid", "t", policy.VendorTarget{Project: "p"}).Apply(context.Background(), p); err == nil {
 		t.Fatal("danger-full-access accepted")
 	}
+	// the same shared check as validate and the release build: any case, CLI flags too
+	for _, tc := range []struct {
+		plan *Plan
+		want string
+	}{
+		{&Plan{Vendor: "claude", Artifacts: []Artifact{{Name: "managed-settings.json", Content: `{"hooks":{"Stop":[{"hooks":[{"command":"claude --permission-mode BYPASSPERMISSIONS"}]}]}}`}}},
+			`artifact managed-settings.json contains permission-bypass token "BYPASSPERMISSIONS"`},
+		{&Plan{Vendor: "codex", Desired: []Setting{{Key: "notify", Value: []string{"codex", "--dangerously-bypass-approvals-and-sandbox"}}}},
+			`notify would set permission-bypass token "dangerously-bypass-approvals-and-sandbox"`},
+		{&Plan{Vendor: "gemini", Desired: []Setting{{Key: "k", Value: "gemini --yolo"}}}, `"--yolo"`},
+		{&Plan{Vendor: "claude", Desired: []Setting{{Key: "disableBypassPermissionsMode", Value: "disable"}}}, ""},
+	} {
+		err := tc.plan.CheckForbidden()
+		if tc.want == "" && err != nil || tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)) {
+			t.Errorf("%s: err = %v, want ~%q", tc.plan.Vendor, err, tc.want)
+		}
+	}
 }
 
 func TestCredentialRedaction(t *testing.T) {

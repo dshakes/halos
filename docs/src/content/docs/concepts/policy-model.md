@@ -179,7 +179,7 @@ See [experiments](/halos/concepts/experiments/).
 
 | Guardrail | Severity | Rule |
 |---|---|---|
-| No bypass | error | No profile may set `permissions.mode: bypassPermissions`. `auto` on the default (GA) ring warns |
+| No bypass | error | No profile may set `permissions.mode: bypassPermissions`. No string anywhere in the policy (hooks, status line, MCP server commands and args, env, overrides, toggles, units, gateway) may contain a permission-bypass mode or CLI flag, in any case: `bypassPermissions`, `danger-full-access`, `dangerously-skip-permissions`, `dangerously-bypass-approvals-and-sandbox`, `--yolo`, `--approval-mode yolo` or `--allow-all`. `auto` on the default (GA) ring warns |
 | Ring profiles | error / warning | Every ring's profile must set `permissions.disableBypass: true`. `telemetry.logPrompts` on the GA ring warns |
 | Telemetry on | error | Every ring's profile must enable telemetry |
 | MCP servers | error | Exactly one of `url` (https only) or `command` |
@@ -202,7 +202,7 @@ Overrides are an **allowlist**, not a denylist: only these harness-native keys (
 
 A harness not in this table accepts no overrides. Source: `allowedOverrides` in `internal/policy/guardrails.go`.
 
-The release build then parses each rendered JSON/TOML file and fails if `bypassPermissions` or `danger-full-access` appears as any value, or if a profile's `disableBypass` is not reflected in the output. That backstop covers adapter regressions and anything an override could merge in after rendering.
+The release build then checks every rendered file with the same function (`policy.BypassToken`): each decoded JSON/TOML value, then every raw byte of every file whatever its format or whether it parses, so instructions files and scripts are covered too. It also fails if a profile's `disableBypass` is not reflected in the output. Only setting names that turn bypass off (`disableBypassPermissionsMode`, `disableYoloMode`) are not tokens. That backstop covers adapter regressions and anything an override could merge in after rendering.
 
 ## Validation order
 

@@ -19,6 +19,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/dshakes/halos/internal/harness"
+	"github.com/dshakes/halos/internal/policy"
 	"github.com/dshakes/halos/internal/release"
 	"github.com/dshakes/halos/internal/server"
 )
@@ -247,9 +248,6 @@ func orNone(s string) string {
 
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
-// forbiddenModes must never appear in anything halo writes (AGENTS.md invariant 1).
-var forbiddenModes = []string{"bypassPermissions", "danger-full-access"}
-
 func (a *app) cmdCIConfig() *cobra.Command {
 	var h, ring, osName, out, ver string
 	c := &cobra.Command{
@@ -332,10 +330,9 @@ func writeCIFiles(rel *release.Release, files []release.FileEntry, out string) (
 		if !ok {
 			return nil, fmt.Errorf("release is missing blob for %s", f.Path)
 		}
-		for _, m := range forbiddenModes {
-			if bytes.Contains(data, []byte(m)) {
-				return nil, fmt.Errorf("refusing to write %s: it contains %q", f.Path, m)
-			}
+		// invariant 1, re-checked at the last step before disk
+		if tok := policy.BypassToken(string(data)); tok != "" {
+			return nil, fmt.Errorf("refusing to write %s: it contains permission-bypass token %q (invariant 1)", f.Path, tok)
 		}
 		dst := safeJoin(out, f.Path)
 		if err := writeFile(dst, data, os.FileMode(f.Mode)); err != nil {

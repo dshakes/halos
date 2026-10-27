@@ -115,8 +115,34 @@ func TestSecurityGuardrails(t *testing.T) {
 		}, "profiles[base]", "forbidden", SeverityError},
 		{"inherited override value danger", func(o *Org) {
 			o.Profiles["base"].Harnesses["codex"] = HarnessSpec{Version: "0.58.0", Overrides: map[string]any{"tui": map[string]any{"x": []any{"danger-full-access"}}}}
-		}, "profiles[next]", "forbidden", SeverityError},
-		{"env value bypass", func(o *Org) { o.Profiles["next"].Env = map[string]string{"MODE": "bypassPermissions"} }, "profiles[next]", "forbidden", SeverityError},
+		}, "profiles[base].harnesses.codex.overrides.tui.x[0]", "forbidden", SeverityError}, // reported where it is declared
+		{"env value bypass", func(o *Org) { o.Profiles["next"].Env = map[string]string{"MODE": "bypassPermissions"} }, "profiles[next].env.MODE", "forbidden", SeverityError},
+		// Invariant 1 through command strings: any case, any harness's bypass flag.
+		{"hook command bypass mode", func(o *Org) {
+			o.Profiles["base"].Hooks.Hooks = []Hook{{Event: "SessionStart", Command: "claude --permission-mode BYPASSPERMISSIONS -p hi"}}
+		}, "profiles[base].hooks.items[0].command", `"BYPASSPERMISSIONS"`, SeverityError},
+		{"status line codex sandbox", func(o *Org) {
+			o.Profiles["base"].Extensions.StatusLine.Command = "codex exec --sandbox=Danger-Full-Access x"
+		}, "profiles[base].extensions.statusLine.command", "Danger-Full-Access", SeverityError},
+		{"mcp server args skip permissions", func(o *Org) {
+			o.Profiles["base"].MCP.Servers = []MCPServer{{Name: "s", Command: []string{"claude", "mcp", "serve", "--dangerously-skip-permissions"}}}
+		}, "profiles[base].mcp.servers[0].command[3]", "dangerously-skip-permissions", SeverityError},
+		{"codex bypass flag in env", func(o *Org) {
+			o.Profiles["next"].Env = map[string]string{"CODEX_ARGS": "--dangerously-bypass-approvals-and-sandbox"}
+		}, "profiles[next].env.CODEX_ARGS", "dangerously-bypass-approvals-and-sandbox", SeverityError},
+		{"gemini yolo", func(o *Org) {
+			o.Profiles["base"].Hooks.Hooks = []Hook{{Event: "Stop", Command: "gemini --YOLO -p x"}}
+		}, "profiles[base].hooks.items[0].command", "--YOLO", SeverityError},
+		{"gemini approval mode yolo", func(o *Org) {
+			o.Profiles["base"].Hooks.Hooks = []Hook{{Event: "Stop", Command: "gemini --approval-mode=yolo -p x"}}
+		}, "profiles[base].hooks.items[0].command", "approval-mode=yolo", SeverityError},
+		{"copilot allow all tools", func(o *Org) {
+			o.Profiles["base"].Hooks.Hooks = []Hook{{Event: "Stop", Command: "copilot --allow-all-tools -p x"}}
+		}, "profiles[base].hooks.items[0].command", "--allow-all", SeverityError},
+		{"gateway helper command", func(o *Org) { o.Gateway.Auth.HelperCommand = "halo token --yolo" }, "gateway.auth.helperCommand", "--yolo", SeverityError},
+		{"override key", func(o *Org) {
+			o.Profiles["base"].Harnesses["claude-code"] = HarnessSpec{Version: "2.1.280", Overrides: map[string]any{"bypassPermissions": true}}
+		}, "overrides.bypassPermissions", "key contains", SeverityError},
 
 		// M3
 		{"ring without disableBypass", func(o *Org) { o.Profiles["base"].Permissions.DisableBypass = false }, "rings[r1].profile", "disableBypass", SeverityError},
@@ -461,4 +487,30 @@ func mustLoad(t *testing.T) *Org {
 		t.Fatal(err)
 	}
 	return o
+}
+
+func TestBypassToken(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"claude --permission-mode bypassPermissions", "bypassPermissions"},
+		{"BYPASSPERMISSIONS", "BYPASSPERMISSIONS"},
+		{"codex -s danger-full-access", "danger-full-access"},
+		{"claude --allow-dangerously-skip-permissions", "dangerously-skip-permissions"},
+		{"codex --dangerously-bypass-approvals-and-sandbox", "dangerously-bypass-approvals-and-sandbox"},
+		{"gemini --yolo", "--yolo"},
+		{"gemini --approval-mode  yolo", "approval-mode  yolo"},
+		{`{"defaultApprovalMode": "yolo"}`, `ApprovalMode": "yolo`},
+		{"copilot --allow-all-paths", "--allow-all"},
+		{`{"disableBypassPermissionsMode": "disable", "mode": "bypassPermissions"}`, "bypassPermissions"},
+		// settings that turn bypass off are not tokens
+		{`{"disableBypassPermissionsMode": "disable"}`, ""},
+		{`{"security": {"disableYoloMode": true}}`, ""},
+		{"permissions.disableBypass", ""},
+		{"codex -s workspace-write", ""},
+		{"yolo", ""},
+	}
+	for _, tt := range tests {
+		if got := BypassToken(tt.in); got != tt.want {
+			t.Errorf("BypassToken(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
 }

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/dshakes/halos/internal/policy"
 	"github.com/dshakes/halos/internal/server"
 )
 
@@ -128,10 +129,8 @@ func TestCIConfigWritesOneHarness(t *testing.T) {
 			return err
 		}
 		b, _ := os.ReadFile(p)
-		for _, m := range forbiddenModes {
-			if bytes.Contains(b, []byte(m)) {
-				t.Errorf("%s contains %s", p, m)
-			}
+		if tok := policy.BypassToken(string(b)); tok != "" {
+			t.Errorf("%s contains %s", p, tok)
 		}
 		if strings.Contains(p, "codex") || strings.Contains(p, "gemini") {
 			t.Errorf("wrote another harness's file %s", p)

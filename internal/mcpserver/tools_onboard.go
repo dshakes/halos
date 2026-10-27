@@ -114,7 +114,7 @@ func (s *srv) addOnboardTools(m *mcp.Server) {
 	mcp.AddTool(m, &mcp.Tool{Name: "local_proxy", Annotations: write,
 		Description: "Write a loopback-only halo-proxy config into <policy>/.halos/local (provider keys come from the environment at startup, never files) and return the command that starts it."},
 		func(_ context.Context, _ *mcp.CallToolRequest, in proxyIn) (*mcp.CallToolResult, *onboard.ProxyResult, error) {
-			w, err := s.mayWrite(in.DryRun, "halo onboard proxy --policy-dir "+s.dir+" --apply")
+			w, err := s.mayWrite(in.DryRun, shJoin("halo", "onboard", "proxy", "--policy-dir", s.dir, "--apply"))
 			if err != nil {
 				return nil, nil, err
 			}
@@ -125,7 +125,7 @@ func (s *srv) addOnboardTools(m *mcp.Server) {
 		Description: "Run one CLI headless (claude -p, codex exec, gemini -p, copilot -p, cursor-agent -p, opencode run) with a fixed prompt and check the reply. dry_run (default true) returns the command; false makes one short model call and, like every write, needs --allow-writes. Output is redacted."},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in verifyIn) (*mcp.CallToolResult, onboard.VerifyResult, error) {
 			// Spawning a CLI that spends the human's credentials is a side effect: same gate as the writes.
-			run, err := s.mayWrite(in.DryRun, "halo onboard verify "+in.Harness)
+			run, err := s.mayWrite(in.DryRun, shJoin("halo", "onboard", "verify", in.Harness))
 			if err != nil {
 				return nil, onboard.VerifyResult{}, err
 			}
@@ -149,7 +149,7 @@ func or(s, d string) string {
 }
 
 func (s *srv) initPolicy(ctx context.Context, _ *mcp.CallToolRequest, in initPolicyIn) (*mcp.CallToolResult, *onboard.LocalResult, error) {
-	w, err := s.mayWrite(in.DryRun, "halo onboard local --policy-dir "+s.dir+" --apply (with the same answers as flags)")
+	w, err := s.mayWrite(in.DryRun, shJoin("halo", "onboard", "local", "--policy-dir", s.dir, "--apply")+" (with the same answers as flags)")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -173,10 +173,11 @@ func (s *srv) initPolicy(ctx context.Context, _ *mcp.CallToolRequest, in initPol
 }
 
 func (s *srv) localInstall(_ context.Context, _ *mcp.CallToolRequest, in installIn) (*mcp.CallToolResult, installOut, error) {
-	cli := "halo onboard install --policy-dir " + s.dir + " --apply"
+	argv := []string{"halo", "onboard", "install", "--policy-dir", s.dir, "--apply"}
 	if in.Root != "" {
-		cli += " --root " + in.Root
+		argv = append(argv, "--root", in.Root)
 	}
+	cli := shJoin(argv...)
 	w, err := s.mayWrite(in.DryRun, cli)
 	if err != nil {
 		return nil, installOut{}, err

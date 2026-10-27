@@ -320,6 +320,7 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <circle class="ft" cx="731.5" cy="625.5" r="3"/>
 <circle class="ft" cx="401.5" cy="625.5" r="3"/>
 <circle class="ft" cx="588.5" cy="625.5" r="3"/>
+<circle class="ft" cx="467.5" cy="625.5" r="3"/>
 <circle class="ft" cx="566.5" cy="625.5" r="3"/>
 <circle class="ft" cx="643.5" cy="625.5" r="3"/>
 <circle class="ft" cx="335.5" cy="625.5" r="3"/>
@@ -380,6 +381,6 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <circle class="fa" cx="489.5" cy="658.5" r="3"/>
 <circle class="fa" cx="742.5" cy="658.5" r="3"/>
 <circle class="fa" cx="786.5" cy="658.5" r="3"/>
-<text class="s" x="24" y="698">54 packages, 191 import edges, 13 layers (shaded bands alternate by layer).</text>
+<text class="s" x="24" y="698">54 packages, 192 import edges, 13 layers (shaded bands alternate by layer).</text>
 <text class="xs" x="24" y="716">Gold dots: a binary under cmd/ importing an internal package.</text>
 </svg>

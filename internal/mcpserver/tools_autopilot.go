@@ -47,7 +47,7 @@ const (
 const (
 	gateApprove  = "human gate: show the patch and wait for a yes; then call again with dry_run false"
 	gateMerge    = "human gate: review and merge the PR; nothing merges itself"
-	gatePublish  = "human gate (publishes to the registry): halo release publish %s --ring %s --release-version %s --key <release.key> --registry <registry>"
+	gatePublish  = "human gate (publishes to the registry): %s --key <release.key> --registry <registry>"
 	gateAllowW   = "write tools are off: ask the human to restart with `halo mcp serve --allow-writes` (dry runs still work)"
 	gateEvidence = "no evidence source: ask the human to restart with `halo mcp serve --clickhouse <url>`; without it analyze_experiment and wait_for cannot decide"
 	gateServer   = "halo-server is not configured: start the MCP server with --server <url> (or HALO_SERVER) and export HALO_SESSION (an admin halo_session cookie value)"
@@ -175,11 +175,13 @@ type evalRunIn struct {
 	Local          bool   `json:"local,omitempty" jsonschema:"run on the host instead of Docker (no isolation; testing only)"`
 	TimeoutSeconds int    `json:"timeout_seconds,omitempty" jsonschema:"kill the run after this long (default 1800, max 7200)"`
 	DryRun         *bool  `json:"dry_run,omitempty" jsonschema:"default true: return the command and what it would run; false runs it (spends credentials; needs --allow-writes)"`
+	Reason         string `json:"reason,omitempty" jsonschema:"why this run; required when dry_run is false"`
 }
 
 type evalRunOut struct {
 	DryRun    bool           `json:"dry_run"`
 	Ran       bool           `json:"ran"`
+	Reason    string         `json:"reason,omitempty"`
 	Command   string         `json:"command"`
 	Scorecard map[string]any `json:"scorecard,omitempty"`
 	Path      string         `json:"scorecard_path,omitempty"`
@@ -204,7 +206,7 @@ func (s *srv) addAutopilotTools(m *mcp.Server) {
 	mcp.AddTool(m, &mcp.Tool{Name: "kill_switch", Annotations: &mcp.ToolAnnotations{DestructiveHint: boolp(false), IdempotentHint: true, OpenWorldHint: boolp(true)},
 		Description: "Kill (or unkill) an experiment, toggle or rollout fleet-wide through halo-server's signed kill list: the fast rollback, effective at the next poll and reversible. dry_run (default true) returns the request and the `halo kill` command; false sends it and, like every write, needs --allow-writes plus a reason. Never edits policy: pair it with propose_rollback or propose_rollout_rollback."}, s.killSwitch)
 	mcp.AddTool(m, &mcp.Tool{Name: "eval_run", Annotations: &mcp.ToolAnnotations{DestructiveHint: boolp(false), OpenWorldHint: boolp(true)},
-		Description: "Run an eval suite (`halo eval run --output json`) and return the scorecard. dry_run (default true) returns the command and the matrix cells; false runs it with a bounded timeout and, since it spends credentials and compute, needs --allow-writes. Writes the scorecard under <policy>/.halos/scorecards."}, s.evalRun)
+		Description: "Run an eval suite (`halo eval run --output json`) and return the scorecard. dry_run (default true) returns the command and the matrix cells; false runs it with a bounded timeout and, since it spends credentials and compute, needs --allow-writes plus a reason. Writes the scorecard under <policy>/.halos/scorecards."}, s.evalRun)
 	m.AddResource(&mcp.Resource{URI: guideURI, Name: "autopilot guide", MIMEType: "text/markdown",
 		Description: "What Halos is, the invariants an agent must respect, the full lifecycle and where the human gates are"},
 		func(_ context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
@@ -319,7 +321,7 @@ func (s *srv) releaseBuild(_ context.Context, _ *mcp.CallToolRequest, in release
 	sort.Strings(out.Files)
 	out.NextSteps = []string{
 		"the digest above is this local build's; the published digest is what `halo release publish` prints, and rings pin that one",
-		fmt.Sprintf(gatePublish, s.dir, m.Ring, m.Version),
+		fmt.Sprintf(gatePublish, shJoin("halo", "release", "publish", s.dir, "--ring", m.Ring, "--release-version", m.Version)),
 		"after publishing: `plan` against the published release.tar before the next change, and `render_preview` to review what lands",
 	}
 	if len(out.Warnings) > 0 {
@@ -611,7 +613,7 @@ func (s *srv) killSwitch(ctx context.Context, _ *mcp.CallToolRequest, in killIn)
 	}
 	out.Kind, out.Name = kind, target
 	out.Request = fmt.Sprintf("POST %s/api/v1/%ss/%s/%s", s.serverURL(), kind, target, verb)
-	out.Command = fmt.Sprintf("halo kill %s --kind %s --reason %q", in.Name, kind, reason)
+	out.Command = shJoin("halo", "kill", in.Name, "--kind", kind, "--reason", reason)
 	if in.Unkill {
 		out.Command += " --unkill"
 	}
@@ -719,7 +721,10 @@ func (s *srv) evalRun(ctx context.Context, _ *mcp.CallToolRequest, in evalRunIn)
 	if in.Local {
 		args = append(args, "--local")
 	}
-	out.Command = "halo " + strings.Join(args, " ")
+	out.Command = shJoin(append([]string{"halo"}, args...)...)
+	if out.Reason, err = needUnlessDry(in.DryRun, in.Reason); err != nil {
+		return nil, out, err
+	}
 	run, err := s.mayWrite(in.DryRun, out.Command)
 	if err != nil {
 		return nil, out, err

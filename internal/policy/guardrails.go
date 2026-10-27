@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"encoding/json"
 	"fmt"
 	"maps"
 	"math"
@@ -24,6 +25,7 @@ var ExtraGuardrails []Guardrail
 // caller can drop one.
 var builtinGuardrails = []Guardrail{
 	guardNoBypass,
+	guardBypassTokens,
 	guardTelemetryOn,
 	guardMCPServers,
 	guardEgressHasGateway,
@@ -56,14 +58,6 @@ func guardNoBypass(o *Org) []Issue {
 		}
 		if p.Permissions.Mode == "bypassPermissions" {
 			out = append(out, gi(SeverityError, "profiles["+name+"].permissions.mode", "bypassPermissions is forbidden by org guardrail"))
-		}
-		// overrides and env are emitted as config values (same rule as toggles)
-		forbidden := forbiddenValue(p.Env)
-		for _, h := range sortedKeys(p.Harnesses) {
-			forbidden = forbidden || forbiddenValue(p.Harnesses[h].Overrides)
-		}
-		if forbidden {
-			out = append(out, gi(SeverityError, "profiles["+name+"]", "bypassPermissions / danger-full-access in env or harness overrides are forbidden by org guardrail"))
 		}
 	}
 	for _, r := range o.Rings {
@@ -597,6 +591,82 @@ func looksSecret(v string) bool {
 		}
 	}
 	return false
+}
+
+// bypassTokenRe matches the permission-bypass modes and CLI flags of every
+// supported harness (AGENTS.md invariant 1), case-insensitively and anywhere
+// in a string, so a hook, status line or MCP server command cannot launch a
+// harness with them: Claude Code bypassPermissions and
+// --(allow-)dangerously-skip-permissions; Codex danger-full-access,
+// --dangerously-bypass-approvals-and-sandbox and --yolo; Gemini CLI --yolo and
+// --approval-mode yolo; Copilot CLI --yolo and --allow-all(-tools|-paths|-urls).
+// ponytail: a substring scan, not a shell parser; obfuscated commands
+// (quotes split inside a token, variables) need a sandboxed launch to catch.
+var bypassTokenRe = regexp.MustCompile(`(?i)bypasspermissions|danger-full-access|dangerously-skip-permissions|dangerously-bypass-approvals-and-sandbox|--yolo|--allow-all|approval-?mode["'\s:=]+yolo`)
+
+// bypassSafeRe are the setting names that contain a token but turn bypass
+// off; they are blanked before matching (and nothing else is exempt).
+var bypassSafeRe = regexp.MustCompile(`(?i)disablebypasspermissionsmode`)
+
+// BypassToken returns the first permission-bypass token in s, or "". It is
+// the single invariant 1 check: policy validation runs it on every string in
+// the org, the release check on every byte of every rendered file, and
+// vendoradmin and halo ci config on what they emit.
+func BypassToken(s string) string {
+	return bypassTokenRe.FindString(bypassSafeRe.ReplaceAllString(s, " "))
+}
+
+// guardBypassTokens: no string anywhere in the org (profiles, overrides, env,
+// hooks, MCP servers, status line, toggles, units, gateway) may carry a
+// permission-bypass token; much of it is rendered verbatim into configs.
+func guardBypassTokens(o *Org) []Issue {
+	b, err := json.Marshal(o)
+	if err != nil {
+		return []Issue{gi(SeverityError, "", "scan for permission-bypass tokens: %v", err)}
+	}
+	var doc any
+	if err := json.Unmarshal(b, &doc); err != nil {
+		return []Issue{gi(SeverityError, "", "scan for permission-bypass tokens: %v", err)}
+	}
+	var out []Issue
+	var walk func(path string, v any)
+	walk = func(path string, v any) {
+		// a top-level collection's members are named like Validate's paths:
+		// profiles[base], units[payments], toggles[t1]; structs stay dotted (gateway.auth)
+		top := path != "" && !strings.ContainsAny(path, ".[")
+		switch t := v.(type) {
+		case map[string]any:
+			for _, k := range sortedKeys(t) {
+				var p string
+				switch {
+				case path == "" && k != "":
+					p = strings.ToLower(k[:1]) + k[1:] // Profiles -> profiles
+				case path == "profiles": // the one keyed collection; the other top-level maps are structs
+					p = path + "[" + k + "]"
+				default:
+					p = path + "." + k
+				}
+				if tok := BypassToken(k); tok != "" {
+					out = append(out, gi(SeverityError, p, "key contains permission-bypass token %q, forbidden by org guardrail (invariant 1)", tok))
+				}
+				walk(p, t[k])
+			}
+		case []any:
+			for i, e := range t {
+				name := fmt.Sprint(i)
+				if m, ok := e.(map[string]any); ok && top && m["name"] != nil {
+					name = fmt.Sprint(m["name"])
+				}
+				walk(path+"["+name+"]", e)
+			}
+		case string:
+			if tok := BypassToken(t); tok != "" {
+				out = append(out, gi(SeverityError, path, "contains permission-bypass token %q, forbidden by org guardrail (invariant 1)", tok))
+			}
+		}
+	}
+	walk("", doc)
+	return out
 }
 
 // entropy is the Shannon entropy of s in bits per byte.

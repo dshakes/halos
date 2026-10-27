@@ -15,13 +15,9 @@ import (
 )
 
 // strictHarnesses are the adapters whose rendered JSON/TOML must parse; for
-// any other adapter unparseable files are skipped (only parseable ones get
-// the universal checks).
+// any other adapter unparseable files skip the parsed checks (the raw
+// invariant 1 scan still runs on every byte).
 var strictHarnesses = []string{"claude-code", "codex", "gemini-cli", "cursor-agent", "opencode"}
-
-// forbiddenValues may never appear as a config value in any rendered file
-// (AGENTS.md invariant 1).
-var forbiddenValues = []string{"bypassPermissions", "danger-full-access"}
 
 // CheckRendered asserts security invariants on the files an adapter rendered,
 // by parsing the output rather than trusting how it was produced. It is the
@@ -30,6 +26,9 @@ var forbiddenValues = []string{"bypassPermissions", "danger-full-access"}
 func CheckRendered(harnessName string, os harness.OS, files []harness.File, p *policy.Profile, g *policy.Gateway) error {
 	strict := slices.Contains(strictHarnesses, harnessName)
 	for _, f := range files {
+		fail := func(format string, a ...any) error {
+			return fmt.Errorf("%s/%s %s: security invariant violated: %s", harnessName, os, f.Path, fmt.Sprintf(format, a...))
+		}
 		// Every file, any format: bundles land world-readable (0644 ceiling).
 		// The value is not echoed, so the error itself never leaks it.
 		if policy.HasTokenShape(string(f.Data)) {
@@ -42,25 +41,27 @@ func CheckRendered(harnessName string, os harness.OS, files []harness.File, p *p
 			err = json.Unmarshal(f.Data, &doc)
 		case strings.HasSuffix(f.Path, ".toml"):
 			err = toml.Unmarshal(f.Data, &doc)
-		default:
-			continue
 		}
-		if err != nil {
-			if strict {
-				return fmt.Errorf("%s/%s %s: parse rendered config: %w", harnessName, os, f.Path, err)
-			}
-			continue
+		if err != nil && strict {
+			return fmt.Errorf("%s/%s %s: parse rendered config: %w", harnessName, os, f.Path, err)
 		}
-		fail := func(format string, a ...any) error {
-			return fmt.Errorf("%s/%s %s: security invariant violated: %s", harnessName, os, f.Path, fmt.Sprintf(format, a...))
-		}
+		// Invariant 1: decoded values first (names the field, sees through
+		// escapes), then every raw byte, so no format or parse failure skips it.
 		if err := walk(doc, "", func(path string, v any) error {
-			if s, ok := v.(string); ok && slices.Contains(forbiddenValues, s) {
-				return fail("%s = %q is never allowed", path, s)
+			if s, ok := v.(string); ok {
+				if tok := policy.BypassToken(s); tok != "" {
+					return fail("%s = %q contains permission-bypass token %q (invariant 1)", path, s, tok)
+				}
 			}
 			return nil
 		}); err != nil {
 			return err
+		}
+		if tok := policy.BypassToken(string(f.Data)); tok != "" {
+			return fail("contains permission-bypass token %q (invariant 1)", tok)
+		}
+		if doc == nil || err != nil {
+			continue
 		}
 		switch {
 		case harnessName == "claude-code" && strings.HasSuffix(f.Path, "managed-settings.json"):
