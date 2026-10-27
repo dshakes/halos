@@ -106,7 +106,7 @@ func (o *OIDCJWT) idVerifier(ctx context.Context) (*oidc.IDTokenVerifier, *jwksK
 	if d == nil {
 		d = &discovery{done: make(chan struct{})}
 		o.inflight = d
-		go o.discover(d)
+		go o.discover(d) //nolint:gosec // shared by every waiter: must not die with the request that started it; bounded by discoveryTimeout
 	}
 	o.mu.Unlock()
 	select {
