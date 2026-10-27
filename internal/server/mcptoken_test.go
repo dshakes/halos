@@ -110,3 +110,26 @@ func TestMCPTokenExchange(t *testing.T) {
 		})
 	}
 }
+
+// TestMCPTokenRevokedCredential: a revoked credential (ADR-0026) mints no MCP
+// token, the refusal is audited with its jti, and an unreadable revocation
+// store fails closed.
+func TestMCPTokenRevokedCredential(t *testing.T) {
+	e, priv := delegationEnv(t, false, withMCPRegistry(t))
+	wl := e.workloadToken(t, priv, "wl-mcp")
+	if w := e.exchange(mcpForm(wl, tokenTypeJWT, wikiURL)); w.Code != http.StatusOK {
+		t.Fatalf("before revocation: %d %s", w.Code, w.Body)
+	}
+	e.revoke(t, `{"jti":"wl-mcp","reason":"token printed in a CI log"}`)
+	w := e.exchange(mcpForm(wl, tokenTypeJWT, wikiURL))
+	if kind, _ := oauthErrOf(w); w.Code != http.StatusBadRequest || kind != "invalid_grant" {
+		t.Fatalf("revoked credential: %d %s", w.Code, w.Body)
+	}
+	if a := lastAuditOf(t, e, "mcp.token.denied"); !strings.Contains(a.Details["reason"], "revoked") || a.Details["parentJti"] != "wl-mcp" {
+		t.Fatalf("refusal audit: %+v", a)
+	}
+	e.s.revs = brokenRevocations{}
+	if w := e.exchange(mcpForm(e.workloadToken(t, priv, "wl-other"), tokenTypeJWT, wikiURL)); w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("revocation store down: %d %s", w.Code, w.Body)
+	}
+}

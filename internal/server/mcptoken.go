@@ -54,21 +54,32 @@ func (s *Server) mcpToken(w http.ResponseWriter, r *http.Request, f url.Values, 
 	}
 	now := s.cfg.Now()
 	resource := f.Get(paramResource)
-	parent, err := s.verifyParent(f.Get("subject_token"), f.Get("subject_token_type"), now)
+	parent, err := s.verifyParent(r.Context(), f.Get("subject_token"), f.Get("subject_token_type"), now)
 	switch {
-	case errors.Is(err, errParentRefused): // verified, but its root is revoked or deprovisioned
-		s.Audit(r.Context(), parent.sub.ID, "mcp.token.denied", resource, map[string]string{"reason": err.Error(), "via": parent.via})
+	case errors.Is(err, errRevocationsUnavailable): // ours, but whether it is revoked cannot be told: fail closed, no penalty
+		s.metrics.authFailure("mcp_token", "unavailable")
+		oauthErr(w, http.StatusServiceUnavailable, "temporarily_unavailable", "revocations cannot be checked; retry")
+		return
+	case errors.Is(err, errParentRefused): // verified, but it or its root is revoked or deprovisioned (ADR-0026)
+		s.metrics.authFailure("mcp_token", "parent_refused")
+		d := map[string]string{"reason": err.Error(), "via": parent.via}
+		if parent.jti != "" {
+			d["parentJti"] = parent.jti
+		}
+		s.Audit(r.Context(), parent.sub.ID, "mcp.token.denied", resource, d)
 		oauthErr(w, http.StatusBadRequest, "invalid_grant", "subject_token rejected")
 		return
 	case !signedOnly(err) && blocked:
 		tooManyFailures(w)
 		return
 	case !signedOnly(err):
+		s.metrics.authFailure("mcp_token", "unverified")
 		s.agentFails.fail(ip)
 		s.cfg.Log.Info("mcp token subject token rejected", "err", err.Error(), "remote", ip)
 		oauthErr(w, http.StatusBadRequest, "invalid_grant", "subject_token rejected")
 		return
 	case err != nil: // ours, but expired or its session gone: not counted
+		s.metrics.authFailure("mcp_token", "parent_invalid")
 		oauthErr(w, http.StatusBadRequest, "invalid_grant", "subject_token rejected")
 		return
 	}
