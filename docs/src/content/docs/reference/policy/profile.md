@@ -77,11 +77,23 @@ Generated from `schemas/profile.schema.json`; do not edit. Nested fields use dot
 | `mcp.managedOnly` | boolean |  |  |  |  | Block every server not listed. |
 | `mcp.servers` | array of object |  |  |  |  | Allowed MCP servers. |
 | `mcp.servers[]` | object |  |  |  |  | An allowed MCP server. |
+| `mcp.servers[].auth` | object |  |  |  |  | How clients authorize to a remote server (ADR-0029). |
+| `mcp.servers[].auth.clientID` | string |  |  |  |  | Pre-registered OAuth client id (oauth, enterprise). |
+| `mcp.servers[].auth.clientIDMetadataURL` | string |  |  |  | format uri; pattern ^https:// | https URL of an org-hosted Client ID Metadata Document (oauth); the URL is the client id. |
+| `mcp.servers[].auth.issuer` | string |  |  |  | format uri; pattern ^https:// | Authorization server issuer (oauth, enterprise). |
+| `mcp.servers[].auth.mode` | string |  |  | none, oauth, enterprise, halos |  | none (default) \| oauth (the server's authorization server) \| enterprise (Enterprise-Managed Authorization: an ID-JAG from identity.issuer) \| halos (halo-server mints audience-bound tokens). |
+| `mcp.servers[].auth.scopes` | array of string |  |  |  |  | Scopes to request (oauth, enterprise). |
+| `mcp.servers[].auth.scopes[]` | string |  |  |  | pattern ^\S+$ |  |
 | `mcp.servers[].command` | array of string |  |  |  |  | stdio command line (exclusive with url). |
 | `mcp.servers[].command[]` | string |  |  |  |  |  |
 | `mcp.servers[].headers` | object |  |  |  |  | HTTP headers. |
 | `mcp.servers[].headers.*` | string |  |  |  |  |  |
 | `mcp.servers[].name` | string | yes |  |  |  | Server name. |
+| `mcp.servers[].tools` | object |  |  |  |  | Narrows the server's tools (ADR-0029). deny wins over allow; empty allow = every tool. |
+| `mcp.servers[].tools.allow` | array of string |  |  |  |  | Only these tools (where the harness supports an allowlist; else a manifest warning). |
+| `mcp.servers[].tools.allow[]` | string |  |  |  | pattern ^[A-Za-z0-9_.-]&#123;1,128}$ |  |
+| `mcp.servers[].tools.deny` | array of string |  |  |  |  | Never these tools. |
+| `mcp.servers[].tools.deny[]` | string |  |  |  | pattern ^[A-Za-z0-9_.-]&#123;1,128}$ |  |
 | `mcp.servers[].url` | string |  |  |  | format uri | https URL (exclusive with command). |
 | `models` | object |  |  |  |  | Model policy. |
 | `models.allowed` | array of string |  |  |  |  | Allowed model aliases. |

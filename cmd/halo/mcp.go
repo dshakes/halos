@@ -48,6 +48,6 @@ func (a *app) cmdMCP() *cobra.Command {
 	serve.Flags().StringVar(&ch.user, "user", "", "ClickHouse user (password from HALO_CLICKHOUSE_PASSWORD)")
 	serve.Flags().StringVar(&roiIDs, "roi-identities", "", "identity roster CSV (login,subject[,groups][,kind]); enables roi_report and the ROI section of promotion PRs")
 	serve.Flags().StringVar(&roiStore, "roi-store", "", "local JSONL store of PR outcomes (halo roi ingest --store); default: ClickHouse")
-	c.AddCommand(serve)
+	c.AddCommand(serve, a.cmdMCPRegistry(), a.cmdMCPToken())
 	return c
 }

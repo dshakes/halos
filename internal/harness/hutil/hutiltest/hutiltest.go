@@ -5,6 +5,8 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/dshakes/halos/internal/policy"
@@ -24,8 +26,11 @@ func Fixture() (*policy.Profile, *policy.Gateway) {
 		MCP: policy.MCP{
 			ManagedOnly: true,
 			Servers: []policy.MCPServer{
-				{Name: "docs", URL: "https://mcp.example.com/docs", Headers: map[string]string{"X-Org": "acme"}},
+				{Name: "docs", URL: "https://mcp.example.com/docs", Headers: map[string]string{"X-Org": "acme"},
+					Tools: policy.MCPTools{Allow: []string{"search", "fetch"}, Deny: []string{"delete_page"}}, Auth: policy.MCPAuth{Mode: policy.MCPAuthHalos}},
 				{Name: "lint", Command: []string{"npx", "-y", "lint-mcp"}},
+				{Name: "tickets", URL: "https://mcp.example.com/tickets",
+					Auth: policy.MCPAuth{Mode: policy.MCPAuthOAuth, ClientID: "halos-cli", Issuer: "https://auth.example.com", Scopes: []string{"tickets:read"}}},
 			},
 			Denied: []string{"filesystem"},
 		},
@@ -81,4 +86,40 @@ func Golden(t *testing.T, name string, got []byte) {
 	if string(want) != string(got) {
 		t.Errorf("golden %s mismatch (run with -update)\n--- got ---\n%s\n--- want ---\n%s", name, got, want)
 	}
+}
+
+// ZeroField zeroes the field at a dotted json path ("extensions.statusLine").
+// mcp.tools.allow, mcp.tools.deny and mcp.auth are per-server fields
+// (hutil.Populated reports them once): they are zeroed on every server.
+func ZeroField(p *policy.Profile, path string) bool {
+	for i := range p.MCP.Servers {
+		sv := &p.MCP.Servers[i]
+		switch path {
+		case "mcp.tools.allow":
+			sv.Tools.Allow = nil
+		case "mcp.tools.deny":
+			sv.Tools.Deny = nil
+		case "mcp.auth":
+			sv.Auth = policy.MCPAuth{}
+		}
+	}
+	switch path {
+	case "mcp.tools.allow", "mcp.tools.deny", "mcp.auth":
+		return true
+	}
+	v := reflect.ValueOf(p).Elem()
+	for _, part := range strings.Split(path, ".") {
+		found := false
+		for i := 0; i < v.NumField(); i++ {
+			if tag := strings.Split(v.Type().Field(i).Tag.Get("json"), ",")[0]; tag == part {
+				v, found = v.Field(i), true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	v.Set(reflect.Zero(v.Type()))
+	return true
 }

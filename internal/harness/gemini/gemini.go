@@ -50,7 +50,7 @@ func settingsPath(os harness.OS) string {
 
 func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []string, error) {
 	warns := hutil.WarnUnsupported(name, p,
-		"models.default", "permissions.disableBypass", "mcp.servers", "mcp.managedOnly", "mcp.denied", "telemetry.enabled", "telemetry.logPrompts", "telemetry.attributes",
+		"models.default", "permissions.disableBypass", "mcp.servers", "mcp.managedOnly", "mcp.denied", "mcp.tools.allow", "mcp.tools.deny", "mcp.auth", "telemetry.enabled", "telemetry.logPrompts", "telemetry.attributes",
 		"extensions.skills.deny", "extensions.subagents.deny", "login")
 	warns = append(warns, "gemini: cannot self-enforce version; halod enforces")
 	if c.Ring != "" || c.Release != "" {
@@ -87,6 +87,16 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 			default:
 				return nil, nil, fmt.Errorf("gemini: mcp server %q has neither url nor command", sv.Name)
 			}
+			// includeTools / excludeTools: exclude wins; across settings files
+			// inclusions intersect and exclusions union, so a user file cannot widen them.
+			// https://github.com/google-gemini/gemini-cli/blob/main/docs/tools/mcp-server.md
+			if len(sv.Tools.Allow) > 0 {
+				e["includeTools"] = sv.Tools.Allow
+			}
+			if len(sv.Tools.Deny) > 0 {
+				e["excludeTools"] = sv.Tools.Deny
+			}
+			warns = append(warns, geminiAuth(e, sv)...)
 			servers[sv.Name] = e
 			names = append(names, sv.Name)
 		}
@@ -200,4 +210,33 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 		files = append(files, harness.File{Path: "/etc/profile.d/halos-gemini.sh", Mode: 0o644, Data: []byte(script)})
 	}
 	return files, warns, nil
+}
+
+// geminiAuth renders a remote server's authorization into its mcpServers
+// entry e: the oauth block (enabled, clientId, issuer, scopes) for mode oauth.
+// https://github.com/google-gemini/gemini-cli/blob/main/docs/tools/mcp-server.md
+func geminiAuth(e map[string]any, sv policy.MCPServer) []string {
+	a := sv.Auth
+	switch a.Mode {
+	case policy.MCPAuthOAuth:
+		o := map[string]any{"enabled": true}
+		if a.ClientID != "" {
+			o["clientId"] = a.ClientID
+		}
+		if a.Issuer != "" {
+			o["issuer"] = a.Issuer
+		}
+		if len(a.Scopes) > 0 {
+			o["scopes"] = a.Scopes
+		}
+		e["oauth"] = o
+		if a.ClientIDMetadataURL != "" {
+			return []string{fmt.Sprintf("gemini: mcp server %q auth.clientIDMetadataURL is not rendered: Gemini CLI documents no Client ID Metadata Document setting (clientId or dynamic registration only)", sv.Name)}
+		}
+	case policy.MCPAuthEnterprise:
+		return []string{fmt.Sprintf("gemini: mcp server %q auth mode enterprise is not rendered: Gemini CLI documents no Enterprise-Managed Authorization (ID-JAG) client; users authorize the server with /mcp auth", sv.Name)}
+	case policy.MCPAuthHalos:
+		return []string{fmt.Sprintf("gemini: mcp server %q auth mode halos is not rendered: Gemini CLI has no per-connection header helper (headers are static), so a Halos token cannot be minted per session; run `halo mcp token` and set the header yourself, or use mode oauth", sv.Name)}
+	}
+	return nil
 }

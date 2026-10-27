@@ -133,6 +133,11 @@ func ciSubjectToken(ctx context.Context, hc *http.Client, getenv func(string) st
 }
 
 func ciExchange(ctx context.Context, hc *http.Client, srv, subject string) (server.TokenExchangeResponse, error) {
+	return postExchange(ctx, hc, srv, url.Values{"grant_type": {ciGrantTokenExchange}, "subject_token": {subject}, "subject_token_type": {ciTokenTypeJWT}})
+}
+
+// postExchange POSTs an RFC 8693 form to halo-server's token endpoint.
+func postExchange(ctx context.Context, hc *http.Client, srv string, form url.Values) (server.TokenExchangeResponse, error) {
 	var out server.TokenExchangeResponse
 	if srv == "" {
 		return out, errors.New("--server (or HALO_SERVER) is required")
@@ -142,9 +147,8 @@ func ciExchange(ctx context.Context, hc *http.Client, srv, subject string) (serv
 		return out, fmt.Errorf("--server %q is not an absolute URL", srv)
 	}
 	if u.Scheme != "https" && (u.Scheme != "http" || !isLoopbackHost(u.Hostname())) {
-		return out, fmt.Errorf("--server %q must be https (http only for loopback): the OIDC token is a credential", srv)
+		return out, fmt.Errorf("--server %q must be https (http only for loopback): the subject token is a credential", srv)
 	}
-	form := url.Values{"grant_type": {ciGrantTokenExchange}, "subject_token": {subject}, "subject_token_type": {ciTokenTypeJWT}}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), strings.NewReader(form.Encode()))
 	if err != nil {
 		return out, fmt.Errorf("token exchange: %w", err)

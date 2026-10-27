@@ -185,6 +185,10 @@ func (s *Server) postTokenExchange(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxExchangeBody)
 	formErr := r.ParseForm()
 	f := r.PostForm
+	if formErr == nil && isMCPToken(f) && f.Get("grant_type") == grantTokenExchange {
+		s.mcpToken(w, r, f, ip) // ADR-0029: before isDelegation, which a session subject_token also matches
+		return
+	}
 	if formErr == nil && isDelegation(f) && f.Get("grant_type") == grantTokenExchange {
 		s.postDelegation(w, r, f, ip)
 		return

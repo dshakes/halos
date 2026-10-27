@@ -72,6 +72,10 @@ type Status struct {
 	// Unit is the org unit whose files are applied (ADR-0018): picked from the
 	// signed manifest with the subject and IdP groups the ring endpoint returned.
 	Unit string `json:"unit,omitempty"`
+	// MCPDrift lists MCP servers in the console user's own configs that the
+	// release's registry does not approve for this device, or approves at
+	// another URL or version (ADR-0029), each with a fix hint.
+	MCPDrift []policy.MCPFinding `json:"mcpDrift,omitempty"`
 }
 
 // State is persisted to state.json between runs.
@@ -116,6 +120,9 @@ type Agent struct {
 	Now       func() time.Time
 	HTTP      *http.Client // ring endpoint + report
 	Download  *http.Client // install artifacts (long timeout)
+	// Home is the console user's home directory for the MCP drift check
+	// ("" = looked up from User).
+	Home string
 	// ConsoleUser, if set, refreshes User each cycle (halod runs as root).
 	ConsoleUser func(ctx context.Context) string
 	// Open returns the registry source for Cfg.Registry.
@@ -465,6 +472,7 @@ func (a *Agent) apply(ctx context.Context, st *Status, prev State, ring, subject
 	if unit != nil {
 		st.Unit = unit.Name
 	}
+	st.MCPDrift = a.mcpDrift(rel, unit)
 	// A toggle flip or unit change rewrites files without a new release: not drift.
 	sameRelease := prev.Digest == rel.Digest && slices.Equal(prev.Status.Toggles, st.Toggles) && prev.Status.Unit == st.Unit
 	owned := map[string]bool{}

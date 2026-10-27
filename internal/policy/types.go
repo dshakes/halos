@@ -81,6 +81,10 @@ type Org struct {
 	// build. Not part of the snapshot.
 	ArtifactContent map[string]*ArtifactContent `json:"-"`
 
+	// MCP is the approved MCP server registry (ADR-0029); omitted when unset,
+	// like Toggles.
+	MCP *MCPRegistry `json:",omitempty"`
+
 	// Deprecations are load-time warnings (one per file still on a deprecated
 	// apiVersion) that Validate reports. Not part of the snapshot.
 	Deprecations []Issue `json:"-"`
@@ -360,6 +364,10 @@ type MCPServer struct {
 	URL     string            `yaml:"url,omitempty" json:"url,omitempty"`
 	Command []string          `yaml:"command,omitempty" json:"command,omitempty"`
 	Headers map[string]string `yaml:"headers,omitempty" json:"headers,omitempty"`
+	// Tools and Auth (ADR-0029) are usually filled from the halos.yaml mcp
+	// registry; omitzero keeps existing snapshot digests unchanged when unset.
+	Tools MCPTools `yaml:"tools,omitempty" json:"tools,omitzero"`
+	Auth  MCPAuth  `yaml:"auth,omitempty" json:"auth,omitzero"`
 }
 
 type Hooks struct {

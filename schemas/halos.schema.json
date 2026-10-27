@@ -793,6 +793,30 @@
       },
       "required": [],
       "additionalProperties": false
+    },
+    "mcp": {
+      "type": "object",
+      "description": "Approved MCP server registry (ADR-0029). Releases render each ring's and unit's servers into every harness's native MCP settings; halod reports other or version-drifted servers in user configs.",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "allowlist",
+            "warn"
+          ],
+          "description": "allowlist (default): the registry is each harness's managed MCP allowlist and profiles, units and toggles may name only registry servers. warn: render the registry, block nothing else, report drift."
+        },
+        "servers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/mcpRegistryServer"
+          }
+        }
+      },
+      "required": [
+        "servers"
+      ],
+      "additionalProperties": false
     }
   },
   "required": [
@@ -1002,6 +1026,166 @@
         "digest",
         "rule",
         "reason"
+      ],
+      "additionalProperties": false
+    },
+    "mcpRegistryServer": {
+      "type": "object",
+      "description": "One approved MCP server: exactly one transport (url, package, or command with a binary package), pinned.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "description": "Server name rendered into every harness (no '_' or '.': harnesses join it into tool names)."
+        },
+        "registryName": {
+          "type": "string",
+          "description": "Official MCP Registry server.json name it was imported from."
+        },
+        "version": {
+          "type": "string",
+          "description": "server.json version it was imported at."
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://",
+          "description": "Remote (streamable HTTP) server URL; also the audience of Halos-minted tokens."
+        },
+        "command": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "stdio command line; only with a binary package (the executable first)."
+        },
+        "package": {
+          "type": "object",
+          "description": "Pins a stdio server's code.",
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "npm",
+                "pypi",
+                "oci",
+                "binary"
+              ]
+            },
+            "identifier": {
+              "type": "string",
+              "description": "Package name (npm, pypi) or image reference without tag or digest (oci)."
+            },
+            "version": {
+              "type": "string",
+              "description": "Exact version (npm, pypi): no range, tag or latest."
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "description": "Image digest (oci) or executable digest (binary); required for both."
+            },
+            "args": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Appended to the derived command line."
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "HTTP headers; secrets as ${VAR} references resolved on the client."
+        },
+        "tools": {
+          "type": "object",
+          "description": "Narrows the server's tools (ADR-0029). deny wins over allow; empty allow = every tool.",
+          "properties": {
+            "allow": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.-]{1,128}$"
+              },
+              "description": "Only these tools (where the harness supports an allowlist; else a manifest warning)."
+            },
+            "deny": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.-]{1,128}$"
+              },
+              "description": "Never these tools."
+            }
+          },
+          "additionalProperties": false
+        },
+        "auth": {
+          "type": "object",
+          "description": "How clients authorize to a remote server (ADR-0029).",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": [
+                "none",
+                "oauth",
+                "enterprise",
+                "halos"
+              ],
+              "description": "none (default) | oauth (the server's authorization server) | enterprise (Enterprise-Managed Authorization: an ID-JAG from identity.issuer) | halos (halo-server mints audience-bound tokens)."
+            },
+            "issuer": {
+              "type": "string",
+              "format": "uri",
+              "pattern": "^https://",
+              "description": "Authorization server issuer (oauth, enterprise)."
+            },
+            "clientID": {
+              "type": "string",
+              "description": "Pre-registered OAuth client id (oauth, enterprise)."
+            },
+            "clientIDMetadataURL": {
+              "type": "string",
+              "format": "uri",
+              "pattern": "^https://",
+              "description": "https URL of an org-hosted Client ID Metadata Document (oauth); the URL is the client id."
+            },
+            "scopes": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^\\S+$"
+              },
+              "description": "Scopes to request (oauth, enterprise)."
+            }
+          },
+          "additionalProperties": false
+        },
+        "rings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Rings whose members get it."
+        },
+        "units": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Units (and units below them) whose members get it. Rings and units both empty = approved only (a toggle may deliver it)."
+        }
+      },
+      "required": [
+        "id"
       ],
       "additionalProperties": false
     }
