@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 
@@ -114,6 +115,7 @@ func Populated(p *policy.Profile) []string {
 	add(e.Subagents.PluginOnly, "extensions.subagents.pluginOnly")
 	add(e.OutputStyle != "", "extensions.outputStyle")
 	add(e.StatusLine.Command != "", "extensions.statusLine")
+	add(len(e.Artifacts) > 0, "extensions.artifacts")
 	add(p.Login != "", "login")
 	return out
 }
@@ -221,4 +223,56 @@ func OTELShellWrapper(binary, attrs string) string {
 	return "# Halos: label this CLI's telemetry with the release (login shells).\n" +
 		binary + "() { OTEL_RESOURCE_ATTRIBUTES=" + ShQuote(attrs) + " command " + binary + " \"$@\"; }\n" +
 		"[ -z \"${BASH_VERSION:-}\" ] || export -f " + binary + "\n"
+}
+
+// ArtifactDirs says where an adapter places each supply-chain artifact kind
+// (ADR-0028) on one OS: a directory kind lands as <dir>/<name>/<file>, a
+// single-file kind as <dir>/<name>.md. A kind in neither map is warned,
+// never dropped.
+type ArtifactDirs struct {
+	Dirs   map[string]string // kind -> directory for directory kinds
+	Single map[string]string // kind -> directory for one-Markdown-file kinds
+	Why    map[string]string // kind -> why it is not rendered
+}
+
+// RenderArtifacts places p.Resolved per ad and returns the files plus a
+// warning for each artifact it cannot place.
+func RenderArtifacts(adapter string, os harness.OS, p *policy.Profile, ad ArtifactDirs) ([]harness.File, []string) {
+	var files []harness.File
+	var warns []string
+	for _, n := range p.Extensions.Artifacts {
+		i := slices.IndexFunc(p.Resolved, func(r policy.ResolvedArtifact) bool { return r.Name == n })
+		if i < 0 {
+			warns = append(warns, fmt.Sprintf("%s: artifact %q was not rendered: the profile was not resolved against halos.yaml supplyChain.artifacts", adapter, n))
+			continue
+		}
+		a := p.Resolved[i]
+		if a.Files == nil {
+			warns = append(warns, fmt.Sprintf("%s: artifact %q (%s) was not rendered: its content is not resolved here (%s is fetched by `halo release build`)", adapter, a.Name, a.Kind, a.Source))
+			continue
+		}
+		if d, ok := ad.Dirs[a.Kind]; ok {
+			for _, rel := range SortedKeys(a.Files) {
+				files = append(files, harness.File{Path: Join(os, append([]string{d, a.Name}, strings.Split(rel, "/")...)...), Mode: 0o644,
+					Data: a.Files[rel], Artifact: a.Name, ArtifactPath: rel})
+			}
+			continue
+		}
+		if d, ok := ad.Single[a.Kind]; ok {
+			if len(a.Files) != 1 {
+				warns = append(warns, fmt.Sprintf("%s: artifact %q (%s) was not rendered: a %s is one Markdown file, it has %d", adapter, a.Name, a.Kind, a.Kind, len(a.Files)))
+				continue
+			}
+			for rel, b := range a.Files {
+				files = append(files, harness.File{Path: Join(os, d, a.Name+".md"), Mode: 0o644, Data: b, Artifact: a.Name, ArtifactPath: rel})
+			}
+			continue
+		}
+		why := ad.Why[a.Kind]
+		if why == "" {
+			why = "the CLI has no documented managed location for it"
+		}
+		warns = append(warns, fmt.Sprintf("%s: artifact %q (%s) was not rendered: %s; it is still pinned, scanned and listed in the release AI-BOM", adapter, a.Name, a.Kind, why))
+	}
+	return files, warns
 }

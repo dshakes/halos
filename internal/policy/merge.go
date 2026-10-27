@@ -12,8 +12,8 @@ import (
 //   - scalars: child wins when set (non-zero). ponytail: zero means "unset", so a
 //     child cannot turn a parent's true bool back to false; add pointer bools if needed.
 //   - slices: child replaces the parent's list when non-empty, EXCEPT
-//     permissions.deny, mcp.denied, hooks.items and the extensions deny/blocked
-//     lists, which union (see below).
+//     permissions.deny, mcp.denied, hooks.items, extensions.artifacts and the
+//     extensions deny/blocked lists, which union (see below).
 //   - maps: merged per key; struct values (e.g. harnesses) merge recursively,
 //     other values (e.g. overrides) are child-wins per key.
 //
@@ -28,6 +28,7 @@ func (o *Org) ResolveProfile(name string) (*Profile, error) {
 	var deny, mcpDenied, plugBlocked, skillDeny, agentDeny []string
 	var blockedMkts []Marketplace
 	var hooks []Hook
+	var artifacts []string
 	for i := len(chain) - 1; i >= 0; i-- {
 		mergeValue(reflect.ValueOf(out).Elem(), reflect.ValueOf(chain[i]).Elem())
 		deny = unionAppend(deny, chain[i].Permissions.Deny)
@@ -38,6 +39,7 @@ func (o *Org) ResolveProfile(name string) (*Profile, error) {
 		skillDeny = unionAppend(skillDeny, e.Skills.Deny)
 		agentDeny = unionAppend(agentDeny, e.Subagents.Deny)
 		blockedMkts = unionAppend(blockedMkts, e.BlockedMarketplaces)
+		artifacts = unionAppend(artifacts, e.Artifacts)
 	}
 	// Deny lists and hooks only accumulate down the chain: a child profile can
 	// add restrictions (or audit hooks) but never silently drop a parent's.
@@ -50,6 +52,8 @@ func (o *Org) ResolveProfile(name string) (*Profile, error) {
 	out.Extensions.Skills.Deny = skillDeny
 	out.Extensions.Subagents.Deny = agentDeny
 	out.Extensions.BlockedMarketplaces = blockedMkts
+	out.Extensions.Artifacts = artifacts
+	o.resolveArtifacts(out)
 	out.Extends = ""
 	return out, nil
 }

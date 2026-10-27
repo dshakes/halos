@@ -67,7 +67,7 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 		"egress.allowedDomains", "instructions", "env",
 		"extensions.marketplaces", "extensions.blockedMarketplaces", "extensions.plugins.enabled", "extensions.plugins.blocked",
 		"extensions.skills.deny", "extensions.skills.pluginOnly", "extensions.subagents.deny", "extensions.subagents.pluginOnly",
-		"extensions.outputStyle", "extensions.statusLine", "login")
+		"extensions.outputStyle", "extensions.statusLine", "extensions.artifacts", "login")
 
 	// The profile's env goes in first: every key Halos sets below (gateway
 	// routing, model pins, telemetry's OTEL_*) is written after it and wins,
@@ -390,7 +390,32 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 	if p.Instructions != "" {
 		files = append(files, harness.File{Path: hutil.Join(c.OS, d, "CLAUDE.md"), Mode: 0o644, Data: []byte(p.Instructions)})
 	}
-	return files, warns, nil
+	af, aw := hutil.RenderArtifacts(name, c.OS, p, artifactDirs(c.OS))
+	return append(files, af...), append(warns, aw...), nil
+}
+
+// artifactDirs places supply-chain artifacts (ADR-0028) in the managed
+// directory's .claude/ tree, the managed scope of Claude Code's skills,
+// subagents and commands. Hook scripts get a Halos-owned directory that a
+// hooks.items command runs (`sh <managed dir>/hooks/<name>/<script>`; halod
+// writes 0644, so invoke them through an interpreter). ponytail: placement
+// read from the skills/subagents docs' managed scope, not yet UAT'd
+// (ADR-0028 open items).
+func artifactDirs(os harness.OS) hutil.ArtifactDirs {
+	d := dir(os)
+	return hutil.ArtifactDirs{
+		Dirs: map[string]string{
+			policy.ArtifactSkill: hutil.Join(os, d, ".claude", "skills"),
+			policy.ArtifactHook:  hutil.Join(os, d, "hooks"),
+		},
+		Single: map[string]string{
+			policy.ArtifactAgent:   hutil.Join(os, d, ".claude", "agents"),
+			policy.ArtifactCommand: hutil.Join(os, d, ".claude", "commands"),
+		},
+		Why: map[string]string{
+			policy.ArtifactPlugin: "Claude Code installs plugins from marketplaces; allow its marketplace with extensions.marketplaces and pin it with extensions.plugins.enabled",
+		},
+	}
 }
 
 // hooks groups hooks by event then matcher, preserving first-seen order.

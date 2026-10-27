@@ -68,6 +68,15 @@ type Org struct {
 	// when unset, like Toggles.
 	VendorAdmin *VendorAdmin `json:",omitempty"`
 
+	// SupplyChain declares the extension artifacts releases deliver
+	// (ADR-0028); omitted when unset, like Toggles.
+	SupplyChain *SupplyChain `json:",omitempty"`
+
+	// ArtifactContent is each artifact's resolved content, keyed by name:
+	// path sources read by Load, remote sources fetched by the release
+	// build. Not part of the snapshot.
+	ArtifactContent map[string]*ArtifactContent `json:"-"`
+
 	// Deprecations are load-time warnings (one per file still on a deprecated
 	// apiVersion) that Validate reports. Not part of the snapshot.
 	Deprecations []Issue `json:"-"`
@@ -296,6 +305,10 @@ type Profile struct {
 	Instructions string `yaml:"instructions,omitempty" json:"instructions,omitempty"`
 	// Env is extra environment applied to every harness.
 	Env map[string]string `yaml:"env,omitempty" json:"env,omitempty"`
+
+	// Resolved is filled by Org.ResolveProfile from Extensions.Artifacts:
+	// the artifacts this profile delivers, with content (ADR-0028).
+	Resolved []ResolvedArtifact `yaml:"-" json:"-"`
 }
 
 type HarnessSpec struct {
@@ -399,6 +412,9 @@ type Extensions struct {
 	OutputStyle string `yaml:"outputStyle,omitempty" json:"outputStyle,omitempty"`
 	// StatusLine runs a managed command to render the status line.
 	StatusLine StatusLine `yaml:"statusLine,omitempty" json:"statusLine,omitempty"`
+	// Artifacts names halos.yaml supplyChain.artifacts this profile delivers
+	// (ADR-0028). Unions down an extends chain.
+	Artifacts []string `yaml:"artifacts,omitempty" json:"artifacts,omitempty"`
 }
 
 // Marketplace is one plugin marketplace source.

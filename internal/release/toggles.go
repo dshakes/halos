@@ -92,7 +92,7 @@ func (tb *toggleBuild) add(org *policy.Org, ad harness.Adapter, prof *policy.Pro
 			sum := sha256.Sum256(d)
 			h := hex.EncodeToString(sum[:])
 			blobs[h] = d
-			entries = append(entries, FileEntry{Path: f.Path, Mode: f.Mode, SHA256: h})
+			entries = append(entries, FileEntry{Path: f.Path, Mode: f.Mode, SHA256: h, Artifact: f.Artifact, ArtifactPath: f.ArtifactPath})
 		}
 		if len(entries) == 0 {
 			tb.m.Warnings = append(tb.m.Warnings, fmt.Sprintf("toggle %s: %s/%s: fragment changes nothing (already in the profile, or unsupported by the adapter)", t.Name, name, os))

@@ -495,6 +495,13 @@ func (a *Agent) apply(ctx context.Context, st *Status, prev State, ring, subject
 				errs = append(errs, fmt.Errorf("blob for %s missing", f.Path))
 				continue
 			}
+			// A supply-chain artifact file is written only if it matches its
+			// artifact's pinned digest (ADR-0028); a mismatch is drift.
+			if err := rel.Manifest.CheckArtifactFile(f, data); err != nil {
+				errs = append(errs, fmt.Errorf("refusing %s: %w", f.Path, err))
+				st.Drift = append(st.Drift, f.Path)
+				continue
+			}
 			drift, err := a.ensureFile(f, data, sameRelease)
 			if err != nil {
 				errs = append(errs, fmt.Errorf("write %s: %w", f.Path, err))

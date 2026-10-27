@@ -32,6 +32,10 @@ hooks:
     - event: PreToolUse
       matcher: Bash
       command: /usr/local/bin/acme-audit-hook
+extensions:
+  # Pinned in halos.yaml supplyChain.artifacts; claude-code places them in its
+  # managed directory, the other CLIs warn (ADR-0028).
+  artifacts: [pr-review, security-reviewer, audit-bash]
 telemetry:
   enabled: true
   otlpEndpoint: https://otel.internal.acme.example:4318

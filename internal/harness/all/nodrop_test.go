@@ -35,10 +35,11 @@ func TestNoSilentDrop(t *testing.T) {
 	e.Subagents.Deny, e.Subagents.PluginOnly = []string{"nodrop-agent"}, true
 	e.OutputStyle = "Explanatory"
 	e.StatusLine.Command = "nodrop-status"
+	e.Artifacts = []string{"nodrop-artifact"} // unresolved after clone: claude-code warns, the rest warn unsupported
 
 	fields := hutil.Populated(full)
 	for _, want := range []string{"permissions.deny", "mcp.denied", "hooks.items", "telemetry.enabled", "egress.allowedDomains", "env",
-		"instructions", "login", "extensions.marketplaces", "extensions.plugins.enabled", "extensions.statusLine"} {
+		"instructions", "login", "extensions.marketplaces", "extensions.plugins.enabled", "extensions.statusLine", "extensions.artifacts"} {
 		if !slices.Contains(fields, want) {
 			t.Fatalf("fixture does not populate %s (populated: %v)", want, fields)
 		}

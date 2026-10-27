@@ -41,6 +41,10 @@ type File struct {
 	Path string
 	Mode uint32
 	Data []byte
+	// Artifact and ArtifactPath are set on a file that is part of a
+	// supply-chain artifact (ADR-0028): the artifact's name and the file's
+	// path inside it, which halod checks against the artifact's pinned digest.
+	Artifact, ArtifactPath string
 }
 
 // Context carries everything an adapter needs beyond the profile.
