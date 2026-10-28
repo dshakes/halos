@@ -136,6 +136,41 @@ func TestPolicyWriterSameCloneGuard(t *testing.T) {
 	}
 }
 
+func TestReadDLPGatewayTokens(t *testing.T) {
+	const eu, us, shared = "5f0c9e2a7b14d863a1c0e9f2b7d4a6185f0c9e2a7b14d863", "c3a81f6e29d07b45e8f1a2c6d9b03e74c3a81f6e29d07b45", "9d27e0b5c18f4a63d2e7b09c5f1a8e369d27e0b5c18f4a63"
+	mk := func(files map[string]string) string {
+		dir := t.TempDir()
+		for n, v := range files {
+			if err := os.WriteFile(filepath.Join(dir, n), []byte(v+"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return dir
+	}
+	if m, err := readDLPGatewayTokens(""); m != nil || err != nil {
+		t.Fatalf("unset: %v %v", m, err)
+	}
+	m, err := readDLPGatewayTokens(mk(map[string]string{"proxy-eu": eu, "kong-us": us, "..data": "x"}), shared)
+	if err != nil || len(m) != 2 || m["proxy-eu"] != eu || m["kong-us"] != us {
+		t.Fatalf("read: %v %v", m, err)
+	}
+	for _, c := range []struct {
+		name  string
+		files map[string]string
+		err   string
+	}{
+		{"same token twice", map[string]string{"a": eu, "b": eu}, "every gateway needs its own"},
+		{"shared token reused", map[string]string{"a": shared}, "every gateway needs its own"},
+		{"weak token", map[string]string{"a": "short"}, "a: token is 5 characters"},
+		{"bad name", map[string]string{"Proxy EU": eu}, "must match"},
+		{"empty", map[string]string{}, "holds no tokens"},
+	} {
+		if _, err := readDLPGatewayTokens(mk(c.files), shared); err == nil || !strings.Contains(err.Error(), c.err) {
+			t.Errorf("%s: err %v, want %q", c.name, err, c.err)
+		}
+	}
+}
+
 func TestReadGatewayTokens(t *testing.T) {
 	dir := t.TempDir()
 	file := func(name, tok string) string {

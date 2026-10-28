@@ -68,13 +68,17 @@ It prints each finding (kind, detector, hash, JSON path, injection score and sig
 
 ## Evidence
 
-**Audit and SIEM.** Point the gateways at `halo-server` and every finding becomes an audit entry (`dlp.secret` or `dlp.injection`, actor `gateway:halo-proxy`, target the verified user, details detector, hash, location, action, ring, unit, harness), which the [SIEM export](/halos/guides/siem-export/) forwards with everything else:
+**Audit and SIEM.** Point the gateways at `halo-server` and every finding becomes an audit entry (`dlp.secret` or `dlp.injection`, actor the gateway its token names, target the verified user, details detector, hash, location, action, ring, unit, harness), which the [SIEM export](/halos/guides/siem-export/) forwards with everything else:
 
 ```bash
-openssl rand -hex 32 > dlp.token          # same file on halo-server and the gateways
-halo-server ... --gateway-dlp-token-file dlp.token
-halo-proxy  ... --dlp-url https://halo-server/api/v1/gateway/dlp --dlp-token-file dlp.token
+mkdir dlp-tokens
+openssl rand -hex 32 > dlp-tokens/proxy-eu   # one token per gateway, named for it
+openssl rand -hex 32 > dlp-tokens/kong-us
+halo-server ... --gateway-dlp-tokens-dir dlp-tokens
+halo-proxy  ... --dlp-url https://halo-server/api/v1/gateway/dlp --dlp-token-file dlp-tokens/proxy-eu
 ```
+
+The actor of each entry is the gateway whose token sent it (`gateway:proxy-eu`); a batch naming another gateway in its body is refused. With one token every gateway shares (`--gateway-dlp-token-file` or the shared gateway token), any gateway could write as any other, so entries are recorded as `gateway:unverified` with the name the body claims in `details.claimedGateway`.
 
 halo-kong: `dlp_url` and `dlp_token` (`{vault://env/HALO_DLP_TOKEN}`) in the plugin config. Without a URL, findings are still counted and logged. One finding is audited once an hour per user even though the history repeats it on every turn.
 

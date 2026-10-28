@@ -70,6 +70,12 @@ type Config struct {
 	GatewayBudgetToken     string
 	GatewayDirectoryToken  string
 	GatewayDLPToken        string // POST /api/v1/gateway/dlp/events (ADR-0033)
+	// GatewayDLPTokens maps a gateway name to its own DLP token. An event
+	// batch sent with one is attributed to that gateway (a gateway name in the
+	// body that differs is refused); one sent with GatewayDLPToken or the
+	// shared token is recorded as gateway:unverified with the name it claims.
+	// Setting any enables the endpoint.
+	GatewayDLPTokens map[string]string
 
 	// PostureMaxAge: a device whose last report is older is stale (GET
 	// /api/v1/gateway/posture, served whenever GatewayToken is set). 0 = DefaultPostureMaxAge.
@@ -134,6 +140,7 @@ type Server struct {
 	relChannels   channelsFetch // ring release -> experiment channels; swapped in tests
 	kills         *controller.KillStore
 	gwSums        map[gatewayCap][32]byte // sha256 of the token each enabled gateway capability accepts
+	dlpGateways   []namedSum              // per-gateway DLP tokens (GatewayDLPTokens), hashed
 	scim          *scimService            // nil = SCIM off
 	budgets       *budgetStore
 	dlpBatches    dlpBatches // recent DLP audit batch ids (ADR-0033)
@@ -151,6 +158,11 @@ func New(cfg Config) (*Server, error) {
 	}
 	if err := validRoles(cfg.DevRoles); err != nil {
 		return nil, fmt.Errorf("server: dev roles: %w", err)
+	}
+	for name, t := range cfg.GatewayDLPTokens {
+		if !dlpEnumRe.MatchString(name) || t == "" {
+			return nil, fmt.Errorf("server: gateway DLP token %q: the name must match %s and the token be set", name, dlpEnumRe)
+		}
 	}
 	if cfg.DevAdmin && !slices.Contains(cfg.DevRoles, RoleAdmin) {
 		cfg.DevRoles = append(slices.Clip(cfg.DevRoles), RoleAdmin)
@@ -282,6 +294,9 @@ func New(cfg Config) (*Server, error) {
 		}
 	}
 	s.gwSums = gatewaySums(cfg)
+	for name, t := range cfg.GatewayDLPTokens {
+		s.dlpGateways = append(s.dlpGateways, namedSum{name, sha256.Sum256([]byte(t))})
+	}
 	if s.scim, err = newSCIM(cfg); err != nil {
 		return nil, err
 	}
