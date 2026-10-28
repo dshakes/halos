@@ -111,6 +111,9 @@ func newProxy(cfg Config, log *slog.Logger) (*Proxy, error) {
 	if p.dir, err = cfg.Directory.build(log); err != nil {
 		return nil, err
 	}
+	if p.dir == nil && cfg.Identity.workloadKeys != "" {
+		log.Warn("halo-proxy: " + gateway.NoRevocationWarning)
+	}
 	if p.bc, err = cfg.Budgets.build(log); err != nil {
 		return nil, err
 	}

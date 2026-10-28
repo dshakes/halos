@@ -65,7 +65,7 @@ One table, `halo_revocations (kind, rkey, epoch, expires_at, record)` (`internal
 
 - **Good.** One leaked CI or agent credential is cut off without rotating the key or touching anyone else; a compromised agent is cut off everywhere in every chain.
 - **Good.** No new hot-path dependency: gateways check a cached list in memory.
-- **Bad.** Gateway enforcement depends on the SCIM directory endpoint being configured; without it, revocation holds only on halo-server.
+- **Bad.** Gateway enforcement needs the directory URL configured; without it, revocation holds only on halo-server. A deployment without SCIM sets `directory.mode: revocations` (halo-proxy) or `directory_mode: revocations` (halo-kong): the gateway fetches only the revocation list, which halo-server serves with or without SCIM, and never looks subjects up, so groups stay the verified credential's. A gateway that accepts halo-server credentials (`identity.workloadPubkeyFile`, `workload_pubkey`) without a directory URL logs a warning at startup (halo-kong: on the first request of each config) that revoked credentials are accepted until they expire.
 - **Bad.** A binary at schema 2 ignores the table: during a mixed-version rollout an old replica does not check revocations.
 - **Neutral.** The single-replica log is never compacted; expired rows are skipped on replay.
 
@@ -77,4 +77,5 @@ One table, `halo_revocations (kind, rkey, epoch, expires_at, record)` (`internal
 | API: validation, `admin` only, AuditStrict, 409 at the cap | `internal/server/revocations.go`, `rbac.go` | `TestRevocationAPI`, `TestRevocationCap` | Done |
 | halo-server enforcement: jti lineage, subject epochs, workload-rooted chains, every replica, fail closed | `internal/server/delegation.go`, `revocations.go` | `TestRevokedJTIKillsLineage`, `TestRevokedSubjectEpoch`, `TestRevocationsAcrossReplicasInMemory`, `TestRevocationsAcrossReplicasPostgres`, `TestRevocationsFailClosed` | Done |
 | Gateway list, check and fail mode | `internal/gateway/revocation.go`, `directory.go` | `internal/gateway/revocation_test.go` `TestRevocationListCheck`, `TestDirectoryRevocations`; `internal/server/revocations_test.go` `TestGatewayRevocationList`, `TestRevocationReachesGatewayWithinBound` | Done |
+| Revocations-only directory mode; warning without a directory URL | `internal/gateway/directory.go`, `cmd/halo-proxy/directory.go`, `cmd/halo-kong/main.go` | `TestDirectoryRevocationsOnly`; `cmd/halo-proxy` `TestDirectoryConfig`, `TestNoRevocationWarning`; `cmd/halo-kong` `TestDirectoryRevocationsMode` | Done |
 | `halo agents revoke`, `halo agents revocations` | `cmd/halo/cmd_revoke.go` | `cmd/halo/cmd_revoke_test.go` `TestAgentsRevoke` | Done |

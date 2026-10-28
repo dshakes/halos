@@ -123,5 +123,5 @@ halo-server refuses a revoked credential at the next exchange or egress decision
 
 ## Limits
 
-- Revocation reaches a gateway only through its directory (`directory.url`), within 30 seconds. A gateway without one keeps accepting a revoked credential until `exp` (at most `maxTTLSeconds`), until any agent of its chain leaves `actors`, or until its root is deprovisioned.
+- Revocation reaches a gateway only through its directory (`directory.url`), within 30 seconds. A gateway without one keeps accepting a revoked credential until `exp` (at most `maxTTLSeconds`), until any agent of its chain leaves `actors`, or until its root is deprovisioned, and warns about it at startup. Without SCIM, set `directory.mode: revocations` (halo-kong `directory_mode: revocations`): the gateway fetches only the revocation list and never looks callers up.
 - The egress API is advisory until a proxy enforces it.
