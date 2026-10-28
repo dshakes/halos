@@ -68,13 +68,14 @@ Each `halod` cycle reads the console user's own MCP configs for the harnesses th
 ```json
 "mcpDrift": [
   {"harness": "claude-code", "file": "/Users/dev/.claude.json", "server": "playwright", "kind": "version-drift",
-   "detail": "defined as npx -y @playwright/mcp@latest; the registry pins npx -y @playwright/mcp@0.0.82",
+   "transport": "stdio", "definitionSha256": "93098e84bb3984832b76cd6c573afb9fcfff0a17cf58956f9703e827e3f81a30",
+   "detail": "defined as a stdio command (definition sha256 93098e84bb39); the registry pins npx -y @playwright/mcp@0.0.82",
    "fix": "change \"playwright\" to npx -y @playwright/mcp@0.0.82, or remove it (the managed config already provides it)"},
   {"harness": "codex", "file": "/Users/dev/.codex/config.toml", "server": "scraper", "kind": "unapproved", ...}
 ]
 ```
 
-`halod` never edits user files. Project `.mcp.json` files are not scanned. It reads only regular files (never through a symlink), and `detail` drops a URL's credentials, query and fragment and shows `[redacted]` for any command argument that looks like a credential.
+`halod` never edits user files. Project `.mcp.json` files are not scanned. It reads only regular files, opened inside the user's home (`os.Root`: no symlinked directory or `..` leads out of it), never through a final symlink, without blocking, and only if the opened file is the one it checked (device and inode). Findings leave the device, so they name the server, its transport (`stdio` or `http`), an http server's host (no userinfo, path or query) and the sha256 of the user's full definition (URL, or command and arguments separated by NUL bytes; compare with `printf 'npx\0-y\0@playwright/mcp@latest\0' | shasum -a 256`). They never carry the command, its arguments or a URL path, any of which can hold a credential.
 
 ## 5. Halos as the authorization server
 

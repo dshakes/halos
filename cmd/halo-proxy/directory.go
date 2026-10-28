@@ -27,6 +27,10 @@ type DirectoryConfig struct {
 	// (default routing, no experiments; posture gate and per-user budgets
 	// still apply); closed answers 503. A caller is never made anonymous.
 	FailMode string `yaml:"failMode"`
+	// Mode: full (default) resolves callers in SCIM and checks halo-server
+	// credentials against the revocation list (ADR-0026); revocations checks
+	// only the revocation list, for a halo-server without SCIM.
+	Mode string `yaml:"mode"`
 	// AllowInsecureInCluster permits plain http to a non-loopback host.
 	AllowInsecureInCluster bool `yaml:"allowInsecureInCluster"`
 }
@@ -34,6 +38,9 @@ type DirectoryConfig struct {
 // build returns nil when the directory is not configured.
 func (c DirectoryConfig) build(log *slog.Logger) (*gateway.DirectoryClient, error) {
 	if err := gateway.CheckDirectoryFailMode(c.FailMode); err != nil {
+		return nil, fmt.Errorf("halo-proxy: %w", err)
+	}
+	if err := gateway.CheckDirectoryMode(c.Mode); err != nil {
 		return nil, fmt.Errorf("halo-proxy: %w", err)
 	}
 	if c.URL == "" {
@@ -54,5 +61,6 @@ func (c DirectoryConfig) build(log *slog.Logger) (*gateway.DirectoryClient, erro
 		return nil, fmt.Errorf("halo-proxy: %w", err)
 	}
 	dc.FailClosed = c.FailMode == gateway.DirectoryFailClosed
+	dc.RevocationsOnly = c.Mode == gateway.DirectoryModeRevocations
 	return dc, nil
 }

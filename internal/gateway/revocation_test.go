@@ -63,6 +63,48 @@ func TestRevocationListCheck(t *testing.T) {
 	}
 }
 
+// TestDirectoryRevocationsOnly: mode revocations refuses a revoked human-rooted
+// agent and workload but never asks SCIM (a halo-server without SCIM answers
+// lookups 404), and keeps the verified credential's groups.
+func TestDirectoryRevocationsOnly(t *testing.T) {
+	var lookups atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("revocations") != "1" {
+			lookups.Add(1)
+			http.Error(w, "SCIM directory not configured", http.StatusNotFound)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(RevocationList{JTIs: map[string]int64{"dead": 9999}, Subjects: map[string]int64{}})
+	}))
+	t.Cleanup(srv.Close)
+	c, err := NewDirectoryClient(srv.URL, "tok", time.Minute, time.Minute, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.RevocationsOnly = true
+	ctx := context.Background()
+	if _, err := c.Resolve(ctx, agentSub("bob@acme.com", "", 1, 1, []string{"a1", "dead"}, "reviewer")); !errors.Is(err, ErrCredentialRevoked) {
+		t.Fatalf("revoked agent: %v", err)
+	}
+	if _, err := c.Resolve(ctx, &policy.Subject{ID: "workload:x", Kind: policy.SubjectWorkload, Credential: &policy.CredentialRef{IDs: []string{"dead"}}}); !errors.Is(err, ErrCredentialRevoked) {
+		t.Fatalf("revoked workload: %v", err)
+	}
+	ok := agentSub("bob@acme.com", "", 1, 1, []string{"a2"}, "reviewer")
+	ok.Groups = []string{"eng"}
+	for _, s := range []*policy.Subject{ok, {ID: "alice@acme.com", Groups: []string{"eng"}}} {
+		got, err := c.Resolve(ctx, s)
+		if err != nil || got == nil || got.ID != s.ID || len(got.Groups) != 1 || got.Groups[0] != "eng" || got.Delegation != s.Delegation {
+			t.Fatalf("%s: %+v %v, want it unchanged", s.ID, got, err)
+		}
+	}
+	if lookups.Load() != 0 {
+		t.Fatalf("revocations-only mode looked subjects up in SCIM %d times", lookups.Load())
+	}
+	if CheckDirectoryMode(DirectoryModeRevocations) != nil || CheckDirectoryMode("") != nil || CheckDirectoryMode("scim") == nil {
+		t.Fatal("CheckDirectoryMode")
+	}
+}
+
 // TestDirectoryRevocations: the client fetches the list for credential
 // holders only, reuses it for RevocationTTL (the propagation bound), and
 // through an outage keeps a list younger than Grace; past Grace fail closed

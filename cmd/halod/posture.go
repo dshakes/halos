@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"os/user"
+	"path/filepath"
 	"sort"
 
 	"github.com/dshakes/halos/internal/harness"
@@ -43,26 +44,42 @@ func (a *Agent) postureDrift(rel *release.Release, st *Status) {
 // maxPostureFile). Contents are parsed for a few keys and never echoed.
 func (a *Agent) readSettings(p string) ([]byte, error) { return a.readUserFile(p, maxPostureFile) }
 
-// readUserFile reads a file the console user owns. halod runs as root, so only
-// a regular file (not a symlink: it could point at a root-only file) up to max
-// bytes is read, opened without blocking (a FIFO swapped in after the Lstat
-// cannot hang the cycle). A missing file is an error wrapping fs.ErrNotExist.
+// readUserFile reads a file the console user owns. halod runs as root, so the
+// file is opened through an os.Root at the user's home (at its own directory
+// for a path outside home, such as a managed file): no symlinked directory
+// (~/.gemini -> /root-only) or `..` can lead out of it. Only a regular file
+// (not a symlink: it could point at a root-only file) up to max bytes is
+// read, opened without blocking and without following a final symlink (a
+// FIFO or symlink swapped in after the Lstat cannot hang the cycle or
+// redirect it), and the opened file must be the one Lstat saw (device and
+// inode). A missing file is an error wrapping fs.ErrNotExist.
 func (a *Agent) readUserFile(p string, max int64) ([]byte, error) {
 	p = a.path(p)
-	fi, err := os.Lstat(p)
+	dir, name := filepath.Dir(p), filepath.Base(p)
+	if h := a.userHome(); h != "" {
+		if rel, err := filepath.Rel(a.path(h), p); err == nil && filepath.IsLocal(rel) {
+			dir, name = a.path(h), rel
+		}
+	}
+	r, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = r.Close() }()
+	fi, err := r.Lstat(name)
 	if err != nil {
 		return nil, err
 	}
 	if !fi.Mode().IsRegular() || fi.Size() > max {
 		return nil, fmt.Errorf("%s: not a regular file of at most %d bytes", p, max)
 	}
-	f, err := os.OpenFile(p, os.O_RDONLY|openNonblock, 0)
+	f, err := r.OpenFile(name, os.O_RDONLY|openNonblock|openNoFollow, 0)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = f.Close() }() // read-only
-	if fi, err := f.Stat(); err != nil || !fi.Mode().IsRegular() {
-		return nil, fmt.Errorf("%s: not a regular file", p)
+	if ofi, err := f.Stat(); err != nil || !ofi.Mode().IsRegular() || !os.SameFile(fi, ofi) {
+		return nil, fmt.Errorf("%s: not the regular file it was a moment ago", p)
 	}
 	b, err := io.ReadAll(io.LimitReader(f, max+1))
 	if err != nil {

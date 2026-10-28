@@ -42,7 +42,7 @@ func TestGatewayDLPEventsAudited(t *testing.T) {
 		t.Fatalf("audit: verified=%v dlp entries %+v", r.Verified, got)
 	}
 	s, i := got[0], got[1]
-	if s.Action != "dlp.secret" || s.Actor != "gateway:halo-proxy" || s.Target != "alice@acme.example" || s.Details["detector"] != "github-token" ||
+	if s.Action != "dlp.secret" || s.Actor != "gateway:unverified" || s.Details["claimedGateway"] != "halo-proxy" || s.Target != "alice@acme.example" || s.Details["detector"] != "github-token" ||
 		s.Details["hash"] != "0a1b2c3d" || s.Details["ring"] != "ga" || s.Details["unit"] != "payments" || s.Details["action"] != "redact" || s.Details["batch"] != "b-1" {
 		t.Fatalf("secret entry %+v", s)
 	}
@@ -84,5 +84,51 @@ func TestGatewayDLPEventsRejects(t *testing.T) {
 	}
 	if w := do(newEnv(t, nil).h, "POST", "/api/v1/gateway/dlp/events", "Bearer x", `{}`); w.Code != http.StatusNotFound {
 		t.Fatalf("unconfigured: %d", w.Code)
+	}
+}
+
+// A per-gateway DLP token names the gateway: the body cannot claim another,
+// and one token cannot be used to write events as a different gateway.
+func TestGatewayDLPPerGatewayTokens(t *testing.T) {
+	e := newEnv(t, func(c *Config) {
+		c.GatewayDLPToken = "dlp-tok"
+		c.GatewayDLPTokens = map[string]string{"proxy-eu": "eu-tok", "kong-us": "us-tok"}
+	})
+	post := func(auth, batch string, f func(*gateway.DLPEvent)) int {
+		ev := dlpEvent()
+		f(&ev)
+		return do(e.h, "POST", "/api/v1/gateway/dlp/events", auth, mustJSON(t, gateway.DLPBatch{Batch: batch, Events: []gateway.DLPEvent{ev}})).Code
+	}
+	for _, tc := range []struct {
+		name, auth, batch string
+		f                 func(*gateway.DLPEvent)
+		want              int
+	}{
+		{"own name", "Bearer eu-tok", "b-own", func(ev *gateway.DLPEvent) { ev.Gateway = "proxy-eu" }, 200},
+		{"no name", "Bearer us-tok", "b-none", func(ev *gateway.DLPEvent) { ev.Gateway = "" }, 200},
+		{"another gateway's name", "Bearer eu-tok", "b-spoof", func(ev *gateway.DLPEvent) { ev.Gateway = "kong-us" }, 422},
+		{"unknown token", "Bearer nope", "b-bad", func(*gateway.DLPEvent) {}, 401},
+	} {
+		if got := post(tc.auth, tc.batch, tc.f); got != tc.want {
+			t.Errorf("%s: %d, want %d", tc.name, got, tc.want)
+		}
+	}
+	r := decode[AuditResponse](t, e.as(admin, "GET", "/api/v1/audit", ""))
+	actors := map[string]string{}
+	for _, a := range r.Entries {
+		if strings.HasPrefix(a.Action, "dlp.") {
+			actors[a.Details["batch"]] = a.Actor + "|" + a.Details["claimedGateway"]
+		}
+	}
+	if len(actors) != 2 || actors["b-own"] != "gateway:proxy-eu|" || actors["b-none"] != "gateway:kong-us|" {
+		t.Fatalf("actors %v", actors)
+	}
+	// Per-gateway tokens alone enable the endpoint.
+	only := newEnv(t, func(c *Config) { c.GatewayDLPTokens = map[string]string{"proxy-eu": "eu-tok"} })
+	if w := do(only.h, "POST", "/api/v1/gateway/dlp/events", "Bearer eu-tok", mustJSON(t, gateway.DLPBatch{Batch: "b", Events: []gateway.DLPEvent{dlpEvent()}})); w.Code != 422 {
+		t.Fatalf("per-gateway only, body names halo-proxy: %d %s", w.Code, w.Body)
+	}
+	if _, err := New(Config{Token: tok, DevUser: "u", GatewayDLPTokens: map[string]string{"Bad Name": "x"}}); err == nil {
+		t.Fatal("a gateway name outside the charset must be refused")
 	}
 }

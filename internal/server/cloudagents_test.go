@@ -77,10 +77,17 @@ func runEvent(id int, path, status, conclusion, login, updated string) []byte {
 	return b
 }
 
+// deliver posts a delivery whose id is derived from its body (GitHub gives
+// every delivery its own id; a redelivery keeps it).
 func deliver(h http.Handler, event string, body []byte, secret string) *httptest.ResponseRecorder {
+	sum := sha256.Sum256(body)
+	return deliverID(h, event, body, secret, hex.EncodeToString(sum[:8]))
+}
+
+func deliverID(h http.Handler, event string, body []byte, secret, id string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/cloud-agents/webhooks/github", strings.NewReader(string(body)))
 	r.Header.Set("X-GitHub-Event", event)
-	r.Header.Set("X-GitHub-Delivery", "d-1")
+	r.Header.Set("X-GitHub-Delivery", id)
 	if secret != "" {
 		m := hmac.New(sha256.New, []byte(secret))
 		m.Write(body)
@@ -136,6 +143,79 @@ func TestCloudWebhook(t *testing.T) {
 		if st.Who.User != "alice@acme.com" || st.Outcome != ledger.OutcomeCompleted || st.Sources[0] != ledger.SourceCloudAgents {
 			t.Fatalf("ledger record %+v", st.Record)
 		}
+	}
+}
+
+// A replayed delivery (same id, or a new id with the same updated_at) never
+// records the task again or re-runs enforcement; a delivery that failed
+// before it was recorded can be redelivered.
+func TestCloudWebhookReplay(t *testing.T) {
+	s, h := newCloudServer(t, []string{RoleViewer}, nil)
+	count := func(action string) int {
+		snap, err := s.auditLog.snapshot()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer snap.close()
+		n := 0
+		_ = snap.from(1, func(_ []byte, e AuditEntry) bool {
+			if e.Action == action {
+				n++
+			}
+			return true
+		})
+		return n
+	}
+	// An unmapped login: every enforcement raises an unattributed alert.
+	running := runEvent(7, workflow.ClaudeWorkflow, "in_progress", "", "stranger", "2026-01-01T00:05:00Z")
+	if w := deliverID(h, "workflow_run", running, webhookSecret, "d-7"); w.Code != http.StatusOK {
+		t.Fatalf("first delivery: %d %s", w.Code, w.Body)
+	}
+	tasks, alerts := count(actionCloudTask), count(actionCloudAlert)
+	if tasks != 1 || alerts == 0 {
+		t.Fatalf("first delivery: %d tasks, %d alerts", tasks, alerts)
+	}
+	for _, tc := range []struct{ name, id, status string }{
+		{"same delivery id", "d-7", "duplicate"},
+		{"new id, equal updated_at", "d-7-replayed", "stale"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := deliverID(h, "workflow_run", running, webhookSecret, tc.id)
+			if w.Code != http.StatusAccepted || !strings.Contains(w.Body.String(), tc.status) {
+				t.Fatalf("replay: %d %s, want 202 %s", w.Code, w.Body, tc.status)
+			}
+			if count(actionCloudTask) != tasks || count(actionCloudAlert) != alerts {
+				t.Fatalf("replay recorded or enforced again: %d tasks, %d alerts", count(actionCloudTask), count(actionCloudAlert))
+			}
+		})
+	}
+	// The audit log catches a replay whose shared claim expired (or another
+	// replica's in-process cache missed it).
+	if err := s.kv.Delete(t.Context(), kvCloudDelivery, "d-7"); err != nil {
+		t.Fatal(err)
+	}
+	if w := deliverID(h, "workflow_run", running, webhookSecret, "d-7"); w.Code != http.StatusAccepted || !strings.Contains(w.Body.String(), "duplicate") {
+		t.Fatalf("replay after claim expiry: %d %s", w.Code, w.Body)
+	}
+	// A status that moves forward within the same second is not a replay.
+	done := runEvent(7, workflow.ClaudeWorkflow, "completed", "success", "stranger", "2026-01-01T00:05:00Z")
+	if w := deliverID(h, "workflow_run", done, webhookSecret, "d-8"); w.Code != http.StatusOK {
+		t.Fatalf("completed in the same second: %d %s", w.Code, w.Body)
+	}
+
+	// A delivery that cannot be recorded releases its claim for GitHub's redelivery.
+	fs, err := New(Config{PolicyDir: "../../examples/acme-corp", Token: tok, DataDir: t.TempDir(),
+		Log: slog.New(slog.NewTextHandler(io.Discard, nil)), DevUser: "u", CloudWebhookSecrets: []string{webhookSecret}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = fs.Close() })
+	_ = fs.auditLog.f.Close() // every append now errors
+	if w := deliverID(fs.Handler(), "workflow_run", running, webhookSecret, "d-9"); w.Code != http.StatusInternalServerError {
+		t.Fatalf("broken audit: %d %s", w.Code, w.Body)
+	}
+	if _, ok, err := fs.kv.Get(t.Context(), kvCloudDelivery, "d-9"); ok || err != nil {
+		t.Fatalf("failed delivery kept its claim (%v): a redelivery would be dropped", err)
 	}
 }
 

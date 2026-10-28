@@ -85,9 +85,10 @@ directory:
   cacheTTL: 1m   # how long a deprovisioned user can keep their cohort here
   grace: 5m      # serve the last entry this long if halo-server is unreachable
   failMode: open # past grace: open keeps the verified caller with no groups; closed answers 503
+  # mode: revocations  # only the credential revocation list (ADR-0026), for a halo-server without SCIM
 ```
 
-`halo-kong` plugin config: `directory_url`, `directory_token` (`{vault://env/halo-gateway-token}`), `directory_fail_mode` (`open` or `closed`), and `directory_allow_insecure_in_cluster` for a plain-http in-cluster URL.
+`halo-kong` plugin config: `directory_url`, `directory_token` (`{vault://env/halo-gateway-token}`), `directory_fail_mode` (`open` or `closed`), `directory_mode` (`full`, default, or `revocations`: only the ADR-0026 revocation list, no SCIM lookups), and `directory_allow_insecure_in_cluster` for a plain-http in-cluster URL.
 
 With a directory configured, the token's groups claim and any groups header no longer count: an active user gets the directory's groups; a verified user the directory lists as inactive, deleted or never provisioned is refused with 403 (in the CLI's error format). If halo-server is unreachable past `grace` with nothing cached (or the `halo-kong` directory config is invalid), the caller is never made anonymous: with `failMode: open` (default) they keep their verified identity with no groups, so default routing and no experiments, while the posture gate and per-user budgets still apply to them; with `closed` they get 503 with `Retry-After: 30`. Only an outage fails open (a transport error or a 5xx): any other non-200 answer from halo-server refuses the caller (403), and a caller whose last cached entry was inactive stays refused however long halo-server is unreachable. halo-server keeps a separate failed-auth budget per endpoint class, so garbage sent to its public token-exchange or SCIM endpoints from an IP a gateway shares cannot lock the gateway out of the directory. Workload credentials skip the directory. `userName` must match the IdP's user claim, case aside, and must not start with `workload:`. The user id still comes only from the verified token or trusted header.
 

@@ -81,7 +81,7 @@ The manifest carries `mcpMode` and the pinned servers (`mcpServers`: id, URL or 
 
 ### Drift
 
-`halod` reads the console user's own configs for the harnesses the release ships (`~/.claude.json` including `projects.*`, `~/.codex/config.toml`, `~/.gemini/settings.json`, `~/.copilot/mcp-config.json`, `~/.cursor/mcp.json`, `~/.config/opencode/opencode.json`) and reports in its status `mcpDrift`: **unapproved** (no pin for this device's ring or unit chain matches the name or the definition) and **version-drift** (the name matches a pin, the URL or command line does not), each with a fix hint. It never edits user files. Disabled servers are skipped. Project `.mcp.json` files are not scanned (halod does not know the user's projects).
+`halod` reads the console user's own configs for the harnesses the release ships (`~/.claude.json` including `projects.*`, `~/.codex/config.toml`, `~/.gemini/settings.json`, `~/.copilot/mcp-config.json`, `~/.cursor/mcp.json`, `~/.config/opencode/opencode.json`) and reports in its status `mcpDrift`: **unapproved** (no pin for this device's ring or unit chain matches the name or the definition) and **version-drift** (the name matches a pin, the URL or command line does not), each with a fix hint. A finding carries the server name, transport, an http host and the sha256 of the full definition, never the command, arguments or a URL path (they can hold credentials). It never edits user files. Disabled servers are skipped. Project `.mcp.json` files are not scanned (halod does not know the user's projects).
 
 ### Authorization
 

@@ -322,15 +322,24 @@ func (o *Org) DecideMCPToken(s Subject, resource string) MCPTokenDecision {
 }
 
 // MCPFinding is one MCP server halod found in a user config that the
-// release's registry does not approve, or approves at another version.
+// release's registry does not approve, or approves at another version. It
+// leaves the device, so it never carries the user's command, arguments or
+// URL beyond its host: any of them can hold a credential.
 type MCPFinding struct {
 	Harness string `json:"harness"`
 	File    string `json:"file"`
 	Server  string `json:"server"`
 	// Kind: unapproved | version-drift.
-	Kind   string `json:"kind"`
-	Detail string `json:"detail"`
-	Fix    string `json:"fix"`
+	Kind string `json:"kind"`
+	// Transport: stdio | http.
+	Transport string `json:"transport,omitempty"`
+	// Host of an http server's URL (no userinfo, path or query).
+	Host string `json:"host,omitempty"`
+	// DefinitionSHA256 is the hex sha256 of the full user definition (URL, or
+	// command and arguments), to tell definitions apart without showing them.
+	DefinitionSHA256 string `json:"definitionSha256,omitempty"`
+	Detail           string `json:"detail"`
+	Fix              string `json:"fix"`
 }
 
 var (

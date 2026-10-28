@@ -86,9 +86,11 @@ Every rendered workflow:
 - sets top-level `permissions: {}` and grants each job only what its vendor documents (Claude: `contents`, `pull-requests`, `issues` write and `id-token: write` for the App token exchange; Gemini: `contents: read`, `issues`/`pull-requests` write, `id-token: write`; Copilot: `contents: read`, as Copilot gets its own token);
 - checks out with `persist-credentials: false` and puts no `${{ }}` expression inside a `run:` script;
 - refuses bypass in the agent's own settings (Claude `permissions.disableBypassPermissionsMode: "disable"`, Gemini `security.disableYoloMode: true`);
-- with `identity: workload`, installs the pinned `halo` and runs `halo ci token --format github`, so the agent calls the Halos gateway with a short-lived workload credential and no long-lived vendor key exists in the repository. The Claude action refuses to start without a key input, so the gateway credential is passed as `anthropic_api_key` (halo-proxy reads `x-api-key`).
+- runs a mention-triggered agent only for a repository `OWNER`, `MEMBER` or `COLLABORATOR`, read from the field the trigger event carries (`comment`, `review` or `issue` `.author_association`), so an outside commenter cannot start an agent with write permissions;
+- runs only constant scripts: a policy value (halo version, server URL, audience) reaches a script only as a double-quoted `env:` value read as a quoted shell variable, never interpolated, and `workloads.audience` and each issuer `audience` must match `^[A-Za-z0-9._:/-]{1,128}$`;
+- with `identity: workload`, installs the pinned `halo` and runs `halo ci token --format github --audience "$HALO_AUDIENCE"` (the GitHub Actions issuer's `audience` when it overrides `workloads.audience`), so the agent calls the Halos gateway with a short-lived workload credential and no long-lived vendor key exists in the repository. The Claude action refuses to start without a key input, so the gateway credential is passed as `anthropic_api_key` (halo-proxy reads `x-api-key`).
 
-`workflow.Check` enforces the first four points and invariant 1 on the rendered bytes (permission-bypass tokens, literal credentials, unpinned actions, missing `permissions: {}`, `write-all`, expressions in scripts); any violation fails the release build.
+`workflow.Check` enforces the first four points and invariant 1 on the rendered bytes (permission-bypass tokens, literal credentials, unpinned actions, missing `permissions: {}`, `write-all`, expressions in scripts) and parses the file, refusing invalid YAML (an injected duplicate key) and any `run:` script that is not one Halos renders verbatim; any violation fails the release build.
 
 Console-configured settings extend ADR-0025's vendor plans: `halo admin plan|export` adds manual steps for Claude cloud sessions (enable, network level per environment), Codex cloud (role permission, internet access), Cursor cloud agents and Copilot cloud agent repository access, and reads each explicit repository's Copilot firewall (`GET /repos/{o}/{r}/copilot/cloud-agent/configuration`) as read-only settings diffed against policy. `halo admin apply` never writes them.
 
@@ -98,7 +100,7 @@ A cloud task is normalized to one shape: id `<vendor>:<repo>:<run>` or `cursor:<
 
 - **Webhook**: `POST /api/v1/cloud-agents/webhooks/github` (public; 404 without `--cloud-webhook-secret-file`). The `X-Hub-Signature-256` HMAC is verified in constant time against one secret, or two while rotating, over a body capped at 1 MiB. Only `workflow_run` deliveries of a governed workflow are kept: Halos's own file paths, Copilot's `dynamic/copilot-swe-agent/` path (UNVERIFIED), and the vendors' quick-setup files (`claude.yml`, `gemini-cli.yml`, ...), which are recorded as **unmanaged**. Others are acknowledged and dropped.
 - **Vendor APIs**: `halo cloud-agents list` without a server reads the Actions runs of each explicit repository and the Cursor key's agents (with usage when budgets need it), bounded per call.
-- **Storage**: a task is an audit entry `cloudagent.task` with the task JSON, like the session ledger (ADR-0031): one hash chain, the SIEM export, both backends. The newest version by vendor `updated_at` wins, so a replayed or reordered delivery is answered `stale` and stored nothing.
+- **Storage**: a task is an audit entry `cloudagent.task` with the task JSON, like the session ledger (ADR-0031): one hash chain, the SIEM export, both backends. The newest version by vendor `updated_at` wins, so a reordered delivery, or a replay with the same `updated_at` that does not move the status forward, is answered `stale` and stored nothing. Each `X-GitHub-Delivery` id is claimed once across replicas (shared state store, 72 hours) and checked against the stored tasks (audit log), so a replayed delivery is answered `duplicate` and never records or enforces again; a delivery that fails before it is recorded releases its claim for GitHub's redelivery.
 - **Identity**: `cloudAgents.identities` maps a GitHub login to a Halos user, resolved server-side at read time from current policy. A Cursor task belongs to the key's owner (`--cloud-cursor-user`): Cursor names no user. An unmapped active task raises an `unattributed` alert.
 - **Ledger**: a finished task becomes a `session.record` with source `cloudagents` (confidence high), harness `claude-code-action`, `gemini-cli-action`, `copilot-cloud-agent` or `cursor-cloud-agent`, redacted under the default policy (repositories counted, not kept).
 - `GET /api/v1/cloud-agents` (read permission) lists tasks updated in the last 7 days (`?active=true` for running ones) with alerts and what is configured.
@@ -122,16 +124,17 @@ A cloud task is normalized to one shape: id `<vendor>:<repo>:<run>` or `cursor:<
 - Policy unavailable: 503, nothing stored; GitHub redelivers.
 - Audit log unavailable: the task is not stored (500, GitHub redelivers); a kill is refused before any vendor call; a pause result that cannot be audited is logged.
 - Vendor API error: the action is `failed` with the redacted error, the others continue; a missing client is `no-client` and nothing is sent.
-- A replayed delivery older than the stored task: `stale`, nothing stored.
+- A replayed delivery (same delivery id): `duplicate`; one older than the stored task, or as new without a status change: `stale`. Nothing stored, nothing enforced.
 
 ## Security review
 
 | Risk | Control | Test |
 |---|---|---|
 | Forged webhook delivery | HMAC-SHA256 over the raw body, constant-time, empty secrets never match, two-secret rotation, GitHub's documented vector | `TestVerifySignature`, `TestCloudWebhook` |
-| Replay turns a finished task back to running (false alerts, pointless cancels) | newest `updated_at` wins; older delivery is `stale` | `TestCloudWebhook` (stale replay) |
+| Replay turns a finished task back to running (false alerts, pointless cancels) | delivery id claimed once across replicas and checked in the audit log; newest `updated_at` wins, equal without a status change is `stale` | `TestCloudWebhook`, `TestCloudWebhookReplay` |
 | Vendor strings reach API paths or terminals | strict charsets for repos, logins, ids, workflow paths; `url.PathEscape`; `Sanitize` on output | `TestParseGitHubEvent` (repo, login injection), `TestCursorNormalize` |
-| Workflow injection or privilege | SHA pins, `permissions: {}`, no expressions in scripts, `persist-credentials: false`, bypass and literal credential scan | `TestCheck`, `TestRenderGoldens` |
+| Workflow injection or privilege | SHA pins, `permissions: {}`, no expressions in scripts, constant scripts with policy values only in quoted `env:`, audience charset, `persist-credentials: false`, bypass and literal credential scan | `TestCheck`, `TestRenderGoldens`, `TestAudienceInjection`, `TestValidateWorkloads` |
+| Outside commenter starts an agent with write permissions | every trigger requires `author_association` OWNER, MEMBER or COLLABORATOR | `TestClaudeTrustedAuthorsOnly` |
 | Unattended destructive action | kill is dry run by default, reason required, operate permission, audited before any call; automatic actions are pauses only and never resumed | `TestCloudKill`, `TestKillFanOut`, `TestCloudOverLimitPauses` |
 | Credentials | files or environment variables only; vendoradmin client (no redirects, https or loopback, redacted errors) | `TestCloudAgentsConfig`, ADR-0025 tests |
 

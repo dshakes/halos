@@ -136,6 +136,10 @@ type Config struct {
 	// (default routing, no experiments; posture gate still applies) and closed
 	// answers 503. A caller is never made anonymous.
 	DirectoryFailMode string `json:"directory_fail_mode"`
+	// DirectoryMode: full (default) resolves callers in SCIM and checks
+	// halo-server credentials against the revocation list (ADR-0026);
+	// revocations checks only the revocation list, for a halo-server without SCIM.
+	DirectoryMode string `json:"directory_mode"`
 
 	// DLP audit: gateway.dlp findings are posted to halo-server's audit log
 	// (ADR-0033). Empty URL: findings are counted and logged only. The scan
@@ -282,13 +286,16 @@ func (c Config) directoryClient(kong kongAPI) (dc *gateway.DirectoryClient, inva
 		return nil, false
 	}
 	tok := secret(c.DirectoryToken)
-	key := c.DirectoryURL + "\x00" + tok + "\x00" + strconv.FormatBool(c.DirectoryAllowInsecure) + "\x00" + c.DirectoryFailMode
+	key := c.DirectoryURL + "\x00" + tok + "\x00" + strconv.FormatBool(c.DirectoryAllowInsecure) + "\x00" + c.DirectoryFailMode + "\x00" + c.DirectoryMode
 	directoryMu.Lock()
 	defer directoryMu.Unlock()
 	if dc, ok := directoryClients[key]; ok {
 		return dc, false
 	}
 	err := gateway.CheckDirectoryFailMode(c.DirectoryFailMode)
+	if err == nil {
+		err = gateway.CheckDirectoryMode(c.DirectoryMode)
+	}
 	if err == nil {
 		dc, err = gateway.NewDirectoryClient(c.DirectoryURL, tok, 0, 0, nil, c.DirectoryAllowInsecure)
 	}
@@ -297,9 +304,25 @@ func (c Config) directoryClient(kong kongAPI) (dc *gateway.DirectoryClient, inva
 		return nil, true
 	}
 	dc.FailClosed = c.DirectoryFailMode == gateway.DirectoryFailClosed
+	dc.RevocationsOnly = c.DirectoryMode == gateway.DirectoryModeRevocations
 	dc.Observe = kmetrics.directoryOutcome
 	directoryClients[key] = dc
 	return dc, false
+}
+
+// noRevocationWarned holds the workload_pubkey values already warned about.
+var noRevocationWarned sync.Map
+
+// warnNoRevocation logs gateway.NoRevocationWarning once per process for a
+// config that accepts halo-server credentials without a directory_url (the
+// plugin has no startup hook of its own: the first request is its startup).
+func (c Config) warnNoRevocation(kong kongAPI) {
+	if c.DirectoryURL != "" || c.WorkloadPubkey == "" {
+		return
+	}
+	if _, seen := noRevocationWarned.LoadOrStore(c.WorkloadPubkey, true); !seen {
+		_ = kong.Warn("halo-kong: ", gateway.NoRevocationWarning)
+	}
 }
 
 // directoryDown is the answer for a verified caller when the directory config
@@ -626,6 +649,7 @@ func (c Config) access(kong kongAPI) {
 		return
 	}
 
+	c.warnNoRevocation(kong)
 	if dc, invalid := c.directoryClient(kong); dc != nil {
 		if sub, err = dc.Resolve(context.Background(), sub); err != nil { // a deprovisioned caller is refused, never anonymous
 			exit(kong, gateway.DirectoryReject(path, err)) // revoked, unavailable or not provisioned

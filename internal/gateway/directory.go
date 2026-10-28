@@ -59,6 +59,10 @@ type DirectoryClient struct {
 	// (0 = DefaultRevocationTTL). It is fetched only for callers holding a
 	// halo-server credential (workload or delegated agent).
 	RevocationTTL time.Duration
+	// RevocationsOnly (DirectoryModeRevocations) checks halo-server credentials
+	// against the revocation list and never looks a subject up in SCIM: groups
+	// stay the verified credential's. For deployments without SCIM.
+	RevocationsOnly bool
 
 	mu    sync.Mutex
 	cache map[string]directoryEntry
@@ -149,6 +153,30 @@ const (
 	DirectoryFailClosed = "closed"
 )
 
+// Directory modes (directory.mode): what the directory client asks halo-server.
+const (
+	// DirectoryModeFull (default) resolves every verified subject in SCIM and
+	// checks halo-server credentials against the revocation list.
+	DirectoryModeFull = "full"
+	// DirectoryModeRevocations only checks halo-server credentials (workload,
+	// delegated agent) against the revocation list (ADR-0026): no SCIM lookup,
+	// so it works on a halo-server without SCIM.
+	DirectoryModeRevocations = "revocations"
+)
+
+// CheckDirectoryMode validates a directory.mode value ("" = full).
+func CheckDirectoryMode(m string) error {
+	if m != "" && m != DirectoryModeFull && m != DirectoryModeRevocations {
+		return fmt.Errorf("directory.mode %q must be full or revocations", m)
+	}
+	return nil
+}
+
+// NoRevocationWarning is the startup warning a gateway logs when it accepts
+// halo-server credentials (workload keys set) without a directory URL: it
+// cannot see revocations (ADR-0026).
+const NoRevocationWarning = "workload and delegated agent credentials are accepted, but no directory URL is set: a revoked credential (ADR-0026) is accepted until it expires; set the directory URL (mode revocations needs no SCIM)"
+
 // CheckDirectoryFailMode validates a directory.failMode value ("" = open).
 func CheckDirectoryFailMode(m string) error {
 	if m != "" && m != DirectoryFailOpen && m != DirectoryFailClosed {
@@ -189,7 +217,7 @@ func (c *DirectoryClient) Resolve(ctx context.Context, sub *policy.Subject) (*po
 			return nil, err
 		}
 	}
-	if sub.Kind == policy.SubjectWorkload {
+	if sub.Kind == policy.SubjectWorkload || c.RevocationsOnly {
 		return &policy.Subject{ID: sub.ID, Groups: append([]string(nil), sub.Groups...), Kind: sub.Kind, Delegation: sub.Delegation, Credential: sub.Credential}, nil
 	}
 	now := c.now()

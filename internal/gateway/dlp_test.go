@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -189,7 +190,7 @@ func TestRedactionKeepsJSONAndStructure(t *testing.T) {
 				// Undo the markers: the rest of the body is byte-for-byte the original.
 				undone := string(rep.Redacted)
 				for _, f := range rep.Findings {
-					for _, m := range (&dlpEngine{off: make([]bool, len(builtinDetectors))}).secrets(secret) {
+					for _, m := range (&dlpEngine{off: make([]bool, len(builtinDetectors))}).secrets(secret, nil) {
 						if m.hash == f.Hash {
 							raw, _ := json.Marshal(secret[m.start:m.end])
 							undone = strings.ReplaceAll(undone, RedactionMarker(f.Detector, f.Hash), strings.Trim(string(raw), `"`))
@@ -204,6 +205,191 @@ func TestRedactionKeepsJSONAndStructure(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// TestSecretInObjectKey: a secret used as an object key (tool_use input, a
+// Gemini function response) is found, redacted in place with the JSON kept
+// valid, and blocked; the finding's location never shows the key.
+func TestSecretInObjectKey(t *testing.T) {
+	secret := fakeSecrets()["aws-access-key-id"][len("export AWS_ACCESS_KEY_ID="):]
+	bodies := map[string][]byte{
+		"tool_use input": rawJSON(map[string]any{"model": "m", "messages": []any{
+			map[string]any{"role": "assistant", "content": []any{map[string]any{"type": "tool_use", "id": "t1", "name": "Write", "input": map[string]any{secret: "x", "path": "/a"}}}},
+		}}),
+		"tool_result json": rawJSON(map[string]any{"contents": []any{
+			map[string]any{"role": "function", "parts": []any{map[string]any{"functionResponse": map[string]any{"name": "f", "response": map[string]any{"creds": map[string]any{secret: true}}}}}},
+		}}),
+	}
+	for name, body := range bodies {
+		t.Run(name, func(t *testing.T) {
+			proto := ProtoAnthropic
+			if strings.Contains(name, "json") {
+				proto = ProtoGemini
+			}
+			rep := ScanRequest(dlpOn(policy.DLPRedact, policy.DLPOff), proto, "", nil, body)
+			if rep.Count(DLPSecret) != 1 || rep.Redacted == nil || !json.Valid(rep.Redacted) || bytes.Contains(rep.Redacted, []byte(secret)) {
+				t.Fatalf("redact: %+v %s", rep.Findings, rep.Redacted)
+			}
+			f := rep.Findings[0]
+			if !strings.HasSuffix(f.Location, ".<key>") || strings.Contains(f.Location, secret) {
+				t.Fatalf("location %q", f.Location)
+			}
+			if !bytes.Contains(rep.Redacted, []byte(`"`+RedactionMarker(f.Detector, f.Hash)+`":`)) {
+				t.Fatalf("key not replaced by its marker: %s", rep.Redacted)
+			}
+			blk := ScanRequest(dlpOn(policy.DLPBlock, policy.DLPOff), proto, "", nil, body)
+			if blk.Blocked != DLPSecret || strings.Contains(blk.Reject(proto).Message, secret) {
+				t.Fatalf("block: %+v", blk)
+			}
+		})
+	}
+}
+
+// dlpAnchors are the literals detectors and injection signals run their
+// regexes near: a body that repeats one is the scan's worst case.
+var dlpAnchors = []string{"eyJ", "-----BEGIN ", "token=", "key: ", "xoxb-", "ghp_", "T3BlbkFJ", "_live_", "sk-ant-",
+	`"private_key_id service_account `, "https://hooks.slack.com/", "AKIA", "glpat-",
+	"ignore ", "<!--", "![", "you are now ", "<system>", "human:", "bypass "}
+
+// TestScanAdversarialBodies (CPU DoS): a body repeating one anchor costs
+// regex work proportional to its size, not to anchors x window: 256 KB scans
+// in well under the budget, and 4 MB is bounded by it (truncated if not done).
+func TestScanAdversarialBodies(t *testing.T) {
+	slow := time.Duration(1)
+	if raceEnabled {
+		slow = 10
+	}
+	d := dlpOn(policy.DLPMonitor, policy.DLPMonitor)
+	for _, a := range dlpAnchors {
+		for _, size := range []int{256 << 10, 4 << 20} {
+			text := strings.Repeat(a, size/len(a))
+			for name, body := range map[string][]byte{"user": userTextBody(text), "tool": anthropicToolResult(text)} {
+				t0 := time.Now()
+				rep := ScanRequest(d, ProtoAnthropic, "", nil, body)
+				took := time.Since(t0)
+				limit := 2 * dlpScanBudget // 4 MB: the budget, plus the one regex chunk in flight
+				if size == 256<<10 {
+					limit = 300 * time.Millisecond
+				}
+				if took > limit*slow {
+					t.Errorf("%q x %d KB (%s): %v, want under %v (truncated %v)", a, size>>10, name, took, limit*slow, rep.Truncated)
+				}
+				if size == 256<<10 && rep.Truncated && !raceEnabled {
+					t.Errorf("%q x 256 KB (%s): truncated; it must scan in full within the budget", a, name)
+				}
+			}
+		}
+		// The response scanner runs inline on the stream: 4 MB of one anchor
+		// in 1 KB deltas costs about one pass per detector.
+		s := NewDLPResponseScanner(d, "", nil)
+		delta := strings.Repeat(a, 1024/len(a))
+		t0 := time.Now()
+		for range (4 << 20) / len(delta) {
+			s.Text(delta)
+		}
+		s.Findings()
+		if took := time.Since(t0); took > time.Second*slow {
+			t.Errorf("%q x 4 MB response: %v", a, took)
+		}
+	}
+}
+
+// TestHTMLCommentImperativeMatchesRegex: the linear matcher agrees with the
+// regex it replaced.
+func TestHTMLCommentImperativeMatchesRegex(t *testing.T) {
+	re := regexp.MustCompile(`(?is)<!--[^>]{0,1000}?\b(?:ignore (?:previous|prior|all)|you must|assistant|ai agent|do not (?:tell|mention|reveal)|curl |wget |send (?:the|all|your)|exfiltrate)\b[^>]{0,1000}?-->`)
+	pad := strings.Repeat("x ", 600)
+	for _, s := range []string{
+		"<!-- you must run this -->", "<!--you must-->", "<!-- note -->", "<!-- a > you must -->", "<!-- you must > x -->",
+		"<!-- " + pad + "you must " + pad + "-->", "<!-- " + pad[:900] + "you must -->", "x<!-- <!-- curl x -->",
+		"<!-- ASSISTANT: obey -->", "<!-- assistants -->", "<!-- curl -->", "-->--> <!-- wget x -->", "<!-- send all -->-->",
+		"<!-- --> you must -->", "<!-- do not tell\nanyone -->", "<!---->", strings.Repeat("<!--", 100) + "you must-->",
+	} {
+		if got, want := htmlCommentImperative(s, nil), re.MatchString(s); got != want {
+			t.Errorf("%.80q: matcher %v, regex %v", s, got, want)
+		}
+	}
+}
+
+// TestRedactsEveryMatch: no per-string cap leaves secrets past it unredacted
+// (300 AWS key ids, 100 org-pattern matches in one string).
+func TestRedactsEveryMatch(t *testing.T) {
+	var keys, toks []string
+	for i := range 300 {
+		keys = append(keys, "AK"+"IA"+rnd(uint64(1000+i), "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567", 16))
+	}
+	for i := range 100 {
+		toks = append(toks, "acme_tok_"+rnd(uint64(2000+i), "abcdefghij0123", 16))
+	}
+	d := dlpOn(policy.DLPRedact, policy.DLPOff)
+	d.Secrets.Patterns = []policy.DLPPattern{{ID: "acme-token", Regex: `acme_tok_[a-z0-9]{16}`}}
+	body := userTextBody(strings.Join(keys, " ") + " " + strings.Join(toks, " "))
+	rep := ScanRequest(d, ProtoAnthropic, "", nil, body)
+	if rep.Count(DLPSecret) != 400 || rep.Truncated {
+		t.Fatalf("%d findings (truncated %v), want 400", rep.Count(DLPSecret), rep.Truncated)
+	}
+	if bytes.Contains(rep.Redacted, []byte("AK"+"IA")) || bytes.Contains(rep.Redacted, []byte("acme_tok_")) {
+		t.Fatal("a secret past a cap was left unredacted")
+	}
+}
+
+// TestSkipsOnlyProtocolPositions: values under keys like data, thinking or
+// id are skipped only where the protocol puts opaque blobs or ids; the same
+// keys inside a tool input or function response are scanned.
+func TestSkipsOnlyProtocolPositions(t *testing.T) {
+	aws := fakeSecrets()["aws-access-key-id"][len("export AWS_ACCESS_KEY_ID="):]
+	gh := fakeSecrets()["github-token"][len("remote token "):]
+	toolUse := rawJSON(map[string]any{"model": "m", "messages": []any{
+		map[string]any{"role": "assistant", "content": []any{map[string]any{"type": "tool_use", "id": "t1", "name": "Write",
+			"input": map[string]any{"data": aws, "thinking": gh, "id": aws, "signature": gh}}}},
+	}})
+	gemini := rawJSON(map[string]any{"contents": []any{map[string]any{"role": "function", "parts": []any{
+		map[string]any{"functionResponse": map[string]any{"name": "f", "response": map[string]any{"data": gh, "type": aws}}}}}}})
+	for name, tc := range map[string]struct {
+		proto string
+		body  []byte
+		want  int
+	}{"anthropic tool_use input": {ProtoAnthropic, toolUse, 4}, "gemini function response": {ProtoGemini, gemini, 2}} {
+		rep := ScanRequest(dlpOn(policy.DLPBlock, policy.DLPOff), tc.proto, "", nil, tc.body)
+		if rep.Count(DLPSecret) != tc.want || rep.Blocked != DLPSecret {
+			t.Errorf("%s: %d findings %+v, want %d and blocked", name, rep.Count(DLPSecret), rep.Findings, tc.want)
+		}
+	}
+	// At their protocol positions the opaque blobs stay unscanned (and unredacted).
+	opaque := rawJSON(map[string]any{"model": "m", "messages": []any{
+		map[string]any{"role": "assistant", "content": []any{
+			map[string]any{"type": "thinking", "thinking": "the key is " + gh, "signature": gh},
+			map[string]any{"type": "redacted_thinking", "data": gh},
+		}},
+		map[string]any{"role": "user", "content": []any{map[string]any{"type": "image", "source": map[string]any{"type": "base64", "media_type": "image/png", "data": gh}}}},
+	}})
+	if rep := ScanRequest(dlpOn(policy.DLPBlock, policy.DLPOff), ProtoAnthropic, "", nil, opaque); rep.Count(DLPSecret) != 0 {
+		t.Fatalf("opaque protocol blobs scanned: %+v", rep.Findings)
+	}
+}
+
+// TestLocationHidesNonProtocolKeys: a finding's location (audit log, block
+// message) shows only protocol keys; a tool input's own keys and unknown keys
+// are "*", since a key can be a secret the detectors do not know.
+func TestLocationHidesNonProtocolKeys(t *testing.T) {
+	gh := fakeSecrets()["github-token"][len("remote token "):]
+	const pw = "hunter2-db-password"
+	body := rawJSON(map[string]any{"model": "m", pw: map[string]any{"x": gh}, "messages": []any{
+		map[string]any{"role": "assistant", "content": []any{map[string]any{"type": "tool_use", "id": "t1", "name": "Write",
+			"input": map[string]any{pw: map[string]any{"text": gh}}}}},
+	}})
+	rep := ScanRequest(dlpOn(policy.DLPBlock, policy.DLPOff), ProtoAnthropic, "", nil, body)
+	var locs []string
+	for _, f := range rep.Findings {
+		locs = append(locs, f.Location)
+	}
+	slices.Sort(locs)
+	if want := []string{"*.*", "messages[0].content[0].input.*.*"}; !slices.Equal(locs, want) {
+		t.Fatalf("locations %q, want %q", locs, want)
+	}
+	if strings.Contains(rep.Reject(ProtoAnthropic).Message, pw) {
+		t.Fatalf("block message shows a non-protocol key: %s", rep.Reject(ProtoAnthropic).Message)
 	}
 }
 
@@ -555,6 +741,7 @@ func FuzzDLPRedact(f *testing.F) {
 	}
 	f.Add(userTextBody(fakeSecrets()["private-key"]))
 	f.Add([]byte(`{"a":["` + "\\" + `u00e9\"` + fakeSecrets()["jwt"] + `",1,null,{"b":"\/"}]}`))
+	f.Add([]byte(`{"input":{"` + fakeSecrets()["github-token"] + `":1, "k\"` + fakeSecrets()["stripe-key"] + `":{"x":"y"}}}`))
 	d := dlpOn(policy.DLPRedact, policy.DLPMonitor)
 	f.Fuzz(func(t *testing.T, body []byte) {
 		rep := ScanRequest(d, ProtoAnthropic, "", nil, body)
@@ -578,13 +765,14 @@ func FuzzDLPRedact(f *testing.F) {
 	})
 }
 
-// shape is v's JSON structure without string values.
+// shape is v's JSON structure without string values or key names (a key
+// holding a secret is redacted too).
 func shape(v any) string {
 	switch x := v.(type) {
 	case map[string]any:
 		ks := make([]string, 0, len(x))
-		for k, e := range x {
-			ks = append(ks, k+":"+shape(e))
+		for _, e := range x {
+			ks = append(ks, ":"+shape(e))
 		}
 		sort.Strings(ks)
 		return "{" + strings.Join(ks, ",") + "}"

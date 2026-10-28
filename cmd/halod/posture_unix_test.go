@@ -34,6 +34,50 @@ func TestReadSettingsFIFO(t *testing.T) {
 	_ = os.Remove(p)
 }
 
+// readUserFile never leaves the user's home through a symlinked directory
+// (~/.gemini -> a root-only dir), never follows a final symlink, and still
+// reads a regular file, in home and (managed files) outside it.
+func TestReadUserFileContainment(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home", "dev")
+	rootOnly := filepath.Join(root, "root-only")
+	for _, d := range []string{filepath.Join(home, ".codex"), rootOnly} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write := func(p, s string) {
+		if err := os.WriteFile(p, []byte(s), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(filepath.Join(rootOnly, "settings.json"), `{"secret":true}`)
+	write(filepath.Join(home, ".codex", "config.toml"), "ok = true\n")
+	if err := os.Symlink(rootOnly, filepath.Join(home, ".gemini")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(rootOnly, "settings.json"), filepath.Join(home, ".claude.json")); err != nil {
+		t.Fatal(err)
+	}
+	a := &Agent{User: "dev", Home: func(string) string { return home }}
+	for _, tc := range []struct {
+		name, path string
+		ok         bool
+	}{
+		{"regular file in home", filepath.Join(home, ".codex", "config.toml"), true},
+		{"file outside home (managed)", filepath.Join(rootOnly, "settings.json"), true},
+		{"symlinked parent dir", filepath.Join(home, ".gemini", "settings.json"), false},
+		{"final symlink", filepath.Join(home, ".claude.json"), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b, err := a.readSettings(tc.path)
+			if tc.ok != (err == nil) {
+				t.Fatalf("read %s: %q, %v (want ok=%v)", tc.path, b, err, tc.ok)
+			}
+		})
+	}
+}
+
 // MCP drift reads user configs as root: a symlink (to a file only root can
 // read) is not followed, so its servers are never echoed into findings, and a
 // FIFO does not hang the cycle.
@@ -50,12 +94,22 @@ func TestMCPDriftUserFileSafety(t *testing.T) {
 	if err := os.Symlink(secret, filepath.Join(home, ".claude.json")); err != nil {
 		t.Fatal(err)
 	}
+	rootDir := filepath.Join(root, "root-only")
+	if err := os.MkdirAll(rootDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rootDir, "config.toml"), []byte("[mcp_servers.leak]\ncommand = \"tool\"\nargs = [\"--token\", \"s3cr3t\"]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(rootDir, filepath.Join(home, ".codex")); err != nil { // symlinked parent dir
+		t.Fatal(err)
+	}
 	if err := syscall.Mkfifo(filepath.Join(home, ".gemini", "settings.json"), 0o644); err != nil {
 		t.Skipf("mkfifo: %v", err)
 	}
 	a := &Agent{Home: func(string) string { return home }}
 	rel := &release.Release{Manifest: release.Manifest{Ring: "ga", MCPMode: policy.MCPModeAllowlist,
-		Harnesses: map[string]release.HarnessEntry{"claude-code": {}, "gemini-cli": {}}}}
+		Harnesses: map[string]release.HarnessEntry{"claude-code": {}, "codex": {}, "gemini-cli": {}}}}
 	done := make(chan []policy.MCPFinding, 1)
 	go func() { done <- a.mcpDrift(rel, nil) }()
 	select {

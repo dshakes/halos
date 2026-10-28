@@ -1,6 +1,8 @@
 package server
 
 import (
+	"crypto/sha256"
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"net/http"
@@ -90,12 +92,19 @@ func validDLPEvent(e gateway.DLPEvent) error {
 // SIEM export (ADR-0016) carries it. A failed append answers 503 and the
 // gateway resends the batch; a batch id seen in the last hour is acknowledged
 // without appending again.
+//
+// Which gateway sent the batch comes from the token, never the body: a
+// per-gateway token (GatewayDLPTokens) attributes it to that gateway and a
+// body gateway name that differs is refused; the DLP capability or shared
+// token attributes it to gateway:unverified, with the body's name kept only
+// as details.claimedGateway.
 func (s *Server) postGatewayDLPEvents(w http.ResponseWriter, r *http.Request) {
-	if !s.gatewayEnabled(capDLP) {
+	if !s.gatewayEnabled(capDLP) && len(s.dlpGateways) == 0 {
 		apiErr(w, http.StatusNotFound, "dlp audit not configured")
 		return
 	}
-	if !s.gatewayAuth(w, r, capDLP) {
+	verified, ok := s.dlpGatewayAuth(w, r)
+	if !ok {
 		return
 	}
 	var in gateway.DLPBatch
@@ -121,6 +130,10 @@ func (s *Server) postGatewayDLPEvents(w http.ResponseWriter, r *http.Request) {
 			apiErr(w, http.StatusUnprocessableEntity, fmt.Sprintf("events[%d]: %v", i, err))
 			return
 		}
+		if verified != "" && e.Gateway != "" && e.Gateway != verified {
+			apiErr(w, http.StatusUnprocessableEntity, fmt.Sprintf("events[%d]: gateway %q is not the gateway this token belongs to", i, e.Gateway))
+			return
+		}
 	}
 	if !s.dlpBatches.first(in.Batch, s.cfg.Now()) {
 		writeJSON(w, http.StatusOK, map[string]any{"events": len(in.Events), "duplicate": true})
@@ -144,9 +157,12 @@ func (s *Server) postGatewayDLPEvents(w http.ResponseWriter, r *http.Request) {
 		if e.ToolData {
 			d["toolData"] = "true"
 		}
-		gw := e.Gateway
+		gw := verified
 		if gw == "" {
-			gw = "unknown"
+			gw = "unverified"
+			if e.Gateway != "" {
+				d["claimedGateway"] = e.Gateway
+			}
 		}
 		if err := s.AuditStrict(r.Context(), "gateway:"+gw, "dlp."+e.Kind, target, d); err != nil {
 			s.dlpBatches.forget(in.Batch) // not all appended: the resend must append (the rest twice; receivers dedupe on details.batch)
@@ -155,6 +171,30 @@ func (s *Server) postGatewayDLPEvents(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"events": len(in.Events), "duplicate": false})
+}
+
+// namedSum is the sha256 of the token one named gateway authenticates with.
+type namedSum struct {
+	name string
+	sum  [32]byte
+}
+
+// dlpGatewayAuth authenticates a DLP batch: the name of the gateway whose
+// own token (GatewayDLPTokens) it carries, or "" for the DLP capability (or
+// shared) token. Failures are gatewayAuth's (401/429, counted per IP).
+func (s *Server) dlpGatewayAuth(w http.ResponseWriter, r *http.Request) (string, bool) {
+	tok, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	sum := sha256.Sum256([]byte(tok))
+	name := ""
+	for _, g := range s.dlpGateways { // every entry compared: no early exit
+		if subtle.ConstantTimeCompare(sum[:], g.sum[:]) == 1 {
+			name = g.name
+		}
+	}
+	if ok && name != "" {
+		return name, true
+	}
+	return "", s.gatewayAuth(w, r, capDLP)
 }
 
 func (b *dlpBatches) forget(id string) {
