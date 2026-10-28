@@ -450,8 +450,10 @@ func (v *validator) registryTransport(p string, s RegistryServer) {
 		if len(s.Command) > 0 {
 			v.errf(p+".command", "package %s derives the command; omit command", pkg.Type)
 		}
-		if pkg.Identifier == "" || strings.ContainsAny(pkg.Identifier, " \t\r\n") {
-			v.errf(pp+".identifier", "%q must be a non-empty package name", pkg.Identifier)
+		// A leading '-' would be read as an option of npx, uvx or docker run
+		// (e.g. docker -v=/:/host, then an unpinned image from args).
+		if pkg.Identifier == "" || strings.HasPrefix(pkg.Identifier, "-") || strings.ContainsAny(pkg.Identifier, " \t\r\n") {
+			v.errf(pp+".identifier", "%q must be a non-empty package name not starting with '-'", pkg.Identifier)
 		}
 	}
 }

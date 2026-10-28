@@ -37,6 +37,11 @@ func TestValidateMCPRegistry(t *testing.T) {
 		{"oci pinned", func(o *Org) {
 			o.MCP.Servers[2].Package = &MCPPackage{Type: MCPPackageOCI, Identifier: "ghcr.io/acme/mcp", SHA256: sha}
 		}, nil},
+		{"identifier read as an option", func(o *Org) {
+			o.MCP.Servers[2].Package = &MCPPackage{Type: MCPPackageOCI, Identifier: "-v=/:/host", SHA256: sha, Args: []string{"alpine"}}
+		}, []string{"mcp.servers[2].package.identifier"}},
+		{"npm identifier read as an option", func(o *Org) { o.MCP.Servers[2].Package.Identifier = "--package=evil" },
+			[]string{"mcp.servers[2].package.identifier"}},
 		{"binary without command", func(o *Org) { o.MCP.Servers[2].Package = &MCPPackage{Type: MCPPackageBinary, SHA256: sha} },
 			[]string{"mcp.servers[2].command"}},
 		{"package with command", func(o *Org) { o.MCP.Servers[2].Command = []string{"npx", "x"} }, []string{"mcp.servers[2].command"}},
