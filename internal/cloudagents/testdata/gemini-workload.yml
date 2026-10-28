@@ -1,0 +1,46 @@
+# Rendered by Halos from cloudAgents.gemini (ADR-0034). Do not edit: change policy and
+# run `halo cloud-agents render`. For: every repository
+name: Gemini CLI (Halos)
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+permissions: {}
+jobs:
+  gemini:
+    if: >-
+      contains(github.event.comment.body, '@gemini-cli') &&
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Install halo
+        env:
+          HALO_VERSION: v0.3.0
+        run: |
+          set -euo pipefail
+          curl -fsSLo "$RUNNER_TEMP/install.sh" "https://raw.githubusercontent.com/dshakes/halos/${HALO_VERSION}/install/install.sh"
+          sh "$RUNNER_TEMP/install.sh" --version "$HALO_VERSION" --prefix "$RUNNER_TEMP/halo"
+      - name: Halos workload credential (ADR-0023)
+        env:
+          HALO_SERVER: https://halo.acme.example
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/halo/bin/halo" ci token --format github --audience halos-ci
+      - uses: google-github-actions/run-gemini-cli@f77273f4c914e4bf38440cf36a0369cb64a37489 # v0.1.22
+        with:
+          gemini_api_key: ${{ env.GEMINI_API_KEY }}
+          prompt: ${{ github.event.comment.body }}
+          settings: |
+            {"security": {"disableYoloMode": true}}
+          gemini_cli_version: 0.34.0
