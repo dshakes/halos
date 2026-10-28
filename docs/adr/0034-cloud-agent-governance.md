@@ -86,6 +86,7 @@ Every rendered workflow:
 - sets top-level `permissions: {}` and grants each job only what its vendor documents (Claude: `contents`, `pull-requests`, `issues` write and `id-token: write` for the App token exchange; Gemini: `contents: read`, `issues`/`pull-requests` write, `id-token: write`; Copilot: `contents: read`, as Copilot gets its own token);
 - checks out with `persist-credentials: false` and puts no `${{ }}` expression inside a `run:` script;
 - refuses bypass in the agent's own settings (Claude `permissions.disableBypassPermissionsMode: "disable"`, Gemini `security.disableYoloMode: true`);
+- runs a mention-triggered agent only for a repository `OWNER`, `MEMBER` or `COLLABORATOR`, read from the field the trigger event carries (`comment`, `review` or `issue` `.author_association`), so an outside commenter cannot start an agent with write permissions;
 - runs only constant scripts: a policy value (halo version, server URL, audience) reaches a script only as a double-quoted `env:` value read as a quoted shell variable, never interpolated, and `workloads.audience` and each issuer `audience` must match `^[A-Za-z0-9._:/-]{1,128}$`;
 - with `identity: workload`, installs the pinned `halo` and runs `halo ci token --format github --audience "$HALO_AUDIENCE"` (the GitHub Actions issuer's `audience` when it overrides `workloads.audience`), so the agent calls the Halos gateway with a short-lived workload credential and no long-lived vendor key exists in the repository. The Claude action refuses to start without a key input, so the gateway credential is passed as `anthropic_api_key` (halo-proxy reads `x-api-key`).
 
@@ -133,6 +134,7 @@ A cloud task is normalized to one shape: id `<vendor>:<repo>:<run>` or `cursor:<
 | Replay turns a finished task back to running (false alerts, pointless cancels) | newest `updated_at` wins; older delivery is `stale` | `TestCloudWebhook` (stale replay) |
 | Vendor strings reach API paths or terminals | strict charsets for repos, logins, ids, workflow paths; `url.PathEscape`; `Sanitize` on output | `TestParseGitHubEvent` (repo, login injection), `TestCursorNormalize` |
 | Workflow injection or privilege | SHA pins, `permissions: {}`, no expressions in scripts, constant scripts with policy values only in quoted `env:`, audience charset, `persist-credentials: false`, bypass and literal credential scan | `TestCheck`, `TestRenderGoldens`, `TestAudienceInjection`, `TestValidateWorkloads` |
+| Outside commenter starts an agent with write permissions | every trigger requires `author_association` OWNER, MEMBER or COLLABORATOR | `TestClaudeTrustedAuthorsOnly` |
 | Unattended destructive action | kill is dry run by default, reason required, operate permission, audited before any call; automatic actions are pauses only and never resumed | `TestCloudKill`, `TestKillFanOut`, `TestCloudOverLimitPauses` |
 | Credentials | files or environment variables only; vendoradmin client (no redirects, https or loopback, redacted errors) | `TestCloudAgentsConfig`, ADR-0025 tests |
 

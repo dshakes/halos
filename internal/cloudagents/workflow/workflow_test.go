@@ -118,6 +118,46 @@ func TestAudienceInjection(t *testing.T) {
 	}
 }
 
+// TestClaudeTrustedAuthorsOnly: every event the Claude workflow triggers on
+// runs only for a repository owner, member or collaborator, read from the
+// field that event carries.
+func TestClaudeTrustedAuthorsOnly(t *testing.T) {
+	files, _, err := Render(renderOrg(&policy.CloudAgents{Claude: &policy.CloudAgent{Enabled: true}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		On   map[string]any `yaml:"on"`
+		Jobs map[string]struct {
+			If string `yaml:"if"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(files[0].Data, &doc); err != nil {
+		t.Fatal(err)
+	}
+	field := map[string]string{
+		"issue_comment":               "github.event.comment.author_association",
+		"pull_request_review_comment": "github.event.comment.author_association",
+		"pull_request_review":         "github.event.review.author_association",
+		"issues":                      "github.event.issue.author_association",
+	}
+	clauses := strings.Split(strings.TrimPrefix(strings.Join(strings.Fields(doc.Jobs["claude"].If), " "), "(github.event_name"), " || (github.event_name")
+	if len(doc.On) != len(field) || len(clauses) != len(field) {
+		t.Fatalf("events %v, %d clauses: want one guarded clause per event %v", doc.On, len(clauses), field)
+	}
+	for _, c := range clauses {
+		ev, _, _ := strings.Cut(strings.TrimPrefix(c, " == '"), "'")
+		want, ok := field[ev]
+		if _, on := doc.On[ev]; !ok || !on {
+			t.Errorf("clause for unexpected event %q: %s", ev, c)
+			continue
+		}
+		if !strings.Contains(c, `contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), `+want+`)`) {
+			t.Errorf("%s: no author_association guard on %s:\n%s", ev, want, c)
+		}
+	}
+}
+
 func TestCheck(t *testing.T) {
 	ok := "permissions: {}\njobs:\n  a:\n    steps:\n      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7\n      - run: |\n" + indent(tokenScript, 10) + "        env:\n          X: ${{ github.event.comment.body }}\n"
 	tests := []struct{ name, data, want string }{
