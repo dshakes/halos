@@ -62,3 +62,20 @@ models:
   gemini-default:
     upstream: gemini-proxy
     model: gemini-2.5-pro
+# Data-loss prevention and prompt-injection defense (ADR-0033). Secrets are
+# redacted everywhere; payments (and its checkout child) refuses them. Tool
+# results that look like prompt injections are counted and audited, and
+# refused in the canary ring. `halo dlp test <file>` dry-runs this locally.
+dlp:
+  secrets:
+    action: redact
+    patterns:
+      - id: acme-deploy-token
+        regex: 'acme_dpl_[a-z0-9]{32}'
+  injection:
+    action: monitor
+  rules:
+    - units: [payments]
+      secrets: block
+    - rings: [ring1-canary]
+      injection: block
