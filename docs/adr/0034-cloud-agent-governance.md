@@ -100,7 +100,7 @@ A cloud task is normalized to one shape: id `<vendor>:<repo>:<run>` or `cursor:<
 
 - **Webhook**: `POST /api/v1/cloud-agents/webhooks/github` (public; 404 without `--cloud-webhook-secret-file`). The `X-Hub-Signature-256` HMAC is verified in constant time against one secret, or two while rotating, over a body capped at 1 MiB. Only `workflow_run` deliveries of a governed workflow are kept: Halos's own file paths, Copilot's `dynamic/copilot-swe-agent/` path (UNVERIFIED), and the vendors' quick-setup files (`claude.yml`, `gemini-cli.yml`, ...), which are recorded as **unmanaged**. Others are acknowledged and dropped.
 - **Vendor APIs**: `halo cloud-agents list` without a server reads the Actions runs of each explicit repository and the Cursor key's agents (with usage when budgets need it), bounded per call.
-- **Storage**: a task is an audit entry `cloudagent.task` with the task JSON, like the session ledger (ADR-0031): one hash chain, the SIEM export, both backends. The newest version by vendor `updated_at` wins, so a replayed or reordered delivery is answered `stale` and stored nothing.
+- **Storage**: a task is an audit entry `cloudagent.task` with the task JSON, like the session ledger (ADR-0031): one hash chain, the SIEM export, both backends. The newest version by vendor `updated_at` wins, so a reordered delivery, or a replay with the same `updated_at` that does not move the status forward, is answered `stale` and stored nothing. Each `X-GitHub-Delivery` id is claimed once across replicas (shared state store, 72 hours) and checked against the stored tasks (audit log), so a replayed delivery is answered `duplicate` and never records or enforces again; a delivery that fails before it is recorded releases its claim for GitHub's redelivery.
 - **Identity**: `cloudAgents.identities` maps a GitHub login to a Halos user, resolved server-side at read time from current policy. A Cursor task belongs to the key's owner (`--cloud-cursor-user`): Cursor names no user. An unmapped active task raises an `unattributed` alert.
 - **Ledger**: a finished task becomes a `session.record` with source `cloudagents` (confidence high), harness `claude-code-action`, `gemini-cli-action`, `copilot-cloud-agent` or `cursor-cloud-agent`, redacted under the default policy (repositories counted, not kept).
 - `GET /api/v1/cloud-agents` (read permission) lists tasks updated in the last 7 days (`?active=true` for running ones) with alerts and what is configured.
@@ -124,14 +124,14 @@ A cloud task is normalized to one shape: id `<vendor>:<repo>:<run>` or `cursor:<
 - Policy unavailable: 503, nothing stored; GitHub redelivers.
 - Audit log unavailable: the task is not stored (500, GitHub redelivers); a kill is refused before any vendor call; a pause result that cannot be audited is logged.
 - Vendor API error: the action is `failed` with the redacted error, the others continue; a missing client is `no-client` and nothing is sent.
-- A replayed delivery older than the stored task: `stale`, nothing stored.
+- A replayed delivery (same delivery id): `duplicate`; one older than the stored task, or as new without a status change: `stale`. Nothing stored, nothing enforced.
 
 ## Security review
 
 | Risk | Control | Test |
 |---|---|---|
 | Forged webhook delivery | HMAC-SHA256 over the raw body, constant-time, empty secrets never match, two-secret rotation, GitHub's documented vector | `TestVerifySignature`, `TestCloudWebhook` |
-| Replay turns a finished task back to running (false alerts, pointless cancels) | newest `updated_at` wins; older delivery is `stale` | `TestCloudWebhook` (stale replay) |
+| Replay turns a finished task back to running (false alerts, pointless cancels) | delivery id claimed once across replicas and checked in the audit log; newest `updated_at` wins, equal without a status change is `stale` | `TestCloudWebhook`, `TestCloudWebhookReplay` |
 | Vendor strings reach API paths or terminals | strict charsets for repos, logins, ids, workflow paths; `url.PathEscape`; `Sanitize` on output | `TestParseGitHubEvent` (repo, login injection), `TestCursorNormalize` |
 | Workflow injection or privilege | SHA pins, `permissions: {}`, no expressions in scripts, constant scripts with policy values only in quoted `env:`, audience charset, `persist-credentials: false`, bypass and literal credential scan | `TestCheck`, `TestRenderGoldens`, `TestAudienceInjection`, `TestValidateWorkloads` |
 | Outside commenter starts an agent with write permissions | every trigger requires `author_association` OWNER, MEMBER or COLLABORATOR | `TestClaudeTrustedAuthorsOnly` |

@@ -28,6 +28,10 @@ const (
 	webhookActor = "halo-server:cloud-agents"
 	// cloudRecent bounds GET /api/v1/cloud-agents to tasks updated this recently.
 	cloudRecent = 7 * 24 * time.Hour
+	// kvCloudDelivery claims each GitHub webhook delivery id once across
+	// replicas for cloudDeliveryTTL; the audit log catches older replays.
+	kvCloudDelivery  = "cloud-webhook-delivery"
+	cloudDeliveryTTL = 72 * time.Hour
 )
 
 // CloudAgentsView is GET /api/v1/cloud-agents.
@@ -60,15 +64,26 @@ type CloudKillResponse struct {
 // ponytail: a full audit scan per call, like the session ledger; keep an
 // index by task id if webhook volume makes this the hot path.
 func (s *Server) cloudTasks(ca *policy.CloudAgents) ([]cloudagents.Task, error) {
+	tasks, _, err := s.cloudTasksSeen(ca, "")
+	return tasks, err
+}
+
+// cloudTasksSeen is cloudTasks, plus whether a stored task was recorded from
+// webhook delivery id delivery ("" never matches).
+func (s *Server) cloudTasksSeen(ca *policy.CloudAgents, delivery string) ([]cloudagents.Task, bool, error) {
 	snap, err := s.auditLog.snapshot()
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer snap.close()
 	latest := map[string]cloudagents.Task{}
+	seen := false
 	err = snap.from(1, func(_ []byte, e AuditEntry) bool {
 		if e.Action != actionCloudTask {
 			return true
+		}
+		if delivery != "" && e.Details["delivery"] == delivery {
+			seen = true
 		}
 		var t cloudagents.Task
 		if json.Unmarshal([]byte(e.Details["task"]), &t) != nil || t.ID != e.Target {
@@ -80,7 +95,7 @@ func (s *Server) cloudTasks(ca *policy.CloudAgents) ([]cloudagents.Task, error) 
 		return true
 	})
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	out := make([]cloudagents.Task, 0, len(latest))
 	for _, t := range latest {
@@ -93,7 +108,18 @@ func (s *Server) cloudTasks(ca *policy.CloudAgents) ([]cloudagents.Task, error) 
 		}
 		return strings.Compare(a.ID, b.ID)
 	})
-	return out, nil
+	return out, seen, nil
+}
+
+// statusRank orders a task's lifecycle: queued, running, finished.
+func statusRank(status string) int {
+	switch status {
+	case cloudagents.StatusQueued:
+		return 0
+	case cloudagents.StatusRunning:
+		return 1
+	}
+	return 2
 }
 
 // cloudGroups resolves a user's groups from the SCIM directory (nil without one).
@@ -140,14 +166,49 @@ func (s *Server) postGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	task.Attribute(org.CloudAgents)
-	tasks, err := s.cloudTasks(org.CloudAgents)
+	delivery := r.Header.Get("X-GitHub-Delivery")
+	if len(delivery) > 64 {
+		delivery = delivery[:64]
+	}
+	// A delivery id is claimed once across replicas (the shared KV, bounded by
+	// cloudDeliveryTTL) and checked against the audit log (durable), so a
+	// replayed or redelivered delivery never records or enforces twice. A
+	// delivery that fails before it is recorded releases its claim, so
+	// GitHub's redelivery of it still lands.
+	release := func() {}
+	if delivery != "" {
+		added, err := s.kv.Add(r.Context(), kvCloudDelivery, delivery, nil, s.cfg.Now().Add(cloudDeliveryTTL))
+		if err != nil {
+			s.cfg.Log.Error("cloud webhook delivery cache", "err", err)
+			apiErr(w, http.StatusServiceUnavailable, "state store unavailable")
+			return
+		}
+		if !added {
+			writeJSON(w, http.StatusAccepted, map[string]string{"status": "duplicate", "task": task.ID})
+			return
+		}
+		release = func() {
+			if err := s.kv.Delete(context.WithoutCancel(r.Context()), kvCloudDelivery, delivery); err != nil {
+				s.cfg.Log.Error("cloud webhook delivery cache release", "err", err)
+			}
+		}
+	}
+	tasks, dup, err := s.cloudTasksSeen(org.CloudAgents, delivery)
 	if err != nil {
+		release()
 		s.cfg.Log.Error("read cloud agent tasks", "err", err)
 		apiErr(w, http.StatusInternalServerError, "audit log unreadable")
 		return
 	}
+	if dup {
+		writeJSON(w, http.StatusAccepted, map[string]string{"status": "duplicate", "task": task.ID})
+		return
+	}
 	if i := slices.IndexFunc(tasks, func(t cloudagents.Task) bool { return t.ID == task.ID }); i >= 0 {
-		if task.Updated.Before(tasks[i].Updated) {
+		// Equal updated_at is the version already stored (a replay under a new
+		// delivery id), unless it moves the task forward (queued -> running ->
+		// finished within one second).
+		if old := tasks[i]; task.Updated.Before(old.Updated) || (task.Updated.Equal(old.Updated) && statusRank(task.Status) <= statusRank(old.Status)) {
 			writeJSON(w, http.StatusAccepted, map[string]string{"status": "stale", "task": task.ID})
 			return
 		}
@@ -157,14 +218,12 @@ func (s *Server) postGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	b, err := json.Marshal(task)
 	if err != nil {
+		release()
 		apiErr(w, http.StatusInternalServerError, "encode task")
 		return
 	}
-	delivery := r.Header.Get("X-GitHub-Delivery")
-	if len(delivery) > 64 {
-		delivery = delivery[:64]
-	}
 	if err := s.AuditStrict(r.Context(), webhookActor, actionCloudTask, task.ID, map[string]string{"task": string(b), "delivery": delivery}); err != nil {
+		release()
 		apiErr(w, http.StatusInternalServerError, errAuditFailed)
 		return
 	}
