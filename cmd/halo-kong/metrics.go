@@ -25,9 +25,17 @@ type kongMetrics struct {
 	posture   map[[2]string]uint64 // {ring, outcome}
 	headerCap uint64
 	agentDeny uint64
+	dlp       map[[3]string]uint64 // {kind, detector, action}
 }
 
-var kmetrics = &kongMetrics{directory: map[string]uint64{}, posture: map[[2]string]uint64{}}
+var kmetrics = &kongMetrics{directory: map[string]uint64{}, posture: map[[2]string]uint64{}, dlp: map[[3]string]uint64{}}
+
+// dlpFinding counts one DLP finding on a request (ADR-0033).
+func (m *kongMetrics) dlpFinding(kind, detector, action string) {
+	m.mu.Lock()
+	m.dlp[[3]string{kind, detector, action}]++
+	m.mu.Unlock()
+}
 
 // directoryOutcome counts one directory resolution: ok, stale, failopen,
 // unavailable or not_provisioned (gateway.DirectoryClient.Observe), and
@@ -86,6 +94,16 @@ func (m *kongMetrics) write(w io.Writer) {
 		fmt.Fprintf(w, "halo_kong_posture_total{ring=\"%s\",outcome=\"%s\"} %d\n", esc(k[0]), esc(k[1]), m.posture[k])
 	}
 	fmt.Fprintf(w, "# HELP halo_kong_header_cap_rejections_total Requests answered 431 because they reached the %d-header cap.\n# TYPE halo_kong_header_cap_rejections_total counter\nhalo_kong_header_cap_rejections_total %d\n", maxHeaders, m.headerCap)
+	fmt.Fprintln(w, "# HELP halo_kong_dlp_findings_total Secrets and prompt-injection signals found in model-call requests, by detector and the action taken (ADR-0033).")
+	fmt.Fprintln(w, "# TYPE halo_kong_dlp_findings_total counter")
+	fk := make([][3]string, 0, len(m.dlp))
+	for k := range m.dlp {
+		fk = append(fk, k)
+	}
+	sort.Slice(fk, func(i, j int) bool { return strings.Join(fk[i][:], "\x00") < strings.Join(fk[j][:], "\x00") })
+	for _, k := range fk {
+		fmt.Fprintf(w, "halo_kong_dlp_findings_total{kind=\"%s\",detector=\"%s\",action=\"%s\"} %d\n", esc(k[0]), esc(k[1]), esc(k[2]), m.dlp[k])
+	}
 	fmt.Fprintf(w, "# HELP halo_kong_agent_denials_total Delegated agent model calls refused by the agent policy.\n# TYPE halo_kong_agent_denials_total counter\nhalo_kong_agent_denials_total %d\n", m.agentDeny)
 }
 
