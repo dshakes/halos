@@ -95,7 +95,7 @@ Scored only on tool output and documents entering the model (by wire: an Anthrop
 | `instruction-override` | 3 | "ignore / disregard / forget / override (all) previous / prior / above / system instructions / prompts / rules" |
 | `secret-in-url` | 3 | a detected secret inside an `http(s)://` URL |
 | `invisible-unicode` | 3 or 2 | Unicode tag characters (U+E0000–U+E007F, invisible ASCII smuggling): 3; zero-width or bidi controls (U+200B–U+200F, U+202A–U+202E, U+2060–U+2064, U+2066–U+2069, U+FEFF after the start): 2 |
-| `role-reassignment` | 2 | "you are now a …", "new (system) instructions:", "from now on you must …", "reveal your system prompt" |
+| `role-reassignment` | 2 | a new role or rule set for the model: "you are now" plus a role, a "new instructions" header, "from now on" plus an order to the model, a request to disclose the model's system prompt |
 | `fake-turn` | 2 | a line opening with `<system>`, `</tool_result>`, `<function_results>`, `[INST]`, `<\|im_start\|>`, `Human:`, `Assistant:` or `SYSTEM:` |
 | `html-comment-imperative` | 2 | an HTML comment holding "ignore previous", "you must", "assistant", "do not tell", `curl `, `wget `, "send the/all/your", "exfiltrate" |
 | `exfil-url` | 2 | a Markdown image whose URL carries a query value of 24 or more characters (the classic render-to-exfiltrate) |
