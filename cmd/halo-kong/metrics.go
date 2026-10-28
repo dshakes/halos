@@ -26,14 +26,23 @@ type kongMetrics struct {
 	headerCap uint64
 	agentDeny uint64
 	dlp       map[[3]string]uint64 // {kind, detector, action}
+	dlpTrunc  map[string]uint64    // outcome: forwarded | blocked
 }
 
-var kmetrics = &kongMetrics{directory: map[string]uint64{}, posture: map[[2]string]uint64{}, dlp: map[[3]string]uint64{}}
+var kmetrics = &kongMetrics{directory: map[string]uint64{}, posture: map[[2]string]uint64{}, dlp: map[[3]string]uint64{}, dlpTrunc: map[string]uint64{}}
 
 // dlpFinding counts one DLP finding on a request (ADR-0033).
 func (m *kongMetrics) dlpFinding(kind, detector, action string) {
 	m.mu.Lock()
 	m.dlp[[3]string{kind, detector, action}]++
+	m.mu.Unlock()
+}
+
+// dlpTruncated counts one request scan cut at the size cap or time budget:
+// forwarded (monitor, redact) or blocked (secret action block).
+func (m *kongMetrics) dlpTruncated(outcome string) {
+	m.mu.Lock()
+	m.dlpTrunc[outcome]++
 	m.mu.Unlock()
 }
 
@@ -103,6 +112,11 @@ func (m *kongMetrics) write(w io.Writer) {
 	sort.Slice(fk, func(i, j int) bool { return strings.Join(fk[i][:], "\x00") < strings.Join(fk[j][:], "\x00") })
 	for _, k := range fk {
 		fmt.Fprintf(w, "halo_kong_dlp_findings_total{kind=\"%s\",detector=\"%s\",action=\"%s\"} %d\n", esc(k[0]), esc(k[1]), esc(k[2]), m.dlp[k])
+	}
+	fmt.Fprintln(w, "# HELP halo_kong_dlp_truncated_total Model-call request scans cut at gateway.dlp.maxScanBytes or the time budget: forwarded (monitor, redact) or blocked (secret action block refuses what it cannot scan).")
+	fmt.Fprintln(w, "# TYPE halo_kong_dlp_truncated_total counter")
+	for _, k := range []string{"blocked", "forwarded"} {
+		fmt.Fprintf(w, "halo_kong_dlp_truncated_total{outcome=\"%s\"} %d\n", k, m.dlpTrunc[k])
 	}
 	fmt.Fprintf(w, "# HELP halo_kong_agent_denials_total Delegated agent model calls refused by the agent policy.\n# TYPE halo_kong_agent_denials_total counter\nhalo_kong_agent_denials_total %d\n", m.agentDeny)
 }

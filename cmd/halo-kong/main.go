@@ -396,6 +396,14 @@ func (c Config) dlpReporter(kong kongAPI) *gateway.DLPReporter {
 // dlp records a request's DLP scan: metrics, a log line without the secret,
 // and the audit events.
 func (c Config) dlp(kong kongAPI, org *policy.Org, sub *policy.Subject, h http.Header, res gateway.Result) {
+	if res.DLP != nil && res.DLP.Truncated {
+		outcome := "forwarded"
+		if res.DLP.Blocked == gateway.DLPTruncated {
+			outcome = "blocked"
+			_ = kong.Notice("halo-kong: dlp refused a request it could not scan in full (secret action block, ring ", res.Decision.Ring, ")")
+		}
+		kmetrics.dlpTruncated(outcome)
+	}
 	if res.DLP == nil || len(res.DLP.Findings) == 0 {
 		return
 	}

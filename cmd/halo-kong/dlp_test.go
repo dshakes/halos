@@ -68,3 +68,18 @@ func TestAccessDLP(t *testing.T) {
 		t.Fatalf("metrics %s", b.String())
 	}
 }
+
+func TestAccessDLPBlockOverScanCap(t *testing.T) {
+	body := `{"model":"sonnet","messages":[{"role":"user","content":"` + strings.Repeat("a", 4096) + `"}]}`
+	hdrs := map[string][]string{"x-acme-user": {"alice"}}
+	k := &fakeKong{peer: "10.1.2.3", path: "/v1/messages", body: []byte(body), hdrs: hdrs}
+	trustedCfg(dlpPolicy(t, &policy.DLP{Secrets: policy.DLPSecrets{Action: policy.DLPBlock}, MaxScanBytes: 1024})).access(k)
+	if k.exitStatus != http.StatusRequestEntityTooLarge || !strings.Contains(string(k.exitBody), "maxScanBytes") || k.newBody != "" {
+		t.Fatalf("block over cap: exit %d %s", k.exitStatus, k.exitBody)
+	}
+	var b strings.Builder
+	kmetrics.write(&b)
+	if !strings.Contains(b.String(), `halo_kong_dlp_truncated_total{outcome="blocked"} `) {
+		t.Fatalf("metrics %s", b.String())
+	}
+}

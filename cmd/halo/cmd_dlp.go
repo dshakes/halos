@@ -127,7 +127,7 @@ func (a *app) cmdDLPTest() *cobra.Command {
 			if err := a.emit(rep, func() { a.printDLPTest(rep, res) }); err != nil {
 				return err
 			}
-			if len(rep.Findings) > 0 {
+			if len(rep.Findings) > 0 || rep.Verdict == "block" {
 				return &exitErr{code: exitValidation}
 			}
 			return nil
@@ -171,7 +171,7 @@ func dlpToolResult(text string) []byte {
 
 func (a *app) printDLPTest(rep dlpTestReport, res *gateway.DLPReport) {
 	fmt.Fprintf(a.out, "%s scanned as %s (%s); secrets: %s, injection: %s\n", rep.File, rep.As, rep.Protocol, rep.SecretAction, rep.InjectionAction)
-	if len(rep.Findings) == 0 {
+	if len(rep.Findings) == 0 && rep.Verdict != "block" {
 		fmt.Fprintln(a.out, a.green("no findings: the gateway would pass it unchanged"))
 		return
 	}

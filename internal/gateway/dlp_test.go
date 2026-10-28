@@ -423,6 +423,53 @@ func TestScanLimitAndNonJSON(t *testing.T) {
 	if ScanRequest(dlpOn(policy.DLPOff, policy.DLPOff), ProtoAnthropic, "", nil, big) != nil {
 		t.Fatal("all off must skip the scan")
 	}
+	// Not JSON (or past the time budget) under block: 400, not 413.
+	rep = ScanRequest(dlpOn(policy.DLPBlock, policy.DLPOff), ProtoAnthropic, "", nil, []byte("not json "+secret))
+	if r := rep.Reject(ProtoResponses); r == nil || r.Status != http.StatusBadRequest || r.Code != CodeScanIncomplete {
+		t.Fatalf("non-JSON block: %+v %+v", rep, r)
+	}
+}
+
+// TestBlockRefusesUnscanned: under a block secret action a body the scan could
+// not cover is refused, never forwarded unscanned; monitor and redact forward.
+func TestBlockRefusesUnscanned(t *testing.T) {
+	secret := fakeSecrets()["github-token"]
+	big := userTextBody(strings.Repeat("a", 2000) + " " + secret)
+	for _, tc := range []struct {
+		name, secrets string
+		body          []byte
+		status        int // 0 = forwarded
+	}{
+		{"block over cap", policy.DLPBlock, big, http.StatusRequestEntityTooLarge},
+		{"redact over cap", policy.DLPRedact, big, 0},
+		{"monitor over cap", policy.DLPMonitor, big, 0},
+		{"injection block only", policy.DLPOff, big, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			org := testOrg()
+			org.Gateway.DLP = dlpOn(tc.secrets, policy.DLPBlock)
+			org.Gateway.DLP.MaxScanBytes = 1000
+			res := PrepareVerified(org, &policy.Subject{ID: "alice"}, http.Header{}, PathMessages, tc.body)
+			if res.DLP == nil || !res.DLP.Truncated {
+				t.Fatalf("want a truncated scan: %+v", res.DLP)
+			}
+			if tc.status == 0 {
+				if res.Reject != nil || res.DLP.Blocked != "" {
+					t.Fatalf("want forwarded: %+v %+v", res.Reject, res.DLP)
+				}
+				return
+			}
+			if res.Reject == nil || res.Reject.Status != tc.status || res.DLP.Blocked != DLPTruncated || !strings.Contains(res.Reject.Message, "scanned for secrets") {
+				t.Fatalf("want %d: %+v %+v", tc.status, res.Reject, res.DLP)
+			}
+			for _, proto := range []string{ProtoAnthropic, ProtoResponses, ProtoGemini, ProtoBedrock} {
+				var v map[string]any
+				if err := json.Unmarshal(res.DLP.Reject(proto).JSON(), &v); err != nil {
+					t.Fatalf("%s: %v", proto, err)
+				}
+			}
+		})
+	}
 }
 
 func TestResponseScanner(t *testing.T) {

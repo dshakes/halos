@@ -33,17 +33,22 @@ import (
 const (
 	DLPSecret    = "secret"
 	DLPInjection = "injection"
+	// DLPTruncated is DLPReport.Blocked (never a finding kind) when the secret
+	// action is block and the body could not be scanned in full.
+	DLPTruncated = "truncated"
 )
 
 // Codes on a DLP block (OpenAI Responses error code; Rejection.Code).
 const (
 	CodeSecretDetected    = "secret_detected"
 	CodeInjectionDetected = "prompt_injection_detected"
+	CodeScanIncomplete    = "dlp_scan_incomplete"
 )
 
 // dlpScanBudget bounds the time one request scan may take; past it the rest
-// of the body is not scanned (counted as truncated) and the request passes
-// with the findings so far.
+// of the body is not scanned (counted as truncated) and, under monitor or
+// redact, the request passes with the findings so far; under a block secret
+// action it is refused (DLPTruncated).
 const dlpScanBudget = 250 * time.Millisecond
 
 // DLPFinding is one secret or injection signal. It never holds the secret.
@@ -65,7 +70,8 @@ type DLPReport struct {
 	// (no redaction). It is the pre-model-rewrite body: what the shadow mirror sends.
 	Redacted  []byte
 	Truncated bool   // the body was larger than the scan cap or the scan ran out of time
-	Blocked   string // DLPSecret | DLPInjection when the request is refused
+	OverCap   bool   // Truncated because the body was larger than the scan cap
+	Blocked   string // DLPSecret | DLPInjection | DLPTruncated when the request is refused
 	Took      time.Duration
 }
 
@@ -608,7 +614,7 @@ func ScanRequest(d *policy.DLP, proto, ring string, units []string, body []byte)
 	threshold := d.Injection.ScoreThreshold()
 	scan := body
 	if lim := d.ScanLimit(); int64(len(scan)) > lim {
-		scan, rep.Truncated = scan[:lim], true
+		scan, rep.Truncated, rep.OverCap = scan[:lim], true, true
 	}
 	var out bytes.Buffer // redacted body, built only once a secret is redacted
 	copied := 0          // body[:copied] is already in out
@@ -660,6 +666,9 @@ func ScanRequest(d *policy.DLP, proto, ring string, units []string, body []byte)
 		rep.Blocked = DLPSecret
 	case ia == policy.DLPBlock && rep.Count(DLPInjection) > 0:
 		rep.Blocked = DLPInjection
+	case sa == policy.DLPBlock && rep.Truncated:
+		// Block means no secret reaches the model: an unscanned tail could hold one.
+		rep.Blocked = DLPTruncated
 	}
 	rep.Took = time.Since(began)
 	return rep
@@ -750,10 +759,19 @@ func walkStrings(b []byte, fn func(st []jsonFrame, start, end int, s string) boo
 }
 
 // Reject is the refusal for a blocked request, in the caller's wire format:
-// 400 (a permanent client error, which the CLIs show and do not retry).
+// 400 (a permanent client error, which the CLIs show and do not retry), or
+// 413 for a body over the scan cap under a block secret action.
 func (r *DLPReport) Reject(proto string) *Rejection {
 	if r == nil || r.Blocked == "" {
 		return nil
+	}
+	if r.Blocked == DLPTruncated {
+		if r.OverCap {
+			return &Rejection{Status: http.StatusRequestEntityTooLarge, Protocol: proto,
+				Message: "halos: request blocked: it is larger than gateway.dlp.maxScanBytes, so it cannot be scanned for secrets, and this ring's DLP secret action is block. Shorten the conversation (for example /compact or a new session) and retry, or ask an admin to raise maxScanBytes."}
+		}
+		return &Rejection{Status: http.StatusBadRequest, Protocol: proto, Code: CodeScanIncomplete,
+			Message: "halos: request blocked: it could not be scanned for secrets in full (not JSON, or the scan ran past its time budget), and this ring's DLP secret action is block. Shorten the request and retry."}
 	}
 	var f DLPFinding
 	for _, x := range r.Findings {
