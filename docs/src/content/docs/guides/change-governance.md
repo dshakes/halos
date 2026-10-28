@@ -71,7 +71,7 @@ Both are admin-only and audit-strict, and need a reason. The incident freeze cov
 | `halo exp promote`, MCP `propose_promotion` | refused; `--dry-run` shows the patch and the refusal |
 | `halo rollout rollback`/`pause`, MCP `propose_rollback`, the kill switch | always allowed |
 
-The CLI sees the incident freeze only through halo-server. Without `--server` (or `HALO_SERVER`) and `HALO_SESSION`, `halo rollout advance` and `halo exp promote` check the policy's windows only and print a warning saying so. The controller, and `halo freeze check` run with `--server`, still hold it.
+The CLI sees the incident freeze only through halo-server. Without `--server` (or `HALO_SERVER`) and `HALO_SESSION`, `halo rollout advance` and `halo exp promote` check the policy's windows only and print a warning saying so; the MCP `propose_rollout_advance` and `propose_promotion` tools put the same warning in `note` and `next_steps`. The controller, and `halo freeze check` run with `--server`, still hold it.
 
 ## Block merges during a freeze
 

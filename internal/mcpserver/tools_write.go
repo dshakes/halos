@@ -243,7 +243,7 @@ func (s *srv) proposePromotion(ctx context.Context, _ *mcp.CallToolRequest, in p
 		return nil, writeOut{}, err
 	}
 	// A change freeze refuses a promotion (ADR-0030); rollbacks never are.
-	g, _, err := s.governance(ctx, nil)
+	g, governed, err := s.governance(ctx, nil)
 	if err != nil {
 		return nil, writeOut{}, err
 	}
@@ -282,6 +282,9 @@ func (s *srv) proposePromotion(ctx context.Context, _ *mcp.CallToolRequest, in p
 			out.NextSteps = []string{"wait: " + fz.String()}
 		}
 		out.NextSteps = append(out.NextSteps, roiNote...)
+		if !governed {
+			warnNoIncidentFreeze(&out)
+		}
 		return nil, out, nil
 	}
 	if s.ClickHouse == nil {
@@ -293,6 +296,9 @@ func (s *srv) proposePromotion(ctx context.Context, _ *mcp.CallToolRequest, in p
 	}
 	out.Applied, out.Note = true, "PR opened; a human reviews and merges"
 	out.NextSteps = append([]string{gateMerge + ": " + out.PR, "after the merge: wait_for kind=rollout (if one backs this experiment) or status to confirm the ring points at the release"}, roiNote...)
+	if !governed {
+		warnNoIncidentFreeze(&out)
+	}
 	return nil, out, nil
 }
 

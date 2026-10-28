@@ -120,6 +120,17 @@ func (s *srv) governance(ctx context.Context, r *policy.Rollout) (g rollout.Gove
 	return g, true, nil
 }
 
+// noIncidentFreeze is the warning on a forward change proposed without
+// halo-server: the policy's freeze windows were checked, the incident freeze
+// was not (the controller and halo freeze check --server still hold it).
+const noIncidentFreeze = "incident freeze not checked: no halo-server configured, only the policy's freeze windows were (start the MCP server with --server and HALO_SESSION)"
+
+// warnNoIncidentFreeze adds noIncidentFreeze to out's note and next steps.
+func warnNoIncidentFreeze(out *writeOut) {
+	out.Note += "; warning: " + noIncidentFreeze
+	out.NextSteps = append(out.NextSteps, "before the merge, check the incident freeze: halo freeze status --server URL")
+}
+
 // serverInto GETs path from halo-server into out.
 func (s *srv) serverInto(ctx context.Context, path string, out any) error {
 	m, err := s.serverJSON(ctx, "GET", path, nil)
@@ -190,6 +201,7 @@ func (s *srv) proposeRollout(ctx context.Context, in rolloutWriteIn, advance boo
 	}
 	act, next, verdict, block := rollout.Rollback, -1, "", ""
 	var d rollout.Decision
+	governed := s.serverURL() != "" && s.session() != "" // evaluate read it (or failed)
 	if advance {
 		if st := r.EffectiveStatus(); st == policy.RolloutAborted || st == policy.RolloutCompleted {
 			return nil, writeOut{}, fmt.Errorf("rollout %s is %s", r.Name, st)
@@ -200,7 +212,6 @@ func (s *srv) proposeRollout(ctx context.Context, in rolloutWriteIn, advance boo
 		if d.Action == rollout.Rollback || d.Action == rollout.Pause {
 			return nil, writeOut{}, fmt.Errorf("rollout %s: a gate failed (%s); not proposing an advance", r.Name, strings.Join(d.Reasons, "; "))
 		}
-		governed := s.serverURL() != "" && s.session() != "" // evaluate read it (or failed)
 		if block = governanceBlock(d, governed); block != "" && !isDry(in.DryRun) {
 			return nil, writeOut{}, fmt.Errorf("rollout %s: %s; not proposing an advance (rollbacks are always allowed: propose_rollout_rollback)", r.Name, block)
 		}
@@ -230,6 +241,9 @@ func (s *srv) proposeRollout(ctx context.Context, in rolloutWriteIn, advance boo
 	if len(manual) > 0 {
 		out.Note += "; manual: " + strings.Join(manual, "; ")
 		out.NextSteps = append(out.NextSteps, "human steps after the merge: "+strings.Join(manual, "; "))
+	}
+	if advance && !governed {
+		warnNoIncidentFreeze(&out)
 	}
 	if !advance && r.Experiment != "" {
 		out.NextSteps = append(out.NextSteps, "for an immediate stop before this merges: kill_switch name="+r.Name+" (dry_run first)")

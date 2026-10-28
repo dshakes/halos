@@ -89,3 +89,58 @@ func TestIncidentFreezeFromServer(t *testing.T) {
 		t.Fatalf("rollout_status shows the freeze: %v %v", out, err)
 	}
 }
+
+// TestForwardProposalsWarnWithoutServer: without --server the incident freeze
+// cannot be read, so advance and promotion proposals say it was not checked;
+// with halo-server they do not, and rollbacks never carry the warning.
+func TestForwardProposalsWarnWithoutServer(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/freeze":
+			_, _ = w.Write([]byte(`{"rings":{}}`))
+		case "/api/v1/rollouts/opus-5-5-upgrade/approvals":
+			_, _ = w.Write([]byte(`{"approvals":[]}`))
+		case "/api/v1/me":
+			_, _ = w.Write([]byte(`{"id":"dev@acme"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	advance := map[string]any{"name": "opus-5-5-upgrade", "reason": "go"}
+	promote := map[string]any{"experiment": "opus-5-5-canary", "ring": "ring1-canary", "release": "sha256:" + strings.Repeat("a", 64), "reason": "go"}
+	for _, c := range []struct {
+		name, tool, server string
+		args               map[string]any
+		warn               bool
+	}{
+		{"advance offline", "propose_rollout_advance", "", advance, true},
+		{"promotion offline", "propose_promotion", "", promote, true},
+		{"rollback offline", "propose_rollout_rollback", "", advance, false},
+		{"advance with server", "propose_rollout_advance", srv.URL, advance, false},
+		{"promotion with server", "propose_promotion", srv.URL, promote, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv("HALO_SERVER", "")
+			t.Setenv("HALO_SESSION", "")
+			if c.server != "" {
+				t.Setenv("HALO_SESSION", "s")
+			}
+			cs := connect(t, Options{PolicyDir: copyExample(t), AllowWrites: true, Server: c.server})
+			out, err := call(t, cs, c.tool, c.args)
+			if err != nil {
+				t.Fatal(err)
+			}
+			note, _ := out["note"].(string)
+			steps, _ := out["next_steps"].([]any)
+			gotSteps := false
+			for _, s := range steps {
+				gotSteps = gotSteps || strings.Contains(s.(string), "halo freeze status --server")
+			}
+			if got := strings.Contains(note, "incident freeze not checked"); got != c.warn || gotSteps != c.warn {
+				t.Fatalf("warning in note %v, next_steps %v; want %v: %v", got, gotSteps, c.warn, out)
+			}
+		})
+	}
+}
