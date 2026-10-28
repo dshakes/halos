@@ -67,3 +67,37 @@ func TestPlanAllRingsAndImpact(t *testing.T) {
 		t.Fatalf("option-like ref accepted: %s", errs)
 	}
 }
+
+// TestPlanDiffBaseSupplyChainFails: a --diff base whose remote artifact
+// cannot be fetched is an error naming the artifact, not a diff against an
+// empty release (which would show every setting as new).
+func TestPlanDiffBaseSupplyChainFails(t *testing.T) {
+	t.Setenv("HALO_SERVER", "")
+	t.Setenv("HALO_SESSION", "")
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH")
+	}
+	dir := buildable(t)
+	orig := map[string][]byte{}
+	for _, f := range []string{"halos.yaml", filepath.Join("profiles", "base.yaml")} {
+		b, err := os.ReadFile(filepath.Join(dir, f))
+		if err != nil {
+			t.Fatal(err)
+		}
+		orig[f] = b
+	}
+	missing := "file://" + filepath.ToSlash(filepath.Join(t.TempDir(), "gone"))
+	addRemoteSkill(t, dir, missing, strings.Repeat("a", 40), "sha256:"+strings.Repeat("0", 64), "")
+	for _, args := range [][]string{{"init", "-q"}, {"config", "user.name", "t"}, {"config", "user.email", "t@t"}, {"config", "commit.gpgsign", "false"}, {"add", "."}, {"commit", "-qm", "base"}} {
+		if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	for f, b := range orig { // the working tree drops the unreachable artifact
+		mustWrite(t, filepath.Join(dir, f), string(b))
+	}
+	code, out, errs := halo(t, "plan", "--policy-dir", dir, "--ring", "ring3-ga", "--diff", "HEAD")
+	if code == 0 || !strings.Contains(errs, "artifact ext") || !strings.Contains(errs, "--against") || strings.Contains(errs, "empty release") {
+		t.Fatalf("plan --diff with an unfetchable base artifact: exit %d\n%s%s", code, out, errs)
+	}
+}

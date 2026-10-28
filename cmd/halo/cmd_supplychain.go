@@ -42,6 +42,10 @@ func strictScan(org *policy.Org, strict bool) {
 	org.SupplyChain.Scan = policy.ScanEnforce
 }
 
+// errSupplyChain wraps every resolveSupplyChain failure (fetch, digest or
+// signature), so callers can tell it from other build errors.
+var errSupplyChain = errors.New("supply chain")
+
 // resolveSupplyChain fetches git and oci artifacts into org (each checked
 // against its pinned digest) and verifies every declared signature. Release
 // builds run it; `halo validate` stays offline and scans path artifacts only.
@@ -58,10 +62,10 @@ func (a *app) resolveSupplyChain(ctx context.Context, dir string, org *policy.Or
 		if art.Remote() && (c == nil || c.Files == nil) {
 			t, err := fetchArtifact(ctx, art)
 			if err != nil {
-				return fmt.Errorf("supply chain: artifact %s: %w", art.Name, err)
+				return fmt.Errorf("%w: artifact %s: %w", errSupplyChain, art.Name, err)
 			}
 			if got := t.Digest(); got != art.Digest {
-				return fmt.Errorf("supply chain: artifact %s (%s): content digest %s does not match the pinned %s", art.Name, art.Source(), got, art.Digest)
+				return fmt.Errorf("%w: artifact %s (%s): content digest %s does not match the pinned %s", errSupplyChain, art.Name, art.Source(), got, art.Digest)
 			}
 			c = &policy.ArtifactContent{Files: t}
 			org.ArtifactContent[art.Name] = c
@@ -70,7 +74,7 @@ func (a *app) resolveSupplyChain(ctx context.Context, dir string, org *policy.Or
 			continue
 		}
 		if err := verifyArtifactSig(ctx, dir, sc, art, c.Files.Digest()); err != nil {
-			return fmt.Errorf("supply chain: artifact %s: %w", art.Name, err)
+			return fmt.Errorf("%w: artifact %s: %w", errSupplyChain, art.Name, err)
 		}
 		c.Signer = art.Signature.Identity
 	}

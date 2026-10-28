@@ -10,6 +10,8 @@ releases it builds, unless --against is set) and previews the impact: how many u
 agents change ring, experiment variant or effective settings, by org unit, with examples. The
 population is halo-server's enrolled fleet with --server (or HALO_SERVER) and HALO_SESSION, else a
 policy-only estimate. Assignment uses the same hashing as the fleet (internal/assign).
+A --diff base whose supply-chain artifacts cannot be fetched or verified is an error (fix access, or
+pass --against with a built release); a ring the base cannot build otherwise diffs as a first release.
 
 ## Usage
 

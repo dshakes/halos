@@ -495,7 +495,9 @@ func (a *app) cmdPlan() *cobra.Command {
 			"releases it builds, unless --against is set) and previews the impact: how many users, devices and\n" +
 			"agents change ring, experiment variant or effective settings, by org unit, with examples. The\n" +
 			"population is halo-server's enrolled fleet with --server (or HALO_SERVER) and HALO_SESSION, else a\n" +
-			"policy-only estimate. Assignment uses the same hashing as the fleet (internal/assign).",
+			"policy-only estimate. Assignment uses the same hashing as the fleet (internal/assign).\n" +
+			"A --diff base whose supply-chain artifacts cannot be fetched or verified is an error (fix access, or\n" +
+			"pass --against with a built release); a ring the base cannot build otherwise diffs as a first release.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dir, err := policyDir(cmd, args)
@@ -580,6 +582,9 @@ func (a *app) planRing(cmd *cobra.Command, dir, baseDir, ring, against, ver stri
 	case baseDir != "":
 		if b, _, err := a.buildRelease(cmd.Context(), baseDir, ring, ver, false); err == nil {
 			prev = b
+		} else if errors.Is(err, errSupplyChain) {
+			// Diffing against an empty release would show every setting as new.
+			return nil, nil, fmt.Errorf("ring %s at the --diff base: %w; the diff needs the base's artifacts: fix access to it (network, git or registry credentials), or diff against a built release with --against", ring, err)
 		} else {
 			fmt.Fprintf(a.errw, "%s ring %s at the --diff base does not build (%v); diffing against an empty release\n", a.yellow("warning:"), ring, err)
 		}
