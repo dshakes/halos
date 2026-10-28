@@ -312,6 +312,28 @@ func TestHTMLCommentImperativeMatchesRegex(t *testing.T) {
 	}
 }
 
+// TestRedactsEveryMatch: no per-string cap leaves secrets past it unredacted
+// (300 AWS key ids, 100 org-pattern matches in one string).
+func TestRedactsEveryMatch(t *testing.T) {
+	var keys, toks []string
+	for i := range 300 {
+		keys = append(keys, "AK"+"IA"+rnd(uint64(1000+i), "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567", 16))
+	}
+	for i := range 100 {
+		toks = append(toks, "acme_tok_"+rnd(uint64(2000+i), "abcdefghij0123", 16))
+	}
+	d := dlpOn(policy.DLPRedact, policy.DLPOff)
+	d.Secrets.Patterns = []policy.DLPPattern{{ID: "acme-token", Regex: `acme_tok_[a-z0-9]{16}`}}
+	body := userTextBody(strings.Join(keys, " ") + " " + strings.Join(toks, " "))
+	rep := ScanRequest(d, ProtoAnthropic, "", nil, body)
+	if rep.Count(DLPSecret) != 400 || rep.Truncated {
+		t.Fatalf("%d findings (truncated %v), want 400", rep.Count(DLPSecret), rep.Truncated)
+	}
+	if bytes.Contains(rep.Redacted, []byte("AK"+"IA")) || bytes.Contains(rep.Redacted, []byte("acme_tok_")) {
+		t.Fatal("a secret past a cap was left unredacted")
+	}
+}
+
 func TestBlockShapes(t *testing.T) {
 	secret := fakeSecrets()["github-token"]
 	for proto, body := range redactBodies(secret) {

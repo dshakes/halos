@@ -484,7 +484,9 @@ func (e *dlpEngine) secrets(s string, b *scanBudget) []secretMatch {
 	return kept
 }
 
-// add records match m of d; false once enough was found.
+// add records match m of d. Every match is kept, never capped: a secret past
+// a cap would go unredacted (and unblocked) without the scan being marked
+// truncated. The scan budget bounds the work instead.
 func (e *dlpEngine) add(out *[]secretMatch, d *detector, s string, m []int) bool {
 	a, b := m[0], m[1]
 	if d.group > 0 && len(m) > 2*d.group+1 && m[2*d.group] >= 0 {
@@ -493,7 +495,7 @@ func (e *dlpEngine) add(out *[]secretMatch, d *detector, s string, m []int) bool
 	if a < b && (d.check == nil || d.check(s[a:b])) {
 		*out = append(*out, secretMatch{det: d.id, start: a, end: b})
 	}
-	return len(*out) < 256
+	return true
 }
 
 // SecretHash is the 8-hex SHA-256 prefix a finding and a redaction marker
