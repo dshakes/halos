@@ -39,5 +39,6 @@ Decisions that shape Halos. New ADRs use [MADR](https://adr.github.io/madr/): co
 | [0028](/halos/adr/0028-agent-supply-chain-and-ai-bom/) | Agent supply chain and AI-BOM: digest-pinned, scanned and signed extensions; CycloneDX 1.6 AI-BOM with SLSA provenance |
 | [0030](/halos/adr/0030-change-governance/) | Change governance: freeze windows and an incident freeze (never holding rollbacks), approver quorums with separation of duties, and an impact preview |
 | [0031](/halos/adr/0031-agent-session-ledger/) | Agent session ledger: one identity-linked, redacted record per agent session, stored in the audit chain |
+| [0032](/halos/adr/0032-egress-and-sandbox-policy/) | Egress and sandbox policy: one harness-neutral policy rendered into each harness's native sandbox and egress controls, warned where a harness cannot hold it, verified on the device |
 
 The canonical files live in `docs/adr/` in the repository; the docs build copies them into the site.
