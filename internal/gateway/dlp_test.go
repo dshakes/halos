@@ -354,6 +354,10 @@ func TestToolDataPerProtocol(t *testing.T) {
 var plantedFixtures = map[string]string{
 	"internal/eval/harvest_test.go":      "jwt",          // the jwt.io example token, planted for the harvester's redaction test
 	"internal/policy/guardrails_test.go": "github-token", // a ghp_ value planted for the allowlist-secret guardrail
+	// The ADR-0028 supply-chain scanner quotes the injection payloads it looks for.
+	"internal/supplychain/scan.go":                   "injection",
+	"internal/supplychain/scan_test.go":              "injection",
+	"docs/adr/0028-agent-supply-chain-and-ai-bom.md": "injection",
 }
 
 // TestBenignCorpus scans this repo's Go and Markdown files as tool results:
