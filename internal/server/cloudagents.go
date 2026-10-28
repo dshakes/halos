@@ -121,7 +121,7 @@ func (s *Server) postGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := cloudagents.VerifySignature(s.cfg.CloudWebhookSecrets, body, r.Header.Get("X-Hub-Signature-256")); err != nil {
-		s.metrics.authFailure("cloud-webhook", "signature")
+		s.metrics.authFailure("cloud_webhook", "signature")
 		apiErr(w, http.StatusUnauthorized, "invalid signature")
 		return
 	}

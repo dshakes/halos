@@ -118,7 +118,7 @@ A cloud task is normalized to one shape: id `<vendor>:<repo>:<run>` or `cursor:<
 
 ### Failure modes
 
-- Bad or missing signature: 401, counted as `halo_server_auth_failures_total{flow="cloud-webhook",reason="signature"}`, nothing stored.
+- Bad or missing signature: 401, counted as `halo_server_auth_failures_total{flow="cloud_webhook",reason="signature"}`, nothing stored.
 - Policy unavailable: 503, nothing stored; GitHub redelivers.
 - Audit log unavailable: the task is not stored (500, GitHub redelivers); a kill is refused before any vendor call; a pause result that cannot be audited is logged.
 - Vendor API error: the action is `failed` with the redacted error, the others continue; a missing client is `no-client` and nothing is sent.
