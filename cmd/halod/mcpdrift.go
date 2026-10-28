@@ -4,9 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -157,22 +155,15 @@ func (s foundServer) def() string {
 	return "no url or command"
 }
 
-// readUserMCP parses one user config; a missing file is no servers.
+// readUserMCP parses one user config (readUserFile: a regular file, never
+// through a symlink or a FIFO); a missing file is no servers.
 func (a *Agent) readUserMCP(p string, c userMCPConfig) ([]foundServer, error) {
-	f, err := os.Open(a.path(p))
+	b, err := a.readUserFile(p, maxUserConfig)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
-	}
-	defer func() { _ = f.Close() }() // read-only
-	b, err := io.ReadAll(io.LimitReader(f, maxUserConfig+1))
-	if err != nil {
-		return nil, err
-	}
-	if len(b) > maxUserConfig {
-		return nil, fmt.Errorf("over %d bytes", maxUserConfig)
 	}
 	var doc map[string]any
 	if c.toml {

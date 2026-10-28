@@ -39,14 +39,22 @@ func (a *Agent) postureDrift(rel *release.Release, st *Status) {
 	}
 }
 
-// readSettings reads a settings file for posture checks. halod runs as root
-// and these files are the user's, so only a regular file up to maxPostureFile
-// is read, opened without blocking (a FIFO swapped in after the Lstat cannot
-// hang the cycle). Contents are parsed for a few keys and never echoed.
-func (a *Agent) readSettings(p string) ([]byte, error) {
+// readSettings reads a settings file for posture checks (readUserFile, up to
+// maxPostureFile). Contents are parsed for a few keys and never echoed.
+func (a *Agent) readSettings(p string) ([]byte, error) { return a.readUserFile(p, maxPostureFile) }
+
+// readUserFile reads a file the console user owns. halod runs as root, so only
+// a regular file (not a symlink: it could point at a root-only file) up to max
+// bytes is read, opened without blocking (a FIFO swapped in after the Lstat
+// cannot hang the cycle). A missing file is an error wrapping fs.ErrNotExist.
+func (a *Agent) readUserFile(p string, max int64) ([]byte, error) {
 	p = a.path(p)
-	if fi, err := os.Lstat(p); err != nil || !fi.Mode().IsRegular() || fi.Size() > maxPostureFile {
-		return nil, fmt.Errorf("%s: not a regular settings file", p)
+	fi, err := os.Lstat(p)
+	if err != nil {
+		return nil, err
+	}
+	if !fi.Mode().IsRegular() || fi.Size() > max {
+		return nil, fmt.Errorf("%s: not a regular file of at most %d bytes", p, max)
 	}
 	f, err := os.OpenFile(p, os.O_RDONLY|openNonblock, 0)
 	if err != nil {
@@ -54,9 +62,16 @@ func (a *Agent) readSettings(p string) ([]byte, error) {
 	}
 	defer func() { _ = f.Close() }() // read-only
 	if fi, err := f.Stat(); err != nil || !fi.Mode().IsRegular() {
-		return nil, fmt.Errorf("%s: not a regular settings file", p)
+		return nil, fmt.Errorf("%s: not a regular file", p)
 	}
-	return io.ReadAll(io.LimitReader(f, maxPostureFile))
+	b, err := io.ReadAll(io.LimitReader(f, max+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(b)) > max {
+		return nil, fmt.Errorf("%s: over %d bytes", p, max)
+	}
+	return b, nil
 }
 
 // homeDir is the user's home directory ("" when unknown).
