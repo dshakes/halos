@@ -67,7 +67,7 @@ egress:
 
 ### Validation (bypass-shaped combinations are errors)
 
-- `writableRoots` of `/`, `~` or a glob (the whole disk or home writable), a relative root, a root over or under a protected path, or any root with mode `read-only`.
+- `writableRoots` of `/`, `~` or a glob (the whole disk or home writable), a home directory (`/home/<user>`, `/Users/<user>`, `/root`) or a system directory or any ancestor of one (`/etc`, `/usr`, `/var`, `/home`, `/Users`, `/System`, `/Library`, `/private`, ...), anything under `/etc`, `/usr`, `/bin`, `/sbin` or `/System`, a relative or drive-letter root, a root over or under a protected path, or any root with mode `read-only`. Overlap is compared case-insensitively (macOS and Windows file systems are) and in both forms: `/Users/alice/.ssh` overlaps `~/.ssh`. The release check applies the same rule to rendered Codex `writable_roots`, which Codex has no deny-write list to hold against protected paths (they render as `deny_read`).
 - Mode `off` with egress rules or sandbox paths: the shell would run outside every rule the profile states.
 - A bare `*`, a URL, a port or upper case in a domain list; an unknown preset; `default: allow` together with an allowlist.
 - A restricted egress policy that denies the gateway host.

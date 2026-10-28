@@ -147,6 +147,15 @@ func TestCheckRendered(t *testing.T) {
 		{"codex writable root slash (N2)", "codex", []harness.File{{Path: codexPath, Data: []byte(goodCodex + "[sandbox_workspace_write]\nwritable_roots = [\"/\"]\n")}}, nil, checkGateway(), "writable_roots[0]"},
 		{"codex writable root home", "codex", []harness.File{{Path: codexPath, Data: []byte(goodCodex + "[sandbox_workspace_write]\nwritable_roots = [\"/tmp\", \"/home/u\"]\n")}}, nil, checkGateway(), "writable_roots[1]"},
 		{"codex writable root tmp escape", "codex", []harness.File{{Path: codexPath, Data: []byte(goodCodex + "[sandbox_workspace_write]\nwritable_roots = [\"/tmp/../etc\"]\n")}}, nil, checkGateway(), "writable_roots[0]"},
+		{"codex writable root from policy ok", "codex", []harness.File{{Path: codexPath, Data: []byte(goodCodex + "[sandbox_workspace_write]\nwritable_roots = [\"/opt/cache\"]\n")}}, func(p *policy.Profile) {
+			p.Sandbox.WritableRoots = []string{"/opt/cache"}
+		}, checkGateway(), ""},
+		{"codex writable root from unvalidated policy is a home", "codex", []harness.File{{Path: codexPath, Data: []byte(goodCodex + "[sandbox_workspace_write]\nwritable_roots = [\"/Users/alice\"]\n")}}, func(p *policy.Profile) {
+			p.Sandbox.WritableRoots = []string{"/Users/alice"}
+		}, checkGateway(), "writable_roots[0]"},
+		{"codex writable root from unvalidated policy over a protected path", "codex", []harness.File{{Path: codexPath, Data: []byte(goodCodex + "[sandbox_workspace_write]\nwritable_roots = [\"/Users/alice/.SSH\"]\n")}}, func(p *policy.Profile) {
+			p.Sandbox = policy.Sandbox{WritableRoots: []string{"/Users/alice/.SSH"}, ProtectedPaths: []string{"~/.ssh"}}
+		}, checkGateway(), "writable_roots[0]"},
 		{"codex writable root tmp ok", "codex", []harness.File{{Path: codexPath, Data: []byte(goodCodex + "[sandbox_workspace_write]\nwritable_roots = [\"/tmp/build\"]\n")}}, nil, checkGateway(), ""},
 		{"codex network with restricted egress", "codex", []harness.File{{Path: codexPath, Data: []byte(goodCodex + "[sandbox_workspace_write]\nnetwork_access = true\n")}}, func(p *policy.Profile) { p.Egress.AllowedDomains = []string{"gw.example.com"} }, checkGateway(), "network_access"},
 		{"codex network with open egress", "codex", []harness.File{{Path: codexPath, Data: []byte(goodCodex + "[sandbox_workspace_write]\nnetwork_access = true\n")}}, nil, checkGateway(), ""},

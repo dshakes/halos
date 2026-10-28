@@ -43,7 +43,7 @@ Behind a Halos gateway you rarely need `model-providers`: the harnesses call the
 
 These amount to a bypass (invariant 1) and are errors:
 
-- a writable root of `/`, `~`, a glob, a relative path, or one over or under a protected path; any writable root with mode `read-only`;
+- a writable root of `/`, `~`, a glob, a relative path, a home directory (`/Users/alice`, `/home/bob`, `/root`), a system directory or an ancestor of one (`/etc`, `/usr`, `/var`, `/Users`, `/home`, `/System`, `/Library`), anything under `/etc` or `/usr`, or one over or under a protected path (case-insensitive, and `/Users/alice/.ssh` counts as `~/.ssh`); any writable root with mode `read-only`;
 - sandbox mode `off` together with egress rules, protected paths or writable roots;
 - `default: allow` together with `allowedDomains` or `presets`;
 - an egress policy that denies the gateway host;
