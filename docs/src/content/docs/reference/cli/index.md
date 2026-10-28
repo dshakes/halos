@@ -32,6 +32,7 @@ halo
 | [`halo budget`](/halos/reference/cli/budget/) | Gateway cost budgets: spend per user, group, ring and org |
 | [`halo ci`](/halos/reference/cli/ci/) | Governed gateway credentials and config for headless CI / cloud agents |
 | [`halo controller`](/halos/reference/cli/controller/) | Automated experiment loop (evaluate, kill on rollback, PRs, notify) |
+| [`halo copilot`](/halos/reference/cli/copilot/) | AI-assisted policy operations: the model drafts, Halos verifies, a human approves (ADR-0035) |
 | [`halo doctor`](/halos/reference/cli/doctor/) | Check this machine and the policy repo; print the exact fix for each problem |
 | [`halo eject`](/halos/reference/cli/eject/) | Write simple mode's generated Gateway, Profile and Rings out as files and drop the simple keys from halos.yaml |
 | [`halo enable`](/halos/reference/cli/enable/) | Enable an MCP server or hook for everyone (profile) or a cohort (toggle) |

@@ -116,6 +116,7 @@ export default defineConfig({
                 'guides/delivery-roi',
                 'guides/writing-evals',
                 'guides/agentic-operations',
+                'guides/policy-copilot',
               ],
             },
             {

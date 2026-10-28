@@ -8,6 +8,7 @@
         "internal/a2a",
         "internal/bundle",
         "internal/controller",
+        "internal/copilot",
         "internal/delivery/devcontainer",
         "internal/delivery/mdm",
         "internal/docgen",
@@ -128,6 +129,20 @@
         "internal/promote",
         "internal/rollout",
         "internal/storage",
+        "internal/yamledit"
+      ]
+    },
+    {
+      "path": "internal/copilot",
+      "imports": [
+        "internal/eval",
+        "internal/harness/hutil",
+        "internal/impact",
+        "internal/policy",
+        "internal/promote",
+        "internal/release",
+        "internal/roi",
+        "internal/stats",
         "internal/yamledit"
       ]
     },
@@ -304,6 +319,7 @@
     {
       "path": "internal/mcpserver",
       "imports": [
+        "internal/copilot",
         "internal/eval",
         "internal/harness",
         "internal/harness/all",
