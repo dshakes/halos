@@ -337,3 +337,42 @@ func TestModelHTTPErrorIsAnError(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+// TestDraftWithoutDisableBypassRejected: a draft whose Claude Code rendering
+// would lack permissions.disableBypassPermissionsMode = "disable" for a ring
+// profile (which must require disableBypass) fails Verify and cannot be applied.
+func TestDraftWithoutDisableBypassRejected(t *testing.T) {
+	base := readExample(t, "profiles/base.yaml")
+	eng := readExample(t, "profiles/engineering.yaml")
+	override := strings.Replace(eng, "  claude-code:\n    version: 2.1.280\n",
+		"  claude-code:\n    version: 2.1.280\n    overrides:\n      permissions:\n        disableBypassPermissionsMode: allow\n", 1)
+	for _, tc := range []struct {
+		name string
+		file File
+		want string
+	}{
+		{"disableBypass false", File{"profiles/base.yaml", strings.Replace(base, "disableBypass: true", "disableBypass: false", 1)}, "permissions.disableBypass must be true"},
+		{"disableBypass dropped", File{"profiles/base.yaml", strings.Replace(base, "  disableBypass: true\n", "", 1)}, "permissions.disableBypass must be true"},
+		{"override replaces the rendered mode", File{"profiles/engineering.yaml", override}, "overrides.permissions.disableBypassPermissionsMode"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.file.Content == base || tc.file.Content == eng {
+				t.Fatal("examples/acme-corp changed: the draft edit did not apply")
+			}
+			dir := gitPolicy(t)
+			chk, err := Verify(dir, []File{tc.file})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if chk.OK || !strings.Contains(strings.Join(chk.Errors, "\n"), tc.want) {
+				t.Fatalf("draft accepted or wrong reason (want %q): ok=%v errors=%v", tc.want, chk.OK, chk.Errors)
+			}
+			if _, _, _, err := Apply(context.Background(), nil, dir, []File{tc.file}, "x", "s", "b"); err == nil || !strings.Contains(err.Error(), "refusing to apply") {
+				t.Fatalf("apply: %v", err)
+			}
+			if out, _ := exec.Command("git", "-C", dir, "branch", "--list", "halos/*").Output(); len(bytes.TrimSpace(out)) != 0 {
+				t.Fatalf("a branch was created: %s", out)
+			}
+		})
+	}
+}

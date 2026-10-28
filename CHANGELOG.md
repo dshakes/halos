@@ -60,6 +60,7 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ### Fixed
 
+- Policy copilot: a regression test pins that a draft leaving a ring profile without `permissions.disableBypass` (set false, dropped, or a Claude Code override replacing `permissions.disableBypassPermissionsMode`) fails the check and cannot be applied. Test only; behavior unchanged.
 - `halo plan --diff <ref>`: when the base policy's supply-chain artifacts cannot be fetched or verified, the plan fails naming the artifact and suggests fixing access or `--against` with a built release. Before, it warned and diffed against an empty release, showing every setting as new.
 - Gateways: a failed revocation-list fetch is now reported through the directory client's `Observe` hook as `revocations_unavailable`, and `halo-kong` counts it in `halo_kong_directory_resolutions_total{outcome="revocations_unavailable"}`. Before, it was only logged.
 - Real-CLI UAT: the Claude Code `permissions.disableBypassPermissionsMode` check now runs as a non-root user and requires Claude Code's own "bypassPermissions mode is disabled by settings" in its debug log, with the session in the default mode. It accepted any non-zero exit before, and the recorded PASS came from Claude Code refusing `--dangerously-skip-permissions` as root, not from the managed setting; that row is marked superseded until the UAT is re-run.
