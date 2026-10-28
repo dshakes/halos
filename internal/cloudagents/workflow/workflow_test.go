@@ -100,7 +100,7 @@ func TestAudienceInjection(t *testing.T) {
 		for _, st := range doc.Jobs["claude"].Steps {
 			if env, _ := st["env"].(map[string]any); env["HALO_AUDIENCE"] != nil {
 				found = true
-				if env["HALO_AUDIENCE"] != aud || st["run"] != tokenScript {
+				if env["HALO_AUDIENCE"] != aud || st["run"] != exchangeScript {
 					t.Errorf("%q: env %v run %q", aud, env, st["run"])
 				}
 			}
@@ -159,7 +159,7 @@ func TestClaudeTrustedAuthorsOnly(t *testing.T) {
 }
 
 func TestCheck(t *testing.T) {
-	ok := "permissions: {}\njobs:\n  a:\n    steps:\n      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7\n      - run: |\n" + indent(tokenScript, 10) + "        env:\n          X: ${{ github.event.comment.body }}\n"
+	ok := "permissions: {}\njobs:\n  a:\n    steps:\n      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7\n      - run: |\n" + indent(exchangeScript, 10) + "        env:\n          X: ${{ github.event.comment.body }}\n"
 	tests := []struct{ name, data, want string }{
 		{"ok", ok, ""},
 		{"bypass", ok + "      - run: claude --dangerously-skip-permissions\n", "bypass"},

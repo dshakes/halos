@@ -124,12 +124,12 @@ const (
 curl -fsSLo "$RUNNER_TEMP/install.sh" "https://raw.githubusercontent.com/dshakes/halos/${HALO_VERSION}/install/install.sh"
 sh "$RUNNER_TEMP/install.sh" --version "$HALO_VERSION" --prefix "$RUNNER_TEMP/halo"
 `
-	tokenScript = `set -euo pipefail
+	exchangeScript = `set -euo pipefail
 "$RUNNER_TEMP/halo/bin/halo" ci token --format github --audience "$HALO_AUDIENCE"
 `
 )
 
-var runScripts = []string{installScript, tokenScript}
+var runScripts = []string{installScript, exchangeScript}
 
 // indent prefixes every line of s with n spaces (a YAML literal block body).
 func indent(s string, n int) string {
@@ -150,7 +150,7 @@ func workloadSteps(c *policy.CloudAgents, audience string) string {
           HALO_SERVER: %s
           HALO_AUDIENCE: %s
         run: |
-%s`, strconv.Quote(c.HaloVersion), indent(installScript, 10), strconv.Quote(c.Server), strconv.Quote(audience), indent(tokenScript, 10))
+%s`, strconv.Quote(c.HaloVersion), indent(installScript, 10), strconv.Quote(c.Server), strconv.Quote(audience), indent(exchangeScript, 10))
 }
 
 // commonWarns are the controls the workflow vendors cannot express.
