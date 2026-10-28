@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/dshakes/halos/internal/harness"
 	"github.com/dshakes/halos/internal/policy"
 )
 
@@ -36,6 +37,9 @@ type Report struct {
 	Checks      []Check      `json:"checks"`
 	Harnesses   []Harness    `json:"harnesses"`
 	Credentials []Credential `json:"credentials"`
+	// Posture is each installed harness's effective sandbox and egress
+	// posture on this machine (ADR-0032).
+	Posture []harness.Posture `json:"posture,omitempty"`
 }
 
 // tools are the non-harness programs the onboarding paths use.
@@ -91,6 +95,8 @@ func Doctor(ctx context.Context, e Env, dir string) Report {
 			installFix("claude-code", "", e.GOOS) + "   # or: " + installFix("codex", "", e.GOOS)})
 	}
 
+	checkPosture(e, &r, add)
+
 	for _, t := range tools {
 		if p, err := e.LookPath(t.bin); err == nil {
 			add(Check{"tool/" + t.bin, StatusOK, t.bin + " at " + p, ""})
@@ -111,6 +117,43 @@ func Doctor(ctx context.Context, e Env, dir string) Report {
 		}
 	}
 	return r
+}
+
+// envWeakens are environment variables, read by the harness at start, that
+// override its managed sandbox or permission settings (FACTS.md).
+var envWeakens = []struct {
+	harness, env string
+	bad          func(string) bool
+	why, fix     string
+}{
+	{"gemini-cli", "GEMINI_SANDBOX", func(v string) bool { return v == "false" || v == "0" }, "turns the Gemini CLI sandbox off (it takes precedence over the system settings file)", "unset GEMINI_SANDBOX in your shell profile"},
+	{"opencode", "OPENCODE_PERMISSION", func(v string) bool { return v != "" }, "replaces the managed permission block, including the webfetch and protected-path rules", "unset OPENCODE_PERMISSION in your shell profile"},
+	{"codex", "CODEX_HOME", func(v string) bool { return v != "" }, "moves Codex's user config, so the per-user posture check reads the wrong file", "unset CODEX_HOME, or check $CODEX_HOME/config.toml by hand"},
+}
+
+// checkPosture reports, per installed harness, the effective sandbox and
+// egress posture (managed file + per-user settings + environment).
+func checkPosture(e Env, r *Report, add func(Check)) {
+	if e.ReadFile == nil {
+		return
+	}
+	for _, h := range r.Harnesses {
+		if !h.Installed {
+			continue
+		}
+		p := harness.ReadPosture(h.Name, harness.OS(e.GOOS), e.Home, e.ReadFile)
+		for _, w := range envWeakens {
+			if w.harness == h.Name && e.Getenv != nil && w.bad(e.Getenv(w.env)) {
+				p.Findings = append(p.Findings, harness.Finding{Problem: w.env + " is set: it " + w.why, Fix: w.fix})
+			}
+		}
+		r.Posture = append(r.Posture, p)
+		id := "posture/" + h.Name
+		add(Check{id, StatusOK, "sandbox: " + p.Sandbox + "; egress: " + p.Egress, ""})
+		for _, f := range p.Findings {
+			add(Check{id, StatusWarn, f.Problem, f.Fix})
+		}
+	}
 }
 
 func checkPolicy(dir string, add func(Check)) *policy.Org {

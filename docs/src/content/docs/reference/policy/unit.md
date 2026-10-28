@@ -25,9 +25,14 @@ Generated from `schemas/unit.schema.json`; do not edit. Nested fields use dotted
 | `overlay.agents.maxDepth` | integer |  |  |  | minimum 1; maximum 5 | Lowers agents.maxDepth for these members. |
 | `overlay.agents.remote` | array of string |  |  |  |  | agents.remote names these members may call; empty = every entry whose rings or units admit them. |
 | `overlay.agents.remote[]` | string |  |  |  | minLength 1 |  |
-| `overlay.egress` | object |  |  |  |  | Egress policy. |
-| `overlay.egress.allowedDomains` | array of string |  |  |  |  | Only egress permitted from managed environments; must include the gateway host when non-empty. |
-| `overlay.egress.allowedDomains[]` | string |  |  |  |  |  |
+| `overlay.egress` | object |  |  |  |  | Network egress for the agent's shell and fetch tools (ADR-0032). A deny rule wins over an allow rule; unmatched hosts take the default. Rendered natively per harness; what a harness cannot hold is a release warning. |
+| `overlay.egress.allowedDomains` | array of string |  |  |  |  | Allowlist: exact hosts or *.domain (subdomains only, not the apex). Must allow the gateway host. Replaces the parent's list. |
+| `overlay.egress.allowedDomains[]` | string |  |  |  | pattern ^(\*\.)?([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)*[a-z0-9]([a-z0-9-]*[a-z0-9])?$ |  |
+| `overlay.egress.default` | string |  |  | allow, deny |  | For hosts no rule matches. Unset: deny when allowedDomains or presets allow anything, else allow. allow with an allowlist is an error. |
+| `overlay.egress.deniedDomains` | array of string |  |  |  |  | Always denied, even when an allow rule matches. Unions down an extends chain and across units. |
+| `overlay.egress.deniedDomains[]` | string |  |  |  | pattern ^(\*\.)?([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)*[a-z0-9]([a-z0-9-]*[a-z0-9])?$ |  |
+| `overlay.egress.presets` | array of string |  |  |  |  | Named domain sets added to the allowlist (see the egress and sandbox guide for each set's hosts). |
+| `overlay.egress.presets[]` | string |  |  | package-registries, vcs, model-providers |  |  |
 | `overlay.env` | object |  |  |  |  | Extra environment; may add keys, never change an inherited one. |
 | `overlay.env.*` | string |  |  |  |  |  |
 | `overlay.hooks` | object |  |  |  |  | Hook policy. |
@@ -78,6 +83,12 @@ Generated from `schemas/unit.schema.json`; do not edit. Nested fields use dotted
 | `overlay.permissions.mode` | string |  |  | default, acceptEdits, plan, auto |  | Default permission mode. |
 | `overlay.permissions.sandbox` | string |  |  | off, workspace-write, read-only |  | Harness sandbox policy. |
 | `overlay.permissions.sandboxRequired` | boolean |  |  |  |  | Fail closed: the harness refuses to run (Claude: sandbox.failIfUnavailable) instead of running unsandboxed when its sandbox dependencies are missing. |
+| `overlay.sandbox` | object |  |  |  |  | Agent sandbox (ADR-0032): mode, extra writable roots and paths the agent may never read or write. |
+| `overlay.sandbox.mode` | string |  |  | off, workspace-write, read-only |  | Same setting as permissions.sandbox (set either; both must agree). off is an error while egress or sandbox paths are set. |
+| `overlay.sandbox.protectedPaths` | array of string |  |  |  |  | Never read or written by the agent: absolute, ~/ or workspace-relative globs such as .env*. Unions down an extends chain and across units. |
+| `overlay.sandbox.protectedPaths[]` | string |  |  |  | minLength 1 |  |
+| `overlay.sandbox.writableRoots` | array of string |  |  |  |  | Absolute or ~/ directories writable beyond the workspace (no globs, not / or ~, not over a protected path). Replaces the parent's list; a unit adding one is a loosening. |
+| `overlay.sandbox.writableRoots[]` | string |  |  |  | pattern ^(/\|~/) |  |
 | `overlay.telemetry` | object |  |  |  |  | Telemetry policy. |
 | `overlay.telemetry.attributes` | object |  |  |  |  | Extra resource attributes. |
 | `overlay.telemetry.attributes.*` | string |  |  |  |  |  |

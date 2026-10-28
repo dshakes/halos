@@ -177,6 +177,7 @@ func (a *app) cmdWhoami() *cobra.Command {
 var allCaps = []harness.Capability{
 	harness.CapVersionPin, harness.CapModelLock, harness.CapMCPAllowlist, harness.CapHooksLock,
 	harness.CapPermissions, harness.CapGateway, harness.CapTelemetry, harness.CapInstructions, harness.CapHeaders,
+	harness.CapSandbox, harness.CapEgress,
 }
 
 func (a *app) cmdHarnesses() *cobra.Command {

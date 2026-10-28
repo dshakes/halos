@@ -125,6 +125,9 @@ type Agent struct {
 	Home string
 	// ConsoleUser, if set, refreshes User each cycle (halod runs as root).
 	ConsoleUser func(ctx context.Context) string
+	// Home returns a user's home directory for posture checks of per-user
+	// settings (ADR-0032); nil or "" skips them.
+	Home func(user string) string
 	// Open returns the registry source for Cfg.Registry.
 	Open func(ctx context.Context) (oras.ReadOnlyTarget, error)
 	// Log receives diagnostics (stderr JSON in production); nil = slog.Default().
@@ -544,6 +547,7 @@ func (a *Agent) apply(ctx context.Context, st *Status, prev State, ring, subject
 			}
 		}
 	}
+	a.postureDrift(rel, st)
 	files := make([]string, 0, len(owned))
 	for p := range owned {
 		files = append(files, p)

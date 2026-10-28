@@ -43,16 +43,20 @@ telemetry:
   logPrompts: false
   attributes:
     org: acme-corp
+# Sandbox and egress (ADR-0032): one policy, rendered natively into every
+# harness; what a harness cannot hold is a release warning. Check a host with
+#   halo egress test https://registry.npmjs.org --ring ring3-ga
+sandbox:
+  protectedPaths: ["~/.ssh", "~/.aws", ".env*"]
 egress:
+  # Unset default + an allowlist = deny everything else. Deny rules always win.
   allowedDomains:
     - ai.acme.example
     - mcp-docs.internal.acme.example
     - mcp-tickets.internal.acme.example
     - otel.internal.acme.example
-    - github.com
-    - "*.githubusercontent.com"
-    - registry.npmjs.org
-    - proxy.golang.org
+  presets: [vcs, package-registries]
+  deniedDomains: [pastebin.com, transfer.sh]
 instructions: |
   # Acme engineering
   - Follow the repo's CONTRIBUTING.md and run tests before proposing a commit.

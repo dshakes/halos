@@ -192,6 +192,35 @@ func permission(p policy.Permissions) (map[string]any, []string) {
 	return out, warns
 }
 
+// webfetch is the webfetch permission for an egress policy: OpenCode 1's
+// webfetch takes one action for every URL (no URL patterns), so a default
+// deny with nothing allowed is "deny" and any other restricted policy "ask".
+// https://opencode.ai/docs/permissions/
+func webfetch(e policy.Egress) string {
+	if !e.Restricted() {
+		return ""
+	}
+	if r := e.Rules(); r.Default == policy.EgressDeny && len(r.Allow) == 0 {
+		return "deny"
+	}
+	return "ask"
+}
+
+// sandboxWarnings: OpenCode has no sandbox (no key in its config schema), so
+// the mode, writable roots and the egress deny list and presets warn as
+// unsupported; protected paths become read/edit deny rules and the allowlist
+// the webfetch permission.
+func sandboxWarnings(p *policy.Profile) []string {
+	var w []string
+	if len(p.Sandbox.ProtectedPaths) > 0 {
+		w = append(w, "opencode: sandbox.protectedPaths are rendered as read/edit deny rules for the file tools; bash can still read them (no sandbox)")
+	}
+	if p.Egress.Restricted() {
+		w = append(w, fmt.Sprintf("opencode: egress is rendered as the webfetch permission (one action for every URL: deny when nothing is allowed, else ask), so fetches cannot be limited to the allowlist %v; bash network access is not restricted (no sandbox)", p.Egress.Rules().Allow))
+	}
+	return w
+}
+
 // modelSet is the sorted, de-duplicated model names the provider exposes: the
 // default plus models.allowed, each as the name a client sends.
 func modelSet(p *policy.Profile, c harness.Context, def string) []string {
@@ -208,7 +237,9 @@ func modelSet(p *policy.Profile, c harness.Context, def string) []string {
 func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []string, error) {
 	warns := hutil.WarnUnsupported(name, p,
 		"models.default", "models.allowed", "permissions.allow", "permissions.deny", "permissions.ask",
-		"mcp.servers", "mcp.denied", "mcp.tools.allow", "mcp.tools.deny", "mcp.auth", "instructions")
+		"mcp.servers", "mcp.denied", "mcp.tools.allow", "mcp.tools.deny", "mcp.auth", "instructions",
+		"egress.allowedDomains", "sandbox.protectedPaths")
+	warns = append(warns, sandboxWarnings(p)...)
 	warns = append(warns, "opencode: cannot self-enforce version; halod enforces")
 
 	cfg := map[string]any{}
@@ -266,8 +297,16 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 		}
 	}
 
-	perm, pw := permission(p.Permissions)
+	perms := p.Permissions
+	perms.Deny = append(slices.Clone(perms.Deny), hutil.ProtectedRules(p.Sandbox.ProtectedPaths, "")...)
+	perm, pw := permission(perms)
 	warns = append(warns, pw...)
+	if a := webfetch(p.Egress); a != "" {
+		if perm == nil {
+			perm = map[string]any{}
+		}
+		perm["webfetch"] = a
+	}
 	if perm != nil {
 		cfg["permission"] = perm
 	}

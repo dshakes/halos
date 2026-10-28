@@ -22,6 +22,8 @@ func TestNoSilentDrop(t *testing.T) {
 	base, gw := hutiltest.Fixture()
 	full := clone(t, base)
 	full.Egress.AllowedDomains = append(full.Egress.AllowedDomains, "nodrop.example.com")
+	full.Egress.Default, full.Egress.DeniedDomains, full.Egress.Presets = policy.EgressDeny, []string{"nodrop-deny.example"}, []string{"vcs"}
+	full.Sandbox = policy.Sandbox{WritableRoots: []string{"/opt/nodrop"}, ProtectedPaths: []string{"~/.nodrop", ".nodrop*"}}
 	full.Env = map[string]string{"NODROP": "1"}
 	full.Instructions = "nodrop instructions"
 	full.Login = policy.LoginAPI
@@ -39,7 +41,8 @@ func TestNoSilentDrop(t *testing.T) {
 	fields := hutil.Populated(full)
 	for _, want := range []string{"permissions.deny", "mcp.denied", "hooks.items", "telemetry.enabled", "egress.allowedDomains", "env",
 		"instructions", "login", "extensions.marketplaces", "extensions.plugins.enabled", "extensions.statusLine", "extensions.artifacts",
-		"mcp.tools.allow", "mcp.tools.deny", "mcp.auth"} {
+		"mcp.tools.allow", "mcp.tools.deny", "mcp.auth",
+		"egress.default", "egress.deniedDomains", "egress.presets", "sandbox.writableRoots", "sandbox.protectedPaths"} {
 		if !slices.Contains(fields, want) {
 			t.Fatalf("fixture does not populate %s (populated: %v)", want, fields)
 		}
@@ -53,6 +56,7 @@ func TestNoSilentDrop(t *testing.T) {
 		"gemini-cli/mcp.managedOnly":      "listing mcp.servers already renders mcp.allowed (the list is the allowlist)",
 		"codex/permissions.disableBypass": "with permissions.sandbox set, requirements.toml allowed_sandbox_modes already excludes danger-full-access; disableBypass adds that list only when sandbox is unset",
 		"gemini-cli/login":                "with a gateway, auth is already pinned to gemini-api-key (login: api is the same result)",
+		"*/egress.default":                "with an allowlist the unset default is already deny (policy.Egress.Rules)",
 	}
 	for _, name := range harness.Names() {
 		ad, _ := harness.Get(name)
@@ -80,6 +84,9 @@ func TestNoSilentDrop(t *testing.T) {
 			}
 			got, err := render(p)
 			if _, ok := implied[name+"/"+f]; ok {
+				continue
+			}
+			if _, ok := implied["*/"+f]; ok {
 				continue
 			}
 			if err == nil && got == ref {

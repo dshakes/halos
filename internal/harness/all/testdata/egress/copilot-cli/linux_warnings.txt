@@ -1,0 +1,7 @@
+copilot-cli: cannot self-enforce version; halod enforces
+copilot-cli: no gateway configured; traffic is not routed through Halos
+copilot-cli: ring/release request headers are not supported
+copilot-cli: deniedPaths "should be absolute"; ~/ expansion is not documented (UNVERIFIED), so ~/ protected paths may not be enforced
+copilot-cli: sandbox.protectedPaths [.env*] are workspace-relative; deniedPaths takes absolute paths, so they are not rendered
+copilot-cli: blockedHosts also blocks subdomains of an exact host (stricter than egress.deniedDomains)
+copilot-cli: egress host rules apply to sandboxed commands; whether the CLI's own URL fetches use the sandbox proxy is not documented (UNVERIFIED)

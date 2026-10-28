@@ -300,6 +300,8 @@ type Profile struct {
 	Hooks       Hooks       `yaml:"hooks" json:"hooks"`
 	Telemetry   Telemetry   `yaml:"telemetry" json:"telemetry"`
 	Egress      Egress      `yaml:"egress" json:"egress"`
+	// Sandbox is the agent sandbox: mode, writable roots, protected paths (ADR-0032).
+	Sandbox Sandbox `yaml:"sandbox,omitempty" json:"sandbox,omitzero"`
 	// Extensions governs agent-extension surfaces: plugins and their marketplaces,
 	// skills, subagents, output style and status line.
 	Extensions Extensions `yaml:"extensions,omitempty" json:"extensions,omitempty"`
@@ -390,9 +392,20 @@ type Telemetry struct {
 	Attributes   map[string]string `yaml:"attributes,omitempty" json:"attributes,omitempty"`
 }
 
+// Egress is the network egress policy for the agent's shell and fetch tools
+// (ADR-0032). See Egress.Rules for how the fields combine.
 type Egress struct {
-	// AllowedDomains is the only egress permitted from managed environments (firewall + harness sandbox).
+	// AllowedDomains is the allowlist: exact hosts or *.domain (subdomains only).
 	AllowedDomains []string `yaml:"allowedDomains,omitempty" json:"allowedDomains,omitempty"`
+	// Default is allow | deny for hosts no rule matches. Unset: deny when
+	// anything is allowed (allowedDomains or presets), allow otherwise.
+	Default string `yaml:"default,omitempty" json:"default,omitempty"`
+	// DeniedDomains always lose: a deny rule wins over any allow rule. Unions
+	// down an extends chain and across units.
+	DeniedDomains []string `yaml:"deniedDomains,omitempty" json:"deniedDomains,omitempty"`
+	// Presets are named domain sets added to the allowlist (EgressPresets):
+	// package-registries | vcs | model-providers.
+	Presets []string `yaml:"presets,omitempty" json:"presets,omitempty"`
 }
 
 // Marketplace source kinds for Extensions.Marketplaces.

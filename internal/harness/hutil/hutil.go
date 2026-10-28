@@ -105,6 +105,11 @@ func Populated(p *policy.Profile) []string {
 	add(p.Telemetry.LogPrompts, "telemetry.logPrompts")
 	add(len(p.Telemetry.Attributes) > 0, "telemetry.attributes")
 	add(len(p.Egress.AllowedDomains) > 0, "egress.allowedDomains")
+	add(p.Egress.Default != "", "egress.default")
+	add(len(p.Egress.DeniedDomains) > 0, "egress.deniedDomains")
+	add(len(p.Egress.Presets) > 0, "egress.presets")
+	add(len(p.Sandbox.WritableRoots) > 0, "sandbox.writableRoots")
+	add(len(p.Sandbox.ProtectedPaths) > 0, "sandbox.protectedPaths")
 	add(p.Instructions != "", "instructions")
 	add(len(p.Env) > 0, "env")
 	e := p.Extensions
@@ -134,6 +139,49 @@ func HasAuth(s policy.MCPServer) bool {
 // that server (ADR-0029). url is a validated registry URL (no quotes or spaces).
 func MCPTokenHelper(url string) string {
 	return "halo mcp token --resource " + ShQuote(url) + " --format headers"
+}
+
+// SandboxPaths are the fields every egress/sandbox-aware adapter handles.
+var SandboxPaths = []string{"permissions.sandbox", "egress.allowedDomains", "egress.default", "egress.deniedDomains", "egress.presets",
+	"sandbox.writableRoots", "sandbox.protectedPaths"}
+
+// ProtectedRules turns sandbox.protectedPaths into Read and Edit permission
+// rules (Claude Code rule syntax, which OpenCode's translation also reads).
+// An absolute path gets absPrefix in front ("/" makes Claude's "//abs"), a
+// relative one matches at any depth ("**/x"), and a path without a glob also
+// covers everything below it.
+func ProtectedRules(paths []string, absPrefix string) []string {
+	var out []string
+	for _, p := range paths {
+		switch {
+		case strings.HasPrefix(p, "/"):
+			p = absPrefix + p
+		case strings.HasPrefix(p, "~/"):
+		default:
+			p = "**/" + strings.TrimPrefix(strings.TrimPrefix(p, "./"), "**/")
+		}
+		pats := []string{p}
+		if !strings.ContainsAny(p, "*?[") {
+			pats = append(pats, strings.TrimSuffix(p, "/")+"/**")
+		}
+		for _, pat := range pats {
+			out = append(out, "Read("+pat+")", "Edit("+pat+")")
+		}
+	}
+	return out
+}
+
+// SplitPaths separates paths a system-wide file can name (absolute, or ~/
+// when home is true) from the rest (workspace-relative globs).
+func SplitPaths(paths []string, home bool) (ok, rest []string) {
+	for _, p := range paths {
+		if strings.HasPrefix(p, "/") || (home && strings.HasPrefix(p, "~/")) {
+			ok = append(ok, p)
+		} else {
+			rest = append(rest, p)
+		}
+	}
+	return ok, rest
 }
 
 // WarnUnsupported returns one warning per populated profile field not in handled.
@@ -170,6 +218,16 @@ func VersionBefore(v string, major, minor int) bool {
 		return false
 	}
 	return a < major || (a == major && b < minor)
+}
+
+// PatchBefore reports whether a "major.minor.patch[...]" version is below
+// major.minor.patch. Unparseable versions report false, like VersionBefore.
+func PatchBefore(v string, major, minor, patch int) bool {
+	var a, b, c int
+	if _, err := fmt.Sscanf(v, "%d.%d.%d", &a, &b, &c); err != nil {
+		return false
+	}
+	return a < major || (a == major && (b < minor || (b == minor && c < patch)))
 }
 
 // Model is the default model alias for harness name: its own harnesses.<name>.model,

@@ -36,6 +36,8 @@ func (Adapter) Capabilities() []harness.Capability {
 		harness.CapMCPAllowlist,
 		harness.CapPermissions,
 		harness.CapExtensions, // partial: marketplace allowlist; plugin pins are defaults
+		harness.CapSandbox,    // allowed_sandbox_modes + deny_read; writable roots are defaults
+		harness.CapEgress,     // requirements.toml [experimental_network]
 	}
 }
 
@@ -52,6 +54,76 @@ const (
 	profileD            = "/etc/profile.d/halos-codex.sh"
 )
 
+// workspaceWrite renders [sandbox_workspace_write] in managed_config.toml: a
+// default the user's config.toml can change, which requirements.toml then
+// limits (allowed_sandbox_modes, [experimental_network], deny_read).
+// writable_roots are absolute paths (AbsolutePathBuf in the schema).
+// network_access stays false under a default-deny egress policy: the release
+// check refuses true, and commands then reach only what the managed proxy allows
+// once a user turns it on.
+func workspaceWrite(p *policy.Profile, mode string) (map[string]any, []string) {
+	var warns []string
+	out := map[string]any{}
+	abs, rest := hutil.SplitPaths(p.Sandbox.WritableRoots, false)
+	if len(rest) > 0 {
+		warns = append(warns, fmt.Sprintf("codex: sandbox.writableRoots %v are not absolute (writable_roots takes absolute paths only); not rendered", rest))
+	}
+	if len(abs) > 0 && mode == "workspace-write" {
+		out["writable_roots"] = abs
+	}
+	if p.Egress.Restricted() {
+		er := p.Egress.Rules()
+		out["network_access"] = er.Default == policy.EgressAllow
+		if er.Default == policy.EgressDeny && len(er.Allow) > 0 {
+			warns = append(warns, "codex: egress default deny renders network_access = false, so sandboxed commands reach the allowlisted hosts only after the user sets network_access = true; [experimental_network] in requirements.toml then limits them")
+		}
+	}
+	if len(out) == 0 || mode != "workspace-write" {
+		return nil, warns
+	}
+	return out, warns
+}
+
+// requirementsSandbox adds the enforced sandbox and egress requirements to req:
+// [permissions.filesystem] deny_read (absolute, ~ or /**/ globs; "./" is
+// refused) and [experimental_network] (domain -> allow|deny, deny wins,
+// *.x = subdomains only, managed_allowed_domains_only for default deny).
+// https://learn.chatgpt.com/docs/enterprise/managed-configuration
+func requirementsSandbox(p *policy.Profile, req map[string]any, os harness.OS) []string {
+	var warns []string
+	if pp := p.Sandbox.ProtectedPaths; len(pp) > 0 {
+		var deny []string
+		for _, x := range pp {
+			if !strings.HasPrefix(x, "/") && !strings.HasPrefix(x, "~/") {
+				x = "/**/" + strings.TrimPrefix(strings.TrimPrefix(x, "./"), "**/")
+			}
+			deny = append(deny, x)
+		}
+		req["permissions"] = map[string]any{"filesystem": map[string]any{"deny_read": deny}}
+		warns = append(warns, "codex: sandbox.protectedPaths are rendered as deny_read (reads); Codex has no managed deny-write list, so writes are held only by the sandbox mode")
+		if os == harness.Windows {
+			warns = append(warns, "codex: on native Windows deny_read applies to direct file tools only, not shell subprocess reads")
+		}
+	}
+	if p.Egress.Restricted() {
+		er := p.Egress.Rules()
+		domains := map[string]any{}
+		for _, d := range er.Allow {
+			domains[d] = "allow"
+		}
+		for _, d := range er.Deny {
+			domains[d] = "deny"
+		}
+		net := map[string]any{"enabled": true, "managed_allowed_domains_only": er.Default == policy.EgressDeny}
+		if len(domains) > 0 {
+			net["domains"] = domains
+		}
+		req["experimental_network"] = net
+		warns = append(warns, "codex: egress is rendered as requirements.toml [experimental_network], which OpenAI documents as experimental; the minimum codex version honoring it is not documented (UNVERIFIED), and it does not filter web search, MCP servers or Codex's own service requests")
+	}
+	return warns
+}
+
 // approval maps profile permission mode to Codex approval_policy. Codex now
 // accepts only on-request | never | granular (untrusted is unsupported and
 // on-failure deprecated), so every mode maps to on-request.
@@ -65,6 +137,8 @@ var approval = map[string]string{
 func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []string, error) {
 	warns := hutil.WarnUnsupported(name, p,
 		"models.default", "permissions.mode", "permissions.sandbox", "permissions.disableBypass",
+		"egress.allowedDomains", "egress.default", "egress.deniedDomains", "egress.presets",
+		"sandbox.writableRoots", "sandbox.protectedPaths",
 		"mcp.servers", "mcp.tools.allow", "mcp.tools.deny", "mcp.auth", "telemetry.enabled", "telemetry.logPrompts", "telemetry.attributes",
 		"extensions.marketplaces", "extensions.plugins.enabled", "extensions.plugins.blocked", "login")
 	warns = append(warns, "codex cannot self-enforce version; halod enforces")
@@ -125,8 +199,16 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 	default:
 		return nil, nil, fmt.Errorf("codex: unknown permissions.sandbox %q", s)
 	}
+	if sandbox == "" && (p.Egress.Restricted() || len(p.Sandbox.ProtectedPaths)+len(p.Sandbox.WritableRoots) > 0) {
+		sandbox = "workspace-write" // egress and path rules hold only inside a sandbox
+	}
 	if sandbox != "" {
 		cfg["sandbox_mode"] = sandbox
+	}
+	sw, ww := workspaceWrite(p, sandbox)
+	warns = append(warns, ww...)
+	if sw != nil {
+		cfg["sandbox_workspace_write"] = sw
 	}
 
 	if len(p.MCP.Servers) > 0 {
@@ -247,6 +329,8 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 	} else if p.Permissions.DisableBypass {
 		req["allowed_sandbox_modes"] = []string{"read-only", "workspace-write"}
 	}
+	rw := requirementsSandbox(p, req, c.OS)
+	warns = append(warns, rw...)
 	if len(p.MCP.Servers) > 0 {
 		// requirements.toml mcp_servers is an allowlist: name AND identity must match.
 		allow := map[string]any{}

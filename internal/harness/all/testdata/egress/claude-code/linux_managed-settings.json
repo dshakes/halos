@@ -1,0 +1,66 @@
+{
+  "disableBypassPermissionsMode": "disable",
+  "env": {
+    "ANTHROPIC_CUSTOM_HEADERS": "x-halo-ring: ga\nx-halo-release: 1.0.0",
+    "DISABLE_AUTOUPDATER": "1"
+  },
+  "permissions": {
+    "deny": [
+      "Read(~/.ssh)",
+      "Edit(~/.ssh)",
+      "Read(~/.ssh/**)",
+      "Edit(~/.ssh/**)",
+      "Read(~/.aws)",
+      "Edit(~/.aws)",
+      "Read(~/.aws/**)",
+      "Edit(~/.aws/**)",
+      "Read(//etc/secrets)",
+      "Edit(//etc/secrets)",
+      "Read(//etc/secrets/**)",
+      "Edit(//etc/secrets/**)",
+      "Read(**/.env*)",
+      "Edit(**/.env*)",
+      "WebFetch(domain:pastebin.com)"
+    ]
+  },
+  "requiredMaximumVersion": "2.1.280",
+  "requiredMinimumVersion": "2.1.280",
+  "sandbox": {
+    "allowUnsandboxedCommands": false,
+    "enabled": true,
+    "failIfUnavailable": true,
+    "filesystem": {
+      "allowWrite": [
+        "/opt/build-cache"
+      ],
+      "denyRead": [
+        "~/.ssh",
+        "~/.aws",
+        "/etc/secrets"
+      ],
+      "denyWrite": [
+        "~/.ssh",
+        "~/.aws",
+        "/etc/secrets"
+      ]
+    },
+    "network": {
+      "allowManagedDomainsOnly": true,
+      "allowedDomains": [
+        "gw.example.com",
+        "registry.npmjs.org",
+        "pypi.org",
+        "files.pythonhosted.org",
+        "proxy.golang.org",
+        "sum.golang.org",
+        "index.crates.io",
+        "static.crates.io",
+        "repo.maven.apache.org",
+        "rubygems.org"
+      ],
+      "deniedDomains": [
+        "pastebin.com"
+      ]
+    }
+  }
+}

@@ -166,8 +166,10 @@ type UnitMembers struct {
 // Overlay is the part of a Profile a unit may change. Harness pins and
 // overrides stay central (they ship per ring). Merge onto the baseline:
 // scalars win when set; permissions.deny, mcp.denied and hooks.items union;
+// egress.deniedDomains and sandbox.protectedPaths union;
 // mcp.servers are added (a name already provided above is an error);
-// models.allowed, permissions.allow/ask and egress.allowedDomains replace;
+// models.allowed, permissions.allow/ask, egress.allowedDomains/presets and
+// sandbox.writableRoots replace;
 // env and telemetry.attributes merge per key; instructions are appended.
 type Overlay struct {
 	Models       Models            `yaml:"models,omitempty" json:"models,omitempty"`
@@ -176,6 +178,7 @@ type Overlay struct {
 	Hooks        Hooks             `yaml:"hooks,omitempty" json:"hooks,omitempty"`
 	Telemetry    Telemetry         `yaml:"telemetry,omitempty" json:"telemetry,omitempty"`
 	Egress       Egress            `yaml:"egress,omitempty" json:"egress,omitempty"`
+	Sandbox      Sandbox           `yaml:"sandbox,omitempty" json:"sandbox,omitzero"`
 	Instructions string            `yaml:"instructions,omitempty" json:"instructions,omitempty"`
 	Env          map[string]string `yaml:"env,omitempty" json:"env,omitempty"`
 	// Agents may only lower maxDepth and narrow remote (ADR-0024).
@@ -293,14 +296,18 @@ func applyOverlay(out *Profile, u *Unit) error {
 	ov := u.Overlay
 	deny, denied, hooks := out.Permissions.Deny, out.MCP.Denied, out.Hooks.Hooks
 	servers, instr := slices.Clone(out.MCP.Servers), out.Instructions
+	deniedDomains, protected := out.Egress.DeniedDomains, out.Sandbox.ProtectedPaths
 	layer := &Profile{
-		Models: ov.Models, Permissions: ov.Permissions, Telemetry: ov.Telemetry, Egress: ov.Egress, Env: ov.Env, Agents: ov.Agents,
+		Models: ov.Models, Permissions: ov.Permissions, Telemetry: ov.Telemetry, Egress: ov.Egress, Sandbox: ov.Sandbox, Env: ov.Env, Agents: ov.Agents,
 		MCP: MCP{ManagedOnly: ov.MCP.ManagedOnly}, Hooks: Hooks{ManagedOnly: ov.Hooks.ManagedOnly},
 	}
 	mergeValue(reflect.ValueOf(out).Elem(), reflect.ValueOf(layer).Elem())
 	out.Permissions.Deny = unionAppend(slices.Clone(deny), ov.Permissions.Deny)
 	out.MCP.Denied = unionAppend(slices.Clone(denied), ov.MCP.Denied)
 	out.Hooks.Hooks = unionAppend(slices.Clone(hooks), ov.Hooks.Hooks)
+	out.Egress.DeniedDomains = unionAppend(slices.Clone(deniedDomains), ov.Egress.DeniedDomains)
+	out.Sandbox.ProtectedPaths = unionAppend(slices.Clone(protected), ov.Sandbox.ProtectedPaths)
+	syncSandboxMode(out, ov.Sandbox.Mode, ov.Permissions.Sandbox)
 	for _, s := range ov.MCP.Servers {
 		if slices.ContainsFunc(servers, func(x MCPServer) bool { return x.Name == s.Name }) {
 			return fmt.Errorf("policy: unit %q: mcp server %q is already provided above it; pick another name", u.Name, s.Name)
@@ -315,6 +322,17 @@ func applyOverlay(out *Profile, u *Unit) error {
 		out.Instructions = instr + ov.Instructions
 	}
 	return nil
+}
+
+// missing lists the entries of a that b lacks.
+func missing(a, b []string) []string {
+	var out []string
+	for _, e := range a {
+		if !slices.Contains(b, e) {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // Loosening is one enforced field an overlay weakens.
@@ -339,7 +357,8 @@ func rank(m map[string]int, v string) int {
 // enforced fields are the org's security baseline: permissions (mode,
 // sandbox, sandboxRequired, disableBypass, deny, allow, ask), mcp.denied and
 // mcp.managedOnly, hooks.managedOnly, telemetry (enabled, endpoint, protocol,
-// logPrompts, existing attributes), egress.allowedDomains, existing env keys,
+// logPrompts, existing attributes), egress (allowlist, default, deny list),
+// sandbox (writable roots, protected paths), existing env keys,
 // models.allowed while the parent enforces it, and agents (maxDepth may only
 // go down, remote may only narrow; ADR-0024). Additions that run code or
 // reroute traffic on members' machines are loosenings too, unless o allows
@@ -357,6 +376,23 @@ func (o *Org) Loosenings(parent, child *Profile) []Loosening {
 	}
 	if rank(sandboxRank, cp.Sandbox) > rank(sandboxRank, pp.Sandbox) {
 		add("permissions.sandbox", "%q is looser than %q", cp.Sandbox, pp.Sandbox)
+	}
+	if per, cer := parent.Egress.Rules(), child.Egress.Rules(); per.Default == EgressDeny && cer.Default == EgressAllow {
+		add("egress.default", "allow is looser than deny")
+	}
+	for _, l := range []struct {
+		field      string
+		par, child []string
+	}{
+		{"egress.deniedDomains", parent.Egress.DeniedDomains, child.Egress.DeniedDomains},
+		{"sandbox.protectedPaths", parent.Sandbox.ProtectedPaths, child.Sandbox.ProtectedPaths},
+	} {
+		if dropped := missing(l.par, l.child); len(dropped) > 0 {
+			add(l.field, "drops %v", dropped)
+		}
+	}
+	if added := missing(child.Sandbox.WritableRoots, parent.Sandbox.WritableRoots); len(added) > 0 {
+		add("sandbox.writableRoots", "adds %v", added)
 	}
 	for _, b := range []struct {
 		field     string

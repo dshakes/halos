@@ -1,0 +1,3 @@
+claude-code: no gateway configured; traffic is not routed through Halos
+claude-code: sandbox.protectedPaths [.env*] are workspace-relative; managed sandbox.filesystem paths have no documented project root, so they are enforced on the Read/Edit tools only, not on Bash
+claude-code: egress default deny: the WebFetch tool still asks before fetching a host outside the allowlist (deny rules win over allow rules, so deny-by-default cannot be expressed for it); Bash is held to the allowlist by the sandbox

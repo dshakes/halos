@@ -33,6 +33,8 @@ const (
 	CapInstructions Capability = "instructions"  // managed org-wide memory file
 	CapHeaders      Capability = "headers"       // custom request headers (ring stamping)
 	CapExtensions   Capability = "extensions"    // plugin marketplaces, plugins, skills, subagents (each adapter covers a subset; the rest warns)
+	CapSandbox      Capability = "sandbox"       // managed sandbox for shell commands (ADR-0032; paths and modes vary, the rest warns)
+	CapEgress       Capability = "egress"        // per-domain network allow/deny for shell commands (ADR-0032)
 )
 
 // File is one rendered artifact.

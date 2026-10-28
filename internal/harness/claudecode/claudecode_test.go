@@ -34,7 +34,7 @@ func TestGolden(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := []string{`mcp server "docs" tools.allow is not rendered`, `mcp.denied "filesystem" is matched by name only`, `permissions.sandbox "off" overridden`}
+		want := []string{`mcp server "docs" tools.allow is not rendered`, `mcp.denied "filesystem" is matched by name only`, `permissions.sandbox "off" overridden`, "egress default deny: the WebFetch tool still asks"}
 		if os == harness.Windows {
 			want = append(want, "does not run on native Windows")
 		}
