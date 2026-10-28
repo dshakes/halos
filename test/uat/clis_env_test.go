@@ -208,6 +208,19 @@ func (e *cliEnv) tls() error {
 // pointed at the mock, plus a running traffic experiment so variants are stamped.
 func (e *cliEnv) policy() error {
 	src, dst := filepath.Join(e.root, "examples/acme-corp"), filepath.Join(e.dir, "policy")
+	// The whole tree, so what the org declares (supply-chain artifacts, units,
+	// governance, egress, DLP, the MCP registry) is published and validated as
+	// shipped. Experiments, rollouts and toggles route to acme's own gateway
+	// upstreams, which the UAT gateway replaces, so they go. Only cliRing is
+	// kept, so every identity lands in it (halo-proxy assigns by percent).
+	if err := os.CopyFS(dst, os.DirFS(src)); err != nil {
+		return fmt.Errorf("copy examples/acme-corp: %w", err)
+	}
+	for _, d := range []string{"experiments", "rollouts", "toggles", "rings"} {
+		if err := os.RemoveAll(filepath.Join(dst, d)); err != nil {
+			return err
+		}
+	}
 	read := func(p string) (string, error) { b, err := os.ReadFile(filepath.Join(src, p)); return string(b), err }
 	write := func(p, s string) error {
 		if err := os.MkdirAll(filepath.Dir(filepath.Join(dst, p)), 0o755); err != nil {
@@ -229,6 +242,9 @@ func (e *cliEnv) policy() error {
 		return err
 	}
 	if halos, err = replace(halos, "https://acme.okta.com/oauth2/default", "https://mock:8443"); err != nil {
+		return err
+	}
+	if halos, err = onlyRingMCP(halos, cliRing); err != nil {
 		return err
 	}
 	base, err := read("profiles/base.yaml")
@@ -332,6 +348,44 @@ stopping: {method: msprt, alpha: 0.05, minSamples: 100, maxDays: 14, maxSpendUSD
 		}
 	}
 	return nil
+}
+
+// onlyRingMCP drops the mcp.servers scoped to rings that exclude ring: they
+// never reach ring's users, and their ring names no longer resolve once the
+// other rings are gone. Servers with no ring scope (all rings, or units) stay.
+func onlyRingMCP(halos, ring string) (string, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(halos), &doc); err != nil {
+		return "", fmt.Errorf("halos.yaml: %w", err)
+	}
+	get := func(m *yaml.Node, k string) *yaml.Node {
+		for i := 0; m != nil && m.Kind == yaml.MappingNode && i+1 < len(m.Content); i += 2 {
+			if m.Content[i].Value == k {
+				return m.Content[i+1]
+			}
+		}
+		return nil
+	}
+	servers := get(get(doc.Content[0], "mcp"), "servers")
+	if servers == nil {
+		return halos, nil
+	}
+	kept := servers.Content[:0]
+	for _, s := range servers.Content {
+		rs, keep := get(s, "rings"), true
+		if rs != nil {
+			keep = false
+			for _, r := range rs.Content {
+				keep = keep || r.Value == ring
+			}
+		}
+		if keep {
+			kept = append(kept, s)
+		}
+	}
+	servers.Content = kept
+	out, err := yaml.Marshal(&doc)
+	return string(out), err
 }
 
 func (e *cliEnv) containers() error {
