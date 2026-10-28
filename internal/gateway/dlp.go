@@ -1046,7 +1046,8 @@ type DLPResponseScanner struct {
 	total     int
 	seen      map[string]bool
 	findings  []DLPFinding
-	budget    *scanBudget // regex bytes for the whole response; no deadline (it streams)
+	budget    *scanBudget   // regex bytes for the whole response
+	spent     time.Duration // scan time so far: at most dlpScanBudget per response, inline on the stream
 	Truncated bool
 }
 
@@ -1082,9 +1083,15 @@ func (s *DLPResponseScanner) Text(t string) {
 }
 
 func (s *DLPResponseScanner) flush() {
-	if len(s.buf) <= s.scanned && s.scanned > 0 {
+	if (len(s.buf) <= s.scanned && s.scanned > 0) || s.budget.exhausted() {
 		return
 	}
+	// The response streams for minutes, so its deadline is the scan time
+	// left, not wall-clock time: the scanner adds at most dlpScanBudget of CPU
+	// to a response however it is shaped.
+	t0 := time.Now()
+	s.budget.deadline = t0.Add(dlpScanBudget - s.spent)
+	defer func() { s.spent += time.Since(t0) }()
 	for _, m := range s.e.secrets(string(s.buf), s.budget) {
 		if k := m.det + m.hash; !s.seen[k] {
 			s.seen[k] = true
