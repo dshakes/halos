@@ -100,6 +100,7 @@ func New(o Options) (*mcp.Server, error) {
 	s.addReadTools(m)
 	s.addOnboardTools(m)
 	s.addAutopilotTools(m)
+	s.addCopilotTools(m)
 	if o.AllowWrites {
 		s.addWriteTools(m)
 	}

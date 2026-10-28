@@ -54,6 +54,17 @@ func addPrompts(m *mcp.Server) {
 	add("autopilot", "Drive the whole Halos lifecycle hands-off (onboard, draft, validate, plan, eval, start, wait, promote or roll back), stopping only at the human gates.",
 		[]*mcp.PromptArgument{{Name: "goal", Description: "what to roll out, e.g. 'claude-code 2.1.300 to ring1' or 'opus-5-5 as the default model' (ask when empty)"}},
 		"Goal: %[1]s (ask what to roll out if empty). Follow this guide exactly; it is also the resource "+guideURI+".\n\n"+autopilotGuide, "goal")
+	add("copilot", "Halos Copilot: turn an intent into a verified policy change; you draft, Halos checks, a human approves.",
+		[]*mcp.PromptArgument{{Name: "intent", Description: "what to change, e.g. 'move ring1-canary to Claude Code 2.1.300' (ask when empty)"}},
+		"Intent: %[1]s (ask what to change if empty). You are the drafter; Halos is the gate (ADR-0035). Loop: read the policy "+
+			"(halos://policy/<path> resources, list_rings, list_experiments); write the WHOLE new content of each YAML file you change; "+
+			"call copilot_draft with dry_run true; fix every check.errors entry and call again (at most 3 rounds, then stop and show "+
+			"the human what still fails). For an experiment, ask the human for the baseline, sd (or a rate metric) and MDE, never guess "+
+			"them, and call copilot_experiment: the sample size and duration come from Halos, not from you. Never write "+
+			"bypassPermissions or danger-full-access. When the checks pass, show the diff, the plan, the impact and the risks, explain "+
+			"them citing copilot_explain fact keys, and wait for an explicit yes before calling again with dry_run false and a reason "+
+			"(that only commits a local branch). Push, PR, merge, release and starting an experiment are human steps: give the commands "+
+			"and stop. copilot_next lists what to do after.", "intent")
 	add("triage-experiment", "Diagnose an experiment whose guardrail is failing.",
 		[]*mcp.PromptArgument{arg("experiment", "experiment name")},
 		"Experiment %[1]s has a failing guardrail. Call show_experiment and analyze_experiment, identify which metric regressed "+
