@@ -47,7 +47,7 @@ Every model reply must be one JSON object matching a Go-side schema (a struct de
 
 ### Ceilings and logging
 
-Per run: `--max-iterations` (default 3), `--max-tokens` (input plus output, default 60000) and `--max-cost-usd` (default 2, from `--price-in`/`--price-out` per million tokens). Before each call the copilot estimates the worst case (prompt bytes / 4 plus the output cap) and stops if it would cross a ceiling; after each call it adds the provider's reported usage (or the estimate when none is reported). Each call logs one stderr line: call number, model, input, output and total tokens, estimated cost. Prompt and reply text are logged only with `--debug`.
+Per run: `--max-iterations` (default 3), `--max-tokens` (input plus output, default 60000) and `--max-cost-usd` (default 2, from `--price-in`/`--price-out` per million tokens). Before each call the copilot estimates the worst case (prompt bytes / 3 plus the output cap) and stops if it would cross a ceiling; after each call it adds the provider's reported usage (or the estimate when none is reported). Each call logs one stderr line: call number, model, input, output and total tokens, estimated cost. Prompt and reply text are logged only with `--debug`.
 
 ### `halo copilot draft "<intent>"`
 
@@ -87,7 +87,7 @@ The calling agent is the model, so the MCP tools never call a provider: `copilot
 - Bad: whole-file replacement can reformat a file the model rewrote; the diff shows it and the human reviews it.
 - Bad: the policy-only impact estimate is approximate (as for `halo plan --diff` without a server).
 - Bad: the sample size assumes independent units and a normal approximation; mSPRT may need more samples. The output says so.
-- Neutral: token usage relies on the provider's `usage` field; when absent the byte estimate is used, which can be off by tens of percent. The ceilings are checked against the larger of the two before each call.
+- Neutral: token usage relies on the provider's `usage` field; when absent the byte estimate is used, which can be off by tens of percent. A provider that bills more input than the estimate can overshoot the token ceiling by that difference on the last call.
 - Neutral: live provider calls were not made in building this; tests use an httptest fake of both wires.
 
 ## More information
