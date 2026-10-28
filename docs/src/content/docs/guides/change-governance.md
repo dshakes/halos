@@ -82,10 +82,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: halo freeze check --branch "${{ github.head_ref || github.ref_name }}"
+        with:
+          fetch-depth: 0 # the base branch and its history
+      - run: halo freeze check --event "$GITHUB_EVENT_PATH"
 ```
 
-It exits non-zero while any ring (or `--ring`) is frozen. Halos rollback and pause branches always pass.
+It exits non-zero while any ring (or `--ring`) is frozen. With `--event` (a `pull_request` or `merge_group` payload), the freeze windows come from the base branch (`origin/<base>`), never from the PR: a PR that deletes a window is still held by it. A rollback always passes, recognised from the diff, not the branch name. A change is a rollback only when every changed file is an existing policy YAML file, no document is added or removed, and each changed document differs only in:
+
+- a Rollout `status` set to `paused` or `aborted`;
+- an Experiment `status` set to `paused`;
+- a Ring `release` set to a release that ring pointed at before on the base branch.
+
+Anything else, comments aside, is a forward change. Locally, `--base origin/main` does the same against a ref. Without either flag, the check reads the local policy and exempts nothing. `--branch` is no longer accepted.
 
 ## Approve a rollout step
 

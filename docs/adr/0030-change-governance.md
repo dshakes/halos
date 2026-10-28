@@ -81,7 +81,7 @@ Validation errors (missing reason, unknown zone, bad weekday or time, end not af
 | `halo rollout advance`, MCP `propose_rollout_advance` | refused with the windows and next open time (`--force` does not override) |
 | `halo exp promote`, MCP `propose_promotion` | refused (dry runs show the patch and the refusal) |
 | Rollout rollback and pause, `propose_rollback`, the kill switch | always allowed |
-| Policy-repo PRs | `halo freeze check --branch <head>` is a required status check that fails while frozen; Halos rollback and pause branches always pass |
+| Policy-repo PRs | `halo freeze check --event "$GITHUB_EVENT_PATH"` (pull_request and merge_group) is a required status check that fails while frozen. Windows are read from the base branch, never the PR. A rollback, classified from the diff (rollout status paused or aborted, experiment status paused, ring release moved to one it pointed at before on the base branch, nothing else), always passes; branch names are not trusted |
 
 `halo freeze status [--ring] [--at]` lists each ring, whether it is frozen, why, and when it opens. The controller treats unreadable governance state as an incident freeze.
 
