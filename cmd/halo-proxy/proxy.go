@@ -387,6 +387,9 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		units := gateway.SubjectUnits(org, sub)
 		base := dlpBase(sub, d.Ring, units, res.Protocol, gateway.HarnessFromUA(r.Header.Get("User-Agent")))
 		dlpNote = p.dlpRequest(res.DLP, base)
+		if gw != nil { // the GenAI span carries the counts to the session ledger
+			gw.DLPSecrets, gw.DLPInjections = res.DLP.Count(gateway.DLPSecret), res.DLP.Count(gateway.DLPInjection)
+		}
 		if res.Reject == nil && !gateway.IsCountTokens(escPath) {
 			if s := gateway.NewDLPResponseScanner(org.Gateway.DLP, d.Ring, units); s != nil {
 				rc.dlp = &dlpResponse{s: s, base: base}

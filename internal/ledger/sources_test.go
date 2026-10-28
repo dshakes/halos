@@ -53,14 +53,14 @@ func (f *fakeCH) server(t *testing.T) *promote.ClickHouse {
 
 func TestGatewaySource(t *testing.T) {
 	f := &fakeCH{rows: []string{
-		`{"trace":"4bf92f3577b34da6a3ce929d0e0e4736","unit":"9f2c1a","harness":"codex","ring":"ring1","release":"r-7","experiment":"exp-a","variant":"b","chain":"planner>reviewer","models":["gpt-5",""],"input_tokens":120,"output_tokens":30,"errors":0,"calls":2,"start_ms":1793091600000,"end_ms":1793091660000}`,
+		`{"trace":"4bf92f3577b34da6a3ce929d0e0e4736","unit":"9f2c1a","harness":"codex","ring":"ring1","release":"r-7","experiment":"exp-a","variant":"b","chain":"planner>reviewer","models":["gpt-5",""],"input_tokens":120,"output_tokens":30,"dlp_secrets":2,"dlp_injections":1,"errors":0,"calls":2,"start_ms":1793091600000,"end_ms":1793091660000}`,
 		`{"trace":"0af7651916cd43dd8448eb211c80319c","unit":"","harness":"","errors":1,"calls":1,"start_ms":1793091600000,"end_ms":1793091600500}`,
 	}}
 	recs, err := Gateway{CH: f.server(t)}.Fetch(context.Background(), win)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(f.sql[0], "SpanAttributes['halo.source'] = 'gateway'") || f.params[0]["param_since"] != "2026-10-26 09:00:00.000" ||
+	if !strings.Contains(f.sql[0], "SpanAttributes['halo.source'] = 'gateway'") || !strings.Contains(f.sql[0], "halo.dlp.secrets") || f.params[0]["param_since"] != "2026-10-26 09:00:00.000" ||
 		f.params[0]["param_until"] != "2026-10-27 09:00:00.000" || f.params[0]["database"] != "halo" {
 		t.Fatalf("query: %s %v", f.sql[0], f.params[0])
 	}
@@ -70,7 +70,7 @@ func TestGatewaySource(t *testing.T) {
 	}
 	a, b := out[0], out[1]
 	if a.Harness != "codex" || a.Ring != "ring1" || a.Variant != "b" || a.Who.Unit != "9f2c1a" || !slices.Equal(a.Who.Agents, []string{"planner", "reviewer"}) ||
-		!slices.Equal(a.Models, []string{"gpt-5"}) || a.InputTokens != 120 || a.Outcome != OutcomeCompleted || a.Confidence != High ||
+		!slices.Equal(a.Models, []string{"gpt-5"}) || a.InputTokens != 120 || a.DLPSecrets != 2 || a.DLPInjections != 1 || a.Outcome != OutcomeCompleted || a.Confidence != High ||
 		a.End.Sub(a.Start) != time.Minute {
 		t.Fatalf("gateway record = %+v", a)
 	}
