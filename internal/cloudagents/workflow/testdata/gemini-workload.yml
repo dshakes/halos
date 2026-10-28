@@ -26,17 +26,18 @@ jobs:
           persist-credentials: false
       - name: Install halo
         env:
-          HALO_VERSION: v0.3.0
+          HALO_VERSION: "v0.3.0"
         run: |
           set -euo pipefail
           curl -fsSLo "$RUNNER_TEMP/install.sh" "https://raw.githubusercontent.com/dshakes/halos/${HALO_VERSION}/install/install.sh"
           sh "$RUNNER_TEMP/install.sh" --version "$HALO_VERSION" --prefix "$RUNNER_TEMP/halo"
       - name: Halos workload credential (ADR-0023)
         env:
-          HALO_SERVER: https://halo.acme.example
+          HALO_SERVER: "https://halo.acme.example"
+          HALO_AUDIENCE: "halos-ci"
         run: |
           set -euo pipefail
-          "$RUNNER_TEMP/halo/bin/halo" ci token --format github --audience halos-ci
+          "$RUNNER_TEMP/halo/bin/halo" ci token --format github --audience "$HALO_AUDIENCE"
       - uses: google-github-actions/run-gemini-cli@f77273f4c914e4bf38440cf36a0369cb64a37489 # v0.1.22
         with:
           gemini_api_key: ${{ env.GEMINI_API_KEY }}

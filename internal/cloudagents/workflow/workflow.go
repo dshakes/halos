@@ -9,7 +9,10 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/dshakes/halos/internal/policy"
 )
@@ -112,23 +115,42 @@ func timeout(a *policy.CloudAgent, def int) int {
 	return def
 }
 
+// Run scripts are constants: a policy value reaches a script only through a
+// step's env (a double-quoted YAML scalar) and a quoted shell variable, never
+// by interpolation, so no policy string can inject shell or YAML. Check
+// refuses any run script that is not one of these.
+const (
+	installScript = `set -euo pipefail
+curl -fsSLo "$RUNNER_TEMP/install.sh" "https://raw.githubusercontent.com/dshakes/halos/${HALO_VERSION}/install/install.sh"
+sh "$RUNNER_TEMP/install.sh" --version "$HALO_VERSION" --prefix "$RUNNER_TEMP/halo"
+`
+	tokenScript = `set -euo pipefail
+"$RUNNER_TEMP/halo/bin/halo" ci token --format github --audience "$HALO_AUDIENCE"
+`
+)
+
+var runScripts = []string{installScript, tokenScript}
+
+// indent prefixes every line of s with n spaces (a YAML literal block body).
+func indent(s string, n int) string {
+	pad := strings.Repeat(" ", n)
+	return pad + strings.ReplaceAll(strings.TrimSuffix(s, "\n"), "\n", "\n"+pad) + "\n"
+}
+
 // workloadSteps exchange the job's GitHub OIDC token for a short-lived Halos
 // gateway credential (ADR-0023), exported to later steps through $GITHUB_ENV.
+// env values are strconv.Quote'd: valid YAML double-quoted scalars.
 func workloadSteps(c *policy.CloudAgents, audience string) string {
 	return fmt.Sprintf(`      - name: Install halo
         env:
           HALO_VERSION: %s
         run: |
-          set -euo pipefail
-          curl -fsSLo "$RUNNER_TEMP/install.sh" "https://raw.githubusercontent.com/dshakes/halos/${HALO_VERSION}/install/install.sh"
-          sh "$RUNNER_TEMP/install.sh" --version "$HALO_VERSION" --prefix "$RUNNER_TEMP/halo"
-      - name: Halos workload credential (ADR-0023)
+%s      - name: Halos workload credential (ADR-0023)
         env:
           HALO_SERVER: %s
+          HALO_AUDIENCE: %s
         run: |
-          set -euo pipefail
-          "$RUNNER_TEMP/halo/bin/halo" ci token --format github --audience %s
-`, c.HaloVersion, c.Server, audience)
+%s`, strconv.Quote(c.HaloVersion), indent(installScript, 10), strconv.Quote(c.Server), strconv.Quote(audience), indent(tokenScript, 10))
 }
 
 // commonWarns are the controls the workflow vendors cannot express.
@@ -146,9 +168,23 @@ func commonWarns(name string, a *policy.CloudAgent) []string {
 	return w
 }
 
+// audience is the aud the job's GitHub OIDC token must carry: the GitHub
+// Actions issuer's own audience when it overrides workloads.audience
+// (Workloads.AudienceFor), else workloads.audience, else "halos".
 func audience(org *policy.Org) string {
-	if org.Workloads != nil && org.Workloads.Audience != "" {
-		return org.Workloads.Audience
+	w := org.Workloads
+	if w == nil {
+		return "halos"
+	}
+	for _, is := range w.Issuers {
+		if p, _ := is.TenantClaims(); p == policy.GitHubActionsProvider {
+			if a := w.AudienceFor(is); a != "" {
+				return a
+			}
+		}
+	}
+	if w.Audience != "" {
+		return w.Audience
 	}
 	return "halos"
 }
@@ -311,7 +347,9 @@ var (
 // text, not by trusting how it was produced: no permission-bypass token
 // (invariant 1), no literal credential, every action pinned to a full commit
 // SHA, a top-level `permissions: {}` (jobs grant their own, least privilege),
-// and no `${{ }}` expression inside a run script (script injection).
+// no `${{ }}` expression inside a run script (script injection), valid YAML,
+// and every run script one Halos renders verbatim (runScripts), so a policy
+// value reaches a shell only through env (shell and YAML injection).
 func Check(f File) error {
 	fail := func(format string, a ...any) error {
 		return fmt.Errorf("cloudagents %s %s: security invariant violated: %s", f.Vendor, f.Path, fmt.Sprintf(format, a...))
@@ -352,6 +390,23 @@ func Check(f File) error {
 		}
 		if m := usesRe.FindStringSubmatch(l); m != nil && !pinnedRe.MatchString(m[1]) {
 			return fail("line %d: %s is not pinned to a full commit SHA", i+1, m[1])
+		}
+	}
+	var doc struct {
+		Jobs map[string]struct {
+			Steps []map[string]any `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(f.Data, &doc); err != nil {
+		return fail("not a valid workflow: %v", err)
+	}
+	for name, j := range doc.Jobs {
+		for i, st := range j.Steps {
+			if r, ok := st["run"]; ok {
+				if s, _ := r.(string); !slices.Contains(runScripts, s) {
+					return fail("jobs.%s.steps[%d]: run script is not one Halos renders; policy values reach a script only through env", name, i)
+				}
+			}
 		}
 	}
 	return nil

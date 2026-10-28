@@ -295,7 +295,7 @@ func (v *validator) cloudAgents() {
 	if workload {
 		if v.org.Workloads == nil || !slices.ContainsFunc(v.org.Workloads.Issuers, func(i WorkloadIssuer) bool {
 			p, _ := i.TenantClaims()
-			return p == "GitHub Actions"
+			return p == GitHubActionsProvider
 		}) {
 			v.errf("cloudAgents", "identity: workload needs a workloads issuer for GitHub Actions (ADR-0023)")
 		}
