@@ -49,7 +49,7 @@ rings/units, tools and auth, and add it to halos.yaml in a pull request.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
 			defer cancel()
-			b, err := readServerJSON(ctx, &http.Client{Timeout: timeout}, base, args[0])
+			b, err := readServerJSON(ctx, registryClient(timeout), base, args[0])
 			if err != nil {
 				return err
 			}
@@ -74,6 +74,24 @@ rings/units, tools and auth, and add it to halos.yaml in a pull request.`,
 	imp.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "fetch timeout")
 	c.AddCommand(imp)
 	return c
+}
+
+// registryClient fetches server.json. A redirect must stay on the same host
+// and scheme (https, or http only on a loopback test host): a registry or URL
+// cannot bounce the fetch to plain http or to another host.
+func registryClient(timeout time.Duration) *http.Client {
+	return &http.Client{Timeout: timeout, CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		orig := via[0].URL
+		switch {
+		case len(via) >= 5:
+			return errors.New("too many redirects")
+		case req.URL.Scheme != "https" && (req.URL.Scheme != orig.Scheme || !isLoopbackHost(req.URL.Hostname())):
+			return fmt.Errorf("refusing redirect from %s to %s (https only)", orig.Scheme, req.URL.Scheme)
+		case req.URL.Host != orig.Host:
+			return fmt.Errorf("refusing redirect from %s to another host %s", orig.Host, req.URL.Host)
+		}
+		return nil
+	}}
 }
 
 // readServerJSON reads arg as a file, an https URL, or a registry name.
