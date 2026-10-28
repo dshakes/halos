@@ -20,10 +20,10 @@ const maxPostureFile = 1 << 20
 // already restored byte for byte; what is left is the user's own config,
 // which halod reports and never rewrites.
 func (a *Agent) postureDrift(rel *release.Release, st *Status) {
-	if a.Home == nil || a.User == "" {
+	if a.User == "" {
 		return
 	}
-	home := a.Home(a.User)
+	home := a.userHome()
 	if home == "" {
 		return
 	}

@@ -39,7 +39,7 @@ func TestMCPDrift(t *testing.T) {
 	m := release.Manifest{Ring: "ga", MCPMode: policy.MCPModeAllowlist, MCPServers: pins,
 		Harnesses: map[string]release.HarnessEntry{"claude-code": {}, "codex": {}, "opencode": {}, "gemini-cli": {}},
 		Units:     []release.UnitEntry{{Name: "payments"}, {Name: "checkout", Parent: "payments"}}}
-	a := &Agent{Root: root, Home: home}
+	a := &Agent{Root: root, Home: func(string) string { return home }}
 	type key struct{ harness, server, kind string }
 	got := func(rel *release.Release, unit *release.UnitEntry) map[key]bool {
 		out := map[key]bool{}
