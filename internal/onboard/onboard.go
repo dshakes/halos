@@ -35,6 +35,10 @@ type Env struct {
 	Getenv   func(string) string
 	GOOS     string
 	HTTP     *http.Client // nil: skip network checks
+	// ReadFile and Home read harness settings for the sandbox/egress posture
+	// (ADR-0032); a nil ReadFile skips it, an empty Home skips per-user files.
+	ReadFile func(string) ([]byte, error)
+	Home     string
 }
 
 // System is the real machine.
@@ -47,7 +51,14 @@ func System() Env {
 		Getenv:   os.Getenv,
 		GOOS:     runtime.GOOS,
 		HTTP:     &http.Client{Timeout: 3 * time.Second},
+		ReadFile: os.ReadFile,
+		Home:     home(),
 	}
+}
+
+func home() string {
+	h, _ := os.UserHomeDir() // "" skips the per-user posture checks
+	return h
 }
 
 // Harness is one AI CLI as found on PATH.
