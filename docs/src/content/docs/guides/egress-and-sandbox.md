@@ -88,11 +88,11 @@ rule   egress.deniedDomains pastebin.com
 
 | Harness | Per-user setting reported |
 |---|---|
-| Codex | `~/.codex/config.toml` `sandbox_mode = "danger-full-access"` |
+| Codex | `~/.codex/config.toml` `sandbox_mode = "danger-full-access"`, top level or in any `[profiles.<name>]` |
 | Gemini CLI | `~/.gemini/settings.json` `tools.sandbox = false` |
 | Cursor CLI | `~/.cursor/sandbox.json` `type = "insecure_none"` (always checked) |
 
-Because it is drift, a ring with `posture: enforce` (ADR-0011) refuses such a device at the gateway until it is fixed. halod reads these files as root, so it reads only regular files up to 1 MiB, opens them without blocking, and never logs their content.
+Because it is drift, a ring with `posture: enforce` (ADR-0011) refuses such a device at the gateway until it is fixed. halod reads these files as root, so it reads only regular files up to 1 MiB, opens them without blocking, and never logs their content. A project's own `.codex/config.toml` and command-line flags (`-s`, `-c`, `--profile`) are beyond halod's reach: there only `requirements.toml` `allowed_sandbox_modes` (codex >= 0.77.0) holds.
 
 `halo doctor` prints the effective posture of every installed harness, plus environment overrides it can see (`GEMINI_SANDBOX=false`, `OPENCODE_PERMISSION`, `CODEX_HOME`):
 
