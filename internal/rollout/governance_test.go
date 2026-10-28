@@ -124,13 +124,46 @@ func TestGovernanceApply(t *testing.T) {
 	}
 }
 
+// TestApprovalKeyChangesWithStepAndChange: approvals never carry over to
+// another step, or to the same step after the approved change is edited.
 func TestApprovalKeyChangesWithStepAndChange(t *testing.T) {
-	r := testRollout()
-	k0 := ApprovalKey(r)
-	r.Step = "ring1"
-	k1 := ApprovalKey(r)
-	r.Change.Release = "sha256:newer"
-	if k0 == k1 || k1 == ApprovalKey(r) {
-		t.Fatal("approvals must not carry over to another step or change")
+	setup := func() (*policy.Org, *policy.Rollout) {
+		org := govTestOrg(nil)
+		org.Experiments[0].Variants = []policy.Variant{
+			{Name: "control", Control: true},
+			{Name: "new", Routes: map[string]policy.ModelRoute{"opus": {Upstream: "bedrock", Model: "opus-5-5"}}},
+		}
+		r := testRollout()
+		r.Change.Alias = "opus"
+		return org, r
+	}
+	org, r := setup()
+	k0 := ApprovalKey(org, r)
+	if k0 != ApprovalKey(org, r) {
+		t.Fatal("key is not deterministic")
+	}
+	edits := []struct {
+		name string
+		edit func(*policy.Org, *policy.Rollout)
+	}{
+		{"step", func(_ *policy.Org, r *policy.Rollout) { r.Step = "ring1" }},
+		{"release", func(_ *policy.Org, r *policy.Rollout) { r.Change.Release = "sha256:" + strings.Repeat("f", 64) }},
+		{"alias", func(_ *policy.Org, r *policy.Rollout) { r.Change.Alias = "sonnet" }},
+		{"experiment", func(_ *policy.Org, r *policy.Rollout) { r.Experiment = "other" }},
+		{"treatment model", func(o *policy.Org, _ *policy.Rollout) {
+			o.Experiments[0].Variants[1].Routes["opus"] = policy.ModelRoute{Upstream: "bedrock", Model: "evil"}
+		}},
+		{"treatment upstream", func(o *policy.Org, _ *policy.Rollout) {
+			o.Experiments[0].Variants[1].Routes["opus"] = policy.ModelRoute{Upstream: "elsewhere", Model: "opus-5-5"}
+		}},
+	}
+	for _, e := range edits {
+		t.Run(e.name, func(t *testing.T) {
+			org, r := setup()
+			e.edit(org, r)
+			if ApprovalKey(org, r) == k0 {
+				t.Fatalf("approvals carry over after editing the %s", e.name)
+			}
+		})
 	}
 }

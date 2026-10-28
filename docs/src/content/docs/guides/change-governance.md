@@ -103,7 +103,7 @@ When an approval rule covers the rings a rollout's next step enters, the step ne
 halo rollout approve claude-upgrade --ticket CHG0012345
 ```
 
-- The approver must hold one of the rule's groups (IdP claims or the SCIM directory). Approvals are audit-strict and keyed by rollout, step and change: they never carry over.
+- The approver must hold one of the rule's groups (IdP claims or the SCIM directory). Approvals are audit-strict and keyed by rollout, step and a hash of the change (release digest, or the backing experiment and its treatment route): they never carry over, and editing the change after an approval voids it.
 - The person proposing an advance never counts toward its quorum, and nobody counts twice. With `distinctGroups`, each counted approval adds a group no other counted approval used.
 - `halo rollout status` and MCP `rollout_status` show approvals, what is missing and any freeze. The advance PR body records the ticket and approvers.
 
