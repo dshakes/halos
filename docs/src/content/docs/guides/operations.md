@@ -332,7 +332,7 @@ For Kong, the public key and token live in `HALO_KILLSWITCH_PUBKEY` / `HALO_KILL
 
 ### Split the gateway token per capability (recommended)
 
-One `--gateway-token-file` token opens all four gateway endpoints on `halo-server`: the kill list, posture verdicts, budget usage writes and SCIM directory reads. Anyone holding it can mark spend against any user's budget or enumerate who is provisioned. Give each capability its own token instead; when one is set, it is the **only** token that endpoint accepts and it opens nothing else:
+One `--gateway-token-file` token opens all five gateway endpoints on `halo-server`: the kill list, posture verdicts, budget usage writes, SCIM directory reads and DLP audit appends. Anyone holding it can mark spend against any user's budget or enumerate who is provisioned. Give each capability its own token instead; when one is set, it is the **only** token that endpoint accepts and it opens nothing else:
 
 | `halo-server` flag | Endpoint | `halo-proxy` setting | `halo-kong` field |
 |---|---|---|---|
@@ -340,6 +340,7 @@ One `--gateway-token-file` token opens all four gateway endpoints on `halo-serve
 | `--gateway-posture-token-file` | `GET /api/v1/gateway/posture` | `posture.tokenFile` | `posture_token` |
 | `--gateway-budget-token-file` | `/api/v1/gateway/budget/*` | `budgets.tokenFile` | (no budgets) |
 | `--gateway-directory-token-file` | `GET /api/v1/gateway/directory` | `directory.tokenFile` | `directory_token` |
+| `--gateway-dlp-token-file` | `POST /api/v1/gateway/dlp/events` | `dlp.tokenFile` | `dlp_token` |
 
 Each token must be at least 32 characters with 128 bits of estimated entropy (length times log2 of its distinct characters; `openssl rand -hex 32` gives 256) and differ from the shared one; `halo-server` refuses to start otherwise, naming the flag. A capability without its own flag keeps accepting `--gateway-token-file`, so you can migrate one at a time: write the new token to the gateway's file for that capability, restart `halo-server` with the new flag, then roll the gateways. Between the two restarts that capability's calls return 401: posture and directory fall back to their cached entries for `grace`, the kill list keeps the last accepted list, and budgets follow their unknown-state policy. `--killswitch-key-file` accepts either the shared or the kill-switch token.
 

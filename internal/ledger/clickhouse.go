@@ -38,6 +38,8 @@ type row struct {
 	Repos          []string `json:"repos"`
 	Files          []string `json:"files"`
 	FilesTouched   int      `json:"files_touched"`
+	DLPSecrets     int64    `json:"dlp_secrets"`
+	DLPInjections  int64    `json:"dlp_injections"`
 	InputTokens    int64    `json:"input_tokens"`
 	OutputTokens   int64    `json:"output_tokens"`
 	CostUSD        float64  `json:"cost_usd"`
@@ -69,7 +71,7 @@ func toRow(r Record, storedAt time.Time) (row, error) {
 		ID: r.ID, SessionID: r.SessionID, User: r.Who.User, VendorUser: r.Who.VendorUser, UnitID: r.Who.Unit, Agents: nonNil(r.Who.Agents),
 		Harness: r.Harness, HarnessVersion: r.HarnessVersion, Release: r.Release, Ring: r.Ring, Experiment: r.Experiment, Variant: r.Variant,
 		Models: nonNil(r.Models), MCPServers: nonNil(r.MCPServers), Tools: nonNil(r.Tools), Repos: nonNil(r.Repos), Files: nonNil(r.Files),
-		FilesTouched: r.FilesTouched, InputTokens: r.InputTokens, OutputTokens: r.OutputTokens, CostUSD: r.CostUSD,
+		FilesTouched: r.FilesTouched, DLPSecrets: r.DLPSecrets, DLPInjections: r.DLPInjections, InputTokens: r.InputTokens, OutputTokens: r.OutputTokens, CostUSD: r.CostUSD,
 		StartedAt: chTime(r.Start), EndedAt: chTime(r.End), Outcome: r.Outcome, Sources: nonNil(r.Sources), Confidence: r.Confidence,
 		Redacted: r.Redacted, StoredAt: chTime(storedAt), RecordSHA256: hex.EncodeToString(sum[:]),
 	}, nil

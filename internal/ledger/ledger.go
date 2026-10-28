@@ -71,29 +71,33 @@ type Who struct {
 
 // Record is one agent session.
 type Record struct {
-	ID             string    `json:"id"` // IDFor(Harness, SessionID)
-	SessionID      string    `json:"sessionId"`
-	Who            Who       `json:"who"`
-	Harness        string    `json:"harness"`
-	HarnessVersion string    `json:"harnessVersion,omitempty"`
-	Release        string    `json:"release,omitempty"`
-	Ring           string    `json:"ring,omitempty"`
-	Experiment     string    `json:"experiment,omitempty"`
-	Variant        string    `json:"variant,omitempty"`
-	Models         []string  `json:"models,omitempty"`
-	MCPServers     []string  `json:"mcpServers,omitempty"`
-	Tools          []string  `json:"tools,omitempty"`
-	Repos          []string  `json:"repos,omitempty"` // "h:<hex>" once redacted
-	Files          []string  `json:"files,omitempty"` // "h:<hex>" once redacted
-	FilesTouched   int       `json:"filesTouched,omitempty"`
-	InputTokens    int64     `json:"inputTokens,omitempty"`
-	OutputTokens   int64     `json:"outputTokens,omitempty"`
-	CostUSD        float64   `json:"costUsd,omitempty"`
-	Start          time.Time `json:"start"`
-	End            time.Time `json:"end,omitzero"`
-	Outcome        string    `json:"outcome"`
-	Sources        []string  `json:"sources"`
-	Confidence     string    `json:"confidence"`
+	ID             string   `json:"id"` // IDFor(Harness, SessionID)
+	SessionID      string   `json:"sessionId"`
+	Who            Who      `json:"who"`
+	Harness        string   `json:"harness"`
+	HarnessVersion string   `json:"harnessVersion,omitempty"`
+	Release        string   `json:"release,omitempty"`
+	Ring           string   `json:"ring,omitempty"`
+	Experiment     string   `json:"experiment,omitempty"`
+	Variant        string   `json:"variant,omitempty"`
+	Models         []string `json:"models,omitempty"`
+	MCPServers     []string `json:"mcpServers,omitempty"`
+	Tools          []string `json:"tools,omitempty"`
+	Repos          []string `json:"repos,omitempty"` // "h:<hex>" once redacted
+	Files          []string `json:"files,omitempty"` // "h:<hex>" once redacted
+	FilesTouched   int      `json:"filesTouched,omitempty"`
+	// DLPSecrets and DLPInjections count the gateway's DLP findings in the
+	// session (ADR-0033): secrets and prompt-injection signals, never content.
+	DLPSecrets    int64     `json:"dlpSecrets,omitempty"`
+	DLPInjections int64     `json:"dlpInjections,omitempty"`
+	InputTokens   int64     `json:"inputTokens,omitempty"`
+	OutputTokens  int64     `json:"outputTokens,omitempty"`
+	CostUSD       float64   `json:"costUsd,omitempty"`
+	Start         time.Time `json:"start"`
+	End           time.Time `json:"end,omitzero"`
+	Outcome       string    `json:"outcome"`
+	Sources       []string  `json:"sources"`
+	Confidence    string    `json:"confidence"`
 	// Redacted counts values the redaction policy withheld (paths dropped,
 	// identifiers that were not tokens).
 	Redacted int `json:"redacted,omitempty"`
@@ -196,7 +200,7 @@ func (r *Record) Validate() error {
 		return errors.New("start is required")
 	case !r.End.IsZero() && r.End.Before(r.Start):
 		return errors.New("end is before start")
-	case r.InputTokens < 0 || r.OutputTokens < 0 || r.CostUSD < 0 || r.FilesTouched < 0 || r.Redacted < 0:
+	case r.InputTokens < 0 || r.OutputTokens < 0 || r.CostUSD < 0 || r.FilesTouched < 0 || r.Redacted < 0 || r.DLPSecrets < 0 || r.DLPInjections < 0:
 		return errors.New("negative count")
 	case !slices.Contains([]string{OutcomeCompleted, OutcomeError, OutcomeCancelled, OutcomeUnknown}, r.Outcome):
 		return fmt.Errorf("outcome %q (want completed, error, cancelled or unknown)", trunc(r.Outcome))
@@ -337,6 +341,7 @@ func merge(a *Record, b Record) {
 	a.Repos = append(a.Repos, b.Repos...)
 	a.Files = append(a.Files, b.Files...)
 	a.FilesTouched = max(a.FilesTouched, b.FilesTouched)
+	a.DLPSecrets, a.DLPInjections = max(a.DLPSecrets, b.DLPSecrets), max(a.DLPInjections, b.DLPInjections)
 	a.InputTokens, a.OutputTokens, a.CostUSD = max(a.InputTokens, b.InputTokens), max(a.OutputTokens, b.OutputTokens), max(a.CostUSD, b.CostUSD)
 	if a.Start.IsZero() || (!b.Start.IsZero() && b.Start.Before(a.Start)) {
 		a.Start = b.Start

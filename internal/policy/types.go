@@ -158,6 +158,8 @@ type Gateway struct {
 	// Budgets cap spend per user, group, ring or org (ADR-0017). halo-proxy
 	// enforces them; halo-server holds the counters.
 	Budgets []Budget `yaml:"budgets,omitempty" json:"budgets,omitempty"`
+	// DLP is data-loss prevention and prompt-injection defense on model calls (ADR-0033).
+	DLP *DLP `yaml:"dlp,omitempty" json:"dlp,omitempty"`
 }
 
 // EngineExternal is a gateway Halos does not run.

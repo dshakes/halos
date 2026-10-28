@@ -65,6 +65,9 @@ type Config struct {
 	// Budgets reports usage to and checks verdicts from halo-server's budget
 	// counters for the policy's gateway.budgets. Empty URL disables both.
 	Budgets BudgetConfig `yaml:"budgets"`
+	// DLP posts gateway.dlp findings to halo-server's audit log (ADR-0033).
+	// Empty URL: findings are counted and logged only.
+	DLP DLPConfig `yaml:"dlp"`
 	// Telemetry exports per-request OTLP metrics (halo.gateway.*) for
 	// experiment analysis. Empty otlpEndpoint disables.
 	Telemetry gwmetrics.Config `yaml:"telemetry"`
@@ -193,6 +196,8 @@ func loadConfig(args []string, getenv func(string) string, usage io.Writer) (Con
 	fs.StringVar(&cfg.Budgets.URL, "budget-url", cfg.Budgets.URL, "halo-server /api/v1/gateway/budget URL; empty disables budget metering and enforcement")
 	fs.StringVar(&cfg.Budgets.TokenFile, "budget-token-file", cfg.Budgets.TokenFile, "file holding the halo-server gateway token for the budget URL")
 	fs.StringVar(&cfg.Budgets.FailMode, "budget-fail-mode", cfg.Budgets.FailMode, "unknown budget verdict under an enforce budget: open (pass, default) | closed (503)")
+	fs.StringVar(&cfg.DLP.URL, "dlp-url", cfg.DLP.URL, "halo-server /api/v1/gateway/dlp URL: DLP findings go to its audit log; empty = counted and logged only")
+	fs.StringVar(&cfg.DLP.TokenFile, "dlp-token-file", cfg.DLP.TokenFile, "file holding the halo-server gateway token for the dlp URL")
 	fs.StringVar(&cfg.Telemetry.OTLPEndpoint, "telemetry-otlp-endpoint", cfg.Telemetry.OTLPEndpoint, "OTLP/HTTP collector base URL for halo.gateway.* request metrics; empty disables")
 	fs.StringVar(&cfg.Telemetry.Protocol, "telemetry-protocol", cfg.Telemetry.Protocol, "OTLP protocol: http/protobuf (default) | http/json")
 	fs.DurationVar(&cfg.Telemetry.Interval, "telemetry-interval", cfg.Telemetry.Interval, "OTLP export interval (default 10s, min 1s)")

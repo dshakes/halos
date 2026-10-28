@@ -55,7 +55,7 @@ type options struct {
 	interval                                                       time.Duration
 	chURL, chDB, chUser, chPasswordFile                            string
 	killKeyFile, gatewayTokenFile                                  string
-	gatewayCapTokenFiles                                           [4]string // killswitch, posture, budget, directory (gatewayCapFlags order)
+	gatewayCapTokenFiles                                           [5]string // killswitch, posture, budget, directory, dlp (gatewayCapFlags order)
 	workloadKeyFile                                                string
 	slackURLFile, webhookURLFile, webhookSecretFile                string
 	policyRepoDir, policyRepoSubdir, policyRepoBase, metricsListen string
@@ -201,7 +201,7 @@ func policyWriter(portal server.Portal, policyDir string) (server.PolicyWriter, 
 
 // gatewayCapFlags names the per-capability --gateway-<name>-token-file flags,
 // in options.gatewayCapTokenFiles order.
-var gatewayCapFlags = [4]string{"killswitch", "posture", "budget", "directory"}
+var gatewayCapFlags = [5]string{"killswitch", "posture", "budget", "directory", "dlp"}
 
 // Gateway token strength. halo-server accepts a valid gateway token even
 // from an IP blocked for failed attempts (so a gateway sharing an egress IP
@@ -302,7 +302,7 @@ func checkGatewayToken(t string) error {
 // readGatewayTokens reads the shared gateway token and the per-capability
 // ones. Each must pass checkGatewayToken, and a per-capability token must
 // differ from the shared one (otherwise it separates nothing).
-func readGatewayTokens(o options) (shared string, caps [4]string, err error) {
+func readGatewayTokens(o options) (shared string, caps [5]string, err error) {
 	read := func(flag, path string) (string, error) {
 		if path == "" {
 			return "", nil
@@ -486,7 +486,7 @@ func run(ctx context.Context, args []string) error {
 		SessionKey: []byte(sessionKey), OIDCClientSecret: clientSecret, Portal: portal, DataDir: o.dataDir, Writer: writer,
 		DeviceTTL: o.deviceTTL, DevUser: o.devUser, DevGroups: o.devGroups, DevRoles: o.devRoles, DevAdmin: o.devAdmin, TrustedProxies: o.trusted,
 		KillStore: kills, KillKey: killKey, GatewayToken: gwToken, PostureMaxAge: o.postureMaxAge, Audit: audit,
-		GatewayKillswitchToken: gwCaps[0], GatewayPostureToken: gwCaps[1], GatewayBudgetToken: gwCaps[2], GatewayDirectoryToken: gwCaps[3],
+		GatewayKillswitchToken: gwCaps[0], GatewayPostureToken: gwCaps[1], GatewayBudgetToken: gwCaps[2], GatewayDirectoryToken: gwCaps[3], GatewayDLPToken: gwCaps[4],
 		SCIMTokenSHA256: scimHashes, SCIMAuthoritative: o.scimAuthoritative,
 		WorkloadKey: workloadKey,
 	}

@@ -46,6 +46,7 @@ func run() error {
 	if p.bc != nil {
 		go p.bc.Run(ctx)
 	}
+	go p.dlpAudit.Run(ctx)                                                                 // no-op when DLP audit is off
 	go p.otlp.Run(ctx, func(err error) { log.Warn("request metrics export", "err", err) }) // no-op when disabled
 	errc := make(chan error, 2)
 	go func() { errc <- srv.ListenAndServe() }()
@@ -75,6 +76,9 @@ func run() error {
 		if err := p.bc.FlushNow(sctx); err != nil {
 			log.Warn("budget usage report at shutdown", "err", err)
 		}
+	}
+	if err := p.dlpAudit.FlushNow(sctx); err != nil { // drained requests' findings
+		log.Warn("dlp audit report at shutdown", "err", err)
 	}
 	if serr != nil && !errors.Is(serr, http.ErrServerClosed) {
 		return fmt.Errorf("halo-proxy: shutdown: %w", serr)
