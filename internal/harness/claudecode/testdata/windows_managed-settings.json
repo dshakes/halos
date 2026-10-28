@@ -32,7 +32,6 @@
       "serverName": "filesystem"
     }
   ],
-  "disableBypassPermissionsMode": "disable",
   "enabledPlugins": {
     "audit@acme-plugins": true,
     "risky@acme-plugins": false
@@ -92,7 +91,8 @@
       "Skill(skill:deploy)",
       "Agent(Explore)",
       "mcp__docs__delete_page"
-    ]
+    ],
+    "disableBypassPermissionsMode": "disable"
   },
   "requiredMaximumVersion": "2.1.280",
   "requiredMinimumVersion": "2.1.280",

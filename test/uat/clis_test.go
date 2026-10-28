@@ -203,7 +203,7 @@ func testClaude(t *testing.T, e *cliEnv) {
 	// bypassPermissions is disabled by policy.
 	out, rc = e.sh("cd /proj && timeout 60 claude -p --permission-mode bypassPermissions hi </dev/null 2>&1")
 	r, _ := lastModelCall(e.mockRequests(), "/v1/messages")
-	check(t, h, "disableBypassPermissionsMode: bypassPermissions refused", rc != 0 || !strings.Contains(out, "UAT-MOCK-ANSWER") || r.Body == "",
+	check(t, h, "permissions.disableBypassPermissionsMode: bypassPermissions refused", rc != 0 || !strings.Contains(out, "UAT-MOCK-ANSWER") || r.Body == "",
 		fmt.Sprintf("rc=%d out=%q", rc, tail(out, 2)), "")
 }
 

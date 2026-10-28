@@ -54,13 +54,13 @@ Ring membership is deterministic: a group match wins (`ring0-team`), everyone el
 $ halo render --ring ring0-team --out rendered --release-version 0.1.0
 write rendered/Library/Application Support/ClaudeCode/managed-settings.json
 $ grep -iE 'bypass|requiredM|BASE_URL' "rendered/Library/Application Support/ClaudeCode/managed-settings.json"
-  "disableBypassPermissionsMode": "disable",
     "ANTHROPIC_BASE_URL": "https://ai.acme.example",
+    "disableBypassPermissionsMode": "disable"
   "requiredMaximumVersion": "2.1.280",
   "requiredMinimumVersion": "2.1.280",
 ```
 
-That file is what `halod` writes on a laptop: bypass mode disabled, the CLI pinned to one version, traffic pointed at your gateway.
+That file is what `halod` writes on a laptop: bypass mode disabled (`permissions.disableBypassPermissionsMode`), the CLI pinned to one version, traffic pointed at your gateway.
 
 ## 5. Generate a dev signing key
 

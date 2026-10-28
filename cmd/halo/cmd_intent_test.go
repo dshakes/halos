@@ -43,7 +43,8 @@ func TestSimpleExampleRendersRelease(t *testing.T) {
 		t.Fatal(err)
 	}
 	var m map[string]any
-	if err := json.Unmarshal(b, &m); err != nil || m["disableBypassPermissionsMode"] != "disable" {
+	err = json.Unmarshal(b, &m)
+	if perms, _ := m["permissions"].(map[string]any); err != nil || perms["disableBypassPermissionsMode"] != "disable" {
 		t.Fatalf("managed settings: %v %s", err, b)
 	}
 	if strings.Contains(strings.ToLower(string(b)), "bypasspermissions\"") {

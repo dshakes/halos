@@ -97,8 +97,23 @@ func checkClaude(d map[string]any, p *policy.Profile, g *policy.Gateway, fail fu
 			return fail("profile sets permissions.sandboxRequired but sandbox.enabled/failIfUnavailable = %v", d["sandbox"])
 		}
 	}
-	if p.Permissions.DisableBypass && d["disableBypassPermissionsMode"] != "disable" {
-		return fail(`profile sets permissions.disableBypass but disableBypassPermissionsMode = %v, want "disable"`, d["disableBypassPermissionsMode"])
+	// Claude Code reads the bypass lock only as permissions.disableBypassPermissionsMode
+	// (https://code.claude.com/docs/en/settings-reference#permissions-disablebypasspermissionsmode).
+	// A top-level key (rendered by Halos before v0.4) is ignored, so it fails
+	// rather than reading as enforced; any other value anywhere fails too.
+	if _, ok := d["disableBypassPermissionsMode"]; ok {
+		return fail(`disableBypassPermissionsMode is set at the top level, where Claude Code does not read it; set permissions.disableBypassPermissionsMode = "disable" instead`)
+	}
+	if err := walkKey(d, "", "disableBypassPermissionsMode", func(path string, v any) error {
+		if v != "disable" {
+			return fail(`%s = %v, want "disable"`, path, v)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	if perms, _ := d["permissions"].(map[string]any); p.Permissions.DisableBypass && perms["disableBypassPermissionsMode"] != "disable" {
+		return fail(`profile sets permissions.disableBypass but permissions.disableBypassPermissionsMode = %v, want "disable"`, perms["disableBypassPermissionsMode"])
 	}
 	if p.Hooks.ManagedOnly && d["allowManagedHooksOnly"] != true {
 		return fail("profile sets hooks.managedOnly but allowManagedHooksOnly = %v", d["allowManagedHooksOnly"])
@@ -290,6 +305,35 @@ func checkCursor(d map[string]any, fail func(string, ...any) error) error {
 
 // walk visits every leaf value of a decoded JSON/TOML document with a dotted
 // path (array elements share their parent's path plus "[i]").
+// walkKey calls fn with the path and value of every map entry named key, at
+// any depth and whatever the value's type.
+func walkKey(v any, path, key string, fn func(string, any) error) error {
+	switch t := v.(type) {
+	case map[string]any:
+		for _, k := range sortedKeys(t) {
+			p := k
+			if path != "" {
+				p = path + "." + k
+			}
+			if k == key {
+				if err := fn(p, t[k]); err != nil {
+					return err
+				}
+			}
+			if err := walkKey(t[k], p, key, fn); err != nil {
+				return err
+			}
+		}
+	case []any:
+		for i, c := range t {
+			if err := walkKey(c, fmt.Sprintf("%s[%d]", path, i), key, fn); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func walk(v any, path string, fn func(string, any) error) error {
 	switch t := v.(type) {
 	case map[string]any:

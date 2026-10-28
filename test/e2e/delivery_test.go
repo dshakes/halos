@@ -133,8 +133,8 @@ func TestPolicyReleaseDelivery(t *testing.T) {
 	if m["requiredMinimumVersion"] != pin || m["requiredMaximumVersion"] != pin {
 		t.Fatalf("managed-settings version gate = %v..%v, want %s", m["requiredMinimumVersion"], m["requiredMaximumVersion"], pin)
 	}
-	if m["disableBypassPermissionsMode"] != "disable" {
-		t.Fatalf("disableBypassPermissionsMode = %v", m["disableBypassPermissionsMode"])
+	if perms, _ := m["permissions"].(map[string]any); perms["disableBypassPermissionsMode"] != "disable" {
+		t.Fatalf("permissions.disableBypassPermissionsMode = %v", m["permissions"])
 	}
 	s1 := readState()
 	if s1.Ring != "ring1-ga" || s1.Pointers["ring1-ga"].Seq == 0 || s1.Pointers["ring1-ga"].Digest != s1.Digest {

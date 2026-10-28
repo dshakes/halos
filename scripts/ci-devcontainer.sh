@@ -82,7 +82,7 @@ JSON
 dc up --workspace-folder "$FX" --remove-existing-container
 fx() { dc exec --workspace-folder "$FX" "$@"; }
 fx sh -c 'claude --version' | grep -q '2\.1\.280' || fail "pinned claude-code 2.1.280 not installed"
-fx sh -c 'cat /etc/claude-code/managed-settings.json' | grep -q '"disableBypassPermissionsMode": *"disable"' || fail "managed settings missing/incorrect"
+fx sh -c 'cat /etc/claude-code/managed-settings.json' | grep -q '^    "disableBypassPermissionsMode": *"disable"' || fail "managed settings missing/incorrect"
 fx sh -c 'stat -c "%U:%a" /etc/claude-code/managed-settings.json' | grep -qx 'root:644' || fail "managed settings not root-owned 644"
 fx sh -c 'cat /etc/halos/halod.yaml' | grep -q "ring: ring1-ga" || fail "feature did not write halod.yaml"
 echo "dev container delivery path OK"

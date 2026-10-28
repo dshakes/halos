@@ -206,7 +206,7 @@ func device(t *testing.T, s *u) {
 	s.r.check(t, sc, "Claude/Codex/Gemini managed config at the linux managed paths", len(missing) == 0, "files %v; missing %v", managed, missing)
 	set := s.settings(t)
 	s.r.check(t, sc, "claude managed-settings from this release, bypass mode disabled", strings.Contains(set, "halo.release="+s.version[s.devRing]) &&
-		strings.Contains(set, `"disableBypassPermissionsMode": "disable"`) && !strings.Contains(set, "bypassPermissions\""), "halo.release=%s present", s.version[s.devRing])
+		strings.Contains(set, "\n    \"disableBypassPermissionsMode\": \"disable\"") && !strings.Contains(set, "bypassPermissions\""), "halo.release=%s present", s.version[s.devRing])
 
 	adminC := s.login(t, admin, "ai-platform")
 	_, fleet := do(t, adminC, "GET", portalURL+"/api/v1/fleet", "", nil)

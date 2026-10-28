@@ -37,6 +37,7 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ### Security
 
+- Claude Code: `permissions.disableBypass` now renders `permissions.disableBypassPermissionsMode: "disable"`. Previous releases rendered `disableBypassPermissionsMode` at the top level of managed-settings.json, where Claude Code's documentation does not read it (https://code.claude.com/docs/en/settings-reference#permissions-disablebypasspermissionsmode), so bypass mode may not have been disabled for Claude Code. The release check now requires the nested key and fails on a top-level key or any other value. Operators should upgrade and re-publish releases.
 - halo-kong refuses a request (500) when Kong cannot return its headers, instead of verifying and stripping an empty header view.
 - `halo-kong`: when the directory config is invalid and `directory_fail_mode` is open, a delegated agent keeps its delegation chain. Before, it was treated as its human root: the agent policy (`deniedTools`, chain model scope, `maxDepth`) was skipped and the agent could be enrolled in experiments.
 - `halo-kong`: a posture config that is set but invalid (for example `posture_token` naming an unset env var) no longer turns the posture gate off. Enforce rings answer 403 and warn rings pass tagged `posture=unknown`.

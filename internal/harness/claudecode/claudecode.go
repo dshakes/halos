@@ -224,11 +224,14 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 	if p.Permissions.Mode != "" {
 		perms["defaultMode"] = p.Permissions.Mode
 	}
+	// Claude Code reads the bypass lock only inside the permissions object; a
+	// top-level key is ignored. Verified 2026-10-27 at
+	// https://code.claude.com/docs/en/settings-reference#permissions-disablebypasspermissionsmode
+	if p.Permissions.DisableBypass {
+		perms["disableBypassPermissionsMode"] = "disable"
+	}
 	if len(perms) > 0 {
 		s["permissions"] = perms
-	}
-	if p.Permissions.DisableBypass {
-		s["disableBypassPermissionsMode"] = "disable"
 	}
 
 	// Plugin, skill, subagent, output style, status line and login keys. All are

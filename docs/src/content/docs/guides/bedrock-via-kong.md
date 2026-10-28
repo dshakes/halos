@@ -51,7 +51,7 @@ Run `halo render --policy-dir examples/acme-corp --ring ring1-canary --os linux 
 - `env.ANTHROPIC_CUSTOM_HEADERS` for release stamping (informational; the gateway overwrites `x-halo-*`),
 - `requiredMinimumVersion` / `requiredMaximumVersion` pinning the ring's CLI,
 - `availableModels` and `enforceAvailableModels` from `models`,
-- `allowManagedHooksOnly`, `allowManagedMcpServersOnly`, `disableBypassPermissionsMode` from the profile,
+- `allowManagedHooksOnly`, `allowManagedMcpServersOnly`, `permissions.disableBypassPermissionsMode` from the profile,
 - OTEL env with `OTEL_RESOURCE_ATTRIBUTES` carrying `halo.ring`, `halo.release` and `halo.harness`.
 
 ## 3. Compile the policy and generate Kong config

@@ -202,7 +202,7 @@ Overrides are an **allowlist**, not a denylist: only these harness-native keys (
 
 A harness not in this table accepts no overrides. Source: `allowedOverrides` in `internal/policy/guardrails.go`.
 
-The release build then checks every rendered file with the same function (`policy.BypassToken`): each decoded JSON/TOML value, then every raw byte of every file whatever its format or whether it parses, so instructions files and scripts are covered too. It also fails if a profile's `disableBypass` is not reflected in the output. Only setting names that turn bypass off (`disableBypassPermissionsMode`, `disableYoloMode`) are not tokens. That backstop covers adapter regressions and anything an override could merge in after rendering.
+The release build then checks every rendered file with the same function (`policy.BypassToken`): each decoded JSON/TOML value, then every raw byte of every file whatever its format or whether it parses, so instructions files and scripts are covered too. It also fails if a profile's `disableBypass` is not reflected in the output; for Claude Code that means `permissions.disableBypassPermissionsMode: "disable"`, and a top-level `disableBypassPermissionsMode` (which Claude Code does not read) or any other value of that key fails the build. Only setting names that turn bypass off (`disableBypassPermissionsMode`, `disableYoloMode`) are not tokens. That backstop covers adapter regressions and anything an override could merge in after rendering.
 
 ## Validation order
 

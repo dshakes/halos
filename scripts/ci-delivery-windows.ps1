@@ -106,7 +106,7 @@ try {
   Write-Host '== halod once'
   Run $halod @('once', '--install=false')
   if (-not (Test-Path $settings)) { Fail "no managed settings at $settings" }
-  if ((Get-Content -Raw $settings | ConvertFrom-Json).disableBypassPermissionsMode -ne 'disable') { Fail "managed settings content: $(Get-Content -Raw $settings)" }
+  if ((Get-Content -Raw $settings | ConvertFrom-Json).permissions.disableBypassPermissionsMode -ne 'disable') { Fail "managed settings content: $(Get-Content -Raw $settings)" }
   Assert-Acl (Split-Path $settings) @($SY, $BA, $BU) -Protected
   Assert-Acl $settings @($SY, $BA, $BU)
   if (((Invoke-RestMethod "$base/api/v1/fleet") | ConvertTo-Json -Depth 8) -notmatch 'dev@acme.com') { Fail 'device missing from the fleet view' }
