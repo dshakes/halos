@@ -1,6 +1,8 @@
 package main
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -102,6 +104,44 @@ func TestRolloutAdvanceRefusedWhileFrozen(t *testing.T) {
 	code, out, errs = halo(t, "rollout", "rollback", "opus-5-5-upgrade", "--policy-dir", dir, "--reason", "bad", "--dry-run")
 	if code != 0 || strings.Contains(errs, "freeze") {
 		t.Fatalf("rollback during a freeze: exit %d\n%s%s", code, out, errs)
+	}
+}
+
+// TestAdvanceWarnsWithoutIncidentCheck: without halo-server the CLI says it
+// checked the policy windows only; with one it does not, and the incident
+// freeze it reports refuses the advance.
+func TestAdvanceWarnsWithoutIncidentCheck(t *testing.T) {
+	dir := copyDir(t, example)
+	t.Setenv("HALO_SERVER", "")
+	t.Setenv("HALO_SESSION", "")
+	const warn = "policy's freeze windows only, not the incident freeze"
+	code, out, errs := halo(t, "rollout", "advance", "opus-5-5-upgrade", "--policy-dir", dir, "--reason", "go", "--dry-run")
+	if code != 0 || !strings.Contains(errs, warn) {
+		t.Fatalf("no server: exit %d\n%s%s", code, out, errs)
+	}
+	incident := false
+	hs := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v1/freeze" && incident:
+			_, _ = w.Write([]byte(`{"incident":{"name":"incident","reason":"SEV1","by":"oncall@x","incident":true}}`))
+		case r.URL.Path == "/api/v1/freeze":
+			_, _ = w.Write([]byte(`{}`))
+		case r.URL.Path == "/api/v1/me":
+			_, _ = w.Write([]byte(`{"id":"dev@x"}`))
+		default:
+			_, _ = w.Write([]byte(`{"approvals":[]}`))
+		}
+	}))
+	defer hs.Close()
+	t.Setenv("HALO_SESSION", "s")
+	code, out, errs = halo(t, "rollout", "advance", "opus-5-5-upgrade", "--policy-dir", dir, "--reason", "go", "--dry-run", "--server", hs.URL)
+	if code != 0 || strings.Contains(errs, warn) {
+		t.Fatalf("with server: exit %d\n%s%s", code, out, errs)
+	}
+	incident = true
+	code, out, errs = halo(t, "rollout", "advance", "opus-5-5-upgrade", "--policy-dir", dir, "--reason", "go", "--server", hs.URL)
+	if code == 0 || !strings.Contains(errs, "SEV1") {
+		t.Fatalf("incident freeze: exit %d\n%s%s", code, out, errs)
 	}
 }
 

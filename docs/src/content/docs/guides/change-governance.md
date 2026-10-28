@@ -71,6 +71,8 @@ Both are admin-only and audit-strict, and need a reason. The incident freeze cov
 | `halo exp promote`, MCP `propose_promotion` | refused; `--dry-run` shows the patch and the refusal |
 | `halo rollout rollback`/`pause`, MCP `propose_rollback`, the kill switch | always allowed |
 
+The CLI sees the incident freeze only through halo-server. Without `--server` (or `HALO_SERVER`) and `HALO_SESSION`, `halo rollout advance` and `halo exp promote` check the policy's windows only and print a warning saying so. The controller, and `halo freeze check` run with `--server`, still hold it.
+
 ## Block merges during a freeze
 
 A PR opened before a freeze can still be merged during one. Add `halo freeze check` as a required status check on the policy repo, ideally in the merge queue so it runs at merge time:
