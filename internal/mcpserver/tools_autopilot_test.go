@@ -407,7 +407,7 @@ func TestWriteToolsCarryNextSteps(t *testing.T) {
 		t.Fatalf("dry run next_steps: %v %v", out, err)
 	}
 	out, err = call(t, cs, "pause_experiment", map[string]any{"name": "opus-5-5-canary", "reason": "r", "dry_run": false})
-	if err != nil || !strings.Contains(out["next_steps"].([]any)[0].(string), "git -C "+dir+" push -u origin "+out["branch"].(string)) {
+	if err != nil || !strings.Contains(out["next_steps"].([]any)[0].(string), shJoin("git", "-C", dir, "push", "-u", "origin", out["branch"].(string))) {
 		t.Fatalf("applied next_steps: %v %v", out, err)
 	}
 	out, err = call(t, cs, "propose_promotion", map[string]any{"experiment": "opus-5-5-canary", "ring": "ring1-canary", "release": "sha256:" + strings.Repeat("ab", 32), "reason": "r"})
