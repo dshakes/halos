@@ -274,7 +274,7 @@ func highEntropy(s string) bool {
 			digit = true
 		}
 	}
-	if !digit || !(lower && upper) {
+	if !digit || !lower || !upper {
 		return false
 	}
 	words := 0 // path- or sentence-like: two or more lowercase words between separators
@@ -411,15 +411,6 @@ func (e *dlpEngine) add(out *[]secretMatch, d *detector, s string, m []int) bool
 		*out = append(*out, secretMatch{det: d.id, start: a, end: b})
 	}
 	return len(*out) < 256
-}
-
-func containsAny(s string, subs []string) bool {
-	for _, k := range subs {
-		if strings.Contains(s, k) {
-			return true
-		}
-	}
-	return false
 }
 
 // SecretHash is the 8-hex SHA-256 prefix a finding and a redaction marker

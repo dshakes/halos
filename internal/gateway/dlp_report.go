@@ -246,10 +246,10 @@ func (r *DLPReporter) post(ctx context.Context, b *DLPBatch) error {
 		return fmt.Errorf("dlp events: %w", err)
 	}
 	_ = resp.Body.Close() // status only
-	switch {
-	case resp.StatusCode == http.StatusOK:
+	switch resp.StatusCode {
+	case http.StatusOK:
 		return nil
-	case resp.StatusCode == http.StatusUnprocessableEntity, resp.StatusCode == http.StatusBadRequest, resp.StatusCode == http.StatusRequestEntityTooLarge:
+	case http.StatusUnprocessableEntity, http.StatusBadRequest, http.StatusRequestEntityTooLarge:
 		return fmt.Errorf("%w: HTTP %d", errDLPRefused, resp.StatusCode)
 	}
 	return fmt.Errorf("dlp events: HTTP %d", resp.StatusCode)
