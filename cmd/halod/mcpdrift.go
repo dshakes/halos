@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -135,39 +137,53 @@ func checkServer(s foundServer, approved []policy.MCPPin, ring string) (policy.M
 		if want == "" {
 			want = strings.Join(approved[i].Command, " ")
 		}
-		return policy.MCPFinding{Server: s.name, Kind: "version-drift",
-			Detail: fmt.Sprintf("defined as %s; the registry pins %s", s.def(), want),
-			Fix:    fmt.Sprintf("change %q to %s, or remove it (the managed config already provides it)", s.name, want)}, false
+		f := s.finding("version-drift")
+		f.Detail = fmt.Sprintf("defined as %s; the registry pins %s", describe(f), want)
+		f.Fix = fmt.Sprintf("change %q to %s, or remove it (the managed config already provides it)", s.name, want)
+		return f, false
 	case slices.ContainsFunc(approved, same):
 		return policy.MCPFinding{}, true
 	}
-	return policy.MCPFinding{Server: s.name, Kind: "unapproved",
-		Detail: fmt.Sprintf("defined as %s; not in the halos.yaml mcp registry for ring %s or this device's unit", s.def(), ring),
-		Fix:    fmt.Sprintf("remove %q, or propose it for halos.yaml mcp (halo mcp registry import) with this ring or unit enabled", s.name)}, false
+	f := s.finding("unapproved")
+	f.Detail = fmt.Sprintf("defined as %s; not in the halos.yaml mcp registry for ring %s or this device's unit", describe(f), ring)
+	f.Fix = fmt.Sprintf("remove %q, or propose it for halos.yaml mcp (halo mcp registry import) with this ring or unit enabled", s.name)
+	return f, false
 }
 
-// def is the user's definition as findings (sent to halo-server) show it:
-// credentials, query and fragment dropped from a URL, and every argument
-// that looks like a credential replaced.
-func (s foundServer) def() string {
+// finding is what leaves the device (halo-server fleet status) about the
+// user's definition: its transport, a URL's host (no userinfo, path, query or
+// fragment) and the sha256 of the full definition, to tell definitions apart.
+// Never an argument, command or URL path: any of them can carry a credential
+// (a DSN user:password, a short --api-key value, a token in a path).
+func (s foundServer) finding(kind string) policy.MCPFinding {
+	f := policy.MCPFinding{Server: s.name, Kind: kind, Transport: "stdio"}
+	h := sha256.New()
 	if s.url != "" {
-		u, err := url.Parse(s.url)
-		if err != nil {
-			return "an unparseable url"
+		f.Transport = "http"
+		if u, err := url.Parse(s.url); err == nil {
+			f.Host = u.Host
 		}
-		u.User, u.RawQuery, u.ForceQuery, u.Fragment, u.RawFragment = nil, "", false, "", ""
-		return u.String()
-	}
-	if len(s.command) > 0 {
-		out := make([]string, len(s.command))
-		for i, a := range s.command {
-			if out[i] = a; policy.LooksSecret(a) {
-				out[i] = "[redacted]"
-			}
+		h.Write([]byte(s.url))
+	} else {
+		for _, a := range s.command {
+			h.Write([]byte(a))
+			h.Write([]byte{0})
 		}
-		return strings.Join(out, " ")
 	}
-	return "no url or command"
+	f.DefinitionSHA256 = hex.EncodeToString(h.Sum(nil))
+	return f
+}
+
+// describe is a finding's definition in words, from its safe fields only.
+func describe(f policy.MCPFinding) string {
+	d := "a stdio command"
+	if f.Transport == "http" {
+		d = "an http server"
+		if f.Host != "" {
+			d += " at " + f.Host
+		}
+	}
+	return d + " (definition sha256 " + f.DefinitionSHA256[:12] + ")"
 }
 
 // readUserMCP parses one user config (readUserFile: a regular file, never

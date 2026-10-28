@@ -91,21 +91,41 @@ func mapsEqual[K comparable](a, b map[K]bool) bool {
 // Findings leave the device (halo-server fleet status): a user's own
 // credentials in a server URL or command line are never in them.
 func TestMCPFindingRedactsCredentials(t *testing.T) {
+	pin := []policy.MCPPin{{ID: "srv", URL: "https://mcp.example/approved"}}
 	for _, tc := range []struct {
-		name string
-		s    foundServer
-		want string
+		name      string
+		s         foundServer
+		transport string
+		host      string
+		secrets   []string // must appear in no field
 	}{
-		{"url credentials, query, fragment", foundServer{url: "https://bob:hunter2@mcp.example/x?api_key=abc#t=1"}, "https://mcp.example/x"},
-		{"token argument", foundServer{command: []string{"npx", "-y", "gh-mcp@1.0.0", "--token", "ghp_" + strings.Repeat("A1b2", 9)}}, "npx -y gh-mcp@1.0.0 --token [redacted]"},
-		{"token in a flag", foundServer{command: []string{"tool", "--key=sk-ant-api03-" + strings.Repeat("x", 20)}}, "tool [redacted]"},
-		{"plain command", foundServer{command: []string{"npx", "-y", "lint-mcp@1.2.3"}}, "npx -y lint-mcp@1.2.3"},
+		{"url credentials, query, fragment", foundServer{url: "https://bob:hunter2@mcp.example/x?api_key=abc#t=1"}, "http", "mcp.example", []string{"bob", "hunter2", "api_key", "abc", "/x"}},
+		{"token in url path", foundServer{url: "https://hooks.example:8443/t/s3cr3tpath/mcp"}, "http", "hooks.example:8443", []string{"s3cr3tpath", "/t/"}},
+		{"dsn argument", foundServer{command: []string{"pg-mcp", "postgres://admin:pw123@db.internal/prod"}}, "stdio", "", []string{"admin", "pw123", "db.internal", "pg-mcp"}},
+		{"short api key", foundServer{command: []string{"tool", "--api-key", "k9x"}}, "stdio", "", []string{"k9x", "--api-key", "tool"}},
+		{"binary path", foundServer{command: []string{"/Users/dev/secret-proj/bin/mcp"}}, "stdio", "", []string{"/Users", "secret-proj"}},
+		{"token argument", foundServer{command: []string{"npx", "-y", "gh-mcp@1.0.0", "--token", "ghp_" + strings.Repeat("A1b2", 9)}}, "stdio", "", []string{"ghp_", "gh-mcp", "npx"}},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			f, ok := checkServer(tc.s, nil, "ga")
-			if ok || !strings.Contains(f.Detail, "defined as "+tc.want+";") {
-				t.Fatalf("detail %q, want it to show %q", f.Detail, tc.want)
-			}
-		})
+		for _, name := range []string{"rogue", "srv"} { // unapproved, version-drift
+			t.Run(tc.name+"/"+name, func(t *testing.T) {
+				s := tc.s
+				s.name = name
+				f, ok := checkServer(s, pin, "ga")
+				if ok || f.Server != name || f.Transport != tc.transport || f.Host != tc.host || len(f.DefinitionSHA256) != 64 {
+					t.Fatalf("finding %+v", f)
+				}
+				all := f.Harness + f.File + f.Server + f.Kind + f.Transport + f.Host + f.Detail + f.Fix
+				for _, sec := range tc.secrets {
+					if strings.Contains(all, sec) {
+						t.Fatalf("finding leaks %q: %+v", sec, f)
+					}
+				}
+			})
+		}
+	}
+	a, _ := checkServer(foundServer{name: "x", command: []string{"tool", "--api-key", "k1"}}, nil, "ga")
+	b, _ := checkServer(foundServer{name: "x", command: []string{"tool", "--api-key", "k2"}}, nil, "ga")
+	if a.DefinitionSHA256 == b.DefinitionSHA256 {
+		t.Fatal("different definitions, same digest")
 	}
 }
