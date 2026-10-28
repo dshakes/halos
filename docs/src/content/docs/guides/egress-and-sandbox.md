@@ -71,7 +71,7 @@ Sources and the claims not yet observed with the real CLIs are in the ADR and in
 ## Ask about a host
 
 ```console
-$ halo egress test https://pastebin.com/raw/x --ring ring3-ga
+$ halo egress test https://pastebin.com/raw/x --ring ring3-ga   # claude-code and codex caveat lines trimmed
 DENY pastebin.com  (ring ring3-ga, profile engineering)
 rule   egress.deniedDomains pastebin.com
   claude-code   enforced: sandbox.network allowedDomains/deniedDomains for Bash, WebFetch(domain:...) deny rules for the fetch tool
@@ -99,7 +99,7 @@ Because it is drift, a ring with `posture: enforce` (ADR-0011) refuses such a de
 ```console
 $ halo doctor
 ok   posture/claude-code      sandbox: on (managed); egress: default deny, 19 allowed, 2 denied (managed)
-ok   posture/codex            sandbox: modes [read-only workspace-write] (managed); egress: default deny, 17 allowed, 2 denied (managed)
+ok   posture/codex            sandbox: modes [read-only workspace-write] (managed); egress: default deny, 19 allowed, 2 denied (managed)
 warn posture/codex            ~/.codex/config.toml sets sandbox_mode = "danger-full-access"
                               fix: remove sandbox_mode from ~/.codex/config.toml; requirements.toml refuses it on codex >= 0.77.0, older versions run unsandboxed
 ```
