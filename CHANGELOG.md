@@ -62,6 +62,7 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ### Fixed
 
+- MCP resource canonicalization keeps the brackets of an IPv6 literal with a non-default port (`https://[::1]:8443/mcp`). It rendered `https://::1:8443/mcp`, an ambiguous audience for Halos-minted MCP tokens.
 - Policy copilot: a regression test pins that a draft leaving a ring profile without `permissions.disableBypass` (set false, dropped, or a Claude Code override replacing `permissions.disableBypassPermissionsMode`) fails the check and cannot be applied. Test only; behavior unchanged.
 - `halo plan --diff <ref>`: when the base policy's supply-chain artifacts cannot be fetched or verified, the plan fails naming the artifact and suggests fixing access or `--against` with a built release. Before, it warned and diffed against an empty release, showing every setting as new.
 - Gateways: a failed revocation-list fetch is now reported through the directory client's `Observe` hook as `revocations_unavailable`, and `halo-kong` counts it in `halo_kong_directory_resolutions_total{outcome="revocations_unavailable"}`. Before, it was only logged.

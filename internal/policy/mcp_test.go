@@ -184,6 +184,8 @@ func TestCanonicalResource(t *testing.T) {
 		{"https://MCP.Example.com:443/mcp/", "https://mcp.example.com/mcp", true},
 		{"https://mcp.example.com:8443/a", "https://mcp.example.com:8443/a", true},
 		{"https://[::1]/mcp", "https://[::1]/mcp", true},
+		{"https://[::1]:8443/mcp", "https://[::1]:8443/mcp", true},
+		{"https://[::1]:443/mcp", "https://[::1]/mcp", true},
 		{"https://mcp.example.com", "https://mcp.example.com", true},
 		{"http://mcp.example.com/mcp", "", false},
 		{"https://mcp.example.com/mcp?x=1", "", false},

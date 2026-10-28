@@ -3,6 +3,7 @@ package policy
 import (
 	"fmt"
 	"maps"
+	"net"
 	"net/url"
 	"regexp"
 	"slices"
@@ -261,7 +262,7 @@ func CanonicalResource(u string) (string, bool) {
 	}
 	host := strings.ToLower(p.Hostname())
 	if port := p.Port(); port != "" && port != "443" {
-		host += ":" + port
+		host = net.JoinHostPort(host, port) // brackets an IPv6 literal
 	} else if strings.Contains(host, ":") { // IPv6 literal
 		host = "[" + host + "]"
 	}
