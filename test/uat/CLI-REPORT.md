@@ -53,7 +53,8 @@ but a known gap that starts passing does. UNVERIFIED = not observable here, with
 | claude-code | `claude doctor` shows managed env | PASS | "Auto-updates: disabled (set by env: DISABLE_AUTOUPDATER)" |
 | claude-code | answer via halo-proxy; ring/variant stamped; JWT not forwarded; alias rewritten | PASS | sonnet -> claude-uat-sonnet-upstream, ring3-ga |
 | claude-code | OTEL carries halo.ring/halo.release/halo.harness | PASS | `halo.harness=claude-code, halo.release=uat.1, halo.ring=ring3-ga` |
-| claude-code | deny `Read(./.env)`; model lock; MCP allowlist; bypassPermissions refused | PASS | see cli-results.md |
+| claude-code | deny `Read(./.env)`; model lock; MCP allowlist | PASS | see cli-results.md |
+| claude-code | bypassPermissions refused by `permissions.disableBypassPermissionsMode` | UNVERIFIED (re-run pending) | the recorded PASS was Claude Code's own root/sudo refusal; the check now runs as non-root `uat` and requires "bypassPermissions mode is disabled by settings" in the debug log |
 | claude-code | disallowed `--model`: fallback goes to a gateway alias | **PASS** | the CLI drops `--model my-rogue-model` silently and dispatches its built-in `claude-opus-5-5[1m]`; the adapter's `modelOverrides` sends it as `opus` (upstream `claude-uat-opus-upstream`, answered). Before that it got the gateway's 400 on the first attempt with our message (verified, then superseded) |
 | codex | managed_config.toml loads with the per-harness model | PASS | banner "model: codex-default / provider: halos" (G7) |
 | codex | answer via halo-proxy; ring/variant stamped; JWT not forwarded; alias rewritten | PASS | codex-default -> gpt-uat-upstream |

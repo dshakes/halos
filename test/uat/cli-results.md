@@ -30,7 +30,7 @@
 | claude-code | availableModels/enforce: `--model my-rogue-model` never sent | PASS | CLI dispatched instead: "1 dispatching to firstParty model=claude-opus-5-5[1m]"; upstream saw [claude-uat-opus-upstream] |
 | claude-code | disallowed --model: fallback goes to a gateway alias (modelOverrides), not refused upstream | PASS | "Commands will run WITHOUT sandboxing. Network and filesystem restrictions will NOT be enforced.\n\nUAT-MOCK-ANSWER via anthropic (model=claude-uat-opus-upstream)"; upstream saw [claude-uat-opus-upstream] |
 | claude-code | allowManagedMcpServersOnly: user server `rogue` not connected | PASS | mock MCP hits map[/mcp/docs:5 /mcp/tickets:5]; `claude mcp list`: "Checking MCP server health…\n\nacme-docs: https://mock:8443/mcp/docs (HTTP) - ✔ Connected\nacme-tickets: https://mock:8443/mcp/tickets (HTTP) - ✔ Connected" |
-| claude-code | disableBypassPermissionsMode: bypassPermissions refused | PASS | rc=1 out="--dangerously-skip-permissions cannot be used with root/sudo privileges for security reasons" |
+| claude-code | disableBypassPermissionsMode: bypassPermissions refused | SUPERSEDED (not evidence) | rc=1 out="--dangerously-skip-permissions cannot be used with root/sudo privileges for security reasons": this is Claude Code's root refusal, not the managed setting. The check now runs as a non-root user; no re-run recorded yet. |
 | codex | managed_config.toml loads (model_provider = halos) | PASS | rc=0 "model: codex-default / provider: halos" |
 | codex | CLI prints the mock's answer via halo-proxy | PASS | rc=0 out="tokens used\n19\nUAT-MOCK-ANSWER via openai (model=gpt-uat-upstream)" |
 | codex | x-halo-ring / x-halo-variant stamped | PASS | x-halo-ring="ring3-ga" x-halo-variant="control" x-halo-experiment="uat-route" |

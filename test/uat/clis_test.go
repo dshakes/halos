@@ -200,11 +200,17 @@ func testClaude(t *testing.T, e *cliEnv) {
 		fmt.Sprintf("mock MCP hits %v; `claude mcp list`: %q", hits, tail(out, 4)), "")
 	e.sh("claude mcp remove --scope user rogue >/dev/null 2>&1")
 
-	// bypassPermissions is disabled by policy.
-	out, rc = e.sh("cd /proj && timeout 60 claude -p --permission-mode bypassPermissions hi </dev/null 2>&1")
-	r, _ := lastModelCall(e.mockRequests(), "/v1/messages")
-	check(t, h, "permissions.disableBypassPermissionsMode: bypassPermissions refused", rc != 0 || !strings.Contains(out, "UAT-MOCK-ANSWER") || r.Body == "",
-		fmt.Sprintf("rc=%d out=%q", rc, tail(out, 2)), "")
+	// bypassPermissions is disabled by policy. As a non-root user: as root Claude
+	// Code refuses --dangerously-skip-permissions by itself ("cannot be used with
+	// root/sudo privileges"), which says nothing about the managed setting. With
+	// permissions.disableBypassPermissionsMode, `-p --permission-mode
+	// bypassPermissions` does not exit: it logs the warning below and runs in the
+	// default mode (observed with Claude Code 2.1.312).
+	out, rc = e.shUser("mkdir -p proj ~/.claude/debug && find ~/.claude/debug -type f -delete; cd proj && timeout 60 claude --debug -p --permission-mode bypassPermissions hi </dev/null 2>&1")
+	dbg, _ := e.shUser("grep -h -e 'bypassPermissions mode is disabled by settings' -e 'mode=bypassPermissions' ~/.claude/debug/*.txt")
+	check(t, h, "permissions.disableBypassPermissionsMode: bypassPermissions refused (non-root)",
+		!strings.Contains(out, "root/sudo") && strings.Contains(dbg, "bypassPermissions mode is disabled by settings") && !strings.Contains(dbg, "mode=bypassPermissions"),
+		fmt.Sprintf("rc=%d out=%q debug=%q", rc, tail(out, 2), tail(dbg, 2)), "")
 }
 
 func testCodex(t *testing.T, e *cliEnv) {

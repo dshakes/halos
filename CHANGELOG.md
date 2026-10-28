@@ -57,6 +57,10 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 - Access-request approve and deny are audited fail closed (`AuditStrict`): a decision that cannot be stored answers 500 and stays pending, and one whose audit append fails answers 500 instead of reporting success.
 - Gateway posture catches up with the shared device registry before judging (a device enrolled on another replica counts) and answers unknown, not compliant, when that or the release registry cannot be read.
 
+### Fixed
+
+- Real-CLI UAT: the Claude Code `permissions.disableBypassPermissionsMode` check now runs as a non-root user and requires Claude Code's own "bypassPermissions mode is disabled by settings" in its debug log, with the session in the default mode. It accepted any non-zero exit before, and the recorded PASS came from Claude Code refusing `--dangerously-skip-permissions` as root, not from the managed setting; that row is marked superseded until the UAT is re-run.
+
 ## [0.3.0] - 2026-10-23
 
 ### Added

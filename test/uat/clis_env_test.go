@@ -364,6 +364,9 @@ func (e *cliEnv) containers() error {
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git python3 procps && rm -rf /var/lib/apt/lists/*
 COPY ca.pem /usr/local/share/ca-certificates/halos-uat.crt
 RUN update-ca-certificates
+# A non-root developer: Claude Code refuses --dangerously-skip-permissions as root
+# on its own, so the bypass check must run as someone else.
+RUN useradd -m -s /bin/bash uat
 ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
 `
 	if err := os.WriteFile(filepath.Join(img, "Dockerfile"), []byte(df), 0o644); err != nil { //nolint:gosec // test fixture
@@ -457,8 +460,16 @@ func (e *cliEnv) proxy() error {
 // Feature's /etc/profile.d gateway env applies, as in a developer terminal).
 func (e *cliEnv) sh(script string) (string, int) { return e.shEnv(nil, script) }
 
+// shUser runs a script as the non-root developer `uat` (login shell, $HOME cwd).
+func (e *cliEnv) shUser(script string) (string, int) {
+	return e.dockerExec([]string{"exec", "-u", "uat", "-w", "/home/uat"}, nil, script)
+}
+
 func (e *cliEnv) shEnv(env []string, script string) (string, int) {
-	args := []string{"exec", "-w", "/root"}
+	return e.dockerExec([]string{"exec", "-w", "/root"}, env, script)
+}
+
+func (e *cliEnv) dockerExec(args, env []string, script string) (string, int) {
 	for _, kv := range env {
 		args = append(args, "-e", kv)
 	}
