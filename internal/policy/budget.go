@@ -132,46 +132,52 @@ func (v *validator) budgets(g *Gateway) {
 			v.errf(path+".name", "duplicate budget name %q", b.Name)
 		}
 		names[b.Name] = true
-		v.oneOf(path+".scope", "scope", b.Scope, budgetScopes)
-		v.oneOf(path+".window", "window", b.Window, budgetWindows)
-		if b.Action != "" {
-			v.oneOf(path+".action", "action", b.Action, []string{BudgetWarn, BudgetEnforce})
-		}
-		if b.Scope == ScopeGroup && len(b.Groups) == 0 {
-			v.errf(path+".groups", "scope group needs the groups that get a counter")
-		}
-		for _, r := range b.Rings {
-			if !rings[r] {
-				v.errf(path+".rings", "ring %q not defined", r)
-			}
-		}
-		switch {
-		case b.Window == WindowRolling && b.Period == "":
-			v.errf(path+".period", "rolling window needs a period, e.g. 24h")
-		case b.Window == WindowRolling:
-			if d, err := time.ParseDuration(b.Period); err != nil || d < minRollingPeriod || d > maxRollingPeriod {
-				v.errf(path+".period", "%q must be a duration between %s and %s", b.Period, minRollingPeriod, maxRollingPeriod)
-			}
-		case b.Period != "":
-			v.errf(path+".period", "period is only valid on window rolling")
-		}
-		if b.LimitUSD < 0 || math.IsNaN(b.LimitUSD) || math.IsInf(b.LimitUSD, 0) || b.LimitTokens < 0 {
-			v.errf(path, "limitUSD and limitTokens must be finite and >= 0")
-		} else if b.LimitUSD == 0 && b.LimitTokens == 0 {
-			v.errf(path, "set limitUSD, limitTokens or both")
-		}
+		v.budgetEntry(path, b, rings)
 		needPrice = needPrice || b.LimitUSD > 0
-		for j, a := range b.AlertAt {
-			if !(a > 0 && a < 1) {
-				v.errf(fmt.Sprintf("%s.alertAt[%d]", path, j), "%v must be in (0,1)", a)
-			}
-		}
 	}
 	if needPrice {
 		for _, m := range v.routedModels() {
 			if _, ok := g.Pricing[m]; !ok {
 				v.warnf("gateway.pricing", "no price for routed model %q: its tokens count toward limitTokens but cost $0 toward limitUSD", m)
 			}
+		}
+	}
+}
+
+// budgetEntry checks one budget's fields (gateway.budgets and cloudAgents
+// budgets share them).
+func (v *validator) budgetEntry(path string, b Budget, rings map[string]bool) {
+	v.oneOf(path+".scope", "scope", b.Scope, budgetScopes)
+	v.oneOf(path+".window", "window", b.Window, budgetWindows)
+	if b.Action != "" {
+		v.oneOf(path+".action", "action", b.Action, []string{BudgetWarn, BudgetEnforce})
+	}
+	if b.Scope == ScopeGroup && len(b.Groups) == 0 {
+		v.errf(path+".groups", "scope group needs the groups that get a counter")
+	}
+	for _, r := range b.Rings {
+		if !rings[r] {
+			v.errf(path+".rings", "ring %q not defined", r)
+		}
+	}
+	switch {
+	case b.Window == WindowRolling && b.Period == "":
+		v.errf(path+".period", "rolling window needs a period, e.g. 24h")
+	case b.Window == WindowRolling:
+		if d, err := time.ParseDuration(b.Period); err != nil || d < minRollingPeriod || d > maxRollingPeriod {
+			v.errf(path+".period", "%q must be a duration between %s and %s", b.Period, minRollingPeriod, maxRollingPeriod)
+		}
+	case b.Period != "":
+		v.errf(path+".period", "period is only valid on window rolling")
+	}
+	if b.LimitUSD < 0 || math.IsNaN(b.LimitUSD) || math.IsInf(b.LimitUSD, 0) || b.LimitTokens < 0 {
+		v.errf(path, "limitUSD and limitTokens must be finite and >= 0")
+	} else if b.LimitUSD == 0 && b.LimitTokens == 0 {
+		v.errf(path, "set limitUSD, limitTokens or both")
+	}
+	for j, a := range b.AlertAt {
+		if !(a > 0 && a < 1) {
+			v.errf(fmt.Sprintf("%s.alertAt[%d]", path, j), "%v must be in (0,1)", a)
 		}
 	}
 }

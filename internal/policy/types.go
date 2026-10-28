@@ -68,6 +68,10 @@ type Org struct {
 	// when unset, like Toggles.
 	VendorAdmin *VendorAdmin `json:",omitempty"`
 
+	// CloudAgents governs vendor-hosted background agents (ADR-0034); omitted
+	// when unset, like Toggles.
+	CloudAgents *CloudAgents `json:",omitempty"`
+
 	// Governance holds change-freeze windows and approval quorums (ADR-0030);
 	// omitted when unset, like Toggles.
 	Governance *Governance `json:",omitempty"`

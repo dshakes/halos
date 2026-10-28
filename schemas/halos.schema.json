@@ -599,6 +599,65 @@
         }
       }
     },
+    "cloudAgents": {
+      "type": "object",
+      "description": "Cloud agent governance (ADR-0034): background coding agents on vendor or CI infrastructure (Claude Code GitHub Action and cloud sessions, Codex cloud, Copilot cloud agent, Cursor cloud agents, Gemini CLI GitHub Action). A vendor is governed when its key is present. Credentials never live here.",
+      "additionalProperties": false,
+      "properties": {
+        "identities": {
+          "type": "array",
+          "description": "Vendor logins mapped to Halos users, so a cloud task resolves to its human's ring, experiments and budgets.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "user"
+            ],
+            "properties": {
+              "user": {
+                "type": "string",
+                "description": "Halos user id."
+              },
+              "github": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9-]{0,38}$",
+                "description": "GitHub login (Claude and Gemini actions, Copilot cloud agent)."
+              }
+            }
+          }
+        },
+        "server": {
+          "type": "string",
+          "pattern": "^https://",
+          "description": "halo-server base URL rendered workflows exchange their OIDC token at (identity: workload)."
+        },
+        "haloVersion": {
+          "type": "string",
+          "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$",
+          "description": "halo release tag rendered workflows install for the exchange (identity: workload)."
+        },
+        "claude": {
+          "$ref": "#/$defs/cloudAgent",
+          "description": "Claude Code GitHub Action (rendered workflow) and Claude Code cloud sessions (console)."
+        },
+        "codex": {
+          "$ref": "#/$defs/cloudAgent",
+          "description": "Codex cloud tasks (console; no public task API)."
+        },
+        "copilot": {
+          "$ref": "#/$defs/cloudAgent",
+          "description": "Copilot cloud agent (rendered copilot-setup-steps.yml; firewall read per repository)."
+        },
+        "cursor": {
+          "$ref": "#/$defs/cloudAgent",
+          "description": "Cursor cloud agents (Cloud Agents API: list, cancel, archive)."
+        },
+        "gemini": {
+          "$ref": "#/$defs/cloudAgent",
+          "description": "Gemini CLI GitHub Action (rendered workflow)."
+        }
+      }
+    },
     "agents": {
       "type": "object",
       "description": "Agent identity and delegation (ADR-0024): which agents may act for a principal (RFC 8693 act chain), how deep and for how long, what delegated agents may not do, and the allowlist of remote A2A agents.",
@@ -1188,6 +1247,239 @@
         "id"
       ],
       "additionalProperties": false
+    },
+    "cloudAgent": {
+      "type": "object",
+      "description": "One vendor's cloud agent policy (ADR-0034).",
+      "additionalProperties": false,
+      "required": [
+        "enabled"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "false: nothing that runs the agent is rendered and every observed task is a violation."
+        },
+        "repos": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9-]{0,38}/([A-Za-z0-9._-]{1,100}|\\*)$"
+          },
+          "uniqueItems": true,
+          "description": "Repositories the agent may work in: owner/repo or owner/* (default every repository)."
+        },
+        "models": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$"
+          },
+          "uniqueItems": true,
+          "description": "Vendor model ids the agent may use; the first is rendered as the default where the vendor takes one."
+        },
+        "maxConcurrent": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Caps on running tasks.",
+          "properties": {
+            "perUser": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Running tasks per Halos user (0 = no cap)."
+            },
+            "perGroup": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Running tasks per listed group (0 = no cap)."
+            },
+            "groups": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true,
+              "description": "Groups that each get a perGroup counter (required with perGroup)."
+            }
+          }
+        },
+        "budgets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "description": "One budget (ADR-0017 fields) over vendor-reported task usage. action is warn only: cloud usage is reported after the fact, so onOverLimit decides whether to pause.",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Unique budget name.",
+                "pattern": "^[a-z0-9][a-z0-9._-]{0,62}$"
+              },
+              "scope": {
+                "type": "string",
+                "description": "Counter key: user (per verified subject), group (per listed group), ring (per ring) or org (one shared counter).",
+                "enum": [
+                  "user",
+                  "group",
+                  "ring",
+                  "org"
+                ]
+              },
+              "groups": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "uniqueItems": true,
+                "description": "Scope group: the groups that each get a counter (required). Other scopes: count only callers in one of these groups."
+              },
+              "rings": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "uniqueItems": true,
+                "description": "Count only callers routed to these rings (default every ring)."
+              },
+              "window": {
+                "type": "string",
+                "description": "day, week (from Monday) or month: calendar windows in UTC. rolling: the last period.",
+                "enum": [
+                  "day",
+                  "week",
+                  "month",
+                  "rolling"
+                ]
+              },
+              "period": {
+                "type": "string",
+                "description": "Rolling window length as a Go duration between 1h and 2160h, e.g. 24h. Rolling only.",
+                "pattern": "^([0-9]+(\\.[0-9]+)?(h|m|s))+$"
+              },
+              "limitUSD": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Spend cap in USD for the window, priced from pricing."
+              },
+              "limitTokens": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Token cap for the window (input + output + cache reads and writes)."
+              },
+              "action": {
+                "type": "string",
+                "description": "warn only (default); over-limit handling is onOverLimit.",
+                "enum": [
+                  "warn"
+                ]
+              },
+              "alertAt": {
+                "type": "array",
+                "items": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "exclusiveMaximum": 1
+                },
+                "description": "Soft thresholds as fractions of the limit (default [0.8]): a header and a metric when crossed."
+              }
+            },
+            "required": [
+              "name",
+              "scope",
+              "window"
+            ],
+            "anyOf": [
+              {
+                "required": [
+                  "limitUSD"
+                ]
+              },
+              {
+                "required": [
+                  "limitTokens"
+                ]
+              }
+            ],
+            "if": {
+              "properties": {
+                "window": {
+                  "const": "rolling"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "period"
+              ]
+            },
+            "else": {
+              "not": {
+                "required": [
+                  "period"
+                ]
+              }
+            },
+            "additionalProperties": false
+          },
+          "description": "Caps on vendor-reported task usage (ADR-0017 budget fields)."
+        },
+        "network": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode"
+          ],
+          "description": "Sandbox egress, where the vendor has a setting.",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": [
+                "none",
+                "allowlist",
+                "full"
+              ],
+              "description": "none: no egress; allowlist: only allow (plus the vendor's dependency list when recommended); full: any host (warned)."
+            },
+            "allow": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^(\\*\\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$"
+              },
+              "uniqueItems": true,
+              "description": "Extra domains; a leading *. matches subdomains."
+            },
+            "recommended": {
+              "type": "boolean",
+              "description": "Keep the vendor's own dependency allowlist (allowlist only)."
+            }
+          }
+        },
+        "identity": {
+          "type": "string",
+          "enum": [
+            "workload"
+          ],
+          "description": "workload: rendered workflows call the model through the Halos gateway with a short-lived workload credential (ADR-0023) instead of a repository secret (claude, gemini)."
+        },
+        "onOverLimit": {
+          "type": "string",
+          "enum": [
+            "alert",
+            "pause"
+          ],
+          "description": "alert (default) reports; pause also pauses the agent where the vendor API can, reversibly, and never resumes it."
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+([-+][0-9A-Za-z.-]+)?$",
+          "description": "Agent CLI version pin where the vendor takes one (gemini)."
+        },
+        "timeoutMinutes": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Job timeout of rendered workflows (copilot at most 59)."
+        }
+      }
     }
   }
 }
