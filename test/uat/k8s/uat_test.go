@@ -583,6 +583,21 @@ func rollout(t *testing.T, s *u) {
 	r := s.haloCLI(t, "rollout", "status", "uat-ok", "--policy-dir", s.policy, "--clickhouse", chURL, "--database", "halo", "--user", "halo")
 	s.r.check(t, sce, "halo rollout status uat-ok reads the live gates", r.code == 0 && strings.Contains(r.out, "canary-25"), "%s", firstLine(r.out+r.err))
 
+	// acme's ga-two-person rule (ADR-0030) holds the ring3-ga advance until two
+	// approvers stand for different groups with a change ticket. sre@ is also in
+	// ai-platform: acme maps no console role to sre-leads, and approving needs one.
+	for _, a := range []struct {
+		user   string
+		groups []string
+	}{{admin, []string{"ai-platform"}}, {"sre@acme.com", []string{"ai-platform", "sre-leads"}}} {
+		sess := session(s.login(t, a.user, a.groups...))
+		r := s.sh(t, laptopNS, laptop, "", "HALO_SERVER="+portalURL+" HALO_SESSION="+sess+" halo rollout approve uat-ok --ticket CHG0012345")
+		s.r.check(t, sce, "halo rollout approve uat-ok as "+a.user+" (ga-two-person, ticket)", r.code == 0, "%s", strings.ReplaceAll(strings.TrimSpace(r.out+r.err), "\n", " / "))
+		if a.user != admin {
+			s.r.check(t, sce, "two approvers from distinct groups + ticket meet the quorum", strings.Contains(r.out, "approval quorum met"), "%s", lastLine(r.out+r.err))
+		}
+	}
+
 	// The in-cluster controller (halo-server --controller, 1m tick) acts on the same evidence.
 	var branches string
 	took := waitFor(t, 6*time.Minute, "controller PR branches on the git remote", func() bool {
