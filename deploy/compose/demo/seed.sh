@@ -12,6 +12,15 @@ if [ -f /demo/.seeded ]; then echo "seed: already seeded"; exit 0; fi
 rm -rf /demo/policy && mkdir -p /demo/policy
 cp -R /src/acme-corp/. /demo/policy/
 cp -R /src/overlay/. /demo/policy/
+# halos.yaml is patched, not replaced, so the demo keeps every block the example
+# declares (supply chain, MCP registry, governance, cloud agents, ...). No
+# codespaces: a Codespace cannot reach a laptop-local server; devcontainer stays
+# so admins see why it is not offered here (plain-HTTP demo).
+sed -i -e 's#issuer: https://acme.okta.com/oauth2/default#issuer: http://mock-idp:8080#' \
+  -e 's#launchers: \[devcontainer, codespaces, laptop\]#launchers: [devcontainer, laptop]#' /demo/policy/halos.yaml
+if ! grep -q 'issuer: http://mock-idp:8080' /demo/policy/halos.yaml || ! grep -q 'launchers: \[devcontainer, laptop\]' /demo/policy/halos.yaml; then
+  echo "seed: examples/acme-corp/halos.yaml changed; update the demo patch in seed.sh" >&2; exit 1
+fi
 $halo validate /demo/policy
 
 # throwaway signing keys: releases (halo.key) and the gateway kill list (killswitch.key)
