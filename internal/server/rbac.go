@@ -74,6 +74,7 @@ var routePerms = map[string]perm{
 	"GET /api/v1/toggles/{name}":     permRead,
 	"GET /api/v1/killswitch":         permRead,
 	"GET /api/v1/freeze":             permRead, // incident freeze and every ring's freeze windows (ADR-0030)
+	"GET /api/v1/cloud-agents":       permRead, // cloud agent tasks and alerts (ADR-0034)
 
 	"GET /api/v1/rollouts/{name}/approvals": permRead,
 
@@ -82,6 +83,7 @@ var routePerms = map[string]perm{
 	"POST /api/v1/experiments/{name}/unkill": permOperate,
 	"POST /api/v1/toggles/{name}/kill":       permOperate,
 	"POST /api/v1/toggles/{name}/unkill":     permOperate,
+	"POST /api/v1/cloud-agents/kill":         permOperate, // cancel cloud tasks; dry run by default (ADR-0034)
 
 	"POST /api/v1/requests/{id}/approve": permApprove,
 	"POST /api/v1/requests/{id}/deny":    permApprove,

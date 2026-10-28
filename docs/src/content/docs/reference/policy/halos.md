@@ -40,6 +40,188 @@ Generated from `schemas/halos.schema.json`; do not edit. Nested fields use dotte
 | `agents.remote[].units` | array of string |  |  |  |  | Units (and units below them) whose members may call it. |
 | `agents.remote[].units[]` | string |  |  |  | minLength 1 |  |
 | `apiVersion` | string |  |  | const halos.dev/v1 |  | Document version. |
+| `cloudAgents` | object |  |  |  |  | Cloud agent governance (ADR-0034): background coding agents on vendor or CI infrastructure (Claude Code GitHub Action and cloud sessions, Codex cloud, Copilot cloud agent, Cursor cloud agents, Gemini CLI GitHub Action). A vendor is governed when its key is present. Credentials never live here. |
+| `cloudAgents.claude` | object |  |  |  |  | One vendor's cloud agent policy (ADR-0034). |
+| `cloudAgents.claude.budgets` | array of object |  |  |  |  | Caps on vendor-reported task usage (ADR-0017 budget fields). |
+| `cloudAgents.claude.budgets[]` | object |  |  |  |  | One budget (ADR-0017 fields) over vendor-reported task usage. action is warn only: cloud usage is reported after the fact, so onOverLimit decides whether to pause. |
+| `cloudAgents.claude.budgets[].action` | string |  |  | warn |  | warn only (default); over-limit handling is onOverLimit. |
+| `cloudAgents.claude.budgets[].alertAt` | array of number |  |  |  |  | Soft thresholds as fractions of the limit (default [0.8]): a header and a metric when crossed. |
+| `cloudAgents.claude.budgets[].alertAt[]` | number |  |  |  |  |  |
+| `cloudAgents.claude.budgets[].groups` | array of string |  |  |  |  | Scope group: the groups that each get a counter (required). Other scopes: count only callers in one of these groups. |
+| `cloudAgents.claude.budgets[].groups[]` | string |  |  |  |  |  |
+| `cloudAgents.claude.budgets[].limitTokens` | integer |  |  |  | minimum 0 | Token cap for the window (input + output + cache reads and writes). |
+| `cloudAgents.claude.budgets[].limitUSD` | number |  |  |  | minimum 0 | Spend cap in USD for the window, priced from pricing. |
+| `cloudAgents.claude.budgets[].name` | string | yes |  |  | pattern ^[a-z0-9][a-z0-9._-]&#123;0,62}$ | Unique budget name. |
+| `cloudAgents.claude.budgets[].period` | string |  |  |  | pattern ^([0-9]+(\.[0-9]+)?(h\|m\|s))+$ | Rolling window length as a Go duration between 1h and 2160h, e.g. 24h. Rolling only. |
+| `cloudAgents.claude.budgets[].rings` | array of string |  |  |  |  | Count only callers routed to these rings (default every ring). |
+| `cloudAgents.claude.budgets[].rings[]` | string |  |  |  |  |  |
+| `cloudAgents.claude.budgets[].scope` | string | yes |  | user, group, ring, org |  | Counter key: user (per verified subject), group (per listed group), ring (per ring) or org (one shared counter). |
+| `cloudAgents.claude.budgets[].window` | string | yes |  | day, week, month, rolling |  | day, week (from Monday) or month: calendar windows in UTC. rolling: the last period. |
+| `cloudAgents.claude.enabled` | boolean | yes |  |  |  | false: nothing that runs the agent is rendered and every observed task is a violation. |
+| `cloudAgents.claude.identity` | string |  |  | workload |  | workload: rendered workflows call the model through the Halos gateway with a short-lived workload credential (ADR-0023) instead of a repository secret (claude, gemini). |
+| `cloudAgents.claude.maxConcurrent` | object |  |  |  |  | Caps on running tasks. |
+| `cloudAgents.claude.maxConcurrent.groups` | array of string |  |  |  |  | Groups that each get a perGroup counter (required with perGroup). |
+| `cloudAgents.claude.maxConcurrent.groups[]` | string |  |  |  |  |  |
+| `cloudAgents.claude.maxConcurrent.perGroup` | integer |  |  |  | minimum 0 | Running tasks per listed group (0 = no cap). |
+| `cloudAgents.claude.maxConcurrent.perUser` | integer |  |  |  | minimum 0 | Running tasks per Halos user (0 = no cap). |
+| `cloudAgents.claude.models` | array of string |  |  |  |  | Vendor model ids the agent may use; the first is rendered as the default where the vendor takes one. |
+| `cloudAgents.claude.models[]` | string |  |  |  | pattern ^[A-Za-z0-9][A-Za-z0-9._:@-]&#123;0,127}$ |  |
+| `cloudAgents.claude.network` | object |  |  |  |  | Sandbox egress, where the vendor has a setting. |
+| `cloudAgents.claude.network.allow` | array of string |  |  |  |  | Extra domains; a leading *. matches subdomains. |
+| `cloudAgents.claude.network.allow[]` | string |  |  |  | pattern ^(\*\.)?([a-z0-9]([a-z0-9-]&#123;0,61}[a-z0-9])?\.)+[a-z]&#123;2,63}$ |  |
+| `cloudAgents.claude.network.mode` | string | yes |  | none, allowlist, full |  | none: no egress; allowlist: only allow (plus the vendor's dependency list when recommended); full: any host (warned). |
+| `cloudAgents.claude.network.recommended` | boolean |  |  |  |  | Keep the vendor's own dependency allowlist (allowlist only). |
+| `cloudAgents.claude.onOverLimit` | string |  |  | alert, pause |  | alert (default) reports; pause also pauses the agent where the vendor API can, reversibly, and never resumes it. |
+| `cloudAgents.claude.repos` | array of string |  |  |  |  | Repositories the agent may work in: owner/repo or owner/* (default every repository). |
+| `cloudAgents.claude.repos[]` | string |  |  |  | pattern ^[A-Za-z0-9][A-Za-z0-9-]&#123;0,38}/([A-Za-z0-9._-]&#123;1,100}\|\*)$ |  |
+| `cloudAgents.claude.timeoutMinutes` | integer |  |  |  | minimum 0 | Job timeout of rendered workflows (copilot at most 59). |
+| `cloudAgents.claude.version` | string |  |  |  | pattern ^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ | Agent CLI version pin where the vendor takes one (gemini). |
+| `cloudAgents.codex` | object |  |  |  |  | One vendor's cloud agent policy (ADR-0034). |
+| `cloudAgents.codex.budgets` | array of object |  |  |  |  | Caps on vendor-reported task usage (ADR-0017 budget fields). |
+| `cloudAgents.codex.budgets[]` | object |  |  |  |  | One budget (ADR-0017 fields) over vendor-reported task usage. action is warn only: cloud usage is reported after the fact, so onOverLimit decides whether to pause. |
+| `cloudAgents.codex.budgets[].action` | string |  |  | warn |  | warn only (default); over-limit handling is onOverLimit. |
+| `cloudAgents.codex.budgets[].alertAt` | array of number |  |  |  |  | Soft thresholds as fractions of the limit (default [0.8]): a header and a metric when crossed. |
+| `cloudAgents.codex.budgets[].alertAt[]` | number |  |  |  |  |  |
+| `cloudAgents.codex.budgets[].groups` | array of string |  |  |  |  | Scope group: the groups that each get a counter (required). Other scopes: count only callers in one of these groups. |
+| `cloudAgents.codex.budgets[].groups[]` | string |  |  |  |  |  |
+| `cloudAgents.codex.budgets[].limitTokens` | integer |  |  |  | minimum 0 | Token cap for the window (input + output + cache reads and writes). |
+| `cloudAgents.codex.budgets[].limitUSD` | number |  |  |  | minimum 0 | Spend cap in USD for the window, priced from pricing. |
+| `cloudAgents.codex.budgets[].name` | string | yes |  |  | pattern ^[a-z0-9][a-z0-9._-]&#123;0,62}$ | Unique budget name. |
+| `cloudAgents.codex.budgets[].period` | string |  |  |  | pattern ^([0-9]+(\.[0-9]+)?(h\|m\|s))+$ | Rolling window length as a Go duration between 1h and 2160h, e.g. 24h. Rolling only. |
+| `cloudAgents.codex.budgets[].rings` | array of string |  |  |  |  | Count only callers routed to these rings (default every ring). |
+| `cloudAgents.codex.budgets[].rings[]` | string |  |  |  |  |  |
+| `cloudAgents.codex.budgets[].scope` | string | yes |  | user, group, ring, org |  | Counter key: user (per verified subject), group (per listed group), ring (per ring) or org (one shared counter). |
+| `cloudAgents.codex.budgets[].window` | string | yes |  | day, week, month, rolling |  | day, week (from Monday) or month: calendar windows in UTC. rolling: the last period. |
+| `cloudAgents.codex.enabled` | boolean | yes |  |  |  | false: nothing that runs the agent is rendered and every observed task is a violation. |
+| `cloudAgents.codex.identity` | string |  |  | workload |  | workload: rendered workflows call the model through the Halos gateway with a short-lived workload credential (ADR-0023) instead of a repository secret (claude, gemini). |
+| `cloudAgents.codex.maxConcurrent` | object |  |  |  |  | Caps on running tasks. |
+| `cloudAgents.codex.maxConcurrent.groups` | array of string |  |  |  |  | Groups that each get a perGroup counter (required with perGroup). |
+| `cloudAgents.codex.maxConcurrent.groups[]` | string |  |  |  |  |  |
+| `cloudAgents.codex.maxConcurrent.perGroup` | integer |  |  |  | minimum 0 | Running tasks per listed group (0 = no cap). |
+| `cloudAgents.codex.maxConcurrent.perUser` | integer |  |  |  | minimum 0 | Running tasks per Halos user (0 = no cap). |
+| `cloudAgents.codex.models` | array of string |  |  |  |  | Vendor model ids the agent may use; the first is rendered as the default where the vendor takes one. |
+| `cloudAgents.codex.models[]` | string |  |  |  | pattern ^[A-Za-z0-9][A-Za-z0-9._:@-]&#123;0,127}$ |  |
+| `cloudAgents.codex.network` | object |  |  |  |  | Sandbox egress, where the vendor has a setting. |
+| `cloudAgents.codex.network.allow` | array of string |  |  |  |  | Extra domains; a leading *. matches subdomains. |
+| `cloudAgents.codex.network.allow[]` | string |  |  |  | pattern ^(\*\.)?([a-z0-9]([a-z0-9-]&#123;0,61}[a-z0-9])?\.)+[a-z]&#123;2,63}$ |  |
+| `cloudAgents.codex.network.mode` | string | yes |  | none, allowlist, full |  | none: no egress; allowlist: only allow (plus the vendor's dependency list when recommended); full: any host (warned). |
+| `cloudAgents.codex.network.recommended` | boolean |  |  |  |  | Keep the vendor's own dependency allowlist (allowlist only). |
+| `cloudAgents.codex.onOverLimit` | string |  |  | alert, pause |  | alert (default) reports; pause also pauses the agent where the vendor API can, reversibly, and never resumes it. |
+| `cloudAgents.codex.repos` | array of string |  |  |  |  | Repositories the agent may work in: owner/repo or owner/* (default every repository). |
+| `cloudAgents.codex.repos[]` | string |  |  |  | pattern ^[A-Za-z0-9][A-Za-z0-9-]&#123;0,38}/([A-Za-z0-9._-]&#123;1,100}\|\*)$ |  |
+| `cloudAgents.codex.timeoutMinutes` | integer |  |  |  | minimum 0 | Job timeout of rendered workflows (copilot at most 59). |
+| `cloudAgents.codex.version` | string |  |  |  | pattern ^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ | Agent CLI version pin where the vendor takes one (gemini). |
+| `cloudAgents.copilot` | object |  |  |  |  | One vendor's cloud agent policy (ADR-0034). |
+| `cloudAgents.copilot.budgets` | array of object |  |  |  |  | Caps on vendor-reported task usage (ADR-0017 budget fields). |
+| `cloudAgents.copilot.budgets[]` | object |  |  |  |  | One budget (ADR-0017 fields) over vendor-reported task usage. action is warn only: cloud usage is reported after the fact, so onOverLimit decides whether to pause. |
+| `cloudAgents.copilot.budgets[].action` | string |  |  | warn |  | warn only (default); over-limit handling is onOverLimit. |
+| `cloudAgents.copilot.budgets[].alertAt` | array of number |  |  |  |  | Soft thresholds as fractions of the limit (default [0.8]): a header and a metric when crossed. |
+| `cloudAgents.copilot.budgets[].alertAt[]` | number |  |  |  |  |  |
+| `cloudAgents.copilot.budgets[].groups` | array of string |  |  |  |  | Scope group: the groups that each get a counter (required). Other scopes: count only callers in one of these groups. |
+| `cloudAgents.copilot.budgets[].groups[]` | string |  |  |  |  |  |
+| `cloudAgents.copilot.budgets[].limitTokens` | integer |  |  |  | minimum 0 | Token cap for the window (input + output + cache reads and writes). |
+| `cloudAgents.copilot.budgets[].limitUSD` | number |  |  |  | minimum 0 | Spend cap in USD for the window, priced from pricing. |
+| `cloudAgents.copilot.budgets[].name` | string | yes |  |  | pattern ^[a-z0-9][a-z0-9._-]&#123;0,62}$ | Unique budget name. |
+| `cloudAgents.copilot.budgets[].period` | string |  |  |  | pattern ^([0-9]+(\.[0-9]+)?(h\|m\|s))+$ | Rolling window length as a Go duration between 1h and 2160h, e.g. 24h. Rolling only. |
+| `cloudAgents.copilot.budgets[].rings` | array of string |  |  |  |  | Count only callers routed to these rings (default every ring). |
+| `cloudAgents.copilot.budgets[].rings[]` | string |  |  |  |  |  |
+| `cloudAgents.copilot.budgets[].scope` | string | yes |  | user, group, ring, org |  | Counter key: user (per verified subject), group (per listed group), ring (per ring) or org (one shared counter). |
+| `cloudAgents.copilot.budgets[].window` | string | yes |  | day, week, month, rolling |  | day, week (from Monday) or month: calendar windows in UTC. rolling: the last period. |
+| `cloudAgents.copilot.enabled` | boolean | yes |  |  |  | false: nothing that runs the agent is rendered and every observed task is a violation. |
+| `cloudAgents.copilot.identity` | string |  |  | workload |  | workload: rendered workflows call the model through the Halos gateway with a short-lived workload credential (ADR-0023) instead of a repository secret (claude, gemini). |
+| `cloudAgents.copilot.maxConcurrent` | object |  |  |  |  | Caps on running tasks. |
+| `cloudAgents.copilot.maxConcurrent.groups` | array of string |  |  |  |  | Groups that each get a perGroup counter (required with perGroup). |
+| `cloudAgents.copilot.maxConcurrent.groups[]` | string |  |  |  |  |  |
+| `cloudAgents.copilot.maxConcurrent.perGroup` | integer |  |  |  | minimum 0 | Running tasks per listed group (0 = no cap). |
+| `cloudAgents.copilot.maxConcurrent.perUser` | integer |  |  |  | minimum 0 | Running tasks per Halos user (0 = no cap). |
+| `cloudAgents.copilot.models` | array of string |  |  |  |  | Vendor model ids the agent may use; the first is rendered as the default where the vendor takes one. |
+| `cloudAgents.copilot.models[]` | string |  |  |  | pattern ^[A-Za-z0-9][A-Za-z0-9._:@-]&#123;0,127}$ |  |
+| `cloudAgents.copilot.network` | object |  |  |  |  | Sandbox egress, where the vendor has a setting. |
+| `cloudAgents.copilot.network.allow` | array of string |  |  |  |  | Extra domains; a leading *. matches subdomains. |
+| `cloudAgents.copilot.network.allow[]` | string |  |  |  | pattern ^(\*\.)?([a-z0-9]([a-z0-9-]&#123;0,61}[a-z0-9])?\.)+[a-z]&#123;2,63}$ |  |
+| `cloudAgents.copilot.network.mode` | string | yes |  | none, allowlist, full |  | none: no egress; allowlist: only allow (plus the vendor's dependency list when recommended); full: any host (warned). |
+| `cloudAgents.copilot.network.recommended` | boolean |  |  |  |  | Keep the vendor's own dependency allowlist (allowlist only). |
+| `cloudAgents.copilot.onOverLimit` | string |  |  | alert, pause |  | alert (default) reports; pause also pauses the agent where the vendor API can, reversibly, and never resumes it. |
+| `cloudAgents.copilot.repos` | array of string |  |  |  |  | Repositories the agent may work in: owner/repo or owner/* (default every repository). |
+| `cloudAgents.copilot.repos[]` | string |  |  |  | pattern ^[A-Za-z0-9][A-Za-z0-9-]&#123;0,38}/([A-Za-z0-9._-]&#123;1,100}\|\*)$ |  |
+| `cloudAgents.copilot.timeoutMinutes` | integer |  |  |  | minimum 0 | Job timeout of rendered workflows (copilot at most 59). |
+| `cloudAgents.copilot.version` | string |  |  |  | pattern ^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ | Agent CLI version pin where the vendor takes one (gemini). |
+| `cloudAgents.cursor` | object |  |  |  |  | One vendor's cloud agent policy (ADR-0034). |
+| `cloudAgents.cursor.budgets` | array of object |  |  |  |  | Caps on vendor-reported task usage (ADR-0017 budget fields). |
+| `cloudAgents.cursor.budgets[]` | object |  |  |  |  | One budget (ADR-0017 fields) over vendor-reported task usage. action is warn only: cloud usage is reported after the fact, so onOverLimit decides whether to pause. |
+| `cloudAgents.cursor.budgets[].action` | string |  |  | warn |  | warn only (default); over-limit handling is onOverLimit. |
+| `cloudAgents.cursor.budgets[].alertAt` | array of number |  |  |  |  | Soft thresholds as fractions of the limit (default [0.8]): a header and a metric when crossed. |
+| `cloudAgents.cursor.budgets[].alertAt[]` | number |  |  |  |  |  |
+| `cloudAgents.cursor.budgets[].groups` | array of string |  |  |  |  | Scope group: the groups that each get a counter (required). Other scopes: count only callers in one of these groups. |
+| `cloudAgents.cursor.budgets[].groups[]` | string |  |  |  |  |  |
+| `cloudAgents.cursor.budgets[].limitTokens` | integer |  |  |  | minimum 0 | Token cap for the window (input + output + cache reads and writes). |
+| `cloudAgents.cursor.budgets[].limitUSD` | number |  |  |  | minimum 0 | Spend cap in USD for the window, priced from pricing. |
+| `cloudAgents.cursor.budgets[].name` | string | yes |  |  | pattern ^[a-z0-9][a-z0-9._-]&#123;0,62}$ | Unique budget name. |
+| `cloudAgents.cursor.budgets[].period` | string |  |  |  | pattern ^([0-9]+(\.[0-9]+)?(h\|m\|s))+$ | Rolling window length as a Go duration between 1h and 2160h, e.g. 24h. Rolling only. |
+| `cloudAgents.cursor.budgets[].rings` | array of string |  |  |  |  | Count only callers routed to these rings (default every ring). |
+| `cloudAgents.cursor.budgets[].rings[]` | string |  |  |  |  |  |
+| `cloudAgents.cursor.budgets[].scope` | string | yes |  | user, group, ring, org |  | Counter key: user (per verified subject), group (per listed group), ring (per ring) or org (one shared counter). |
+| `cloudAgents.cursor.budgets[].window` | string | yes |  | day, week, month, rolling |  | day, week (from Monday) or month: calendar windows in UTC. rolling: the last period. |
+| `cloudAgents.cursor.enabled` | boolean | yes |  |  |  | false: nothing that runs the agent is rendered and every observed task is a violation. |
+| `cloudAgents.cursor.identity` | string |  |  | workload |  | workload: rendered workflows call the model through the Halos gateway with a short-lived workload credential (ADR-0023) instead of a repository secret (claude, gemini). |
+| `cloudAgents.cursor.maxConcurrent` | object |  |  |  |  | Caps on running tasks. |
+| `cloudAgents.cursor.maxConcurrent.groups` | array of string |  |  |  |  | Groups that each get a perGroup counter (required with perGroup). |
+| `cloudAgents.cursor.maxConcurrent.groups[]` | string |  |  |  |  |  |
+| `cloudAgents.cursor.maxConcurrent.perGroup` | integer |  |  |  | minimum 0 | Running tasks per listed group (0 = no cap). |
+| `cloudAgents.cursor.maxConcurrent.perUser` | integer |  |  |  | minimum 0 | Running tasks per Halos user (0 = no cap). |
+| `cloudAgents.cursor.models` | array of string |  |  |  |  | Vendor model ids the agent may use; the first is rendered as the default where the vendor takes one. |
+| `cloudAgents.cursor.models[]` | string |  |  |  | pattern ^[A-Za-z0-9][A-Za-z0-9._:@-]&#123;0,127}$ |  |
+| `cloudAgents.cursor.network` | object |  |  |  |  | Sandbox egress, where the vendor has a setting. |
+| `cloudAgents.cursor.network.allow` | array of string |  |  |  |  | Extra domains; a leading *. matches subdomains. |
+| `cloudAgents.cursor.network.allow[]` | string |  |  |  | pattern ^(\*\.)?([a-z0-9]([a-z0-9-]&#123;0,61}[a-z0-9])?\.)+[a-z]&#123;2,63}$ |  |
+| `cloudAgents.cursor.network.mode` | string | yes |  | none, allowlist, full |  | none: no egress; allowlist: only allow (plus the vendor's dependency list when recommended); full: any host (warned). |
+| `cloudAgents.cursor.network.recommended` | boolean |  |  |  |  | Keep the vendor's own dependency allowlist (allowlist only). |
+| `cloudAgents.cursor.onOverLimit` | string |  |  | alert, pause |  | alert (default) reports; pause also pauses the agent where the vendor API can, reversibly, and never resumes it. |
+| `cloudAgents.cursor.repos` | array of string |  |  |  |  | Repositories the agent may work in: owner/repo or owner/* (default every repository). |
+| `cloudAgents.cursor.repos[]` | string |  |  |  | pattern ^[A-Za-z0-9][A-Za-z0-9-]&#123;0,38}/([A-Za-z0-9._-]&#123;1,100}\|\*)$ |  |
+| `cloudAgents.cursor.timeoutMinutes` | integer |  |  |  | minimum 0 | Job timeout of rendered workflows (copilot at most 59). |
+| `cloudAgents.cursor.version` | string |  |  |  | pattern ^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ | Agent CLI version pin where the vendor takes one (gemini). |
+| `cloudAgents.gemini` | object |  |  |  |  | One vendor's cloud agent policy (ADR-0034). |
+| `cloudAgents.gemini.budgets` | array of object |  |  |  |  | Caps on vendor-reported task usage (ADR-0017 budget fields). |
+| `cloudAgents.gemini.budgets[]` | object |  |  |  |  | One budget (ADR-0017 fields) over vendor-reported task usage. action is warn only: cloud usage is reported after the fact, so onOverLimit decides whether to pause. |
+| `cloudAgents.gemini.budgets[].action` | string |  |  | warn |  | warn only (default); over-limit handling is onOverLimit. |
+| `cloudAgents.gemini.budgets[].alertAt` | array of number |  |  |  |  | Soft thresholds as fractions of the limit (default [0.8]): a header and a metric when crossed. |
+| `cloudAgents.gemini.budgets[].alertAt[]` | number |  |  |  |  |  |
+| `cloudAgents.gemini.budgets[].groups` | array of string |  |  |  |  | Scope group: the groups that each get a counter (required). Other scopes: count only callers in one of these groups. |
+| `cloudAgents.gemini.budgets[].groups[]` | string |  |  |  |  |  |
+| `cloudAgents.gemini.budgets[].limitTokens` | integer |  |  |  | minimum 0 | Token cap for the window (input + output + cache reads and writes). |
+| `cloudAgents.gemini.budgets[].limitUSD` | number |  |  |  | minimum 0 | Spend cap in USD for the window, priced from pricing. |
+| `cloudAgents.gemini.budgets[].name` | string | yes |  |  | pattern ^[a-z0-9][a-z0-9._-]&#123;0,62}$ | Unique budget name. |
+| `cloudAgents.gemini.budgets[].period` | string |  |  |  | pattern ^([0-9]+(\.[0-9]+)?(h\|m\|s))+$ | Rolling window length as a Go duration between 1h and 2160h, e.g. 24h. Rolling only. |
+| `cloudAgents.gemini.budgets[].rings` | array of string |  |  |  |  | Count only callers routed to these rings (default every ring). |
+| `cloudAgents.gemini.budgets[].rings[]` | string |  |  |  |  |  |
+| `cloudAgents.gemini.budgets[].scope` | string | yes |  | user, group, ring, org |  | Counter key: user (per verified subject), group (per listed group), ring (per ring) or org (one shared counter). |
+| `cloudAgents.gemini.budgets[].window` | string | yes |  | day, week, month, rolling |  | day, week (from Monday) or month: calendar windows in UTC. rolling: the last period. |
+| `cloudAgents.gemini.enabled` | boolean | yes |  |  |  | false: nothing that runs the agent is rendered and every observed task is a violation. |
+| `cloudAgents.gemini.identity` | string |  |  | workload |  | workload: rendered workflows call the model through the Halos gateway with a short-lived workload credential (ADR-0023) instead of a repository secret (claude, gemini). |
+| `cloudAgents.gemini.maxConcurrent` | object |  |  |  |  | Caps on running tasks. |
+| `cloudAgents.gemini.maxConcurrent.groups` | array of string |  |  |  |  | Groups that each get a perGroup counter (required with perGroup). |
+| `cloudAgents.gemini.maxConcurrent.groups[]` | string |  |  |  |  |  |
+| `cloudAgents.gemini.maxConcurrent.perGroup` | integer |  |  |  | minimum 0 | Running tasks per listed group (0 = no cap). |
+| `cloudAgents.gemini.maxConcurrent.perUser` | integer |  |  |  | minimum 0 | Running tasks per Halos user (0 = no cap). |
+| `cloudAgents.gemini.models` | array of string |  |  |  |  | Vendor model ids the agent may use; the first is rendered as the default where the vendor takes one. |
+| `cloudAgents.gemini.models[]` | string |  |  |  | pattern ^[A-Za-z0-9][A-Za-z0-9._:@-]&#123;0,127}$ |  |
+| `cloudAgents.gemini.network` | object |  |  |  |  | Sandbox egress, where the vendor has a setting. |
+| `cloudAgents.gemini.network.allow` | array of string |  |  |  |  | Extra domains; a leading *. matches subdomains. |
+| `cloudAgents.gemini.network.allow[]` | string |  |  |  | pattern ^(\*\.)?([a-z0-9]([a-z0-9-]&#123;0,61}[a-z0-9])?\.)+[a-z]&#123;2,63}$ |  |
+| `cloudAgents.gemini.network.mode` | string | yes |  | none, allowlist, full |  | none: no egress; allowlist: only allow (plus the vendor's dependency list when recommended); full: any host (warned). |
+| `cloudAgents.gemini.network.recommended` | boolean |  |  |  |  | Keep the vendor's own dependency allowlist (allowlist only). |
+| `cloudAgents.gemini.onOverLimit` | string |  |  | alert, pause |  | alert (default) reports; pause also pauses the agent where the vendor API can, reversibly, and never resumes it. |
+| `cloudAgents.gemini.repos` | array of string |  |  |  |  | Repositories the agent may work in: owner/repo or owner/* (default every repository). |
+| `cloudAgents.gemini.repos[]` | string |  |  |  | pattern ^[A-Za-z0-9][A-Za-z0-9-]&#123;0,38}/([A-Za-z0-9._-]&#123;1,100}\|\*)$ |  |
+| `cloudAgents.gemini.timeoutMinutes` | integer |  |  |  | minimum 0 | Job timeout of rendered workflows (copilot at most 59). |
+| `cloudAgents.gemini.version` | string |  |  |  | pattern ^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ | Agent CLI version pin where the vendor takes one (gemini). |
+| `cloudAgents.haloVersion` | string |  |  |  | pattern ^v[0-9]+\.[0-9]+\.[0-9]+$ | halo release tag rendered workflows install for the exchange (identity: workload). |
+| `cloudAgents.identities` | array of object |  |  |  |  | Vendor logins mapped to Halos users, so a cloud task resolves to its human's ring, experiments and budgets. |
+| `cloudAgents.identities[]` | object |  |  |  |  |  |
+| `cloudAgents.identities[].github` | string |  |  |  | pattern ^[A-Za-z0-9][A-Za-z0-9-]&#123;0,38}$ | GitHub login (Claude and Gemini actions, Copilot cloud agent). |
+| `cloudAgents.identities[].user` | string | yes |  |  |  | Halos user id. |
+| `cloudAgents.server` | string |  |  |  | pattern ^https:// | halo-server base URL rendered workflows exchange their OIDC token at (identity: workload). |
 | `delegation` | object |  |  |  |  | What units (ADR-0018) may add on top of the baseline; anything else a unit adds is a loosening that validate rejects. MCP servers a unit adds must be exact selfService.catalog entries. |
 | `delegation.allowHooks` | boolean |  |  |  |  | Let units add hooks.items (shell commands every member's harness runs). Default false. |
 | `delegation.envKeys` | array of string |  |  |  |  | Env names units may add. Provider, cloud, base-URL, proxy, telemetry, CA-trust and runtime-injection names (*_BASE_URL, *_API_KEY, ANTHROPIC_*, OPENAI_*, GEMINI_*, CLAUDE_CODE_*, AWS_*, GOOGLE_*, CLOUD_ML_REGION, HTTP(S)_PROXY, ALL_PROXY, NO_PROXY, OTEL_EXPORTER_OTLP_*, SSL_CERT_FILE, SSL_CERT_DIR, REQUESTS_CA_BUNDLE, CURL_CA_BUNDLE, NODE_EXTRA_CA_CERTS, PATH, BASH_ENV, ENV, GIT_SSH_COMMAND, GIT_CONFIG_*, GIT_EXEC_PATH, npm_config_*, JAVA_TOOL_OPTIONS, _JAVA_OPTIONS, PERL5OPT, RUBYOPT, NODE_*, LD_*, DYLD_*, PYTHON*, every GIT_* but commit identity, CC, CXX, CGO_*, GO module sources (GOPROXY, GOSUMDB, GONOSUMDB, GOPRIVATE, ...), PIP_*, UV_*, YARN_*, BUNDLE_*, GEM_*, build tool options and DOCKER_HOST; any case) are refused even here. |

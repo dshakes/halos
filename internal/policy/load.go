@@ -33,6 +33,8 @@ type Root struct {
 	Agents *Agents `yaml:"agents,omitempty" json:"agents,omitempty"`
 	// VendorAdmin drives the vendors' cloud admin consoles (ADR-0025).
 	VendorAdmin *VendorAdmin `yaml:"vendorAdmin,omitempty" json:"vendorAdmin,omitempty"`
+	// CloudAgents governs vendor-hosted background agents (ADR-0034).
+	CloudAgents *CloudAgents `yaml:"cloudAgents,omitempty" json:"cloudAgents,omitempty"`
 	// SupplyChain pins, scans and signs extension artifacts (ADR-0028).
 	SupplyChain *SupplyChain `yaml:"supplyChain,omitempty" json:"supplyChain,omitempty"`
 	// MCP is the approved MCP server registry (ADR-0029).
@@ -109,7 +111,7 @@ func Load(dir string) (*Org, error) {
 		return nil, err
 	}
 
-	org := &Org{Name: root.Org, Identity: root.Identity, SelfService: root.SelfService, Workloads: root.Workloads, Agents: root.Agents, VendorAdmin: root.VendorAdmin, SupplyChain: root.SupplyChain, MCP: root.MCP, Delegation: root.Delegation, Governance: root.Governance, Profiles: map[string]*Profile{}}
+	org := &Org{Name: root.Org, Identity: root.Identity, SelfService: root.SelfService, Workloads: root.Workloads, Agents: root.Agents, VendorAdmin: root.VendorAdmin, CloudAgents: root.CloudAgents, SupplyChain: root.SupplyChain, MCP: root.MCP, Delegation: root.Delegation, Governance: root.Governance, Profiles: map[string]*Profile{}}
 	org.loadLocalArtifacts(dir)
 	skip := artifactDirs(root)
 	if root.APIVersion == APIVersionV1Alpha1 {

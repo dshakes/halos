@@ -42,5 +42,6 @@ Decisions that shape Halos. New ADRs use [MADR](https://adr.github.io/madr/): co
 | [0031](/halos/adr/0031-agent-session-ledger/) | Agent session ledger: one identity-linked, redacted record per agent session, stored in the audit chain |
 | [0032](/halos/adr/0032-egress-and-sandbox-policy/) | Egress and sandbox policy: one harness-neutral policy rendered into each harness's native sandbox and egress controls, warned where a harness cannot hold it, verified on the device |
 | [0033](/halos/adr/0033-gateway-dlp-and-injection-defense/) | Data-loss prevention and prompt-injection defense at the gateway: secrets monitored, redacted or blocked per ring and unit, injection signals on tool results, audited to the SIEM |
+| [0034](/halos/adr/0034-cloud-agent-governance/) | Cloud agent governance: SHA-pinned rendered workflows, an identity-mapped task inventory from HMAC-verified webhooks and vendor APIs, kill fan-out and reversible over-limit pauses |
 
 The canonical files live in `docs/adr/` in the repository; the docs build copies them into the site.

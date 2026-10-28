@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dshakes/halos/internal/cloudagents/workflow"
 	"github.com/dshakes/halos/internal/harness"
 	"github.com/dshakes/halos/internal/policy"
 )
@@ -97,6 +98,18 @@ type Manifest struct {
 	// user configs. Empty when the policy has no registry.
 	MCPMode    string          `json:"mcpMode,omitempty"`
 	MCPServers []policy.MCPPin `json:"mcpServers,omitempty"`
+	// CloudAgents are the repository files of the workflow-configured cloud
+	// agents (ADR-0034), signed with the release for review and the PR that
+	// adds them. halod never writes them: they belong in repositories.
+	CloudAgents []CloudAgentFile `json:"cloudAgents,omitempty"`
+}
+
+// CloudAgentFile is one rendered cloud agent repository file.
+type CloudAgentFile struct {
+	Vendor string   `json:"vendor"`
+	Path   string   `json:"path"` // relative to the repository root
+	SHA256 string   `json:"sha256"`
+	Repos  []string `json:"repos,omitempty"` // policy repo patterns it is for
 }
 
 // RemoteAgentEntry is one allowlisted remote agent in a release manifest.
@@ -244,6 +257,21 @@ func Build(org ProfileResolver, profileName, ringName string, opts Options) (*Re
 			m.MCPMode = policy.MCPModeWarn
 		}
 	}
+	if org0 != nil {
+		files, warns, err := workflow.Render(org0)
+		if err != nil {
+			return nil, fmt.Errorf("release: profile %q: %w", profileName, err)
+		}
+		for _, f := range files {
+			sum := sha256.Sum256(f.Data)
+			h := hex.EncodeToString(sum[:])
+			blobs[h] = f.Data
+			m.CloudAgents = append(m.CloudAgents, CloudAgentFile{Vendor: f.Vendor, Path: f.Path, SHA256: h, Repos: f.Repos})
+		}
+		for _, w := range warns {
+			m.Warnings = append(m.Warnings, "cloudAgents."+w)
+		}
+	}
 	if len(m.RemoteAgents) > 0 {
 		for _, name := range names {
 			m.Warnings = append(m.Warnings, name+": "+remoteAgentsWarning(name))
@@ -357,6 +385,11 @@ func Open(tarData []byte) (*Release, error) {
 					}
 				}
 			}
+		}
+	}
+	for _, f := range m.CloudAgents {
+		if _, ok := blobs[f.SHA256]; !ok {
+			return nil, fmt.Errorf("release: manifest cloud agent %s file %s references missing blob %s", f.Vendor, f.Path, f.SHA256)
 		}
 	}
 	sum := sha256.Sum256(tarData)

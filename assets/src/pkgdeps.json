@@ -7,6 +7,8 @@
         "cmd/halo/scaffold",
         "internal/a2a",
         "internal/bundle",
+        "internal/cloudagents",
+        "internal/cloudagents/workflow",
         "internal/controller",
         "internal/delivery/devcontainer",
         "internal/delivery/mdm",
@@ -65,11 +67,13 @@
       "path": "cmd/halo-server",
       "imports": [
         "internal/bundle",
+        "internal/cloudagents",
         "internal/controller",
         "internal/pgstore",
         "internal/promote",
         "internal/rollout",
-        "internal/server"
+        "internal/server",
+        "internal/vendoradmin"
       ]
     },
     {
@@ -118,6 +122,22 @@
       "imports": [
         "internal/policy",
         "internal/release"
+      ]
+    },
+    {
+      "path": "internal/cloudagents",
+      "imports": [
+        "internal/budget",
+        "internal/cloudagents/workflow",
+        "internal/ledger",
+        "internal/policy",
+        "internal/vendoradmin"
+      ]
+    },
+    {
+      "path": "internal/cloudagents/workflow",
+      "imports": [
+        "internal/policy"
       ]
     },
     {
@@ -366,6 +386,7 @@
     {
       "path": "internal/release",
       "imports": [
+        "internal/cloudagents/workflow",
         "internal/harness",
         "internal/policy",
         "internal/supplychain",
@@ -397,6 +418,7 @@
       "imports": [
         "internal/budget",
         "internal/bundle",
+        "internal/cloudagents",
         "internal/controller",
         "internal/fsutil",
         "internal/gateway",

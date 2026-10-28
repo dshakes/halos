@@ -30,7 +30,10 @@ const (
 	SourceOTel      = "otel"      // Claude Code OTel log events (client-reachable receiver)
 	SourceAnthropic = "anthropic" // Anthropic Compliance API activities
 	SourceGitHub    = "github"    // GitHub enterprise audit log
-	SourceJSONL     = "jsonl"     // operator-supplied import
+	// SourceCloudAgents is cloud agent tasks halo-server saw (ADR-0034):
+	// HMAC-verified GitHub webhooks and vendor task APIs.
+	SourceCloudAgents = "cloudagents"
+	SourceJSONL       = "jsonl" // operator-supplied import
 )
 
 // Confidence is the trust of the best evidence behind a record.
@@ -50,9 +53,9 @@ const (
 
 // sourceRank orders sources by trust: a merge fills each field from the most
 // trusted source that has it. Confidence follows the same order.
-var sourceRank = map[string]int{SourceGateway: 0, SourceAnthropic: 1, SourceGitHub: 2, SourceOTel: 3, SourceJSONL: 4}
+var sourceRank = map[string]int{SourceGateway: 0, SourceAnthropic: 1, SourceGitHub: 2, SourceCloudAgents: 3, SourceOTel: 4, SourceJSONL: 5}
 
-var sourceConfidence = map[string]string{SourceGateway: High, SourceAnthropic: High, SourceGitHub: High, SourceOTel: Medium, SourceJSONL: Low}
+var sourceConfidence = map[string]string{SourceGateway: High, SourceAnthropic: High, SourceGitHub: High, SourceCloudAgents: High, SourceOTel: Medium, SourceJSONL: Low}
 
 // Who is the session's principal.
 type Who struct {

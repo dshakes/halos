@@ -19,6 +19,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/dshakes/halos/internal/cloudagents"
 	"github.com/dshakes/halos/internal/controller"
 	"github.com/dshakes/halos/internal/harness"
 	_ "github.com/dshakes/halos/internal/harness/all" // register adapters for the capability matrix
@@ -88,6 +89,12 @@ type Config struct {
 	// WorkloadKey signs workload credentials minted by POST
 	// /api/v1/token/exchange (ADR-0023); nil disables the endpoint.
 	WorkloadKey ed25519.PrivateKey
+
+	// Cloud agents (ADR-0034). CloudWebhookSecrets verify GitHub deliveries
+	// to POST /api/v1/cloud-agents/webhooks/github (two while rotating; none =
+	// 404). CloudClients cancel and pause tasks; a nil client is not attempted.
+	CloudWebhookSecrets []string
+	CloudClients        cloudagents.Clients
 
 	// DevUser disables authentication and acts as this user. INSECURE: local demos only.
 	// DevRoles are its roles (ADR-0015); DevAdmin adds RoleAdmin.
@@ -412,6 +419,9 @@ func (s *Server) mux() *routeMux {
 	m.HandleFunc("POST /api/v1/token/exchange", s.postTokenExchange)
 	// Remote (A2A) agent egress decisions: a Halos workload or agent credential is the credential (ADR-0024)
 	m.HandleFunc("POST /api/v1/agents/egress", s.postAgentEgress)
+	m.HandleFunc("POST /api/v1/cloud-agents/webhooks/github", s.postGitHubWebhook) // HMAC-authenticated
+	s.route(m, "GET /api/v1/cloud-agents", s.getCloudAgents)
+	s.route(m, "POST /api/v1/cloud-agents/kill", s.postCloudKill)
 	// OIDC login
 	m.HandleFunc("GET /auth/login", s.login)
 	m.HandleFunc("GET /auth/callback", s.callback)

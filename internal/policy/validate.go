@@ -65,6 +65,7 @@ func (o *Org) Validate() []Issue {
 	v.workloads()
 	v.agents()
 	v.vendorAdmin()
+	v.cloudAgents()
 	v.governance()
 	v.supplyChain()
 	v.mcpRegistry()

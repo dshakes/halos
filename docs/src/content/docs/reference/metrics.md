@@ -94,9 +94,10 @@ With the Postgres backend (`--database-url-file`, [ADR-0021](/halos/adr/0021-ha-
 | `halo_server_requests_total{route,status}` | counter | HTTP requests |
 | `halo_server_request_duration_seconds{route,status}` | histogram | Request latency, 5 ms to 30 s buckets |
 | `halo_server_authz_denied_total{route}` | counter | Console and API requests refused for a missing permission (403, also audited as `authz.deny`) |
-| `halo_server_auth_failures_total{flow,reason}` | counter | Failed authentications. `flow`: `login` (reasons such as `invalid_state`, `nonce`, `id_token`, `not_provisioned`), `enroll` (`invalid_token`, `deprovisioned`, `no_ring`), `token_exchange` (`unverified`, `discovery`, `claims_rejected`, `denied`), `delegation` (`unverified`, `parent_invalid`, `parent_refused`, `denied`, `unavailable`), `mcp_token` (`unverified`, `parent_invalid`, `parent_refused`, `unavailable`) |
+| `halo_server_auth_failures_total{flow,reason}` | counter | Failed authentications. `flow`: `login` (reasons such as `invalid_state`, `nonce`, `id_token`, `not_provisioned`), `enroll` (`invalid_token`, `deprovisioned`, `no_ring`), `token_exchange` (`unverified`, `discovery`, `claims_rejected`, `denied`), `delegation` (`unverified`, `parent_invalid`, `parent_refused`, `denied`, `unavailable`), `mcp_token` (`unverified`, `parent_invalid`, `parent_refused`, `unavailable`), `cloud_webhook` (`signature`) |
 | `halo_server_auth_limited_total{route}` | counter | Requests refused by a failed-authentication limiter (429) |
 | `halo_server_gateway_lookups_total{kind,outcome}` | counter | Gateway lookups: `directory` (`active`, `inactive`), `posture` (`compliant`, `noncompliant`), `revocations` (`ok`, `error`) |
+| `halo_server_cloud_agent_alerts_total{vendor,kind}` | counter | Cloud agent alerts raised on webhook deliveries ([ADR-0034](/halos/adr/0034-cloud-agent-governance/)): `disabled`, `ungoverned`, `unmanaged`, `repo`, `model`, `unattributed`, `concurrency`, `budget` |
 
 A rising `halo_server_auth_limited_total` on one route with flat `auth_failures_total` elsewhere is usually one client guessing; `gateway_lookups_total{kind="revocations",outcome="error"}` means gateways are serving their cached revocation list and will apply their directory fail mode past `grace`.
 
