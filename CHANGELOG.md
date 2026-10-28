@@ -38,6 +38,7 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ### Security
 
+- `halod` MCP drift findings, which reach halo-server in the device status, no longer carry the user's own credentials: `detail` drops a URL's userinfo, query and fragment and replaces any command argument that looks like a credential with `[redacted]`.
 - MCP registry: a stdio `package.identifier` starting with `-` is a validation error. It was rendered into `npx`/`uvx`/`docker run` command lines where it reads as an option: an OCI identifier like `-v=/:/host` passed validation, mounted the host root and ran an unpinned image named in `args`, bypassing the digest pin.
 - `halod` MCP drift reads users' MCP configs like its posture check: a regular file only, never through a symlink, opened without blocking. Before, it followed a symlink (halod runs as root, so a user could have it read a root-only file and echo its server commands into findings) and a FIFO in place of a config hung the cycle.
 - halo-server access requests: when the approval that meets a quorum cannot be persisted (the decision after the PR opened, or the approvals after the PR failed), the in-memory request now drops it as well. Before, it stayed in memory only, so a retry saw the quorum met without the store ever recording that approval. The approval's audit entry stays; the approver approves again.

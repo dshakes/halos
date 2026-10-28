@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/dshakes/halos/internal/policy"
@@ -85,4 +86,26 @@ func mapsEqual[K comparable](a, b map[K]bool) bool {
 		}
 	}
 	return true
+}
+
+// Findings leave the device (halo-server fleet status): a user's own
+// credentials in a server URL or command line are never in them.
+func TestMCPFindingRedactsCredentials(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		s    foundServer
+		want string
+	}{
+		{"url credentials, query, fragment", foundServer{url: "https://bob:hunter2@mcp.example/x?api_key=abc#t=1"}, "https://mcp.example/x"},
+		{"token argument", foundServer{command: []string{"npx", "-y", "gh-mcp@1.0.0", "--token", "ghp_" + strings.Repeat("A1b2", 9)}}, "npx -y gh-mcp@1.0.0 --token [redacted]"},
+		{"token in a flag", foundServer{command: []string{"tool", "--key=sk-ant-api03-" + strings.Repeat("x", 20)}}, "tool [redacted]"},
+		{"plain command", foundServer{command: []string{"npx", "-y", "lint-mcp@1.2.3"}}, "npx -y lint-mcp@1.2.3"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f, ok := checkServer(tc.s, nil, "ga")
+			if ok || !strings.Contains(f.Detail, "defined as "+tc.want+";") {
+				t.Fatalf("detail %q, want it to show %q", f.Detail, tc.want)
+			}
+		})
+	}
 }

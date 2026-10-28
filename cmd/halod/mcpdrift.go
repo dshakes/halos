@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net/url"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -145,12 +146,26 @@ func checkServer(s foundServer, approved []policy.MCPPin, ring string) (policy.M
 		Fix:    fmt.Sprintf("remove %q, or propose it for halos.yaml mcp (halo mcp registry import) with this ring or unit enabled", s.name)}, false
 }
 
+// def is the user's definition as findings (sent to halo-server) show it:
+// credentials, query and fragment dropped from a URL, and every argument
+// that looks like a credential replaced.
 func (s foundServer) def() string {
 	if s.url != "" {
-		return s.url
+		u, err := url.Parse(s.url)
+		if err != nil {
+			return "an unparseable url"
+		}
+		u.User, u.RawQuery, u.ForceQuery, u.Fragment, u.RawFragment = nil, "", false, "", ""
+		return u.String()
 	}
 	if len(s.command) > 0 {
-		return strings.Join(s.command, " ")
+		out := make([]string, len(s.command))
+		for i, a := range s.command {
+			if out[i] = a; policy.LooksSecret(a) {
+				out[i] = "[redacted]"
+			}
+		}
+		return strings.Join(out, " ")
 	}
 	return "no url or command"
 }

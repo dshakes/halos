@@ -74,7 +74,7 @@ Each `halod` cycle reads the console user's own MCP configs for the harnesses th
 ]
 ```
 
-`halod` never edits user files. Project `.mcp.json` files are not scanned.
+`halod` never edits user files. Project `.mcp.json` files are not scanned. It reads only regular files (never through a symlink), and `detail` drops a URL's credentials, query and fragment and shows `[redacted]` for any command argument that looks like a credential.
 
 ## 5. Halos as the authorization server
 
