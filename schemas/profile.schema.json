@@ -275,14 +275,76 @@
     },
     "egress": {
       "type": "object",
-      "description": "Egress policy.",
+      "description": "Network egress for the agent's shell and fetch tools (ADR-0032). A deny rule wins over an allow rule; unmatched hosts take the default. Rendered natively per harness; what a harness cannot hold is a release warning.",
       "properties": {
         "allowedDomains": {
           "type": "array",
           "items": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^(\\*\\.)?([a-z0-9]([a-z0-9-]*[a-z0-9])?\\.)*[a-z0-9]([a-z0-9-]*[a-z0-9])?$"
           },
-          "description": "Only egress permitted from managed environments; must include the gateway host when non-empty."
+          "description": "Allowlist: exact hosts or *.domain (subdomains only, not the apex). Must allow the gateway host. Replaces the parent's list."
+        },
+        "default": {
+          "type": "string",
+          "enum": [
+            "allow",
+            "deny"
+          ],
+          "description": "For hosts no rule matches. Unset: deny when allowedDomains or presets allow anything, else allow. allow with an allowlist is an error."
+        },
+        "deniedDomains": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^(\\*\\.)?([a-z0-9]([a-z0-9-]*[a-z0-9])?\\.)*[a-z0-9]([a-z0-9-]*[a-z0-9])?$"
+          },
+          "description": "Always denied, even when an allow rule matches. Unions down an extends chain and across units."
+        },
+        "presets": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "package-registries",
+              "vcs",
+              "model-providers"
+            ]
+          },
+          "description": "Named domain sets added to the allowlist (see the egress and sandbox guide for each set's hosts)."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "sandbox": {
+      "type": "object",
+      "description": "Agent sandbox (ADR-0032): mode, extra writable roots and paths the agent may never read or write.",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "off",
+            "workspace-write",
+            "read-only"
+          ],
+          "description": "Same setting as permissions.sandbox (set either; both must agree). off is an error while egress or sandbox paths are set."
+        },
+        "writableRoots": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^(/|~/)"
+          },
+          "description": "Absolute or ~/ directories writable beyond the workspace (no globs, not / or ~, not over a protected path). Replaces the parent's list; a unit adding one is a loosening."
+        },
+        "protectedPaths": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Never read or written by the agent: absolute, ~/ or workspace-relative globs such as .env*. Unions down an extends chain and across units."
         }
       },
       "required": [],

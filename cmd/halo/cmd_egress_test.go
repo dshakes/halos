@@ -18,7 +18,8 @@ func TestEgressTest(t *testing.T) {
 		{"allowlisted url", []string{"https://registry.npmjs.org/left-pad"}, 0, true, "egress allow registry.npmjs.org",
 			map[string]bool{"claude-code": true, "codex": true, "gemini-cli": false}},
 		{"host with port", []string{"GitHub.com:443"}, 0, true, "egress allow github.com", nil},
-		{"unlisted host denied by default", []string{"pastebin.com"}, 1, false, "egress.default deny", nil},
+		{"unlisted host denied by default", []string{"evil.example"}, 1, false, "egress.default deny", nil},
+		{"deny rule wins", []string{"https://pastebin.com/raw/x"}, 1, false, "egress.deniedDomains pastebin.com", nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
