@@ -110,7 +110,13 @@ func (s *Server) killHandler(kill bool, kind string) authedHandler {
 			}
 			s.cfg.Log.Warn("killswitch changed", "experiment", name, "killed", kill, "by", p.ID)
 		}
-		writeJSON(w, http.StatusOK, map[string]any{kind: name, "killed": kill, "changed": changed})
+		out := map[string]any{kind: name, "killed": kill, "changed": changed}
+		if kind == "experiment" && kill {
+			if h := s.cloudKillHint(org, name); h != nil {
+				out["cloudAgents"] = h // cancelling them is a separate, explicit call
+			}
+		}
+		writeJSON(w, http.StatusOK, out)
 	}
 }
 

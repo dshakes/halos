@@ -45,12 +45,13 @@ type serverMetrics struct {
 	authFails map[[2]string]uint64       // {flow, reason}
 	limited   map[string]uint64          // failed-auth limiter blocks (429) by route
 	lookups   map[[2]string]uint64       // {kind, outcome}
+	cloud     map[[2]string]uint64       // cloud agent alerts {vendor, kind}
 }
 
 func (m *serverMetrics) init() {
 	if m.reqs == nil {
 		m.reqs, m.denies, m.authFails = map[[2]string]*latencyHist{}, map[string]uint64{}, map[[2]string]uint64{}
-		m.limited, m.lookups = map[string]uint64{}, map[[2]string]uint64{}
+		m.limited, m.lookups, m.cloud = map[string]uint64{}, map[[2]string]uint64{}, map[[2]string]uint64{}
 	}
 }
 
@@ -98,6 +99,14 @@ func (m *serverMetrics) lookup(kind, outcome string) {
 	defer m.mu.Unlock()
 	m.init()
 	m.lookups[[2]string{kind, outcome}]++
+}
+
+// cloudAlert counts one cloud agent alert (vendor and kind are fixed sets).
+func (m *serverMetrics) cloudAlert(vendor, kind string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.init()
+	m.cloud[[2]string{vendor, kind}]++
 }
 
 func sortedKeys[K comparable](m map[K]uint64, less func(a, b K) int) []K {
@@ -149,5 +158,9 @@ func (m *serverMetrics) write(w io.Writer) {
 	fmt.Fprint(w, "# HELP halo_server_gateway_lookups_total Gateway directory, revocation-list and posture lookups, by kind and outcome.\n# TYPE halo_server_gateway_lookups_total counter\n")
 	for _, k := range sortedKeys(m.lookups, cmpPair) {
 		fmt.Fprintf(w, "halo_server_gateway_lookups_total{kind=%q,outcome=%q} %d\n", k[0], k[1], m.lookups[k])
+	}
+	fmt.Fprint(w, "# HELP halo_server_cloud_agent_alerts_total Cloud agent policy violations and over-limits seen on webhook deliveries, by vendor and kind (ADR-0034).\n# TYPE halo_server_cloud_agent_alerts_total counter\n")
+	for _, k := range sortedKeys(m.cloud, cmpPair) {
+		fmt.Fprintf(w, "halo_server_cloud_agent_alerts_total{vendor=%q,kind=%q} %d\n", k[0], k[1], m.cloud[k])
 	}
 }

@@ -1,6 +1,7 @@
 package cloudagents
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
 	"sort"
@@ -209,7 +210,7 @@ func concurrency(v string, a *policy.CloudAgent, tasks []Task, groups Groups) []
 		if len(ts) <= limit {
 			continue
 		}
-		slices.SortFunc(ts, func(x, y Task) int { return x.Start.Compare(y.Start) })
+		slices.SortFunc(ts, func(x, y Task) int { return cmp.Or(x.Start.Compare(y.Start), strings.Compare(x.ID, y.ID)) })
 		al := Alert{Vendor: v, Kind: AlertConcurrency, Key: k, Value: int64(len(ts)), Limit: int64(limit),
 			Message: fmt.Sprintf("%d running %s tasks for %s, limit %d", len(ts), v, k, limit)}
 		for i, t := range ts {

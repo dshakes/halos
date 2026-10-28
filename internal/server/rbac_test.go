@@ -33,6 +33,8 @@ var publicRoutes = []string{
 	"POST /api/v1/token/exchange",
 	// Bearer: a Halos workload or delegated agent credential signed by this server (ADR-0024).
 	"POST /api/v1/agents/egress",
+	// GitHub's X-Hub-Signature-256 HMAC over the body, against the configured webhook secrets (ADR-0034).
+	"POST /api/v1/cloud-agents/webhooks/github",
 	"/api/", "/",
 }
 
