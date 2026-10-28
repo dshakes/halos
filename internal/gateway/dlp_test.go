@@ -369,6 +369,30 @@ func TestSkipsOnlyProtocolPositions(t *testing.T) {
 	}
 }
 
+// TestLocationHidesNonProtocolKeys: a finding's location (audit log, block
+// message) shows only protocol keys; a tool input's own keys and unknown keys
+// are "*", since a key can be a secret the detectors do not know.
+func TestLocationHidesNonProtocolKeys(t *testing.T) {
+	gh := fakeSecrets()["github-token"][len("remote token "):]
+	const pw = "hunter2-db-password"
+	body := rawJSON(map[string]any{"model": "m", pw: map[string]any{"x": gh}, "messages": []any{
+		map[string]any{"role": "assistant", "content": []any{map[string]any{"type": "tool_use", "id": "t1", "name": "Write",
+			"input": map[string]any{pw: map[string]any{"text": gh}}}}},
+	}})
+	rep := ScanRequest(dlpOn(policy.DLPBlock, policy.DLPOff), ProtoAnthropic, "", nil, body)
+	var locs []string
+	for _, f := range rep.Findings {
+		locs = append(locs, f.Location)
+	}
+	slices.Sort(locs)
+	if want := []string{"*.*", "messages[0].content[0].input.*.*"}; !slices.Equal(locs, want) {
+		t.Fatalf("locations %q, want %q", locs, want)
+	}
+	if strings.Contains(rep.Reject(ProtoAnthropic).Message, pw) {
+		t.Fatalf("block message shows a non-protocol key: %s", rep.Reject(ProtoAnthropic).Message)
+	}
+}
+
 func TestBlockShapes(t *testing.T) {
 	secret := fakeSecrets()["github-token"]
 	for proto, body := range redactBodies(secret) {

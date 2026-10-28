@@ -756,15 +756,39 @@ type jsonFrame struct {
 	wantKey bool
 }
 
-// pathOf renders the JSON path of the value at the top of st.
+// dlpPathKeys are the wire protocols' own keys, the only ones a location shows.
+var dlpPathKeys = func() map[string]bool {
+	m := map[string]bool{}
+	for _, k := range strings.Fields(`messages content text system input output instructions contents parts
+		functionResponse functionCall response args name id toolResult toolUse toolUseId json source document image
+		thinking signature data inlineData fileData mimeType media_type type role model tools input_schema description
+		parameters inputSchema toolSpec tool_use_id call_id arguments summary encrypted_content reasoningContent
+		reasoningText redactedContent guardContent systemInstruction title context citations metadata image_url
+		file_data filename file_url url fileUri bytes format cache_control cachePoint tool_choice toolConfig
+		inferenceConfig generationConfig prompt query result error status thoughtSignature video audio uri
+		s3Location schema refusal annotations`) {
+		m[k] = true
+	}
+	return m
+}()
+
+// pathOf renders the JSON path of the value at the top of st. Findings carry
+// it to logs, the audit log and the block message, so a key that is not a
+// protocol key, or any key inside user data (a tool input's own keys), is
+// shown as "*": a key can hold a secret.
 func pathOf(st []jsonFrame) string {
 	var b strings.Builder
-	for _, f := range st {
+	user := userDataAt(st)
+	for i, f := range st {
 		if f.obj {
 			if b.Len() > 0 {
 				b.WriteByte('.')
 			}
-			b.WriteString(f.key)
+			if i < user && dlpPathKeys[f.key] {
+				b.WriteString(f.key)
+			} else {
+				b.WriteByte('*')
+			}
 		} else {
 			b.WriteString("[" + strconv.Itoa(f.idx) + "]")
 		}
