@@ -15,6 +15,8 @@ import (
 // TestPlanAllRingsAndImpact: without --ring every ring is planned; --diff
 // diffs against the policy at a git ref and previews who is affected.
 func TestPlanAllRingsAndImpact(t *testing.T) {
+	// Git for Windows' default (core.autocrlf=true) must not change what Halos reads from git.
+	t.Setenv("GIT_CONFIG_PARAMETERS", "'core.autocrlf=true'")
 	t.Setenv("HALO_SERVER", "")
 	t.Setenv("HALO_SESSION", "")
 	dir := buildable(t)

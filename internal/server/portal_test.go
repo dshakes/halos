@@ -558,7 +558,7 @@ func TestGitPolicyWriter(t *testing.T) {
 	if string(before) != string(after) {
 		t.Error("writer must leave file writing to the opener; it edited in place")
 	}
-	want := []string{"rev-parse --show-toplevel", "fetch origin main", "checkout -f -B main origin/main", "clean -fd", "checkout -f -B main origin/main", "clean -fd"}
+	want := []string{"rev-parse --show-toplevel", "fetch origin main", "-c core.autocrlf=false -c core.eol=lf checkout -f -B main origin/main", "clean -fd", "-c core.autocrlf=false -c core.eol=lf checkout -f -B main origin/main", "clean -fd"}
 	if !slices.Equal(gitCalls, want) {
 		t.Errorf("git calls: %v", gitCalls)
 	}

@@ -99,6 +99,8 @@ func addRemoteSkill(t *testing.T, ex, url, commit, digest, extra string) {
 }
 
 func TestReleaseBuildRemoteArtifact(t *testing.T) {
+	// Git for Windows' default (core.autocrlf=true) must not change what Halos reads from git.
+	t.Setenv("GIT_CONFIG_PARAMETERS", "'core.autocrlf=true'")
 	const skill = "# Ext\n\nReview the diff.\n"
 	url, commit := gitArtifactRepo(t, skill)
 	src := t.TempDir()

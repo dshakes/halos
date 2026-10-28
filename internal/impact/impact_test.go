@@ -129,6 +129,8 @@ func TestFleetMembers(t *testing.T) {
 }
 
 func TestCheckoutAt(t *testing.T) {
+	// Git for Windows' default: the base must still be the committed bytes.
+	t.Setenv("GIT_CONFIG_PARAMETERS", "'core.autocrlf=true'")
 	repo := t.TempDir()
 	git := func(args ...string) {
 		t.Helper()

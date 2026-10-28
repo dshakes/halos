@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -25,6 +26,7 @@ func editFile(t *testing.T, dir, rel, old, nw string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	b = bytes.ReplaceAll(b, []byte("\r\n"), []byte("\n")) // a checkout under core.autocrlf=true
 	if old == "" {
 		b = append(b, nw...)
 	} else if s := string(b); !strings.Contains(s, old) {
@@ -47,6 +49,8 @@ const (
 // own freeze), a rollback is recognised from the diff in pull_request and
 // merge_group events alike, and a branch name proves nothing.
 func TestFreezeCheckCI(t *testing.T) {
+	// Git for Windows' default (core.autocrlf=true) must not change what Halos reads from git.
+	t.Setenv("GIT_CONFIG_PARAMETERS", "'core.autocrlf=true'")
 	now := time.Now().UTC()
 	dir := governed(t, "governance:\n  freezes:\n    - name: incident-review\n      reason: postmortem in progress\n      start: \""+
 		now.Add(-time.Hour).Format(time.RFC3339)+"\"\n      end: \""+now.Add(2*time.Hour).Format(time.RFC3339)+"\"\n")

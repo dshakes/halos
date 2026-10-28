@@ -60,6 +60,18 @@ func FetchGit(ctx context.Context, url, commit, sub string, run GitRunner) (Tree
 		if out, err := run(ctx, dir, args...); err != nil {
 			return nil, fmt.Errorf("git %s %s: %w: %s", args[0], url, err, strings.TrimSpace(string(out)))
 		}
+		if args[0] == "init" {
+			// The digest covers the committed bytes: no end-of-line conversion
+			// (Git for Windows defaults to core.autocrlf=true), ident or filter
+			// on checkout. info/attributes outranks the repo's .gitattributes.
+			info := filepath.Join(dir, ".git", "info")
+			if err := os.MkdirAll(info, 0o750); err != nil {
+				return nil, fmt.Errorf("git checkout attributes: %w", err)
+			}
+			if err := os.WriteFile(filepath.Join(info, "attributes"), []byte("* -text -ident -filter -working-tree-encoding\n"), 0o600); err != nil {
+				return nil, fmt.Errorf("git checkout attributes: %w", err)
+			}
+		}
 	}
 	head, err := run(ctx, dir, "rev-parse", "HEAD")
 	if err != nil {

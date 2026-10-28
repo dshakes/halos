@@ -40,13 +40,16 @@ func gitRepo(t *testing.T, files map[string]string) (string, string) {
 }
 
 func TestFetchGit(t *testing.T) {
-	url, commit := gitRepo(t, map[string]string{"skills/s/SKILL.md": "# s\n", "README.md": "r\n"})
+	// Git for Windows' default: the fetched bytes, and so the digest, must
+	// still be the committed ones, whatever the repo's own .gitattributes say.
+	t.Setenv("GIT_CONFIG_PARAMETERS", "'core.autocrlf=true'")
+	url, commit := gitRepo(t, map[string]string{"skills/s/SKILL.md": "# s\n$Id$\n", "README.md": "r\n", ".gitattributes": "*.md text eol=crlf ident\n"})
 	ctx := context.Background()
 	tr, err := FetchGit(ctx, url, commit, "skills/s", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := (Tree{"SKILL.md": []byte("# s\n")}).Digest(); tr.Digest() != want {
+	if want := (Tree{"SKILL.md": []byte("# s\n$Id$\n")}).Digest(); tr.Digest() != want {
 		t.Fatalf("digest %s, want %s", tr.Digest(), want)
 	}
 	if _, err := FetchGit(ctx, url, "main", "", nil); err == nil || !strings.Contains(err.Error(), "not a full object id") {

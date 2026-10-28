@@ -12,6 +12,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/dshakes/halos/internal/promote"
 )
@@ -49,12 +50,18 @@ func CheckoutAt(ctx context.Context, dir, base string) (string, func(), error) {
 
 // archiveTo streams `git archive tree` (run in top: in a subdirectory, git
 // archive limits itself to it) into dst, so a large archive is refused at the
-// cap instead of after buffering all of it.
+// cap instead of after buffering all of it. core.autocrlf=false and
+// core.eol=lf keep the committed bytes: Git for Windows defaults to
+// autocrlf=true, which would rewrite LF to CRLF and change every artifact
+// digest and rendered file in the base.
 func archiveTo(ctx context.Context, top, tree, dst string) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel() // stops git if untar gives up early
-	cmd := exec.CommandContext(ctx, "git", "archive", "--format=tar", tree)
+	cmd := exec.CommandContext(ctx, "git", "-c", "core.autocrlf=false", "-c", "core.eol=lf", "archive", "--format=tar", tree)
 	cmd.Dir = top
+	// Killing the Git for Windows launcher can leave its child holding the
+	// pipes; stop waiting for them once ctx is done.
+	cmd.WaitDelay = 5 * time.Second
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.StdoutPipe()
@@ -65,6 +72,11 @@ func archiveTo(ctx context.Context, top, tree, dst string) error {
 		return fmt.Errorf("git archive: %w", err)
 	}
 	uerr := untar(out, dst)
+	if uerr == nil {
+		// git pads the tar to a 10 KiB record past the end marker untar stops
+		// at; read it, or git blocks on a small (Windows: 4 KiB) pipe forever.
+		_, uerr = io.Copy(io.Discard, out)
+	}
 	if uerr != nil {
 		cancel()
 	}
