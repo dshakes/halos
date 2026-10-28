@@ -257,7 +257,7 @@ func copyPolicy(dir, dst string) error {
 		if err != nil {
 			return err
 		}
-		return os.WriteFile(filepath.Join(dst, rel), b, 0o600)
+		return os.WriteFile(filepath.Join(dst, rel), b, 0o600) //nolint:gosec // rel comes from walking dir; dst is our temp dir
 	})
 	if err != nil {
 		return fmt.Errorf("copilot: copy policy %s: %w", dir, err)

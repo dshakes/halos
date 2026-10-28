@@ -68,7 +68,7 @@ func TestCopilotDraftModelRefusesInvalid(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
 		if r.Header.Get("x-api-key") != "sk-cli-secret" {
-			http.Error(w, "no key", 401)
+			http.Error(w, "no key", http.StatusUnauthorized)
 			return
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"content": []map[string]any{{"type": "text", "text": string(bad)}},
