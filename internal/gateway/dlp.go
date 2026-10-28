@@ -227,39 +227,111 @@ func (x *anchorIndex) hits(s, lower string) [][]int {
 	return out
 }
 
-// near runs re on the window [i-back, i+fwd) around every anchor offset in
-// at (or on all of s when at is nil and whole is set) and calls fn with each
-// match's submatch offsets in s. fn returns false to stop.
-func near(re *regexp.Regexp, s string, at []int, whole bool, back, fwd int, gate func(string, int) bool, fn func(m []int) bool) {
-	if whole {
-		for _, m := range re.FindAllStringSubmatchIndex(s, 64) {
-			if !fn(m) {
-				return
+// dlpRegexBytes bounds the bytes one request scan (or one response) feeds to
+// regexes; past it the scan stops and is truncated. With merged windows a
+// scan feeds each detector about the text once, so real bodies stay far below.
+const dlpRegexBytes = 64 << 20
+
+// nearChunk is the most text near feeds a regex in one call, so the scan
+// budget is checked at least that often.
+const nearChunk = 32 << 10
+
+// scanBudget bounds one scan's regex work by a deadline (zero: none) and a
+// byte count. A nil budget is unlimited.
+type scanBudget struct {
+	deadline time.Time
+	bytes    int
+	out      bool // ran out: the scan is incomplete
+}
+
+func newScanBudget(deadline time.Time) *scanBudget {
+	return &scanBudget{deadline: deadline, bytes: dlpRegexBytes}
+}
+
+// spend charges n regex bytes; false once the budget has run out.
+func (b *scanBudget) spend(n int) bool {
+	if b == nil {
+		return true
+	}
+	if !b.out {
+		b.bytes -= n
+		b.out = b.bytes < 0 || (!b.deadline.IsZero() && !time.Now().Before(b.deadline))
+	}
+	return !b.out
+}
+
+// exhausted reports whether b ran out.
+func (b *scanBudget) exhausted() bool { return b != nil && b.out }
+
+// near runs re on the windows [i-back, i+fwd) around the anchor offsets in at
+// that pass gate (or on all of s when whole), merged where they overlap and
+// fed in chunks of nearChunk (overlapping by back+fwd), so each byte of s is
+// scanned about once however many anchors repeat in it. Matches come from the
+// index engine; submatch offsets are computed only for a match, when sub is
+// set. fn gets each match's offsets in s and returns false to stop. near
+// returns false when b ran out before the windows were covered.
+func near(re *regexp.Regexp, s string, at []int, whole bool, back, fwd int, gate func(string, int) bool, sub bool, b *scanBudget, fn func(m []int) bool) bool {
+	next := 0 // matches are reported left to right, never overlapping
+	// scan covers [lo, hi): false to stop (fn said so, or b ran out).
+	scan := func(lo, hi, overlap int) bool {
+		for p := lo; p < hi; p += nearChunk {
+			end := min(hi, p+nearChunk+overlap)
+			if whole {
+				end = hi
+			}
+			if !b.spend(end - p) {
+				return false
+			}
+			for _, m := range re.FindAllStringIndex(s[p:end], -1) {
+				a, z := m[0]+p, m[1]+p
+				if a < next || (end < hi && a >= p+nearChunk) { // already reported, or the next chunk's
+					continue
+				}
+				out := []int{a, z}
+				if sub { // submatches of this match only, with one byte of context for \b
+					cut := min(len(s), z+1)
+					if sm := re.FindStringSubmatchIndex(s[a:cut]); sm != nil && sm[0] == 0 {
+						for k := range sm {
+							if sm[k] >= 0 {
+								sm[k] += a
+							}
+						}
+						out = sm
+					}
+				}
+				next = z
+				if !fn(out) {
+					return false
+				}
+			}
+			if whole {
+				break
 			}
 		}
-		return
+		return true
 	}
-	scanned := -1 // windows are scanned left to right; skip a match already reported
+	if whole {
+		return scan(0, len(s), 0) || !b.exhausted()
+	}
+	lo, hi := -1, -1
 	for _, i := range at {
 		if gate != nil && !gate(s, i) {
 			continue
 		}
-		lo, hi := max(0, i-back), min(len(s), i+fwd)
-		for _, m := range re.FindAllStringSubmatchIndex(s[lo:hi], 8) {
-			for k := range m {
-				if m[k] >= 0 {
-					m[k] += lo
-				}
-			}
-			if m[0] <= scanned {
-				continue
-			}
-			scanned = m[0]
-			if !fn(m) {
-				return
-			}
+		wlo, whi := max(0, i-back), min(len(s), i+fwd)
+		if lo >= 0 && wlo <= hi {
+			hi = max(hi, whi)
+			continue
 		}
+		if lo >= 0 && !scan(lo, hi, back+fwd) {
+			return !b.exhausted()
+		}
+		lo, hi = wlo, whi
 	}
+	if lo >= 0 && !scan(lo, hi, back+fwd) {
+		return !b.exhausted()
+	}
+	return true
 }
 
 // highEntropy accepts values that look generated: letters and digits mixed,
@@ -373,18 +445,23 @@ type secretMatch struct {
 	hash       string
 }
 
-// secrets returns the non-overlapping secrets in s, in order.
-func (e *dlpEngine) secrets(s string) []secretMatch {
+// secrets returns the non-overlapping secrets in s, in order. When b runs out
+// it returns those found so far and b.exhausted() reports the scan incomplete.
+func (e *dlpEngine) secrets(s string, b *scanBudget) []secretMatch {
 	var out []secretMatch
 	hits := builtinAnchors.hits(s, asciiLower(s))
 	for di, d := range builtinDetectors {
 		if e.off[di] || len(hits[di]) == 0 || (d.require != "" && !strings.Contains(s, d.require)) {
 			continue
 		}
-		near(d.re, s, hits[di], false, d.back, d.fwd, d.gate, func(m []int) bool { return e.add(&out, d, s, m) })
+		if !near(d.re, s, hits[di], false, d.back, d.fwd, d.gate, d.group > 0, b, func(m []int) bool { return e.add(&out, d, s, m) }) {
+			break
+		}
 	}
 	for _, d := range e.org {
-		near(d.re, s, nil, true, 0, 0, nil, func(m []int) bool { return e.add(&out, d, s, m) })
+		if b.exhausted() || !near(d.re, s, nil, true, 0, 0, nil, d.group > 0, b, func(m []int) bool { return e.add(&out, d, s, m) }) {
+			break
+		}
 	}
 	if len(out) == 0 {
 		return nil
@@ -439,21 +516,58 @@ type injSignal struct {
 	anchors   []string // lower-case literals the regex is run near (see near)
 	back, fwd int
 	re        *regexp.Regexp
+	// match, when set, replaces near(re): a linear matcher for a signal whose
+	// regex is too costly to run on every window (counted repetitions).
+	match func(s string, b *scanBudget) bool
+}
+
+// htmlCommentKeywords are the imperatives html-comment-imperative looks for.
+var htmlCommentKeywords = regexp.MustCompile(`(?i)\b(?:ignore (?:previous|prior|all)|you must|assistant|ai agent|do not (?:tell|mention|reveal)|curl |wget |send (?:the|all|your)|exfiltrate)\b`)
+
+// htmlCommentImperative reports an HTML comment (`<!--` ... `-->`, no `>`
+// inside, as `[^>]` in the regex it replaces) holding an imperative with at
+// most 1000 characters on either side. Each `-->` is visited once and its
+// comment is bounded by the previous `>`, so the work is linear in s: the
+// equivalent regex, `<!--[^>]{0,1000}?\b(...)\b[^>]{0,1000}?-->`, costs about
+// 2000 NFA states per byte of every window.
+func htmlCommentImperative(s string, b *scanBudget) bool {
+	for off := 0; ; {
+		j := strings.Index(s[off:], "-->")
+		if j < 0 {
+			return false
+		}
+		j += off
+		lo := max(off, j-2004)
+		if k := strings.LastIndexByte(s[lo:j], '>'); k >= 0 {
+			lo += k + 1
+		}
+		if i := strings.Index(s[lo:j], "<!--"); i >= 0 {
+			body := s[lo+i+4 : j]
+			if !b.spend(len(body)) {
+				return false
+			}
+			for _, m := range htmlCommentKeywords.FindAllStringIndex(body, -1) {
+				if m[0] <= 1000 && len(body)-m[1] <= 1000 {
+					return true
+				}
+			}
+		}
+		off = j + 3
+	}
 }
 
 // injectionSignals are conservative heuristics: each counts once per text,
 // and the default threshold needs two independent ones.
 var injectionSignals = []injSignal{
 	{"instruction-override", 3, []string{"ignore", "disregard", "forget", "override"}, 1, 120,
-		regexp.MustCompile(`(?i)\b(?:ignore|disregard|forget|override)\s+(?:all\s+|any\s+|the\s+|your\s+)*(?:previous|prior|above|earlier|preceding|original|system)\s+(?:instructions?|prompts?|rules|directives|guidelines|messages)\b`)},
+		regexp.MustCompile(`(?i)\b(?:ignore|disregard|forget|override)\s+(?:all\s+|any\s+|the\s+|your\s+)*(?:previous|prior|above|earlier|preceding|original|system)\s+(?:instructions?|prompts?|rules|directives|guidelines|messages)\b`), nil},
 	{"role-reassignment", 2, []string{"you are now", "new instructions", "new system instructions", "from now on", "system prompt"}, 16, 64,
-		regexp.MustCompile(`(?i)\b(?:you are now (?:a|an|in|the|DAN)\b|new (?:system )?instructions?\s*:|from now on,? you (?:must|will|are)\b|(?:reveal|print|output|repeat) (?:your|the) system prompt)`)},
+		regexp.MustCompile(`(?i)\b(?:you are now (?:a|an|in|the|DAN)\b|new (?:system )?instructions?\s*:|from now on,? you (?:must|will|are)\b|(?:reveal|print|output|repeat) (?:your|the) system prompt)`), nil},
 	{"fake-turn", 2, []string{"<system>", "</system>", "<instructions>", "</instructions>", "<tool_result>", "</tool_result>", "<function_results>", "</function_results>", "[inst]", "[/inst]", "<|im_", "human:", "assistant:", "system:"}, 64, 24,
-		regexp.MustCompile(`(?m)(?:^|\n)[ \t]*(?:</?(?:system|instructions|tool_result|function_results|antml:[a-z_]+)>|\[/?INST\]|<\|im_(?:start|end)\|>|(?:Human|Assistant|SYSTEM):\s)`)},
-	{"html-comment-imperative", 2, []string{"<!--"}, 0, 2100,
-		regexp.MustCompile(`(?is)<!--[^>]{0,1000}?\b(?:ignore (?:previous|prior|all)|you must|assistant|ai agent|do not (?:tell|mention|reveal)|curl |wget |send (?:the|all|your)|exfiltrate)\b[^>]{0,1000}?-->`)},
+		regexp.MustCompile(`(?m)(?:^|\n)[ \t]*(?:</?(?:system|instructions|tool_result|function_results|antml:[a-z_]+)>|\[/?INST\]|<\|im_(?:start|end)\|>|(?:Human|Assistant|SYSTEM):\s)`), nil},
+	{name: "html-comment-imperative", weight: 2, anchors: []string{"<!--"}, match: htmlCommentImperative},
 	{"exfil-url", 2, []string{"!["}, 0, 800,
-		regexp.MustCompile(`(?i)!\[[^\]]{0,200}\]\(https?://[^)\s]{1,500}[?&][a-z0-9_]{1,40}=[^)\s&]{24,}`)},
+		regexp.MustCompile(`(?i)!\[[^\]]{0,200}\]\(https?://[^)\s]{1,500}[?&][a-z0-9_]{1,40}=[^)\s&]{24,}`), nil},
 }
 
 var signalAnchors = func() *anchorIndex {
@@ -468,24 +582,48 @@ var signalAnchors = func() *anchorIndex {
 // bypassHints prefilter policy.BypassToken (a case-insensitive regex over the whole text).
 var bypassHints = []string{"bypass", "danger", "yolo", "allow-all"}
 
-// bypassNear runs policy.BypassToken on the window around each hint offset.
-func bypassNear(s string, at []int) bool {
-	for _, i := range at {
-		if policy.BypassToken(s[max(0, i-32):min(len(s), i+64)]) != "" {
-			return true
+// bypassNear runs policy.BypassToken on the windows around the hint offsets,
+// merged where they overlap and charged to b.
+func bypassNear(s string, at []int, b *scanBudget) bool {
+	check := func(lo, hi int) bool {
+		for p := lo; p < hi; p += nearChunk {
+			end := min(hi, p+nearChunk+96)
+			if !b.spend(end-p) || policy.BypassToken(s[p:end]) != "" {
+				return true // found, or out of budget: stop
+			}
 		}
+		return false
 	}
-	return false
+	lo, hi := -1, -1
+	for _, i := range at {
+		wlo, whi := max(0, i-32), min(len(s), i+64)
+		if lo >= 0 && wlo <= hi {
+			hi = max(hi, whi)
+			continue
+		}
+		if lo >= 0 && check(lo, hi) {
+			return !b.exhausted()
+		}
+		lo, hi = wlo, whi
+	}
+	return lo >= 0 && check(lo, hi) && !b.exhausted()
 }
 
 // injectionScore scores one tool-result text. A URL carrying a detected
 // secret and a permission-bypass token (policy.BypassToken) add signals of
-// their own.
-func injectionScore(s string, secrets []secretMatch) (score int, signals []string) {
+// their own. Regex work is charged to b; b.exhausted() then reports the score
+// incomplete.
+func injectionScore(s string, secrets []secretMatch, b *scanBudget) (score int, signals []string) {
 	hits := signalAnchors.hits(s, asciiLower(s))
 	for i, sg := range injectionSignals {
 		hit := false
-		near(sg.re, s, hits[i], false, sg.back, sg.fwd, nil, func([]int) bool { hit = true; return false })
+		switch {
+		case len(hits[i]) == 0:
+		case sg.match != nil:
+			hit = sg.match(s, b)
+		default:
+			near(sg.re, s, hits[i], false, sg.back, sg.fwd, nil, false, b, func([]int) bool { hit = true; return false })
+		}
 		if hit {
 			score += sg.weight
 			signals = append(signals, sg.name)
@@ -502,7 +640,7 @@ func injectionScore(s string, secrets []secretMatch) (score int, signals []strin
 			break
 		}
 	}
-	if bypassNear(s, hits[len(injectionSignals)]) {
+	if bypassNear(s, hits[len(injectionSignals)], b) {
 		score += 2
 		signals = append(signals, "permission-bypass")
 	}
@@ -609,6 +747,7 @@ func ScanRequest(d *policy.DLP, proto, ring string, units []string, body []byte)
 		return nil
 	}
 	began := time.Now()
+	budget := newScanBudget(began.Add(dlpScanBudget)) // checked inside every regex pass, not only between strings
 	rep := &DLPReport{SecretAction: sa, InjectionAction: ia}
 	e := engineFor(d)
 	threshold := d.Injection.ScoreThreshold()
@@ -632,7 +771,7 @@ func ScanRequest(d *policy.DLP, proto, ring string, units []string, body []byte)
 		tool := toolData(proto, at)
 		var ms []secretMatch
 		if sa != policy.DLPOff || (!key && tool && ia != policy.DLPOff) { // a secret in a URL is an injection signal too
-			ms = e.secrets(s)
+			ms = e.secrets(s, budget)
 		}
 		var loc string
 		if len(ms) > 0 || tool {
@@ -648,7 +787,7 @@ func ScanRequest(d *policy.DLP, proto, ring string, units []string, body []byte)
 			rep.Findings = append(rep.Findings, DLPFinding{Kind: DLPSecret, Detector: m.det, Hash: m.hash, Location: loc, ToolData: tool})
 		}
 		if !key && tool && ia != policy.DLPOff {
-			if score, sig := injectionScore(s, ms); score >= threshold {
+			if score, sig := injectionScore(s, ms, budget); score >= threshold {
 				rep.Findings = append(rep.Findings, DLPFinding{Kind: DLPInjection, Detector: DLPInjection, Location: loc, Score: score, Signals: sig, ToolData: true})
 			}
 		}
@@ -657,7 +796,7 @@ func ScanRequest(d *policy.DLP, proto, ring string, units []string, body []byte)
 			writeJSONString(&out, redactString(s, ms))
 			copied = end
 		}
-		if time.Since(began) > dlpScanBudget {
+		if budget.exhausted() || time.Since(began) > dlpScanBudget {
 			rep.Truncated = true
 			return false
 		}
@@ -822,6 +961,7 @@ type DLPResponseScanner struct {
 	total     int
 	seen      map[string]bool
 	findings  []DLPFinding
+	budget    *scanBudget // regex bytes for the whole response; no deadline (it streams)
 	Truncated bool
 }
 
@@ -834,12 +974,12 @@ func NewDLPResponseScanner(d *policy.DLP, ring string, units []string) *DLPRespo
 	if sa, _ := d.Actions(ring, units); sa == policy.DLPOff {
 		return nil
 	}
-	return &DLPResponseScanner{e: engineFor(d), seen: map[string]bool{}}
+	return &DLPResponseScanner{e: engineFor(d), seen: map[string]bool{}, budget: newScanBudget(time.Time{})}
 }
 
 // Text adds generated text.
 func (s *DLPResponseScanner) Text(t string) {
-	if s.total >= dlpRespMax {
+	if s.total >= dlpRespMax || s.budget.exhausted() {
 		s.Truncated = true
 		return
 	}
@@ -860,11 +1000,14 @@ func (s *DLPResponseScanner) flush() {
 	if len(s.buf) <= s.scanned && s.scanned > 0 {
 		return
 	}
-	for _, m := range s.e.secrets(string(s.buf)) {
+	for _, m := range s.e.secrets(string(s.buf), s.budget) {
 		if k := m.det + m.hash; !s.seen[k] {
 			s.seen[k] = true
 			s.findings = append(s.findings, DLPFinding{Kind: DLPSecret, Detector: m.det, Hash: m.hash, Location: "response"})
 		}
+	}
+	if s.budget.exhausted() {
+		s.Truncated = true
 	}
 }
 

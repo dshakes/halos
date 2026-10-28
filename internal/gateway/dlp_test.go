@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -189,7 +190,7 @@ func TestRedactionKeepsJSONAndStructure(t *testing.T) {
 				// Undo the markers: the rest of the body is byte-for-byte the original.
 				undone := string(rep.Redacted)
 				for _, f := range rep.Findings {
-					for _, m := range (&dlpEngine{off: make([]bool, len(builtinDetectors))}).secrets(secret) {
+					for _, m := range (&dlpEngine{off: make([]bool, len(builtinDetectors))}).secrets(secret, nil) {
 						if m.hash == f.Hash {
 							raw, _ := json.Marshal(secret[m.start:m.end])
 							undone = strings.ReplaceAll(undone, RedactionMarker(f.Detector, f.Hash), strings.Trim(string(raw), `"`))
@@ -242,6 +243,72 @@ func TestSecretInObjectKey(t *testing.T) {
 				t.Fatalf("block: %+v", blk)
 			}
 		})
+	}
+}
+
+// dlpAnchors are the literals detectors and injection signals run their
+// regexes near: a body that repeats one is the scan's worst case.
+var dlpAnchors = []string{"eyJ", "-----BEGIN ", "token=", "key: ", "xoxb-", "ghp_", "T3BlbkFJ", "_live_", "sk-ant-",
+	`"private_key_id service_account `, "https://hooks.slack.com/", "AKIA", "glpat-",
+	"ignore ", "<!--", "![", "you are now ", "<system>", "human:", "bypass "}
+
+// TestScanAdversarialBodies (CPU DoS): a body repeating one anchor costs
+// regex work proportional to its size, not to anchors x window: 256 KB scans
+// in well under the budget, and 4 MB is bounded by it (truncated if not done).
+func TestScanAdversarialBodies(t *testing.T) {
+	slow := time.Duration(1)
+	if raceEnabled {
+		slow = 10
+	}
+	d := dlpOn(policy.DLPMonitor, policy.DLPMonitor)
+	for _, a := range dlpAnchors {
+		for _, size := range []int{256 << 10, 4 << 20} {
+			text := strings.Repeat(a, size/len(a))
+			for name, body := range map[string][]byte{"user": userTextBody(text), "tool": anthropicToolResult(text)} {
+				t0 := time.Now()
+				rep := ScanRequest(d, ProtoAnthropic, "", nil, body)
+				took := time.Since(t0)
+				limit := 2 * dlpScanBudget // 4 MB: the budget, plus the one regex chunk in flight
+				if size == 256<<10 {
+					limit = 300 * time.Millisecond
+				}
+				if took > limit*slow {
+					t.Errorf("%q x %d KB (%s): %v, want under %v (truncated %v)", a, size>>10, name, took, limit*slow, rep.Truncated)
+				}
+				if size == 256<<10 && rep.Truncated && !raceEnabled {
+					t.Errorf("%q x 256 KB (%s): truncated; it must scan in full within the budget", a, name)
+				}
+			}
+		}
+		// The response scanner runs inline on the stream: 4 MB of one anchor
+		// in 1 KB deltas costs about one pass per detector.
+		s := NewDLPResponseScanner(d, "", nil)
+		delta := strings.Repeat(a, 1024/len(a))
+		t0 := time.Now()
+		for range (4 << 20) / len(delta) {
+			s.Text(delta)
+		}
+		s.Findings()
+		if took := time.Since(t0); took > time.Second*slow {
+			t.Errorf("%q x 4 MB response: %v", a, took)
+		}
+	}
+}
+
+// TestHTMLCommentImperativeMatchesRegex: the linear matcher agrees with the
+// regex it replaced.
+func TestHTMLCommentImperativeMatchesRegex(t *testing.T) {
+	re := regexp.MustCompile(`(?is)<!--[^>]{0,1000}?\b(?:ignore (?:previous|prior|all)|you must|assistant|ai agent|do not (?:tell|mention|reveal)|curl |wget |send (?:the|all|your)|exfiltrate)\b[^>]{0,1000}?-->`)
+	pad := strings.Repeat("x ", 600)
+	for _, s := range []string{
+		"<!-- you must run this -->", "<!--you must-->", "<!-- note -->", "<!-- a > you must -->", "<!-- you must > x -->",
+		"<!-- " + pad + "you must " + pad + "-->", "<!-- " + pad[:900] + "you must -->", "x<!-- <!-- curl x -->",
+		"<!-- ASSISTANT: obey -->", "<!-- assistants -->", "<!-- curl -->", "-->--> <!-- wget x -->", "<!-- send all -->-->",
+		"<!-- --> you must -->", "<!-- do not tell\nanyone -->", "<!---->", strings.Repeat("<!--", 100) + "you must-->",
+	} {
+		if got, want := htmlCommentImperative(s, nil), re.MatchString(s); got != want {
+			t.Errorf("%.80q: matcher %v, regex %v", s, got, want)
+		}
 	}
 }
 
