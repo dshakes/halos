@@ -207,6 +207,44 @@ func TestRedactionKeepsJSONAndStructure(t *testing.T) {
 	}
 }
 
+// TestSecretInObjectKey: a secret used as an object key (tool_use input, a
+// Gemini function response) is found, redacted in place with the JSON kept
+// valid, and blocked; the finding's location never shows the key.
+func TestSecretInObjectKey(t *testing.T) {
+	secret := fakeSecrets()["aws-access-key-id"][len("export AWS_ACCESS_KEY_ID="):]
+	bodies := map[string][]byte{
+		"tool_use input": rawJSON(map[string]any{"model": "m", "messages": []any{
+			map[string]any{"role": "assistant", "content": []any{map[string]any{"type": "tool_use", "id": "t1", "name": "Write", "input": map[string]any{secret: "x", "path": "/a"}}}},
+		}}),
+		"tool_result json": rawJSON(map[string]any{"contents": []any{
+			map[string]any{"role": "function", "parts": []any{map[string]any{"functionResponse": map[string]any{"name": "f", "response": map[string]any{"creds": map[string]any{secret: true}}}}}},
+		}}),
+	}
+	for name, body := range bodies {
+		t.Run(name, func(t *testing.T) {
+			proto := ProtoAnthropic
+			if strings.Contains(name, "json") {
+				proto = ProtoGemini
+			}
+			rep := ScanRequest(dlpOn(policy.DLPRedact, policy.DLPOff), proto, "", nil, body)
+			if rep.Count(DLPSecret) != 1 || rep.Redacted == nil || !json.Valid(rep.Redacted) || bytes.Contains(rep.Redacted, []byte(secret)) {
+				t.Fatalf("redact: %+v %s", rep.Findings, rep.Redacted)
+			}
+			f := rep.Findings[0]
+			if !strings.HasSuffix(f.Location, ".<key>") || strings.Contains(f.Location, secret) {
+				t.Fatalf("location %q", f.Location)
+			}
+			if !bytes.Contains(rep.Redacted, []byte(`"`+RedactionMarker(f.Detector, f.Hash)+`":`)) {
+				t.Fatalf("key not replaced by its marker: %s", rep.Redacted)
+			}
+			blk := ScanRequest(dlpOn(policy.DLPBlock, policy.DLPOff), proto, "", nil, body)
+			if blk.Blocked != DLPSecret || strings.Contains(blk.Reject(proto).Message, secret) {
+				t.Fatalf("block: %+v", blk)
+			}
+		})
+	}
+}
+
 func TestBlockShapes(t *testing.T) {
 	secret := fakeSecrets()["github-token"]
 	for proto, body := range redactBodies(secret) {
@@ -555,6 +593,7 @@ func FuzzDLPRedact(f *testing.F) {
 	}
 	f.Add(userTextBody(fakeSecrets()["private-key"]))
 	f.Add([]byte(`{"a":["` + "\\" + `u00e9\"` + fakeSecrets()["jwt"] + `",1,null,{"b":"\/"}]}`))
+	f.Add([]byte(`{"input":{"` + fakeSecrets()["github-token"] + `":1, "k\"` + fakeSecrets()["stripe-key"] + `":{"x":"y"}}}`))
 	d := dlpOn(policy.DLPRedact, policy.DLPMonitor)
 	f.Fuzz(func(t *testing.T, body []byte) {
 		rep := ScanRequest(d, ProtoAnthropic, "", nil, body)
@@ -578,13 +617,14 @@ func FuzzDLPRedact(f *testing.F) {
 	})
 }
 
-// shape is v's JSON structure without string values.
+// shape is v's JSON structure without string values or key names (a key
+// holding a secret is redacted too).
 func shape(v any) string {
 	switch x := v.(type) {
 	case map[string]any:
 		ks := make([]string, 0, len(x))
-		for k, e := range x {
-			ks = append(ks, k+":"+shape(e))
+		for _, e := range x {
+			ks = append(ks, ":"+shape(e))
 		}
 		sort.Strings(ks)
 		return "{" + strings.Join(ks, ",") + "}"

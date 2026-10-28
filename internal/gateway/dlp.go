@@ -619,18 +619,27 @@ func ScanRequest(d *policy.DLP, proto, ring string, units []string, body []byte)
 	var out bytes.Buffer // redacted body, built only once a secret is redacted
 	copied := 0          // body[:copied] is already in out
 	redact := sa == policy.DLPRedact
-	err := walkStrings(scan, func(st []jsonFrame, start, end int, s string) bool {
-		if len(st) > 0 && st[len(st)-1].obj && dlpSkipKeys[st[len(st)-1].key] {
+	err := walkStrings(scan, func(st []jsonFrame, start, end int, s string, key bool) bool {
+		at := st // the value's position; a key's is its object's
+		if key {
+			// Object keys are scanned for secrets too (a tool input or result can
+			// put one in a key) and redacted like values; never scored for
+			// injection, and the location never shows the key.
+			at = st[:len(st)-1]
+		} else if len(st) > 0 && st[len(st)-1].obj && dlpSkipKeys[st[len(st)-1].key] {
 			return true
 		}
-		tool := toolData(proto, st)
+		tool := toolData(proto, at)
 		var ms []secretMatch
-		if sa != policy.DLPOff || (tool && ia != policy.DLPOff) { // a secret in a URL is an injection signal too
+		if sa != policy.DLPOff || (!key && tool && ia != policy.DLPOff) { // a secret in a URL is an injection signal too
 			ms = e.secrets(s)
 		}
 		var loc string
 		if len(ms) > 0 || tool {
-			loc = pathOf(st)
+			loc = pathOf(at)
+			if key {
+				loc += ".<key>"
+			}
 		}
 		for _, m := range ms {
 			if sa == policy.DLPOff {
@@ -638,7 +647,7 @@ func ScanRequest(d *policy.DLP, proto, ring string, units []string, body []byte)
 			}
 			rep.Findings = append(rep.Findings, DLPFinding{Kind: DLPSecret, Detector: m.det, Hash: m.hash, Location: loc, ToolData: tool})
 		}
-		if tool && ia != policy.DLPOff {
+		if !key && tool && ia != policy.DLPOff {
 			if score, sig := injectionScore(s, ms); score >= threshold {
 				rep.Findings = append(rep.Findings, DLPFinding{Kind: DLPInjection, Detector: DLPInjection, Location: loc, Score: score, Signals: sig, ToolData: true})
 			}
@@ -697,11 +706,12 @@ func writeJSONString(w *bytes.Buffer, s string) {
 
 var errTruncatedJSON = errors.New("dlp: body cut at the scan limit")
 
-// walkStrings calls fn for every string value (not object keys) in the JSON
-// document b, with the container stack and the literal's byte range
-// [start, end) in b. fn returns false to stop. A document cut short (the scan
-// limit) ends with errTruncatedJSON after every complete string was visited.
-func walkStrings(b []byte, fn func(st []jsonFrame, start, end int, s string) bool) error {
+// walkStrings calls fn for every string in the JSON document b, object keys
+// included (key true: the top of st is the object, its key not yet set), with
+// the container stack and the literal's byte range [start, end) in b. fn
+// returns false to stop. A document cut short (the scan limit) ends with
+// errTruncatedJSON after every complete string was visited.
+func walkStrings(b []byte, fn func(st []jsonFrame, start, end int, s string, key bool) bool) error {
 	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.UseNumber()
 	var st []jsonFrame
@@ -742,13 +752,16 @@ func walkStrings(b []byte, fn func(st []jsonFrame, start, end int, s string) boo
 				after()
 			}
 		case string:
+			end := int(dec.InputOffset())
+			start := int(before) + bytes.IndexByte(b[before:end], '"')
 			if n := len(st); n > 0 && st[n-1].obj && st[n-1].wantKey {
+				if !fn(st, start, end, t, true) {
+					return nil
+				}
 				st[n-1].key, st[n-1].wantKey = t, false
 				continue
 			}
-			end := int(dec.InputOffset())
-			start := int(before) + bytes.IndexByte(b[before:end], '"')
-			if !fn(st, start, end, t) {
+			if !fn(st, start, end, t, false) {
 				return nil
 			}
 			after()
