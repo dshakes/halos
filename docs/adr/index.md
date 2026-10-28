@@ -40,5 +40,6 @@ Decisions that shape Halos. New ADRs use [MADR](https://adr.github.io/madr/): co
 | [0029](/halos/adr/0029-mcp-registry-and-authorization/) | MCP registry and authorization: approved, pinned servers rendered into every harness, drift from halod, audience-bound tokens from halo-server |
 | [0030](/halos/adr/0030-change-governance/) | Change governance: freeze windows and an incident freeze (never holding rollbacks), approver quorums with separation of duties, and an impact preview |
 | [0031](/halos/adr/0031-agent-session-ledger/) | Agent session ledger: one identity-linked, redacted record per agent session, stored in the audit chain |
+| [0034](/halos/adr/0034-cloud-agent-governance/) | Cloud agent governance: SHA-pinned rendered workflows, an identity-mapped task inventory from HMAC-verified webhooks and vendor APIs, kill fan-out and reversible over-limit pauses |
 
 The canonical files live in `docs/adr/` in the repository; the docs build copies them into the site.

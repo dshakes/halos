@@ -99,6 +99,29 @@ Docs read 2026-10-27 (not UAT, no CLI was run against these renders):
 - User configs halod scans for drift: `~/.claude.json` (`mcpServers`, `projects.<path>.mcpServers`), `~/.codex/config.toml` (`mcp_servers`), `~/.gemini/settings.json`, `~/.copilot/mcp-config.json`, `~/.cursor/mcp.json` (`mcpServers`), `~/.config/opencode/opencode.json` (`mcp`).
 - UNVERIFIED: Codex `auth = "ema_auth"` semantics; any CLI's support for Client ID Metadata Documents or Enterprise-Managed Authorization; whether each CLI accepts the rendered tool and oauth keys at the pinned versions (goldens only).
 
+## Cloud and background agents (ADR-0034, docs read 2026-10-27, not UAT)
+Sources: GW = https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries,
+GR = https://docs.github.com/en/rest/actions/workflow-runs, GF = https://docs.github.com/en/rest/actions/workflows,
+GE = https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/customize-the-agent-environment,
+GI = https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/customize-the-agent-firewall,
+GC = https://docs.github.com/en/rest/copilot/copilot-cloud-agent-management,
+GO = https://docs.github.com/en/copilot/how-tos/administer-copilot/manage-for-organization/add-copilot-cloud-agent,
+CA = https://code.claude.com/docs/en/github-actions, CW = https://code.claude.com/docs/en/claude-code-on-the-web,
+CE = https://code.claude.com/docs/en/cloud-environments, CV = https://raw.githubusercontent.com/anthropics/claude-code-action/main/base-action/src/validate-env.ts,
+OC = https://developers.openai.com/codex/cloud and https://learn.chatgpt.com/docs/environments/cloud-environments,
+ON = https://developers.openai.com/codex/cloud/internet-access,
+UA = https://cursor.com/docs/background-agent/api/endpoints (Cloud Agents API v1, public beta),
+GA = https://github.com/google-github-actions/run-gemini-cli (README and action.yml).
+
+- GitHub webhooks: `X-Hub-Signature-256: sha256=<hex HMAC-SHA256(secret, raw body)>`, compared in constant time; the documented test vector (secret `It's a Secret to Everybody`, body `Hello, World!`) is in `TestVerifySignature` (GW).
+- Actions runs: `GET /repos/{o}/{r}/actions/runs` (`created`, `status`, `per_page`), `POST .../actions/runs/{id}/cancel`, and `PUT .../actions/workflows/{workflow_id}/disable|enable`, where `workflow_id` may be the file name (GR, GF).
+- Copilot cloud agent: the only repository file it reads is `.github/workflows/copilot-setup-steps.yml`; job `copilot-setup-steps` honors only `steps`, `permissions`, `runs-on`, `services`, `snapshot` and `timeout-minutes` (at most 59); Copilot gets its own token (GE). Firewall: org setting Enabled/Disabled/Let repositories decide, recommended allowlist, custom allowlist (domains match subdomains), set in the console (GI). `GET /repos/{o}/{r}/copilot/cloud-agent/configuration` (public preview, API version 2026-03-10) returns `is_firewall_enabled`, `is_firewall_recommended_allowlist_enabled`, `custom_allowlist`; no write endpoint is documented (GC). Repository access (all / selected / none) is an org setting (GO).
+- Claude Code GitHub Action: inputs `anthropic_api_key`, `claude_code_oauth_token`, `claude_args` (`--model`, `--max-turns`, `--allowedTools`), `settings` (JSON); `id-token: write` is needed for the GitHub App token exchange; v1 tags are moving, so the rendered workflow pins the v1.0.264 commit (CA). The action refuses to start without `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN` or federation ids (CV), so identity: workload passes the Halos gateway credential as `anthropic_api_key` (halo-proxy reads `x-api-key`, internal/identity).
+- Claude Code cloud sessions: an organization policy `allow_remote_sessions` (Owner, claude.ai admin settings); each cloud environment has one network access level None / Trusted / Full / Custom, and there is no organization-wide allowlist or server-managed setting for it (CW, CE). No public API lists or cancels sessions.
+- Codex cloud: tasks run in per-environment containers; agent internet access is Off, or On with a preset allowlist (None, Common dependencies, All) plus domains and an optional GET/HEAD/OPTIONS restriction; workspace roles gate "Use Codex in the cloud" (OC, ON). No public task API is documented.
+- Cursor Cloud Agents API: `GET /v1/agents` lists the key owner's agents (newest first, `nextCursor` omitted at the end); agent `status` is ACTIVE / IDLE / ARCHIVED; `POST /v1/agents/{id}/runs/{runId}/cancel` (409 `run_not_cancellable` when not active); `POST /v1/agents/{id}/archive` is reversible (unarchive); `GET /v1/agents/{id}/usage` reports tokens, not cost; Basic or Bearer auth (UA).
+- Gemini CLI GitHub Action: inputs `gemini_api_key`, `gemini_cli_version`, `gemini_model`, `settings` (written to `.gemini/settings.json`), `prompt`, and Workload Identity Federation inputs; the README recommends pinning action versions (GA). Latest release v0.1.22 (commit f77273f4).
+
 ## Still UNVERIFIED
 - OpenCode on Windows: the managed path comes from the CLI source (B) and the docs, but nothing was run there, and an absolute `C:\...` path in `instructions` was not observed to load. macOS/Linux paths are source-confirmed but exercised only through `OPENCODE_TEST_MANAGED_CONFIG_DIR` (no root). `x-halo-*` provider headers are rendered for parity with Codex and observed to be sent; the gateway ignores client-supplied ones (invariant 4).
 - OpenCode `read`/`edit` deny patterns: the matching input is the worktree-relative path (B) and the rendered shapes were loaded (`debug agent build`), but a model-issued tool call hitting a deny was not exercised. A `Read(~/.ssh/**)` rule is rendered under `external_directory`, which is documented (P) but not exercised either.
@@ -106,3 +129,4 @@ Docs read 2026-10-27 (not UAT, no CLI was run against these renders):
 - Cursor and OpenCode are not in `make uat-clis`; no container smoke test with `halod` exists for them.
 - Copilot `permissions.disableBypassPermissionsMode`: `copilot -p --allow-all` still starts (UAT); whether tool calls then require approval was not exercised. `model` (a default) was not observed.
 - Copilot `sandbox` sub-keys were not mapped (permissions.sandbox is warned, not rendered).
+- Cloud agents (ADR-0034): the Copilot cloud agent's Actions workflow path `dynamic/copilot-swe-agent/...` (how inventory recognizes its runs) is observed, not documented; whether an Actions cancel stops a Copilot session is not verified; whether a Cursor team-admin or service-account key lists other users' agents is not documented; that the Claude action and Gemini CLI honor `ANTHROPIC_BASE_URL` / `GOOGLE_GEMINI_BASE_URL` from `$GITHUB_ENV` (identity: workload) is not exercised against the real actions. Every vendor call is tested against httptest fakes only.
