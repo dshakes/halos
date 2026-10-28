@@ -111,9 +111,13 @@ type Request struct {
 	Latency      time.Duration
 	// GenAI, when set, also records the call as GenAI semantic-convention
 	// metrics (and a span when enabled); Start and TraceParent only feed the span.
-	GenAI       *GenAI
-	Start       time.Time
-	TraceParent string // inbound W3C traceparent header, "" when none
+	GenAI *GenAI
+	// DLPSecrets and DLPInjections count the request's DLP findings
+	// (ADR-0033). They ride on the GenAI span only (halo.dlp.*), never on a
+	// metric series, so the session ledger can total them per trace.
+	DLPSecrets, DLPInjections int
+	Start                     time.Time
+	TraceParent               string // inbound W3C traceparent header, "" when none
 }
 
 // LatencyBoundsMS are the histogram bucket upper bounds: ~12% apart from 10ms

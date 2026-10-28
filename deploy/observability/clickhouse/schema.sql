@@ -293,6 +293,8 @@ CREATE TABLE IF NOT EXISTS halo.halo_session_ledger
     repos            Array(String),
     files            Array(String),
     files_touched    UInt32,
+    dlp_secrets      UInt32,                  -- gateway DLP findings (ADR-0033): counts only
+    dlp_injections   UInt32,
     input_tokens     UInt64,
     output_tokens    UInt64,
     cost_usd         Float64,
@@ -309,3 +311,8 @@ ENGINE = ReplacingMergeTree(stored_at)
 PARTITION BY toYYYYMM(started_at)
 ORDER BY (id)
 TTL toDateTime(started_at) + INTERVAL 400 DAY;
+
+-- Columns added after the table was first created (ADR-0033): existing
+-- deployments pick them up on the next apply.
+ALTER TABLE halo.halo_session_ledger ADD COLUMN IF NOT EXISTS dlp_secrets UInt32 AFTER files_touched;
+ALTER TABLE halo.halo_session_ledger ADD COLUMN IF NOT EXISTS dlp_injections UInt32 AFTER dlp_secrets;

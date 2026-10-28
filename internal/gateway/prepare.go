@@ -30,6 +30,31 @@ type Result struct {
 	// Reject, when non-nil, must be answered by the adapter itself; the
 	// request must NOT be forwarded.
 	Reject *Rejection
+	// DLP is the request's secret and injection scan (ADR-0033); nil when the
+	// policy has no gateway.dlp or it is off for the caller. When it redacted,
+	// Body (and Rewritten) carry the redacted body.
+	DLP *DLPReport
+}
+
+// SubjectUnits is the caller's org unit chain, its own unit first; nil when
+// anonymous or in no unit.
+func SubjectUnits(org *policy.Org, sub *policy.Subject) []string {
+	if org == nil || sub == nil {
+		return nil
+	}
+	u := org.ResolveUnit(*sub)
+	if u == nil {
+		return nil
+	}
+	chain, err := org.UnitChain(u.Name)
+	if err != nil {
+		return []string{u.Name}
+	}
+	out := make([]string, 0, len(chain))
+	for i := len(chain) - 1; i >= 0; i-- {
+		out = append(out, chain[i].Name)
+	}
+	return out
 }
 
 // Rejection is a request the gateway answers itself. Fail closed: unknown
@@ -188,6 +213,15 @@ func PrepareVerified(org *policy.Org, sub *policy.Subject, h http.Header, path s
 	if req.Agent && req.Protocol != "" {
 		if res.Reject = admitAgent(org, sub, req, path, body); res.Reject != nil {
 			return res
+		}
+	}
+	if req.Protocol != "" && org.Gateway != nil && org.Gateway.DLP != nil {
+		res.DLP = ScanRequest(org.Gateway.DLP, req.Protocol, res.Decision.Ring, SubjectUnits(org, sub), body)
+		if res.Reject = res.DLP.Reject(req.Protocol); res.Reject != nil {
+			return res
+		}
+		if res.DLP != nil && res.DLP.Redacted != nil {
+			body, res.Body, res.Rewritten = res.DLP.Redacted, res.DLP.Redacted, true
 		}
 	}
 	// JSON-body wires are always re-encoded, even when the alias is the upstream

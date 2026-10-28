@@ -31,9 +31,9 @@ func TestParseFlags(t *testing.T) {
 		{"unknown flag", []string{"--nope"}, "not defined", nil},
 		{"killswitch key without gateway token", []string{"--policy-dir", "p", "--token-file", "t", "--killswitch-key-file", "k"}, "needs --gateway-token-file or --gateway-killswitch-token-file", nil},
 		{"killswitch key with its own token", []string{"--policy-dir", "p", "--token-file", "t", "--killswitch-key-file", "k", "--gateway-killswitch-token-file", "kt", "--data-dir", "d"}, "",
-			func(o options) bool { return o.gatewayCapTokenFiles == [4]string{"kt", "", "", ""} }},
+			func(o options) bool { return o.gatewayCapTokenFiles == [5]string{"kt", "", "", ""} }},
 		{"per-capability token files", []string{"--policy-dir", "p", "--token-file", "t", "--gateway-posture-token-file", "pt", "--gateway-budget-token-file", "bt", "--gateway-directory-token-file", "dt"}, "",
-			func(o options) bool { return o.gatewayCapTokenFiles == [4]string{"", "pt", "bt", "dt"} }},
+			func(o options) bool { return o.gatewayCapTokenFiles == [5]string{"", "pt", "bt", "dt"} }},
 		{"gateway token alone serves posture", []string{"--policy-dir", "p", "--token-file", "t", "--gateway-token-file", "g", "--posture-max-age", "30m"}, "",
 			func(o options) bool { return o.gatewayTokenFile == "g" && o.postureMaxAge == 30*time.Minute }},
 		{"posture max age too short", []string{"--policy-dir", "p", "--token-file", "t", "--posture-max-age", "10s"}, "at least 1m", nil},
@@ -161,29 +161,29 @@ func TestReadGatewayTokens(t *testing.T) {
 		name   string
 		o      options
 		shared string
-		caps   [4]string
+		caps   [5]string
 		err    string
 	}{
-		{"none", options{}, "", [4]string{}, ""},
-		{"shared only", options{gatewayTokenFile: shared}, sharedTok, [4]string{}, ""},
-		{"budget only", options{gatewayCapTokenFiles: [4]string{2: budget}}, "", [4]string{2: budgetTok}, ""},
-		{"shared and budget", options{gatewayTokenFile: shared, gatewayCapTokenFiles: [4]string{2: budget}}, sharedTok, [4]string{2: budgetTok}, ""},
-		{"short shared", options{gatewayTokenFile: short}, "", [4]string{}, "--gateway-token-file: token is 5 characters, want at least 32; generate one with: openssl rand -hex 32"},
-		{"short directory", options{gatewayCapTokenFiles: [4]string{3: short}}, "", [4]string{}, "--gateway-directory-token-file: token is 5 characters"},
-		{"repeated pattern shared", options{gatewayTokenFile: weak}, "", [4]string{}, "--gateway-token-file: token uses 2 distinct characters"},
-		{"ascending run killswitch", options{gatewayCapTokenFiles: [4]string{0: lowEntropy}}, "", [4]string{}, "--gateway-killswitch-token-file: token has a run of 8"},
-		{"words", options{gatewayTokenFile: words}, "", [4]string{}, "token looks like words, not random base64"},
-		{"alphabet", options{gatewayTokenFile: alphabet}, "", [4]string{}, "token has a run of 26 repeated or consecutive characters"},
-		{"passphrase", options{gatewayTokenFile: file("pp", "correct horse battery staple 2026 x")}, "", [4]string{}, "hex or base64/base64url characters only"},
-		{"repeated run", options{gatewayTokenFile: file("rr", "5f0c9e2a7b14d8630000000000a1c0e9f2b7d4a6")}, "", [4]string{}, "token has a run of 10"},
-		{"hex under 128 bits", options{gatewayTokenFile: file("h31", "5f0c9e2a7b14d863a1c0e9f2b7d4a61")}, "", [4]string{}, "token is 31 characters"},
-		{"random base64url", options{gatewayTokenFile: b64}, b64Tok, [4]string{}, ""},
-		{"low entropy posture", options{gatewayCapTokenFiles: [4]string{1: weak}}, "", [4]string{}, "openssl rand -hex 32"},
-		{"low entropy budget", options{gatewayCapTokenFiles: [4]string{2: lowEntropy}}, "", [4]string{}, "--gateway-budget-token-file"},
+		{"none", options{}, "", [5]string{}, ""},
+		{"shared only", options{gatewayTokenFile: shared}, sharedTok, [5]string{}, ""},
+		{"budget only", options{gatewayCapTokenFiles: [5]string{2: budget}}, "", [5]string{2: budgetTok}, ""},
+		{"shared and budget", options{gatewayTokenFile: shared, gatewayCapTokenFiles: [5]string{2: budget}}, sharedTok, [5]string{2: budgetTok}, ""},
+		{"short shared", options{gatewayTokenFile: short}, "", [5]string{}, "--gateway-token-file: token is 5 characters, want at least 32; generate one with: openssl rand -hex 32"},
+		{"short directory", options{gatewayCapTokenFiles: [5]string{3: short}}, "", [5]string{}, "--gateway-directory-token-file: token is 5 characters"},
+		{"repeated pattern shared", options{gatewayTokenFile: weak}, "", [5]string{}, "--gateway-token-file: token uses 2 distinct characters"},
+		{"ascending run killswitch", options{gatewayCapTokenFiles: [5]string{0: lowEntropy}}, "", [5]string{}, "--gateway-killswitch-token-file: token has a run of 8"},
+		{"words", options{gatewayTokenFile: words}, "", [5]string{}, "token looks like words, not random base64"},
+		{"alphabet", options{gatewayTokenFile: alphabet}, "", [5]string{}, "token has a run of 26 repeated or consecutive characters"},
+		{"passphrase", options{gatewayTokenFile: file("pp", "correct horse battery staple 2026 x")}, "", [5]string{}, "hex or base64/base64url characters only"},
+		{"repeated run", options{gatewayTokenFile: file("rr", "5f0c9e2a7b14d8630000000000a1c0e9f2b7d4a6")}, "", [5]string{}, "token has a run of 10"},
+		{"hex under 128 bits", options{gatewayTokenFile: file("h31", "5f0c9e2a7b14d863a1c0e9f2b7d4a61")}, "", [5]string{}, "token is 31 characters"},
+		{"random base64url", options{gatewayTokenFile: b64}, b64Tok, [5]string{}, ""},
+		{"low entropy posture", options{gatewayCapTokenFiles: [5]string{1: weak}}, "", [5]string{}, "openssl rand -hex 32"},
+		{"low entropy budget", options{gatewayCapTokenFiles: [5]string{2: lowEntropy}}, "", [5]string{}, "--gateway-budget-token-file"},
 		// 31 distinct characters (153 bits) but one short of the minimum length.
-		{"31 characters", options{gatewayTokenFile: file("31", "0123456789abcdefghijklmnopqrstu")}, "", [4]string{}, "token is 31 characters, want at least 32"},
-		{"same as shared", options{gatewayTokenFile: shared, gatewayCapTokenFiles: [4]string{1: shared}}, "", [4]string{}, "--gateway-posture-token-file: must differ"},
-		{"missing file", options{gatewayCapTokenFiles: [4]string{0: filepath.Join(dir, "nope")}}, "", [4]string{}, "--gateway-killswitch-token-file"},
+		{"31 characters", options{gatewayTokenFile: file("31", "0123456789abcdefghijklmnopqrstu")}, "", [5]string{}, "token is 31 characters, want at least 32"},
+		{"same as shared", options{gatewayTokenFile: shared, gatewayCapTokenFiles: [5]string{1: shared}}, "", [5]string{}, "--gateway-posture-token-file: must differ"},
+		{"missing file", options{gatewayCapTokenFiles: [5]string{0: filepath.Join(dir, "nope")}}, "", [5]string{}, "--gateway-killswitch-token-file"},
 	} {
 		s, caps, err := readGatewayTokens(c.o)
 		if c.err != "" {

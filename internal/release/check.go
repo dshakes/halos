@@ -149,10 +149,10 @@ func checkCodex(d map[string]any, p *policy.Profile, g *policy.Gateway, managedC
 		switch {
 		case (key == "approval_policy" || key == "allowed_approval_policies") && v == "never":
 			return fail(`%s = "never" is not permitted by any profile`, path)
-		case key == "writable_roots" && !tmpRoot(v):
-			return fail("%s = %v is outside the workspace (only /tmp is permitted)", path, v)
-		case key == "network_access" && v == true && len(p.Egress.AllowedDomains) > 0:
-			return fail("%s = true but the profile restricts egress to %v", path, p.Egress.AllowedDomains)
+		case key == "writable_roots" && !tmpRoot(v) && !policyRoot(p, v):
+			return fail("%s = %v is outside the workspace (only /tmp and sandbox.writableRoots are permitted)", path, v)
+		case key == "network_access" && v == true && p.Egress.Restricted() && p.Egress.Rules().Default == policy.EgressDeny:
+			return fail("%s = true but the profile's egress default is deny (allowlist %v)", path, p.Egress.Rules().Allow)
 		case path == "notify" || strings.HasPrefix(path, "notify["):
 			return fail("%s: notify runs an arbitrary command and is not permitted", path)
 		case key == "trust_level" && v == "trusted":
@@ -202,6 +202,12 @@ func tmpRoot(v any) bool {
 	s, _ := v.(string)
 	c := path.Clean(s)
 	return c == "/tmp" || strings.HasPrefix(c, "/tmp/")
+}
+
+// policyRoot: a writable root the profile's sandbox.writableRoots names.
+func policyRoot(p *policy.Profile, v any) bool {
+	s, ok := v.(string)
+	return ok && slices.Contains(p.Sandbox.WritableRoots, s)
 }
 
 // checkGemini: security.disableYoloMode refuses YOLO mode. (admin.secureModeEnabled

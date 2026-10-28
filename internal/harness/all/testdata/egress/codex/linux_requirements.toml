@@ -1,0 +1,22 @@
+allowed_sandbox_modes = ['read-only', 'workspace-write']
+
+[experimental_network]
+enabled = true
+managed_allowed_domains_only = true
+
+[experimental_network.domains]
+'files.pythonhosted.org' = 'allow'
+'gw.example.com' = 'allow'
+'index.crates.io' = 'allow'
+'pastebin.com' = 'deny'
+'proxy.golang.org' = 'allow'
+'pypi.org' = 'allow'
+'registry.npmjs.org' = 'allow'
+'repo.maven.apache.org' = 'allow'
+'rubygems.org' = 'allow'
+'static.crates.io' = 'allow'
+'sum.golang.org' = 'allow'
+
+[permissions]
+[permissions.filesystem]
+deny_read = ['~/.ssh', '~/.aws', '/etc/secrets', '/**/.env*']

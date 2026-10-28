@@ -159,7 +159,6 @@ func (a *CloudAgent) ModelAllowed(model string) bool {
 var (
 	repoPatRe  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]{0,38}/([A-Za-z0-9._-]{1,100}|\*)$`)
 	cloudModel = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$`)
-	domainRe   = regexp.MustCompile(`^(\*\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$`)
 	haloTagRe  = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+$`)
 	versionRe  = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$`)
 )

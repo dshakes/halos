@@ -1,0 +1,24 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "autoupdate": false,
+  "permission": {
+    "edit": {
+      "*": "ask",
+      "**/.env*": "deny",
+      ".env*": "deny"
+    },
+    "external_directory": {
+      "~/.ssh": "deny",
+      "~/.ssh/**": "deny",
+      "~/.aws": "deny",
+      "~/.aws/**": "deny",
+      "/etc/secrets": "deny",
+      "/etc/secrets/**": "deny"
+    },
+    "read": {
+      "**/.env*": "deny",
+      ".env*": "deny"
+    },
+    "webfetch": "ask"
+  }
+}

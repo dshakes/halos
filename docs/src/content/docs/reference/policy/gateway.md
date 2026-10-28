@@ -30,6 +30,28 @@ Generated from `schemas/gateway.schema.json`; do not edit. Nested fields use dot
 | `budgets[].rings[]` | string |  |  |  |  |  |
 | `budgets[].scope` | string | yes |  | user, group, ring, org |  | Counter key: user (per verified subject), group (per listed group), ring (per ring) or org (one shared counter). |
 | `budgets[].window` | string | yes |  | day, week, month, rolling |  | day, week (from Monday) or month: calendar windows in UTC. rolling: the last period. |
+| `dlp` | object |  |  |  |  | Data-loss prevention and prompt-injection defense on model calls (ADR-0033). halo-proxy and halo-kong scan request bodies; halo-proxy also scans streamed responses for echoed secrets (monitor only). |
+| `dlp.injection` | object |  |  |  |  | Prompt-injection scoring of tool results and documents entering the model. Model content is never modified. |
+| `dlp.injection.action` | string |  |  | off, monitor, block |  | monitor (count and audit, default), block (refuse at or above threshold) or off. |
+| `dlp.injection.threshold` | integer |  |  |  | minimum 1; maximum 20 | Score at which a tool result counts as an injection (default 4: two independent signals). |
+| `dlp.maxScanBytes` | integer |  |  |  | minimum 0; maximum 6.7108864e+07 | Bytes of one request body scanned (default 4 MiB); the rest passes unscanned and is counted as truncated. |
+| `dlp.rules` | array of object |  |  |  |  | Per ring and org unit action overrides; the first rule whose rings and units match the caller wins. |
+| `dlp.rules[]` | object |  |  |  |  |  |
+| `dlp.rules[].injection` | string |  |  | off, monitor, block |  | Injection action for matching callers. |
+| `dlp.rules[].rings` | array of string |  |  |  |  | Callers routed to these rings (default any). |
+| `dlp.rules[].rings[]` | string |  |  |  |  |  |
+| `dlp.rules[].secrets` | string |  |  | off, monitor, redact, block |  | Secret action for matching callers. |
+| `dlp.rules[].units` | array of string |  |  |  |  | Callers in these org units or their descendants (default any). |
+| `dlp.rules[].units[]` | string |  |  |  |  |  |
+| `dlp.scanResponses` | boolean |  |  |  |  | Scan streamed responses for echoed secrets (monitor only, halo-proxy). Default true. |
+| `dlp.secrets` | object |  |  |  |  | Outbound secret detection on request content (user text, tool results, files). |
+| `dlp.secrets.action` | string |  |  | off, monitor, redact, block |  | monitor (count and audit, default), redact (replace each secret with [REDACTED:&lt;detector>:&lt;hash8>]), block (refuse with HTTP 400) or off. |
+| `dlp.secrets.disable` | array of string |  |  |  |  | Built-in detectors to turn off. |
+| `dlp.secrets.disable[]` | string |  |  | anthropic-api-key, aws-access-key-id, gcp-service-account, generic-secret, github-token, gitlab-token, jwt, openai-api-key, private-key, slack-token, slack-webhook, stripe-key |  |  |
+| `dlp.secrets.patterns` | array of object |  |  |  |  | Org detectors (RE2). The whole match is the secret, or the first capture group when there is one. |
+| `dlp.secrets.patterns[]` | object |  |  |  |  |  |
+| `dlp.secrets.patterns[].id` | string | yes |  |  | pattern ^[a-z0-9][a-z0-9._-]&#123;0,62}$ | Stable detector id, used in metrics, audit and redaction markers. |
+| `dlp.secrets.patterns[].regex` | string | yes |  |  | minLength 1; maxLength 1024 | RE2 regular expression (no backreferences or lookaround). |
 | `engine` | string |  |  | halo-proxy, kong, external |  | Data plane enforcing this policy (default halo-proxy). external is a gateway Halos does not run (your own API gateway): clients are rendered with each alias's provider model id. Multi-target routes (weights, failover) run only in halo-proxy; halo-kong and external use each route's first target. |
 | `kind` | string | yes |  | const Gateway |  | Document kind. |
 | `labels` | object |  |  |  |  | Free-form labels. |

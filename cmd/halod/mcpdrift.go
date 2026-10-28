@@ -7,7 +7,6 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"os/user"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -54,17 +53,13 @@ type foundServer struct {
 
 // userHome is the console user's home directory ("" when unknown).
 func (a *Agent) userHome() string {
-	if a.Home != "" {
-		return a.Home
+	if a.Home != nil {
+		return a.Home(a.User)
 	}
 	if a.User == "" {
 		return ""
 	}
-	u, err := user.Lookup(a.User)
-	if err != nil {
-		return ""
-	}
-	return u.HomeDir
+	return homeDir(a.User)
 }
 
 // mcpDrift reports the user's MCP servers rel's registry does not approve

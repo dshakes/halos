@@ -190,6 +190,7 @@ func (v *validator) gateway() {
 		v.route("gateway.models."+alias, g.Models[alias])
 	}
 	v.budgets(g)
+	v.dlp(g)
 }
 
 // upstreamKind checks the per-kind fields: where a provider's credential lives
@@ -341,6 +342,8 @@ func (v *validator) profileSpec(path string, p *Profile) {
 		v.oneOf(path+".login", "login", l, loginModes)
 	}
 	v.extensions(path+".extensions", p.Extensions)
+	v.egress(path+".egress", p.Egress)
+	v.sandbox(path, p)
 }
 
 var (

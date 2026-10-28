@@ -14,9 +14,14 @@ Generated from `schemas/profile.schema.json`; do not edit. Nested fields use dot
 | `agents.remote` | array of string |  |  |  |  | agents.remote names these members may call; empty = every entry whose rings or units admit them. |
 | `agents.remote[]` | string |  |  |  | minLength 1 |  |
 | `apiVersion` | string | yes |  | const halos.dev/v1 |  | Document version. |
-| `egress` | object |  |  |  |  | Egress policy. |
-| `egress.allowedDomains` | array of string |  |  |  |  | Only egress permitted from managed environments; must include the gateway host when non-empty. |
-| `egress.allowedDomains[]` | string |  |  |  |  |  |
+| `egress` | object |  |  |  |  | Network egress for the agent's shell and fetch tools (ADR-0032). A deny rule wins over an allow rule; unmatched hosts take the default. Rendered natively per harness; what a harness cannot hold is a release warning. |
+| `egress.allowedDomains` | array of string |  |  |  |  | Allowlist: exact hosts or *.domain (subdomains only, not the apex). Must allow the gateway host. Replaces the parent's list. |
+| `egress.allowedDomains[]` | string |  |  |  | pattern ^(\*\.)?([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)*[a-z0-9]([a-z0-9-]*[a-z0-9])?$ |  |
+| `egress.default` | string |  |  | allow, deny |  | For hosts no rule matches. Unset: deny when allowedDomains or presets allow anything, else allow. allow with an allowlist is an error. |
+| `egress.deniedDomains` | array of string |  |  |  |  | Always denied, even when an allow rule matches. Unions down an extends chain and across units. |
+| `egress.deniedDomains[]` | string |  |  |  | pattern ^(\*\.)?([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)*[a-z0-9]([a-z0-9-]*[a-z0-9])?$ |  |
+| `egress.presets` | array of string |  |  |  |  | Named domain sets added to the allowlist (see the egress and sandbox guide for each set's hosts). |
+| `egress.presets[]` | string |  |  | package-registries, vcs, model-providers |  |  |
 | `env` | object |  |  |  |  | Extra environment applied to every harness. |
 | `env.*` | string |  |  |  |  |  |
 | `extends` | string |  |  |  |  | Parent profile. Scalars: child wins; lists: child replaces; maps: merged. |
@@ -112,6 +117,12 @@ Generated from `schemas/profile.schema.json`; do not edit. Nested fields use dot
 | `permissions.mode` | string |  |  | default, acceptEdits, plan, auto |  | Default permission mode. |
 | `permissions.sandbox` | string |  |  | off, workspace-write, read-only |  | Harness sandbox policy. |
 | `permissions.sandboxRequired` | boolean |  |  |  |  | Fail closed: the harness refuses to run (Claude: sandbox.failIfUnavailable) instead of running unsandboxed when its sandbox dependencies are missing. |
+| `sandbox` | object |  |  |  |  | Agent sandbox (ADR-0032): mode, extra writable roots and paths the agent may never read or write. |
+| `sandbox.mode` | string |  |  | off, workspace-write, read-only |  | Same setting as permissions.sandbox (set either; both must agree). off is an error while egress or sandbox paths are set. |
+| `sandbox.protectedPaths` | array of string |  |  |  |  | Never read or written by the agent: absolute, ~/ or workspace-relative globs such as .env*. Unions down an extends chain and across units. |
+| `sandbox.protectedPaths[]` | string |  |  |  | minLength 1 |  |
+| `sandbox.writableRoots` | array of string |  |  |  |  | Absolute or ~/ directories writable beyond the workspace (no globs, not / or ~, not over a protected path). Replaces the parent's list; a unit adding one is a loosening. |
+| `sandbox.writableRoots[]` | string |  |  |  | pattern ^(/\|~/) |  |
 | `telemetry` | object |  |  |  |  | Telemetry policy. |
 | `telemetry.attributes` | object |  |  |  |  | Extra resource attributes. |
 | `telemetry.attributes.*` | string |  |  |  |  |  |

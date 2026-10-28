@@ -79,6 +79,8 @@ const gatewaySQL = `SELECT TraceId AS trace,
   groupUniqArray(SpanAttributes['gen_ai.request.model']) AS models,
   sum(toFloat64OrZero(SpanAttributes['gen_ai.usage.input_tokens'])) AS input_tokens,
   sum(toFloat64OrZero(SpanAttributes['gen_ai.usage.output_tokens'])) AS output_tokens,
+  sum(toFloat64OrZero(SpanAttributes['halo.dlp.secrets'])) AS dlp_secrets,
+  sum(toFloat64OrZero(SpanAttributes['halo.dlp.injections'])) AS dlp_injections,
   toFloat64(countIf(SpanAttributes['error.type'] != '')) AS errors,
   toFloat64(count()) AS calls,
   toFloat64(toUnixTimestamp64Milli(min(Timestamp))) AS start_ms,
@@ -94,6 +96,8 @@ type gatewayRow struct {
 	Models                                                          []string
 	InputTokens                                                     float64 `json:"input_tokens"`
 	OutputTokens                                                    float64 `json:"output_tokens"`
+	DLPSecrets                                                      float64 `json:"dlp_secrets"`
+	DLPInjections                                                   float64 `json:"dlp_injections"`
 	Errors, Calls                                                   float64
 	StartMS                                                         float64 `json:"start_ms"`
 	EndMS                                                           float64 `json:"end_ms"`
@@ -120,6 +124,7 @@ func gatewayRecord(r gatewayRow) Record {
 		SessionID: r.Trace, Harness: r.Harness, Ring: r.Ring, Release: r.Release, Experiment: r.Experiment, Variant: r.Variant,
 		Who:    Who{Unit: r.Unit},
 		Models: compact(r.Models), InputTokens: int64(r.InputTokens), OutputTokens: int64(r.OutputTokens),
+		DLPSecrets: int64(r.DLPSecrets), DLPInjections: int64(r.DLPInjections),
 		Start: ms(r.StartMS), End: ms(r.EndMS), Outcome: OutcomeCompleted, Sources: []string{SourceGateway},
 	}
 	if rec.Harness == "" {

@@ -49,6 +49,13 @@ func TestUnitOverlayEnforcement(t *testing.T) {
 			Egress:      Egress{AllowedDomains: []string{"ai.acme.example", "otel.internal.acme.example", "mcp-docs.internal.acme.example"}},
 			Env:         map[string]string{"BU": "u"}, Instructions: "be careful",
 		})}, nil},
+		{"tighten egress and sandbox", []*Unit{testUnit("u", "", Overlay{
+			Egress:  Egress{DeniedDomains: []string{"pastebin.com"}},
+			Sandbox: Sandbox{ProtectedPaths: []string{"~/.kube"}},
+		})}, nil},
+		{"egress default allow", []*Unit{testUnit("u", "", Overlay{Egress: Egress{Default: "allow"}})},
+			[]string{"units[u].overlay.egress.default", "units[u].overlay.egress.default"}}, // loosening + allow with an allowlist
+		{"writable root added", []*Unit{testUnit("u", "", Overlay{Sandbox: Sandbox{WritableRoots: []string{"/opt/cache"}}})}, []string{"units[u].overlay.sandbox.writableRoots"}},
 		{"sandbox off", []*Unit{testUnit("u", "", Overlay{Permissions: Permissions{Sandbox: "off"}})}, []string{"units[u].overlay.permissions.sandbox"}},
 		{"mode auto", []*Unit{testUnit("u", "", Overlay{Permissions: Permissions{Mode: "auto"}})}, []string{"units[u].overlay.permissions.mode"}},
 		{"mode bypass", []*Unit{testUnit("u", "", Overlay{Permissions: Permissions{Mode: "bypassPermissions"}})},

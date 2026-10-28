@@ -272,6 +272,155 @@
         "additionalProperties": false
       }
     },
+    "dlp": {
+      "type": "object",
+      "description": "Data-loss prevention and prompt-injection defense on model calls (ADR-0033). halo-proxy and halo-kong scan request bodies; halo-proxy also scans streamed responses for echoed secrets (monitor only).",
+      "additionalProperties": false,
+      "properties": {
+        "secrets": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Outbound secret detection on request content (user text, tool results, files).",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "off",
+                "monitor",
+                "redact",
+                "block"
+              ],
+              "description": "monitor (count and audit, default), redact (replace each secret with [REDACTED:<detector>:<hash8>]), block (refuse with HTTP 400) or off."
+            },
+            "disable": {
+              "type": "array",
+              "uniqueItems": true,
+              "description": "Built-in detectors to turn off.",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "anthropic-api-key",
+                  "aws-access-key-id",
+                  "gcp-service-account",
+                  "generic-secret",
+                  "github-token",
+                  "gitlab-token",
+                  "jwt",
+                  "openai-api-key",
+                  "private-key",
+                  "slack-token",
+                  "slack-webhook",
+                  "stripe-key"
+                ]
+              }
+            },
+            "patterns": {
+              "type": "array",
+              "maxItems": 64,
+              "description": "Org detectors (RE2). The whole match is the secret, or the first capture group when there is one.",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "regex"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9._-]{0,62}$",
+                    "description": "Stable detector id, used in metrics, audit and redaction markers."
+                  },
+                  "regex": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024,
+                    "description": "RE2 regular expression (no backreferences or lookaround)."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "injection": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Prompt-injection scoring of tool results and documents entering the model. Model content is never modified.",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "off",
+                "monitor",
+                "block"
+              ],
+              "description": "monitor (count and audit, default), block (refuse at or above threshold) or off."
+            },
+            "threshold": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20,
+              "description": "Score at which a tool result counts as an injection (default 4: two independent signals)."
+            }
+          }
+        },
+        "rules": {
+          "type": "array",
+          "description": "Per ring and org unit action overrides; the first rule whose rings and units match the caller wins.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "rings": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "uniqueItems": true,
+                "description": "Callers routed to these rings (default any)."
+              },
+              "units": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "uniqueItems": true,
+                "description": "Callers in these org units or their descendants (default any)."
+              },
+              "secrets": {
+                "type": "string",
+                "enum": [
+                  "off",
+                  "monitor",
+                  "redact",
+                  "block"
+                ],
+                "description": "Secret action for matching callers."
+              },
+              "injection": {
+                "type": "string",
+                "enum": [
+                  "off",
+                  "monitor",
+                  "block"
+                ],
+                "description": "Injection action for matching callers."
+              }
+            }
+          }
+        },
+        "maxScanBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864,
+          "description": "Bytes of one request body scanned (default 4 MiB); the rest passes unscanned and is counted as truncated."
+        },
+        "scanResponses": {
+          "type": "boolean",
+          "description": "Scan streamed responses for echoed secrets (monitor only, halo-proxy). Default true."
+        }
+      }
+    },
     "budgets": {
       "type": "array",
       "description": "Spend caps enforced by halo-proxy, with halo-server holding the counters (ADR-0017).",

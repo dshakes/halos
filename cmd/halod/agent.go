@@ -120,11 +120,12 @@ type Agent struct {
 	Now       func() time.Time
 	HTTP      *http.Client // ring endpoint + report
 	Download  *http.Client // install artifacts (long timeout)
-	// Home is the console user's home directory for the MCP drift check
-	// ("" = looked up from User).
-	Home string
 	// ConsoleUser, if set, refreshes User each cycle (halod runs as root).
 	ConsoleUser func(ctx context.Context) string
+	// Home returns a user's home directory for the MCP drift (ADR-0029) and
+	// posture (ADR-0032) checks of per-user settings; nil = looked up from
+	// the system, "" skips them.
+	Home func(user string) string
 	// Open returns the registry source for Cfg.Registry.
 	Open func(ctx context.Context) (oras.ReadOnlyTarget, error)
 	// Log receives diagnostics (stderr JSON in production); nil = slog.Default().
@@ -544,6 +545,7 @@ func (a *Agent) apply(ctx context.Context, st *Status, prev State, ring, subject
 			}
 		}
 	}
+	a.postureDrift(rel, st)
 	files := make([]string, 0, len(owned))
 	for p := range owned {
 		files = append(files, p)

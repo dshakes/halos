@@ -136,6 +136,14 @@ type Config struct {
 	// (default routing, no experiments; posture gate still applies) and closed
 	// answers 503. A caller is never made anonymous.
 	DirectoryFailMode string `json:"directory_fail_mode"`
+
+	// DLP audit: gateway.dlp findings are posted to halo-server's audit log
+	// (ADR-0033). Empty URL: findings are counted and logged only. The scan
+	// itself is policy and runs either way.
+	DLPURL   string `json:"dlp_url"`   // https://halo-server/api/v1/gateway/dlp
+	DLPToken string `json:"dlp_token"` // {vault://env/NAME} or literal (halo-server --gateway-dlp-token-file, else the shared gateway token)
+	// DLPAllowInsecure permits plain http to a non-loopback host.
+	DLPAllowInsecure bool `json:"dlp_allow_insecure_in_cluster"`
 }
 
 var (
@@ -356,6 +364,68 @@ func (c Config) gate(kong kongAPI, org *policy.Org, ring string, sub *policy.Sub
 	return outcomes, rej
 }
 
+var (
+	dlpMu        sync.Mutex
+	dlpReporters = map[string]*gateway.DLPReporter{} // by url, token, insecure; each runs for the process lifetime
+)
+
+// dlpReporter returns the process-wide reporter for this config; nil when
+// unconfigured or invalid (logged).
+func (c Config) dlpReporter(kong kongAPI) *gateway.DLPReporter {
+	if c.DLPURL == "" {
+		return nil
+	}
+	tok := secret(c.DLPToken)
+	key := c.DLPURL + "\x00" + tok + "\x00" + strconv.FormatBool(c.DLPAllowInsecure)
+	dlpMu.Lock()
+	defer dlpMu.Unlock()
+	if r, ok := dlpReporters[key]; ok {
+		return r
+	}
+	r, err := gateway.NewDLPReporter(c.DLPURL, tok, 0, nil, c.DLPAllowInsecure)
+	if err != nil {
+		_ = kong.Err("halo-kong: dlp config invalid; findings are not audited: ", err.Error())
+		dlpReporters[key] = nil // log once per config
+		return nil
+	}
+	dlpReporters[key] = r
+	go r.Run(context.Background()) // ponytail: a rotated token leaves the old reporter idle, not stopped; add cancel as killEntry does if rotations are frequent
+	return r
+}
+
+// dlp records a request's DLP scan: metrics, a log line without the secret,
+// and the audit events.
+func (c Config) dlp(kong kongAPI, org *policy.Org, sub *policy.Subject, h http.Header, res gateway.Result) {
+	if res.DLP != nil && res.DLP.Truncated {
+		outcome := "forwarded"
+		if res.DLP.Blocked == gateway.DLPTruncated {
+			outcome = "blocked"
+			_ = kong.Notice("halo-kong: dlp refused a request it could not scan in full (secret action block, ring ", res.Decision.Ring, ")")
+		}
+		kmetrics.dlpTruncated(outcome)
+	}
+	if res.DLP == nil || len(res.DLP.Findings) == 0 {
+		return
+	}
+	units := gateway.SubjectUnits(org, sub)
+	base := gateway.DLPEvent{At: time.Now().UTC(), Gateway: "halo-kong", Ring: res.Decision.Ring, Protocol: res.Protocol, Harness: gateway.HarnessFromUA(h.Get("User-Agent"))}
+	if sub != nil {
+		base.Subject = sub.ID
+		if sub.Delegation.Depth() > 0 {
+			base.Chain = sub.Delegation.Chain()
+		}
+	}
+	if len(units) > 0 {
+		base.Unit = units[0]
+	}
+	evs := gateway.DLPEvents(res.DLP, base)
+	for _, e := range evs {
+		kmetrics.dlpFinding(e.Kind, e.Detector, e.Action)
+		_ = kong.Notice("halo-kong: dlp ", e.Kind, " ", e.Detector, " ", e.Action, " at ", e.Location, " #", e.Hash, " (ring ", e.Ring, ")")
+	}
+	c.dlpReporter(kong).Report(evs...)
+}
+
 var envVaultRef = regexp.MustCompile(`^\{vault://env/([A-Za-z0-9_-]+)\}$`)
 
 // secret resolves a Kong env-vault reference the way Kong does
@@ -572,6 +642,7 @@ func (c Config) access(kong kongAPI) {
 	}
 	ks, ksBad := c.killPoller(kong)
 	res := gateway.PrepareVerified(ks.Apply(org), sub, h, path, body) // killed experiments: control, no shadow
+	c.dlp(kong, org, sub, h, res)
 	if res.Reject != nil {
 		if res.RewriteErr != nil {
 			_ = kong.Warn("halo-kong: rewrite failed: ", res.RewriteErr.Error())

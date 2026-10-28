@@ -212,3 +212,24 @@ func TestSpanExportAndErrors(t *testing.T) {
 		t.Fatalf("want span export error, got %v", err)
 	}
 }
+
+// DLP counts ride on the span only, for the session ledger (ADR-0033).
+func TestSpanCarriesDLPCounts(t *testing.T) {
+	e, _ := New(Config{OTLPEndpoint: "http://127.0.0.1:1", UnitSalt: "x"})
+	r := genaiReq(200, 1, 1, time.Millisecond)
+	r.DLPSecrets, r.DLPInjections = 2, 1
+	got := map[string]int64{}
+	for _, a := range e.newSpan(r, "").attrs {
+		if strings.HasPrefix(a.k, "halo.dlp.") {
+			got[a.k] = a.i
+		}
+	}
+	if got["halo.dlp.secrets"] != 2 || got["halo.dlp.injections"] != 1 {
+		t.Fatalf("span attrs %v", got)
+	}
+	for _, a := range e.newSpan(genaiReq(200, 1, 1, time.Millisecond), "").attrs {
+		if strings.HasPrefix(a.k, "halo.dlp.") {
+			t.Fatalf("clean call carries %s", a.k)
+		}
+	}
+}

@@ -120,11 +120,11 @@ export default defineConfig({
             },
             {
               label: 'Deliver to machines',
-              items: ['guides/dev-containers', 'guides/coder-workspaces', 'guides/laptops-mdm', 'guides/ci-and-cloud-agents', 'guides/cloud-agents', 'guides/agent-identity', 'guides/agent-supply-chain', 'guides/mcp-registry'],
+              items: ['guides/dev-containers', 'guides/coder-workspaces', 'guides/laptops-mdm', 'guides/ci-and-cloud-agents', 'guides/cloud-agents', 'guides/agent-identity', 'guides/agent-supply-chain', 'guides/mcp-registry', 'guides/egress-and-sandbox'],
             },
             {
               label: 'Run the gateway',
-              items: ['guides/bedrock-via-kong', 'guides/direct-anthropic', 'guides/provider-smoke', 'guides/cost-budgets'],
+              items: ['guides/bedrock-via-kong', 'guides/direct-anthropic', 'guides/provider-smoke', 'guides/cost-budgets', 'guides/dlp'],
             },
             {
               label: 'Operate',

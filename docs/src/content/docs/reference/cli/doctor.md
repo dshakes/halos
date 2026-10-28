@@ -7,7 +7,8 @@ Check this machine and the policy repo; print the exact fix for each problem
 
 Detects the AI CLIs on PATH and their versions, the tools onboarding uses, which credential
 variables are set (never their values), whether the policy validates, whether the pinned CLI
-versions match, and whether the gateway answers. Exits 1 when a check fails.
+versions match, whether the gateway answers, and each installed CLI's effective sandbox and egress
+posture (managed file, per-user settings and environment that weaken it). Exits 1 when a check fails.
 
 ## Usage
 

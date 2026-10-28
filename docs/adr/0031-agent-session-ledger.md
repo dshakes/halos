@@ -62,6 +62,7 @@ One `ledger.Record` per session (`internal/ledger`):
 | `models`, `mcpServers`, `tools` | identifiers only |
 | `repos`, `files`, `filesTouched` | `h:<hmac>` or dropped (below); the count survives |
 | `inputTokens`, `outputTokens`, `costUsd`, `start`, `end` | usage and span |
+| `dlpSecrets`, `dlpInjections` | gateway DLP findings in the session, counts only ([ADR-0033](/halos/adr/0033-gateway-dlp-and-injection-defense/)) |
 | `outcome` | `completed`, `error`, `cancelled` or `unknown` (most sources cannot tell; never guessed) |
 | `sources`, `confidence`, `redacted` | evidence, its trust, and how many values redaction withheld |
 
