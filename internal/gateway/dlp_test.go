@@ -334,6 +334,41 @@ func TestRedactsEveryMatch(t *testing.T) {
 	}
 }
 
+// TestSkipsOnlyProtocolPositions: values under keys like data, thinking or
+// id are skipped only where the protocol puts opaque blobs or ids; the same
+// keys inside a tool input or function response are scanned.
+func TestSkipsOnlyProtocolPositions(t *testing.T) {
+	aws := fakeSecrets()["aws-access-key-id"][len("export AWS_ACCESS_KEY_ID="):]
+	gh := fakeSecrets()["github-token"][len("remote token "):]
+	toolUse := rawJSON(map[string]any{"model": "m", "messages": []any{
+		map[string]any{"role": "assistant", "content": []any{map[string]any{"type": "tool_use", "id": "t1", "name": "Write",
+			"input": map[string]any{"data": aws, "thinking": gh, "id": aws, "signature": gh}}}},
+	}})
+	gemini := rawJSON(map[string]any{"contents": []any{map[string]any{"role": "function", "parts": []any{
+		map[string]any{"functionResponse": map[string]any{"name": "f", "response": map[string]any{"data": gh, "type": aws}}}}}}})
+	for name, tc := range map[string]struct {
+		proto string
+		body  []byte
+		want  int
+	}{"anthropic tool_use input": {ProtoAnthropic, toolUse, 4}, "gemini function response": {ProtoGemini, gemini, 2}} {
+		rep := ScanRequest(dlpOn(policy.DLPBlock, policy.DLPOff), tc.proto, "", nil, tc.body)
+		if rep.Count(DLPSecret) != tc.want || rep.Blocked != DLPSecret {
+			t.Errorf("%s: %d findings %+v, want %d and blocked", name, rep.Count(DLPSecret), rep.Findings, tc.want)
+		}
+	}
+	// At their protocol positions the opaque blobs stay unscanned (and unredacted).
+	opaque := rawJSON(map[string]any{"model": "m", "messages": []any{
+		map[string]any{"role": "assistant", "content": []any{
+			map[string]any{"type": "thinking", "thinking": "the key is " + gh, "signature": gh},
+			map[string]any{"type": "redacted_thinking", "data": gh},
+		}},
+		map[string]any{"role": "user", "content": []any{map[string]any{"type": "image", "source": map[string]any{"type": "base64", "media_type": "image/png", "data": gh}}}},
+	}})
+	if rep := ScanRequest(dlpOn(policy.DLPBlock, policy.DLPOff), ProtoAnthropic, "", nil, opaque); rep.Count(DLPSecret) != 0 {
+		t.Fatalf("opaque protocol blobs scanned: %+v", rep.Findings)
+	}
+}
+
 func TestBlockShapes(t *testing.T) {
 	secret := fakeSecrets()["github-token"]
 	for proto, body := range redactBodies(secret) {

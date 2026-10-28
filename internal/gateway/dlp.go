@@ -681,13 +681,72 @@ func urlAround(s string, i int) bool {
 
 // ---- request scanning ----
 
-// dlpSkipKeys are values never scanned: ids, enums, signed or opaque blobs
-// (thinking signatures, encrypted reasoning, base64 media).
+// dlpUserData are the keys whose value is caller- or tool-defined JSON: tool
+// inputs (Anthropic and Bedrock input), function arguments and responses
+// (Gemini args, response; Bedrock toolResult json), tool schemas and
+// metadata. Nothing under them is protocol: no value there is skipped, and no
+// key there is shown in a location. A top-level "input" is the OpenAI
+// Responses conversation, not a tool input.
+var dlpUserData = map[string]bool{"input": true, "args": true, "response": true, "json": true, "arguments": true,
+	"input_schema": true, "inputSchema": true, "parameters": true, "schema": true, "metadata": true}
+
+// userDataAt is the index of the first frame of st that is inside user data
+// (dlpUserData), len(st) when none is.
+func userDataAt(st []jsonFrame) int {
+	for i, f := range st {
+		if f.obj && dlpUserData[f.key] && (i > 0 || f.key != "input") {
+			return i + 1
+		}
+	}
+	return len(st)
+}
+
+// dlpSkipKeys are protocol ids and enums, never scanned at a protocol
+// position (outside user data).
 var dlpSkipKeys = map[string]bool{
 	"model": true, "id": true, "type": true, "role": true, "tool_use_id": true, "call_id": true,
-	"previous_response_id": true, "signature": true, "thoughtSignature": true, "thinking": true,
-	"encrypted_content": true, "data": true, "media_type": true, "mimeType": true, "mime_type": true,
+	"previous_response_id": true, "media_type": true, "mimeType": true, "mime_type": true,
 	"cache_control": true, "file_id": true,
+}
+
+// dlpOpaque are opaque or signed blobs, skipped only where the protocol puts
+// them: key -> the container of the object holding it ("x[]" is an element of
+// array x). Anthropic image and document source.data and redacted_thinking
+// data (base64), thinking blocks' thinking and signature (signed: changing
+// them breaks the next turn), Bedrock reasoningText.signature, Gemini
+// inlineData.data and parts[].thoughtSignature, OpenAI Responses reasoning
+// items' encrypted_content.
+var dlpOpaque = map[string][]string{
+	"data":              {"source", "inlineData", "content[]"},
+	"thinking":          {"content[]"},
+	"signature":         {"content[]", "reasoningText"},
+	"thoughtSignature":  {"parts[]"},
+	"encrypted_content": {"input[]", "output[]"},
+}
+
+// skipValue reports whether the string value at the top of st is a protocol
+// id, enum or opaque blob that is not scanned.
+func skipValue(st []jsonFrame) bool {
+	n := len(st)
+	if n == 0 || !st[n-1].obj || n-1 >= userDataAt(st) {
+		return false
+	}
+	k := st[n-1].key
+	if dlpSkipKeys[k] {
+		return true
+	}
+	where, ok := dlpOpaque[k]
+	if !ok || n < 2 {
+		return false
+	}
+	c := st[n-2].key // the object holding k is the value of this key...
+	if !st[n-2].obj {
+		if n < 3 || !st[n-3].obj {
+			return false
+		}
+		c = st[n-3].key + "[]" // ...or an element of this array
+	}
+	return slices.Contains(where, c)
 }
 
 type jsonFrame struct {
@@ -767,7 +826,7 @@ func ScanRequest(d *policy.DLP, proto, ring string, units []string, body []byte)
 			// put one in a key) and redacted like values; never scored for
 			// injection, and the location never shows the key.
 			at = st[:len(st)-1]
-		} else if len(st) > 0 && st[len(st)-1].obj && dlpSkipKeys[st[len(st)-1].key] {
+		} else if skipValue(st) {
 			return true
 		}
 		tool := toolData(proto, at)
