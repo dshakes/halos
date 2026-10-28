@@ -161,9 +161,15 @@ func TestRolloutApprovals(t *testing.T) {
 			ro = r
 		}
 	}
-	g, err := e.s.RolloutGovernance(t.Context(), ro)
+	g, err := e.s.RolloutGovernance(t.Context(), org, ro)
 	if err != nil || len(g.Approvals) != 2 || g.Incident != nil {
 		t.Fatalf("controller view: %+v %v", g, err)
+	}
+	// Editing the approved change (same rollout and step) drops the approvals.
+	edited := *ro
+	edited.Change.Release = "sha256:" + strings.Repeat("e", 64)
+	if g, err := e.s.RolloutGovernance(t.Context(), org, &edited); err != nil || len(g.Approvals) != 0 {
+		t.Fatalf("approvals carried over to an edited change: %+v %v", g, err)
 	}
 	if n := auditCount(t, e, "rollout.approve"); n != 2 {
 		t.Fatalf("rollout.approve audit entries = %d", n)

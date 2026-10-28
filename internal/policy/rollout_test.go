@@ -29,6 +29,8 @@ func TestValidateRollouts(t *testing.T) {
 		{name: "traffic alias unknown", rollout: "opus-5-5-upgrade", mut: func(_ *Org, r *Rollout) { r.Change.Alias = "nope" }, path: ".change.alias", msg: "not defined in gateway.models"},
 		{name: "treatment lacks route", rollout: "opus-5-5-upgrade", mut: func(_ *Org, r *Rollout) { r.Change.Alias = "sonnet" }, path: ".change.alias", msg: "has no route"},
 		{name: "client needs release", rollout: "claude-code-2.1.300", mut: func(_ *Org, r *Rollout) { r.Change.Release = "" }, path: ".change.release", msg: "release digest"},
+		{name: "release is a digest, not a tag", rollout: "claude-code-2.1.300", mut: func(_ *Org, r *Rollout) { r.Change.Release = "latest" }, path: ".change.release", msg: "not a sha256"},
+		{name: "release digest is lowercase hex", rollout: "claude-code-2.1.300", mut: func(_ *Org, r *Rollout) { r.Change.Release = "sha256:" + strings.Repeat("A", 64) }, path: ".change.release", msg: "not a sha256"},
 		{name: "client needs a ring-wide step", rollout: "claude-code-2.1.300", mut: func(_ *Org, r *Rollout) { r.Steps = r.Steps[:4] }, path: ".steps", msg: "progressive or blue-green"},
 		{name: "ring-wide needs baseline", rollout: "claude-code-2.1.300", mut: func(_ *Org, r *Rollout) { r.Baseline.Release = "" }, path: ".baseline.release", msg: "switch back"},
 		{name: "progressive on traffic", rollout: "opus-5-5-upgrade", mut: func(_ *Org, r *Rollout) {

@@ -139,7 +139,7 @@ func (c *Controller) rolloutStep(ctx context.Context, org *policy.Org, r *policy
 		}
 		var gov rollout.Governance
 		if c.Governance != nil {
-			if gov, err = c.Governance(ctx, r); err != nil {
+			if gov, err = c.Governance(ctx, org, r); err != nil {
 				// Unknown incident state holds advances (fail closed); a
 				// breach still rolls back, which a freeze never holds.
 				_ = c.fail(err) // recorded; the rollout is held below, not skipped

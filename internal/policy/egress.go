@@ -166,17 +166,8 @@ func (v *validator) sandbox(path string, p *Profile) {
 	}
 	for i, r := range s.WritableRoots {
 		fp := fmt.Sprintf("%s.sandbox.writableRoots[%d]", path, i)
-		switch c := cleanPath(r); {
-		case !strings.HasPrefix(r, "/") && !strings.HasPrefix(r, "~/"):
-			v.errf(fp, "%q must be absolute or start with ~/", r)
-		case c == "/" || c == "~" || strings.ContainsAny(r, "*?["):
-			v.errf(fp, "%q makes the whole disk or home writable, which is danger-full-access by another name (invariant 1)", r)
-		default:
-			for _, pp := range s.ProtectedPaths {
-				if pathCovers(c, cleanPath(pp)) || pathCovers(cleanPath(pp), c) {
-					v.errf(fp, "%q overlaps protected path %q", r, pp)
-				}
-			}
+		if msg := WritableRootProblem(r, s.ProtectedPaths); msg != "" {
+			v.errf(fp, "%s", msg)
 		}
 		if s.Mode == "read-only" || p.Permissions.Sandbox == "read-only" {
 			v.errf(fp, "writable roots contradict sandbox mode read-only")
@@ -205,6 +196,87 @@ func guardSandboxOff(o *Org) []Issue {
 		}
 	}
 	return out
+}
+
+// systemRoots may not be writable roots, nor may any ancestor of them: each
+// holds the OS, its configuration or every user's home.
+var systemRoots = []string{
+	"/applications", "/bin", "/boot", "/dev", "/etc", "/home", "/lib", "/lib64", "/library", "/opt",
+	"/private", "/private/etc", "/private/var", "/proc", "/root", "/sbin", "/sys", "/system",
+	"/users", "/usr", "/var", "/var/root", "/volumes",
+}
+
+// noWriteUnder holds the OS's binaries and configuration: nothing under them
+// may be a writable root either.
+var noWriteUnder = []string{"/bin", "/etc", "/private/etc", "/sbin", "/system", "/usr"}
+
+// homeParents hold one home directory per user (/home/alice, /Users/alice).
+var homeParents = []string{"/home", "/users"}
+
+// WritableRootProblem is why r may not be a sandbox writable root next to
+// protected ("" = fine): not absolute or ~/, a glob, the disk, a system
+// directory or one of its ancestors, a home directory (as ~ or absolute), or
+// overlapping a protected path. Paths compare case-insensitively (macOS and
+// Windows file systems are), and an absolute path under a home directory
+// (/Users/alice/.ssh) is also compared in its ~ form (~/.ssh). Shared by
+// validation and the release check (invariant 1).
+func WritableRootProblem(r string, protected []string) string {
+	if !strings.HasPrefix(r, "/") && !strings.HasPrefix(r, "~/") {
+		return fmt.Sprintf("%q must be absolute or start with ~/", r)
+	}
+	c := foldPath(r)
+	if c == "/" || c == "~" || strings.ContainsAny(r, "*?[") {
+		return fmt.Sprintf("%q makes the whole disk or home writable, which is danger-full-access by another name (invariant 1)", r)
+	}
+	for _, s := range systemRoots {
+		if pathCovers(c, s) {
+			return fmt.Sprintf("%q is or contains the system directory %s; writing there is danger-full-access by another name (invariant 1)", r, s)
+		}
+	}
+	for _, s := range noWriteUnder {
+		if pathCovers(s, c) {
+			return fmt.Sprintf("%q is under %s (system binaries or configuration) (invariant 1)", r, s)
+		}
+	}
+	if homeForm(c) == "~" {
+		return fmt.Sprintf("%q is a home directory, which is danger-full-access by another name (invariant 1)", r)
+	}
+	for _, pp := range protected {
+		p := foldPath(pp)
+		for _, a := range []string{c, homeForm(c)} {
+			for _, b := range []string{p, homeForm(p)} {
+				if pathCovers(a, b) || pathCovers(b, a) {
+					return fmt.Sprintf("%q overlaps protected path %q", r, pp)
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// foldPath is cleanPath, lower-cased: overlap checks must hold on
+// case-insensitive file systems.
+func foldPath(p string) string { return strings.ToLower(cleanPath(p)) }
+
+// homeForm maps a folded absolute path under a home directory (/home/x/...,
+// /users/x/..., /root/..., /var/root/...) to its ~ form; other paths are
+// returned as they are.
+func homeForm(c string) string {
+	for _, h := range []string{"/root", "/var/root"} {
+		if pathCovers(h, c) {
+			return "~" + strings.TrimPrefix(c, h)
+		}
+	}
+	for _, hp := range homeParents {
+		if rest, ok := strings.CutPrefix(c, hp+"/"); ok {
+			_, sub, _ := strings.Cut(rest, "/")
+			if sub == "" {
+				return "~"
+			}
+			return "~/" + sub
+		}
+	}
+	return c
 }
 
 // cleanPath normalises a policy path for overlap checks (~/x stays ~/x).

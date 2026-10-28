@@ -78,10 +78,10 @@ Validation errors (missing reason, unknown zone, bad weekday or time, end not af
 | Action | During a freeze |
 |---|---|
 | Rollout controller advance | held; the decision says why, once per step |
-| `halo rollout advance`, MCP `propose_rollout_advance` | refused with the windows and next open time (`--force` does not override) |
+| `halo rollout advance`, MCP `propose_rollout_advance` | refused with the windows and next open time (`--force` does not override); without halo-server the CLI checks policy windows only and warns that the incident freeze was not checked |
 | `halo exp promote`, MCP `propose_promotion` | refused (dry runs show the patch and the refusal) |
 | Rollout rollback and pause, `propose_rollback`, the kill switch | always allowed |
-| Policy-repo PRs | `halo freeze check --branch <head>` is a required status check that fails while frozen; Halos rollback and pause branches always pass |
+| Policy-repo PRs | `halo freeze check --event "$GITHUB_EVENT_PATH"` (pull_request and merge_group) is a required status check that fails while frozen. Windows are read from the base branch, never the PR. A rollback, classified from the diff (rollout status paused or aborted, experiment status paused, ring release moved to one it pointed at before on the base branch, nothing else), always passes; branch names are not trusted |
 
 `halo freeze status [--ring] [--at]` lists each ring, whether it is frozen, why, and when it opens. The controller treats unreadable governance state as an incident freeze.
 
@@ -90,7 +90,7 @@ Validation errors (missing reason, unknown zone, bad weekday or time, end not af
 Every rule whose scope covers a change must be met. An approval counts when the approver holds one of the rule's groups at approval time (IdP claims or the SCIM directory), is not the requester, has not already approved, and, with `distinctGroups`, adds a group no counted approval used. Ignored approvals are listed with the reason. When a rule has a `ticket` pattern, the change needs a ticket reference matching it whole.
 
 - **Access requests.** A covered request needs its ticket when filed. Each approval is audit-strict; the request answers 202 until the quorum is met, then is granted.
-- **Rollout steps.** `POST /api/v1/rollouts/{name}/approve` (approver role; `halo rollout approve <name> --ticket`) records an approval for advancing from the live step. Approvals are keyed by rollout, step and change, so they never carry over. The controller, `halo rollout advance` and `propose_rollout_advance` count them; the CLI and MCP pass the caller as requester so they cannot approve their own advance. Advance PR bodies record the ticket and the approvers.
+- **Rollout steps.** `POST /api/v1/rollouts/{name}/approve` (approver role; `halo rollout approve <name> --ticket`) records an approval for advancing from the live step. Approvals are keyed by rollout, step and a hash of the change (release digest, alias, backing experiment and the treatment's route for the alias), so they never carry over to another step or to an edited change. `change.release` must be a `sha256:<64 hex>` digest. The controller, `halo rollout advance` and `propose_rollout_advance` count them; the CLI and MCP pass the caller as requester so they cannot approve their own advance. Advance PR bodies record the ticket and the approvers.
 
 ### Impact preview
 

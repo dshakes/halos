@@ -2,6 +2,7 @@ package harness_test
 
 import (
 	"io/fs"
+	"strings"
 	"testing"
 
 	"github.com/dshakes/halos/internal/harness"
@@ -26,6 +27,10 @@ func TestReadPosture(t *testing.T) {
 			"modes [read-only workspace-write] (managed)", "default deny, 1 allowed, 0 denied (managed)", 1},
 		{"codex user escape ignored without managed sandbox", "codex", map[string]string{home + "/.codex/config.toml": `sandbox_mode = "danger-full-access"`},
 			"not managed", "not managed", 0},
+		{"codex profile escape", "codex", map[string]string{"/etc/codex/requirements.toml": codexReq, home + "/.codex/config.toml": "profile = \"yolo\"\n[profiles.yolo]\nsandbox_mode = \"danger-full-access\"\n"},
+			"modes [read-only workspace-write] (managed)", "default deny, 1 allowed, 0 denied (managed)", 1},
+		{"codex inactive profile escape and top-level escape", "codex", map[string]string{"/etc/codex/requirements.toml": codexReq, home + "/.codex/config.toml": "sandbox_mode = \"danger-full-access\"\n[profiles.safe]\nsandbox_mode = \"read-only\"\n[profiles.later]\nsandbox_mode = \"danger-full-access\"\n"},
+			"modes [read-only workspace-write] (managed)", "default deny, 1 allowed, 0 denied (managed)", 2},
 		{"codex harmless user config", "codex", map[string]string{"/etc/codex/requirements.toml": codexReq, home + "/.codex/config.toml": `sandbox_mode = "read-only"`},
 			"modes [read-only workspace-write] (managed)", "default deny, 1 allowed, 0 denied (managed)", 0},
 		{"gemini user off", "gemini-cli", map[string]string{"/etc/gemini-cli/settings.json": `{"tools":{"sandbox":true}}`, home + "/.gemini/settings.json": `{"tools":{"sandbox":false}}`},
@@ -51,9 +56,12 @@ func TestReadPosture(t *testing.T) {
 				t.Fatalf("posture = %+v, want sandbox %q egress %q with %d findings", got, tt.sandbox, tt.egress, tt.findings)
 			}
 			for _, f := range got.Findings {
-				if f.Problem == "" || f.Fix == "" {
+				if f.Problem == "" || f.Fix == "" || strings.Contains(f.Problem, "%") {
 					t.Errorf("finding without problem or fix: %+v", f)
 				}
+			}
+			if tt.name == "codex profile escape" && !strings.Contains(got.Findings[0].Problem, "profiles.yolo.sandbox_mode") {
+				t.Errorf("finding does not name the profile: %+v", got.Findings)
 			}
 		})
 	}

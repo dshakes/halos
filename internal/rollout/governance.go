@@ -2,6 +2,9 @@ package rollout
 
 import (
 	"cmp"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -43,9 +46,25 @@ func Target(org *policy.Org, r *policy.Rollout, from int) policy.ChangeTarget {
 }
 
 // ApprovalKey names the approvals of advancing r from its live step: they
-// never carry over to another step or another change.
-func ApprovalKey(r *policy.Rollout) string {
-	return r.Name + "/" + cmp.Or(r.Step, "-") + "/" + cmp.Or(r.Change.Release, r.Change.Alias, "-")
+// never carry over to another step or another change. The change is the
+// release digest, the alias, the backing experiment and the treatment's route
+// for the alias in org, hashed: editing any of them after an approval
+// invalidates it.
+func ApprovalKey(org *policy.Org, r *policy.Rollout) string {
+	change := struct {
+		Release, Alias, Experiment string
+		Route                      *policy.ModelRoute `json:",omitempty"`
+	}{r.Change.Release, r.Change.Alias, r.Experiment, nil}
+	if e := findExp(org, r.Experiment); e != nil {
+		if _, t, ok := e.Arms(); ok {
+			if rt, ok := t.Routes[r.Change.Alias]; ok {
+				change.Route = &rt
+			}
+		}
+	}
+	b, _ := json.Marshal(change) // strings and a plain struct: cannot fail
+	sum := sha256.Sum256(b)
+	return r.Name + "/" + cmp.Or(r.Step, "-") + "/" + hex.EncodeToString(sum[:16])
 }
 
 // Apply sets ev.Freeze and ev.Quorum for advancing r from st.Step at now. A

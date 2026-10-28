@@ -118,6 +118,62 @@ func TestEgressSandboxValidation(t *testing.T) {
 	}
 }
 
+// TestWritableRootProblem: home and system directories (and their ancestors)
+// are refused, and overlaps with protected paths are found across case and
+// across the ~ and absolute forms.
+func TestWritableRootProblem(t *testing.T) {
+	prot := []string{"~/.ssh", "~/.aws", ".env*"}
+	tests := []struct {
+		root string
+		want string // "" = accepted
+	}{
+		{"/tmp/build", ""},
+		{"/opt/cache", ""},
+		{"~/.cache/go-build", ""},
+		{"/Users/alice/code", ""},
+		{"/var/folders/x", ""},
+		{"/", "whole disk"},
+		{"~/", "whole disk"},
+		{"~/..", "whole disk"},
+		{"/home", "system directory"},
+		{"/Users", "system directory"},
+		{"/USERS", "system directory"},
+		{"/etc", "system directory"},
+		{"/usr", "system directory"},
+		{"/var", "system directory"},
+		{"/System", "system directory"},
+		{"/Library", "system directory"},
+		{"/root", "system directory"},
+		{"/private", "system directory"},
+		{"/etc/sudoers.d", "under /etc"},
+		{"/usr/local/bin", "under /usr"},
+		{"/Users/alice", "home directory"},
+		{"/home/bob/", "home directory"},
+		{"/users/Alice", "home directory"},
+		{"/Users/alice/.ssh", "overlaps protected"},
+		{"/home/bob/.ssh/keys", "overlaps protected"},
+		{"~/.SSH", "overlaps protected"},
+		{"/root/.aws", "overlaps protected"},
+		{"~/.aws/cli", "overlaps protected"},
+		{`C:\Users\alice`, "must be absolute"},
+		{`C:\`, "must be absolute"},
+		{"build", "must be absolute"},
+		{"/opt/*", "whole disk"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.root, func(t *testing.T) {
+			got := WritableRootProblem(tt.root, prot)
+			if (tt.want == "") != (got == "") || !strings.Contains(got, tt.want) {
+				t.Fatalf("WritableRootProblem(%q) = %q, want %q", tt.root, got, tt.want)
+			}
+		})
+	}
+	// An absolute protected path matches a ~ root too.
+	if got := WritableRootProblem("~/.gnupg", []string{"/Users/alice/.GnuPG"}); !strings.Contains(got, "overlaps") {
+		t.Fatalf("absolute protected path vs ~ root: %q", got)
+	}
+}
+
 func TestResolveProfileEgressSandbox(t *testing.T) {
 	o := &Org{Profiles: map[string]*Profile{
 		"parent": {Meta: Meta{Name: "parent"}, Permissions: Permissions{Sandbox: "workspace-write"},

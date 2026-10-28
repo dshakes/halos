@@ -3,6 +3,8 @@ package harness
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 
 	toml "github.com/pelletier/go-toml/v2"
@@ -69,9 +71,16 @@ var postureSpecs = map[string]postureSpec{
 			eg = netSummary(get(d, "experimental_network.managed_allowed_domains_only") == true, allow, deny)
 		}
 		return sb, eg
-	}, user: []userCheck{{file: ".codex/config.toml", key: "sandbox_mode", bad: is("danger-full-access"),
-		problem: `~/.codex/config.toml sets sandbox_mode = "danger-full-access"`,
-		fix:     "remove sandbox_mode from ~/.codex/config.toml; requirements.toml refuses it on codex >= 0.77.0, older versions run unsandboxed"}}},
+	}, user: []userCheck{
+		{file: ".codex/config.toml", key: "sandbox_mode", bad: is("danger-full-access"),
+			problem: `~/.codex/config.toml sets sandbox_mode = "danger-full-access"`,
+			fix:     "remove sandbox_mode from ~/.codex/config.toml; requirements.toml refuses it on codex >= 0.77.0, older versions run unsandboxed"},
+		// Any named profile: `profile = "x"` or `codex --profile x` selects it.
+		// A project's .codex/config.toml is out of halod's reach (ADR-0032).
+		{file: ".codex/config.toml", key: "profiles.*.sandbox_mode", bad: is("danger-full-access"),
+			problem: `~/.codex/config.toml sets %s = "danger-full-access"`,
+			fix:     "remove sandbox_mode from that profile in ~/.codex/config.toml; requirements.toml refuses it on codex >= 0.77.0, older versions run unsandboxed"},
+	}},
 	"gemini-cli": {file: "settings.json", summary: func(d map[string]any) (string, string) {
 		if v := get(d, "tools.sandbox"); v != nil && v != false {
 			return fmt.Sprintf("tools.sandbox=%v (system default; --sandbox and GEMINI_SANDBOX override it)", v), ""
@@ -148,8 +157,14 @@ func ReadPosture(name string, os OS, home string, read func(string) ([]byte, err
 	}
 	for _, u := range spec.user {
 		doc := decode(read, strings.TrimRight(home, `/\`)+sep+strings.ReplaceAll(u.file, "/", sep))
-		if v := get(doc, u.key); v != nil && u.bad(v) {
-			p.Findings = append(p.Findings, Finding{Problem: u.problem, Fix: u.fix})
+		for _, kv := range getAll(doc, u.key) {
+			if u.bad(kv.v) {
+				prob := u.problem
+				if strings.Contains(u.key, "*") {
+					prob = fmt.Sprintf(prob, kv.key)
+				}
+				p.Findings = append(p.Findings, Finding{Problem: prob, Fix: u.fix})
+			}
 		}
 	}
 	return p
@@ -171,6 +186,39 @@ func decode(read func(string) ([]byte, error), path string) map[string]any {
 		return nil
 	}
 	return doc
+}
+
+type keyVal struct {
+	key string
+	v   any
+}
+
+// getAll is every non-nil value at a dotted key whose "*" segments match any
+// map key, in key order, with the concrete key.
+func getAll(doc map[string]any, key string) []keyVal {
+	var out []keyVal
+	var walk func(cur any, segs []string, at string)
+	walk = func(cur any, segs []string, at string) {
+		if len(segs) == 0 {
+			if cur != nil {
+				out = append(out, keyVal{strings.TrimPrefix(at, "."), cur})
+			}
+			return
+		}
+		m, ok := cur.(map[string]any)
+		if !ok {
+			return
+		}
+		if segs[0] != "*" {
+			walk(m[segs[0]], segs[1:], at+"."+segs[0])
+			return
+		}
+		for _, k := range slices.Sorted(maps.Keys(m)) {
+			walk(m[k], segs[1:], at+"."+k)
+		}
+	}
+	walk(doc, strings.Split(key, "."), "")
+	return out
 }
 
 // get returns the value at a dotted key, or nil.

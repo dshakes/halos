@@ -16,10 +16,10 @@ import (
 // or unreadable governance state) holds starts and advances, never a
 // rollback or its kill (ADR-0030).
 func TestRolloutFreezeMatrix(t *testing.T) {
-	incident := func(context.Context, *policy.Rollout) (rollout.Governance, error) {
+	incident := func(context.Context, *policy.Org, *policy.Rollout) (rollout.Governance, error) {
 		return rollout.Governance{Incident: &policy.ActiveFreeze{By: "oncall@x", Reason: "SEV1"}}, nil
 	}
-	broken := func(context.Context, *policy.Rollout) (rollout.Governance, error) {
+	broken := func(context.Context, *policy.Org, *policy.Rollout) (rollout.Governance, error) {
 		return rollout.Governance{}, errors.New("store down")
 	}
 	window := func(r *rig, now time.Time) {
@@ -29,7 +29,7 @@ func TestRolloutFreezeMatrix(t *testing.T) {
 	for _, c := range []struct {
 		name  string
 		setup func(*rig, time.Time)
-		gov   func(context.Context, *policy.Rollout) (rollout.Governance, error)
+		gov   func(context.Context, *policy.Org, *policy.Rollout) (rollout.Governance, error)
 	}{
 		{"policy window", window, nil},
 		{"incident freeze", nil, incident},
@@ -78,7 +78,7 @@ func TestRolloutQuorumGatesTheController(t *testing.T) {
 	r.org.Experiments[0].Rings = []string{"ring1"}
 	r.org.Governance = &policy.Governance{Approvals: []policy.ApprovalRule{{Name: "two", Quorum: 2, Groups: []string{"sre"}, Ticket: `CHG[0-9]+`}}}
 	var approvals []policy.Approval
-	r.c.Governance = func(context.Context, *policy.Rollout) (rollout.Governance, error) {
+	r.c.Governance = func(context.Context, *policy.Org, *policy.Rollout) (rollout.Governance, error) {
 		return rollout.Governance{Approvals: approvals}, nil
 	}
 	ticks(t, r.c, 2)

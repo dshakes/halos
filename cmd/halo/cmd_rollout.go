@@ -218,6 +218,9 @@ func (a *app) cmdRollout() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if !aev.governed {
+				a.warnNoIncidentFreeze()
+			}
 			if (d.Action == rollout.Rollback || d.Action == rollout.Pause) && !force {
 				return fmt.Errorf("rollout %s: a gate failed (%s); refusing to advance without --force", r.Name, strings.Join(d.Reasons, "; "))
 			}
@@ -278,6 +281,14 @@ func (a *app) cmdRollout() *cobra.Command {
 		}
 	}
 	return c
+}
+
+// warnNoIncidentFreeze says, on stderr, that a forward change was checked
+// against the policy's freeze windows only: without halo-server the incident
+// freeze (halo freeze on) is unknown. The CLI stays usable offline; the PR's
+// required `halo freeze check` and the controller still hold it.
+func (a *app) warnNoIncidentFreeze() {
+	fmt.Fprintln(a.errw, a.yellow("warning:"), "no halo-server configured: checked the policy's freeze windows only, not the incident freeze (set --server or HALO_SERVER, and HALO_SESSION)")
 }
 
 // governanceRefusal is why an advance may not be proposed now: a change

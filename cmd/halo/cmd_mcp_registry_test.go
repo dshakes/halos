@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 const playwrightServerJSON = `{"server":{"name":"io.github.microsoft/playwright-mcp","version":"0.0.82",
@@ -42,6 +43,65 @@ func TestMCPRegistryImport(t *testing.T) {
 	}
 	if code, _, errOut := halo(t, "mcp", "registry", "import", "http://registry.example/server.json"); code == 0 || !strings.Contains(errOut, "https") {
 		t.Fatalf("plain http accepted: %d %s", code, errOut)
+	}
+}
+
+// TestRegistryClientRedirects: a redirect to plain http or another host is
+// refused; one on the same https host is followed; the body is size-capped.
+func TestRegistryClientRedirects(t *testing.T) {
+	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(playwrightServerJSON))
+	}))
+	defer plain.Close()
+	other := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(playwrightServerJSON))
+	}))
+	defer other.Close()
+	var tls *httptest.Server
+	tls = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/to-http":
+			http.Redirect(w, r, plain.URL+"/s.json", http.StatusFound)
+		case "/to-other":
+			http.Redirect(w, r, other.URL+"/s.json", http.StatusFound)
+		case "/same":
+			http.Redirect(w, r, tls.URL+"/s.json", http.StatusFound)
+		case "/big":
+			_, _ = w.Write([]byte(strings.Repeat(" ", maxServerJSON+10)))
+		default:
+			_, _ = w.Write([]byte(playwrightServerJSON))
+		}
+	}))
+	defer tls.Close()
+	loopHTTP := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, other.URL+"/s.json", http.StatusFound)
+	}))
+	defer loopHTTP.Close()
+	tests := []struct {
+		url  string
+		want string // "" = fetched
+	}{
+		{tls.URL + "/same", ""},
+		{tls.URL + "/to-http", "https only"},
+		{tls.URL + "/to-other", "another host"},
+		{loopHTTP.URL + "/x", "another host"},
+		{tls.URL + "/big", "over"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.url, func(t *testing.T) {
+			hc := registryClient(5 * time.Second)
+			hc.Transport = tls.Client().Transport
+			b, err := readServerJSON(t.Context(), hc, "", tt.url)
+			if tt.want == "" {
+				if err != nil || !strings.Contains(string(b), "playwright") {
+					t.Fatalf("fetch: %v %s", err, b)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("err %v, want %q", err, tt.want)
+			}
+		})
 	}
 }
 

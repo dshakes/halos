@@ -71,6 +71,8 @@ Both are admin-only and audit-strict, and need a reason. The incident freeze cov
 | `halo exp promote`, MCP `propose_promotion` | refused; `--dry-run` shows the patch and the refusal |
 | `halo rollout rollback`/`pause`, MCP `propose_rollback`, the kill switch | always allowed |
 
+The CLI sees the incident freeze only through halo-server. Without `--server` (or `HALO_SERVER`) and `HALO_SESSION`, `halo rollout advance` and `halo exp promote` check the policy's windows only and print a warning saying so. The controller, and `halo freeze check` run with `--server`, still hold it.
+
 ## Block merges during a freeze
 
 A PR opened before a freeze can still be merged during one. Add `halo freeze check` as a required status check on the policy repo, ideally in the merge queue so it runs at merge time:
@@ -82,10 +84,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: halo freeze check --branch "${{ github.head_ref || github.ref_name }}"
+        with:
+          fetch-depth: 0 # the base branch and its history
+      - run: halo freeze check --event "$GITHUB_EVENT_PATH"
 ```
 
-It exits non-zero while any ring (or `--ring`) is frozen. Halos rollback and pause branches always pass.
+It exits non-zero while any ring (or `--ring`) is frozen. With `--event` (a `pull_request` or `merge_group` payload), the freeze windows come from the base branch (`origin/<base>`), never from the PR: a PR that deletes a window is still held by it. A rollback always passes, recognised from the diff, not the branch name. A change is a rollback only when every changed file is an existing policy YAML file, no document is added or removed, and each changed document differs only in:
+
+- a Rollout `status` set to `paused` or `aborted`;
+- an Experiment `status` set to `paused`;
+- a Ring `release` set to a release that ring pointed at before on the base branch.
+
+Anything else, comments aside, is a forward change. Locally, `--base origin/main` does the same against a ref. Without either flag, the check reads the local policy and exempts nothing. `--branch` is no longer accepted.
 
 ## Approve a rollout step
 
@@ -95,7 +105,7 @@ When an approval rule covers the rings a rollout's next step enters, the step ne
 halo rollout approve claude-upgrade --ticket CHG0012345
 ```
 
-- The approver must hold one of the rule's groups (IdP claims or the SCIM directory). Approvals are audit-strict and keyed by rollout, step and change: they never carry over.
+- The approver must hold one of the rule's groups (IdP claims or the SCIM directory). Approvals are audit-strict and keyed by rollout, step and a hash of the change (release digest, or the backing experiment and its treatment route): they never carry over, and editing the change after an approval voids it.
 - The person proposing an advance never counts toward its quorum, and nobody counts twice. With `distinctGroups`, each counted approval adds a group no other counted approval used.
 - `halo rollout status` and MCP `rollout_status` show approvals, what is missing and any freeze. The advance PR body records the ticket and approvers.
 

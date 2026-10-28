@@ -71,7 +71,7 @@ Exactly one transport: `url` (https), `package` (`npm` and `pypi` need an exact 
 
 In `allowlist` mode, profiles, unit overlays and toggles may only name registry servers, and a toggle must carry the registry's own URL or command. A profile may not redefine a registry server. An unknown mode fails closed (treated as allowlist, and an error). Errors under `mcp` are security issues: halo-server and the gateways refuse to load such a policy.
 
-`halo mcp registry import <name|https-url|file>` reads the official MCP Registry `server.json` (a name is fetched read-only from `/v0/servers/<name>/versions/latest`) and prints a pinned entry, with notes for what it does not carry (arguments, required environment, headers, rings).
+`halo mcp registry import <name|https-url|file>` reads the official MCP Registry `server.json` (a name is fetched read-only from `/v0/servers/<name>/versions/latest`; https only, redirects only on the same host and never to plain http, at most 1 MiB) and prints a pinned entry, with notes for what it does not carry (arguments, required environment, headers, rings).
 
 ### Rendering
 

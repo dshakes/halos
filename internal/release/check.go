@@ -219,10 +219,12 @@ func tmpRoot(v any) bool {
 	return c == "/tmp" || strings.HasPrefix(c, "/tmp/")
 }
 
-// policyRoot: a writable root the profile's sandbox.writableRoots names.
+// policyRoot: a writable root the profile's sandbox.writableRoots names and
+// validation would accept (no home or system directory, no overlap with a
+// protected path): a profile that skipped validation cannot smuggle one in.
 func policyRoot(p *policy.Profile, v any) bool {
 	s, ok := v.(string)
-	return ok && slices.Contains(p.Sandbox.WritableRoots, s)
+	return ok && slices.Contains(p.Sandbox.WritableRoots, s) && policy.WritableRootProblem(s, p.Sandbox.ProtectedPaths) == ""
 }
 
 // checkGemini: security.disableYoloMode refuses YOLO mode. (admin.secureModeEnabled

@@ -125,12 +125,12 @@ func (s *Server) IncidentFreeze() (*policy.ActiveFreeze, error) {
 
 // RolloutGovernance is controller.Controller.Governance for this server: the
 // incident freeze and the approvals recorded for r's live step.
-func (s *Server) RolloutGovernance(_ context.Context, r *policy.Rollout) (rollout.Governance, error) {
+func (s *Server) RolloutGovernance(_ context.Context, org *policy.Org, r *policy.Rollout) (rollout.Governance, error) {
 	inc, err := s.IncidentFreeze()
 	if err != nil {
 		return rollout.Governance{}, fmt.Errorf("incident freeze: %w", err)
 	}
-	as, err := s.approvals.get(rollout.ApprovalKey(r))
+	as, err := s.approvals.get(rollout.ApprovalKey(org, r))
 	if err != nil {
 		return rollout.Governance{}, fmt.Errorf("rollout %s approvals: %w", r.Name, err)
 	}
@@ -222,7 +222,7 @@ type RolloutApprovals struct {
 }
 
 func (s *Server) rolloutApprovals(org *policy.Org, ro *policy.Rollout) (RolloutApprovals, error) {
-	as, err := s.approvals.get(rollout.ApprovalKey(ro))
+	as, err := s.approvals.get(rollout.ApprovalKey(org, ro))
 	if err != nil {
 		return RolloutApprovals{}, err
 	}
@@ -317,7 +317,7 @@ func (s *Server) postRolloutApprove(w http.ResponseWriter, r *http.Request, p Pr
 			}
 		}
 	}
-	key := rollout.ApprovalKey(ro)
+	key := rollout.ApprovalKey(org, ro)
 	if as, err := s.approvals.get(key); err != nil {
 		s.cfg.Log.Error("read rollout approvals", "rollout", ro.Name, "err", err)
 		apiErr(w, http.StatusServiceUnavailable, "state store unavailable")

@@ -67,7 +67,7 @@ egress:
 
 ### Validation (bypass-shaped combinations are errors)
 
-- `writableRoots` of `/`, `~` or a glob (the whole disk or home writable), a relative root, a root over or under a protected path, or any root with mode `read-only`.
+- `writableRoots` of `/`, `~` or a glob (the whole disk or home writable), a home directory (`/home/<user>`, `/Users/<user>`, `/root`) or a system directory or any ancestor of one (`/etc`, `/usr`, `/var`, `/home`, `/Users`, `/System`, `/Library`, `/private`, ...), anything under `/etc`, `/usr`, `/bin`, `/sbin` or `/System`, a relative or drive-letter root, a root over or under a protected path, or any root with mode `read-only`. Overlap is compared case-insensitively (macOS and Windows file systems are) and in both forms: `/Users/alice/.ssh` overlaps `~/.ssh`. The release check applies the same rule to rendered Codex `writable_roots`, which Codex has no deny-write list to hold against protected paths (they render as `deny_read`).
 - Mode `off` with egress rules or sandbox paths: the shell would run outside every rule the profile states.
 - A bare `*`, a URL, a port or upper case in a domain list; an unknown preset; `default: allow` together with an allowlist.
 - A restricted egress policy that denies the gateway host.
@@ -79,7 +79,7 @@ Per the research table. Claude Code turns the sandbox on whenever egress or sand
 
 ### Endpoint verification
 
-`harness.ReadPosture` reads, per harness, the managed file (what the release turned on) and the per-user settings that can weaken it: `~/.codex/config.toml` `sandbox_mode = "danger-full-access"`, `~/.gemini/settings.json` `tools.sandbox = false`, `~/.cursor/sandbox.json` `type = "insecure_none"`. `halod` adds each finding to the device report's `drift` as `posture:<harness>: <problem>; fix: <fix>`, so ring posture gates (ADR-0011) see it; it never rewrites a user's file. It reads those files only if they are regular, at most 1 MiB, opened non-blocking (a FIFO cannot hang the cycle), and never echoes their content. `halo doctor` shows the effective posture of every installed harness and adds environment overrides (`GEMINI_SANDBOX=false`, `OPENCODE_PERMISSION`, `CODEX_HOME`).
+`harness.ReadPosture` reads, per harness, the managed file (what the release turned on) and the per-user settings that can weaken it: `~/.codex/config.toml` `sandbox_mode = "danger-full-access"` at the top level or in any `[profiles.<name>]` (the active one or any `--profile` can select), `~/.gemini/settings.json` `tools.sandbox = false`, `~/.cursor/sandbox.json` `type = "insecure_none"`. `halod` adds each finding to the device report's `drift` as `posture:<harness>: <problem>; fix: <fix>`, so ring posture gates (ADR-0011) see it; it never rewrites a user's file. A project's own `.codex/config.toml` and command-line overrides (`-s`, `-c`, `--profile`) are outside halod's reach; there `requirements.toml` `allowed_sandbox_modes` (codex >= 0.77.0) is the only control. It reads those files only if they are regular, at most 1 MiB, opened non-blocking (a FIFO cannot hang the cycle), and never echoes their content. `halo doctor` shows the effective posture of every installed harness and adds environment overrides (`GEMINI_SANDBOX=false`, `OPENCODE_PERMISSION`, `CODEX_HOME`).
 
 ### `halo egress test`
 

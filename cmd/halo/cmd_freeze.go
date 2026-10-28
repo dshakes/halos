@@ -16,7 +16,9 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/dshakes/halos/internal/impact"
 	"github.com/dshakes/halos/internal/policy"
+	"github.com/dshakes/halos/internal/promote"
 	"github.com/dshakes/halos/internal/rollout"
 	"github.com/dshakes/halos/internal/server"
 )
@@ -132,16 +134,6 @@ func freezeFor(ctx context.Context, org *policy.Org, target policy.ChangeTarget,
 	return st, ok, nil
 }
 
-// rollbackBranch reports whether a PR branch is one Halos opens to roll back
-// or pause (MCP, CLI or the controller's rollback verdict): never frozen.
-func rollbackBranch(b string) bool {
-	b = strings.TrimPrefix(b, "refs/heads/")
-	if strings.HasPrefix(b, "halos/rollback-") || strings.HasPrefix(b, "halos/pause-") || strings.HasPrefix(b, "halos/status-paused-") {
-		return true
-	}
-	return strings.HasPrefix(b, "halos/rollout-") && (strings.HasSuffix(b, "-"+string(rollout.Rollback)) || strings.HasSuffix(b, "-"+string(rollout.Pause)))
-}
-
 func (a *app) cmdFreeze() *cobra.Command {
 	c := &cobra.Command{Use: "freeze", Short: "Change freezes: policy windows and the incident freeze (ADR-0030); rollbacks are never frozen"}
 	var sf serverFlags
@@ -186,7 +178,11 @@ func (a *app) cmdFreeze() *cobra.Command {
 	status := &cobra.Command{
 		Use: "status", Short: "Show which rings are frozen now (or --at), why, and when each opens", Args: cobra.NoArgs, Annotations: policyDirAnno,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			rows, ok, err := a.freezeRows(cmd, sf, ring, at)
+			dir, err := policyDir(cmd, nil)
+			if err != nil {
+				return err
+			}
+			rows, ok, err := a.freezeRows(cmd, sf, dir, ring, at)
 			if err != nil {
 				return err
 			}
@@ -210,18 +206,46 @@ func (a *app) cmdFreeze() *cobra.Command {
 			})
 		},
 	}
+	var event, base string
 	check := &cobra.Command{
-		Use: "check", Short: "Exit non-zero while a change to --ring (default: any ring) is frozen; rollback branches always pass (CI status check)", Args: cobra.NoArgs, Annotations: policyDirAnno,
-		Long: "A required status check for policy-repo pull requests. --branch is the PR's head branch: Halos'\n" +
-			"rollback and pause branches (halos/rollback-*, halos/rollout-*-rollback, -pause) always pass, so the way\n" +
-			"back is never blocked. Run it in the merge queue (merge_group) so it is evaluated at merge time.",
+		Use: "check", Short: "Exit non-zero while a change to --ring (default: any ring) is frozen; rollbacks always pass (CI status check)", Args: cobra.NoArgs, Annotations: policyDirAnno,
+		Long: "A required status check for policy-repo pull requests and the merge queue. With --event (the\n" +
+			"GitHub event payload: pull_request or merge_group) or --base, freeze windows are read from the base\n" +
+			"branch, never from the change itself, and the change is classified from its diff: one that only\n" +
+			"pauses or aborts rollouts, pauses experiments, or moves rings back to a release they pointed at\n" +
+			"before on the base branch is a rollback and always passes. Needs the base history (actions/checkout\n" +
+			"fetch-depth: 0). Without either flag it checks the local policy's windows and exempts nothing.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if branch != "" && rollbackBranch(branch) {
-				return a.emit(map[string]any{"frozen": false, "rollback": true}, func() {
-					fmt.Fprintln(a.out, a.green("ok:"), branch, "is a rollback: never frozen")
-				})
+			if branch != "" {
+				return errors.New("--branch is no longer trusted (a branch name proves nothing): pass --event \"$GITHUB_EVENT_PATH\" so the base branch's windows apply and rollbacks are recognised from the diff")
 			}
-			rows, _, err := a.freezeRows(cmd, sf, ring, at)
+			dir, err := policyDir(cmd, nil)
+			if err != nil {
+				return err
+			}
+			var ch *ciChange
+			switch {
+			case event != "" && base != "":
+				return errors.New("set --event or --base, not both")
+			case event != "":
+				c, err := eventChange(event)
+				if err != nil {
+					return err
+				}
+				ch = &c
+			case base != "":
+				ch = &ciChange{base: base, from: base}
+			}
+			govDir := dir
+			if ch != nil {
+				d, cleanup, err := impact.CheckoutAt(cmd.Context(), dir, ch.base)
+				if err != nil {
+					return fmt.Errorf("freeze check: read the base branch's policy (fetch it: actions/checkout fetch-depth: 0): %w", err)
+				}
+				defer cleanup()
+				govDir = d
+			}
+			rows, _, err := a.freezeRows(cmd, sf, govDir, ring, at)
 			if err != nil {
 				return err
 			}
@@ -230,6 +254,22 @@ func (a *app) cmdFreeze() *cobra.Command {
 				if r.Status.Frozen {
 					held = append(held, r.Ring+": "+r.Status.String())
 				}
+			}
+			if len(held) > 0 && ch != nil {
+				top, err := promote.Run(cmd.Context(), dir, "git", "rev-parse", "--show-toplevel")
+				if err != nil {
+					return fmt.Errorf("freeze check: %w", err)
+				}
+				rb, why, err := rollbackDiff(cmd.Context(), strings.TrimSpace(string(top)), *ch)
+				if err != nil {
+					return err
+				}
+				if rb {
+					return a.emit(map[string]any{"frozen": false, "rollback": true, "rings": rows}, func() {
+						fmt.Fprintln(a.out, a.green("ok:"), "the change is a rollback: never frozen")
+					})
+				}
+				held = append(held, "not a rollback: "+why)
 			}
 			if err := a.emit(map[string]any{"frozen": len(held) > 0, "rings": rows}, func() {
 				if len(held) == 0 {
@@ -250,7 +290,10 @@ func (a *app) cmdFreeze() *cobra.Command {
 		sf.add(cmd, "to include the incident freeze")
 		c.AddCommand(cmd)
 	}
-	check.Flags().StringVar(&branch, "branch", "", "PR head branch; rollback and pause branches always pass")
+	check.Flags().StringVar(&event, "event", "", "GitHub event payload ($GITHUB_EVENT_PATH; pull_request or merge_group): windows from the base branch, rollbacks from the diff")
+	check.Flags().StringVar(&base, "base", "", "git ref of the protected base branch (e.g. origin/main): windows from it, rollbacks from the diff against it")
+	check.Flags().StringVar(&branch, "branch", "", "removed: use --event")
+	_ = check.Flags().MarkHidden("branch")
 	return c
 }
 
@@ -259,13 +302,9 @@ type freezeRow struct {
 	Status policy.FreezeStatus `json:"status"`
 }
 
-// freezeRows is each ring's freeze (or only ring's). With --at the incident
-// freeze is not consulted: it has no schedule.
-func (a *app) freezeRows(cmd *cobra.Command, sf serverFlags, ring, at string) ([]freezeRow, bool, error) {
-	dir, err := policyDir(cmd, nil)
-	if err != nil {
-		return nil, false, err
-	}
+// freezeRows is each ring's freeze in the policy at dir (or only ring's). With
+// --at the incident freeze is not consulted: it has no schedule.
+func (a *app) freezeRows(cmd *cobra.Command, sf serverFlags, dir, ring, at string) ([]freezeRow, bool, error) {
 	org, err := a.loadValid(dir)
 	if err != nil {
 		return nil, false, err

@@ -184,9 +184,14 @@ func (a *app) cmdExp() *cobra.Command {
 				return err
 			}
 			// A change freeze refuses the PR (ADR-0030); rollbacks never are.
-			if fz, _, err := freezeFor(cmd.Context(), org, org.RingTarget(ring), psf, time.Now()); err != nil {
+			fz, governed, err := freezeFor(cmd.Context(), org, org.RingTarget(ring), psf, time.Now())
+			if err != nil {
 				return err
-			} else if fz.Frozen {
+			}
+			if !governed {
+				a.warnNoIncidentFreeze()
+			}
+			if fz.Frozen {
 				if !dry {
 					return fmt.Errorf("promote %s into %s: %s", e.Name, ring, fz.String())
 				}

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -60,9 +62,7 @@ func TestFreezeCLI(t *testing.T) {
 		{"check fails for GA", []string{"freeze", "check", "--policy-dir", dir, "--at", sat, "--ring", "ring3-ga"}, 1, []string{"ga-weekend", "next open 2026-03-09T06:00:00-04:00", "Rollbacks"}},
 		{"check passes for canary", []string{"freeze", "check", "--policy-dir", dir, "--at", sat, "--ring", "ring1-canary"}, 0, []string{"no change freeze"}},
 		{"check passes on Monday", []string{"freeze", "check", "--policy-dir", dir, "--at", "2026-03-09T06:00:00-04:00"}, 0, []string{"no change freeze"}},
-		{"rollback branch always passes", []string{"freeze", "check", "--policy-dir", dir, "--at", sat, "--branch", "halos/rollout-claude-code-2.1.300-rollback"}, 0, []string{"is a rollback"}},
-		{"experiment rollback branch passes", []string{"freeze", "check", "--policy-dir", dir, "--at", sat, "--branch", "halos/status-paused-opus-5-5-canary"}, 0, []string{"is a rollback"}},
-		{"advance branch is frozen", []string{"freeze", "check", "--policy-dir", dir, "--at", sat, "--branch", "halos/rollout-claude-code-2.1.300-ga"}, 1, []string{"ga-weekend"}},
+		{"a rollback branch name proves nothing", []string{"freeze", "check", "--policy-dir", dir, "--at", sat, "--branch", "halos/rollout-claude-code-2.1.300-rollback"}, 1, []string{"no longer trusted"}},
 		{"unknown ring", []string{"freeze", "status", "--policy-dir", dir, "--ring", "nope"}, 1, []string{"unknown ring"}},
 		{"bad --at", []string{"freeze", "status", "--policy-dir", dir, "--at", "Saturday"}, 1, []string{"--at"}},
 		{"on needs a reason", []string{"freeze", "on"}, 1, []string{"--reason is required"}},
@@ -104,6 +104,44 @@ func TestRolloutAdvanceRefusedWhileFrozen(t *testing.T) {
 	code, out, errs = halo(t, "rollout", "rollback", "opus-5-5-upgrade", "--policy-dir", dir, "--reason", "bad", "--dry-run")
 	if code != 0 || strings.Contains(errs, "freeze") {
 		t.Fatalf("rollback during a freeze: exit %d\n%s%s", code, out, errs)
+	}
+}
+
+// TestAdvanceWarnsWithoutIncidentCheck: without halo-server the CLI says it
+// checked the policy windows only; with one it does not, and the incident
+// freeze it reports refuses the advance.
+func TestAdvanceWarnsWithoutIncidentCheck(t *testing.T) {
+	dir := copyDir(t, example)
+	t.Setenv("HALO_SERVER", "")
+	t.Setenv("HALO_SESSION", "")
+	const warn = "policy's freeze windows only, not the incident freeze"
+	code, out, errs := halo(t, "rollout", "advance", "opus-5-5-upgrade", "--policy-dir", dir, "--reason", "go", "--dry-run")
+	if code != 0 || !strings.Contains(errs, warn) {
+		t.Fatalf("no server: exit %d\n%s%s", code, out, errs)
+	}
+	incident := false
+	hs := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v1/freeze" && incident:
+			_, _ = w.Write([]byte(`{"incident":{"name":"incident","reason":"SEV1","by":"oncall@x","incident":true}}`))
+		case r.URL.Path == "/api/v1/freeze":
+			_, _ = w.Write([]byte(`{}`))
+		case r.URL.Path == "/api/v1/me":
+			_, _ = w.Write([]byte(`{"id":"dev@x"}`))
+		default:
+			_, _ = w.Write([]byte(`{"approvals":[]}`))
+		}
+	}))
+	defer hs.Close()
+	t.Setenv("HALO_SESSION", "s")
+	code, out, errs = halo(t, "rollout", "advance", "opus-5-5-upgrade", "--policy-dir", dir, "--reason", "go", "--dry-run", "--server", hs.URL)
+	if code != 0 || strings.Contains(errs, warn) {
+		t.Fatalf("with server: exit %d\n%s%s", code, out, errs)
+	}
+	incident = true
+	code, out, errs = halo(t, "rollout", "advance", "opus-5-5-upgrade", "--policy-dir", dir, "--reason", "go", "--server", hs.URL)
+	if code == 0 || !strings.Contains(errs, "SEV1") {
+		t.Fatalf("incident freeze: exit %d\n%s%s", code, out, errs)
 	}
 }
 

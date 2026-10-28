@@ -83,7 +83,7 @@ func (a *app) cmdController() *cobra.Command {
 				// The incident freeze shares killswitch.jsonl with halo-server.
 				// Step approvals live on halo-server only: a step an approval
 				// rule covers waits here (run the server's in-process controller).
-				Governance: func(context.Context, *policy.Rollout) (rollout.Governance, error) {
+				Governance: func(context.Context, *policy.Org, *policy.Rollout) (rollout.Governance, error) {
 					rec, err := kills.Incident()
 					if err != nil || rec == nil {
 						return rollout.Governance{}, err
