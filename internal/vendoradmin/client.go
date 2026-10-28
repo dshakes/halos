@@ -195,6 +195,9 @@ func (c *Client) Read(ctx context.Context, p *Plan) (map[string]any, error) {
 		return c.geminiRead(ctx, p)
 	case "copilot":
 		cur, _, err := c.copilotRead(ctx)
+		if err == nil {
+			err = c.copilotCloudRead(ctx, p, cur)
+		}
 		return cur, err
 	}
 	return nil, fmt.Errorf("%s has no read API", c.Vendor)

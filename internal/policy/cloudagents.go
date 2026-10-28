@@ -286,6 +286,9 @@ func (v *validator) cloudAgents() {
 		case a.TimeoutMinutes > 0 && !sup.timeout:
 			v.warnf(p+".timeoutMinutes", "%s runs no workflow Halos renders; not rendered", name)
 		}
+		if va := v.org.VendorAdmin; name != CloudGemini && va != nil && map[string]*VendorTarget{CloudClaude: va.Claude, CloudCodex: va.Codex, CloudCopilot: va.Copilot, CloudCursor: va.Cursor}[name] == nil {
+			v.warnf(p, "%s's cloud agent console settings are planned by `halo admin plan` only when vendorAdmin.%s is set", name, name)
+		}
 		if !a.Enabled && (len(a.Repos) > 0 || len(a.Models) > 0) {
 			v.warnf(p, "disabled: repos and models are kept for when it is enabled; every observed task is a violation")
 		}

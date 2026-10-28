@@ -264,6 +264,7 @@ func Render(org *policy.Org) (*Report, error) {
 			return nil, fmt.Errorf("vendoradmin: %s: %w", v.name, err)
 		}
 		p.Vendor, p.Target = v.name, t.String()
+		addCloudAgents(v.name, org, p)
 		if p.Warnings == nil {
 			p.Warnings = []string{}
 		}
