@@ -1,4 +1,4 @@
-package cloudagents
+package workflow
 
 import (
 	"strings"

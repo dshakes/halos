@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dshakes/halos/internal/cloudagents"
+	"github.com/dshakes/halos/internal/cloudagents/workflow"
 	"github.com/dshakes/halos/internal/policy"
 )
 
@@ -21,7 +21,7 @@ func TestBuildCarriesCloudAgentFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	ca := rel.Manifest.CloudAgents
-	if len(ca) != 1 || ca[0].Vendor != "claude" || ca[0].Path != cloudagents.ClaudeWorkflow || ca[0].Repos[0] != "acme/app" {
+	if len(ca) != 1 || ca[0].Vendor != "claude" || ca[0].Path != workflow.ClaudeWorkflow || ca[0].Repos[0] != "acme/app" {
 		t.Fatalf("cloudAgents %+v", ca)
 	}
 	if b, ok := rel.Blobs[ca[0].SHA256]; !ok || !strings.Contains(string(b), "anthropics/claude-code-action@") {

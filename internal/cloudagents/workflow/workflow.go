@@ -1,14 +1,9 @@
-// Package cloudagents governs background coding agents that run on vendor or
-// CI infrastructure rather than a developer machine (ADR-0034): it renders the
-// repository files of the workflow-configured vendors, normalizes tasks from
-// vendor APIs and GitHub webhooks into one inventory mapped to Halos
-// identities, plans and executes kill fan-out (cancel) and over-limit pauses,
-// and turns finished tasks into session ledger records.
-//
-// Vendor calls go through vendoradmin.Client, so they share its credential
-// rules: token only in the Authorization header and scrubbed from errors, no
-// redirects, https (or loopback http) only. Tests run against httptest fakes.
-package cloudagents
+// Package workflow renders the repository files of the workflow-configured
+// cloud agents (ADR-0034): the Claude Code and Gemini CLI GitHub Actions and
+// Copilot's copilot-setup-steps.yml, SHA-pinned and least-privilege, and
+// checks every rendered file against the security invariants. It imports only
+// policy, so release builds can carry its output.
+package workflow
 
 import (
 	"fmt"

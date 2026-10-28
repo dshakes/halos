@@ -16,8 +16,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dshakes/halos/internal/cloudagents/workflow"
 	"github.com/dshakes/halos/internal/harness"
-	"github.com/dshakes/halos/internal/cloudagents"
 	"github.com/dshakes/halos/internal/policy"
 )
 
@@ -258,7 +258,7 @@ func Build(org ProfileResolver, profileName, ringName string, opts Options) (*Re
 		}
 	}
 	if org0 != nil {
-		files, warns, err := cloudagents.Render(org0)
+		files, warns, err := workflow.Render(org0)
 		if err != nil {
 			return nil, fmt.Errorf("release: profile %q: %w", profileName, err)
 		}
