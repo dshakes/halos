@@ -12,6 +12,8 @@ identity:
   userClaim: email
   groupsClaim: groups
   adminGroups: [ai-platform]
+  roles:
+    approver: [sre-leads] # ga-two-person needs an sre-leads approver who can approve
 selfService:
   enabled: true
   launchers: [devcontainer, codespaces, laptop]
