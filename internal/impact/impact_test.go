@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -168,8 +169,25 @@ func TestCheckoutAt(t *testing.T) {
 	}
 }
 
+// TestUntarCapsTheStream: headers count too, so a flood of empty entries is
+// refused at the cap rather than read to the end.
+func TestUntarCapsTheStream(t *testing.T) {
+	defer func(n int64) { maxArchive = n }(maxArchive)
+	maxArchive = 8 << 10
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	for i := range 64 {
+		_ = tw.WriteHeader(&tar.Header{Name: fmt.Sprintf("f%d", i), Mode: 0o600, Typeflag: tar.TypeReg})
+	}
+	_ = tw.Close()
+	if err := untar(&buf, t.TempDir()); err == nil || !strings.Contains(err.Error(), "larger than") {
+		t.Fatalf("uncapped stream: %v", err)
+	}
+}
+
 func TestUntarRefusesEscapes(t *testing.T) {
-	for _, name := range []string{"../evil.yaml", "/etc/evil.yaml", "a/../../evil.yaml"} {
+	for _, name := range []string{"../evil.yaml", "/etc/evil.yaml", "a/../../evil.yaml",
+		`..\evil.yaml`, `a\..\..\evil.yaml`, `C:\evil.yaml`, `C:evil.yaml`, "rings/ga.yaml:stream", `\\host\share\evil.yaml`} {
 		var buf bytes.Buffer
 		tw := tar.NewWriter(&buf)
 		_ = tw.WriteHeader(&tar.Header{Name: name, Mode: 0o600, Size: 1, Typeflag: tar.TypeReg})

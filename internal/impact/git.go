@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"strings"
@@ -16,7 +17,7 @@ import (
 )
 
 // maxArchive bounds a base policy checkout; policy repos are YAML and small.
-const maxArchive = 64 << 20
+var maxArchive int64 = 64 << 20 // var: tests lower it
 
 // CheckoutAt writes the policy dir as it is at git ref base into a new temp
 // dir (git archive: the working tree, index and HEAD are never touched) and
@@ -34,27 +35,77 @@ func CheckoutAt(ctx context.Context, dir, base string) (string, func(), error) {
 	if prefix = strings.TrimSpace(prefix); prefix != "" {
 		tree += ":" + prefix
 	}
-	// From the top level: in a subdirectory, git archive limits itself to it.
-	b, err := promote.Run(ctx, strings.TrimSpace(top), "git", "archive", "--format=tar", tree)
-	if err != nil {
-		return "", nil, fmt.Errorf("read policy at %s: %w", base, err)
-	}
 	tmp, err := os.MkdirTemp("", "halo-plan-base-")
 	if err != nil {
 		return "", nil, err
 	}
 	cleanup := func() { _ = os.RemoveAll(tmp) }
-	if err := untar(bytes.NewReader(b), tmp); err != nil {
+	if err := archiveTo(ctx, strings.TrimSpace(top), tree, tmp); err != nil {
 		cleanup()
 		return "", nil, fmt.Errorf("read policy at %s: %w", base, err)
 	}
 	return tmp, cleanup, nil
 }
 
-// untar writes regular files and directories only; any path leaving dst is
-// refused.
+// archiveTo streams `git archive tree` (run in top: in a subdirectory, git
+// archive limits itself to it) into dst, so a large archive is refused at the
+// cap instead of after buffering all of it.
+func archiveTo(ctx context.Context, top, tree, dst string) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel() // stops git if untar gives up early
+	cmd := exec.CommandContext(ctx, "git", "archive", "--format=tar", tree)
+	cmd.Dir = top
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("git archive: %w", err)
+	}
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("git archive: %w", err)
+	}
+	uerr := untar(out, dst)
+	if uerr != nil {
+		cancel()
+	}
+	werr := cmd.Wait()
+	if uerr != nil {
+		return uerr
+	}
+	if werr != nil {
+		return fmt.Errorf("git archive: %w: %s", werr, strings.TrimSpace(stderr.String()))
+	}
+	return nil
+}
+
+// capReader fails once more than n bytes have been read, and on every read
+// after (io.ReadFull drops an error that comes with a full buffer).
+type capReader struct {
+	r io.Reader
+	n int64
+}
+
+func (c *capReader) Read(p []byte) (int, error) {
+	tooBig := fmt.Errorf("policy archive larger than %d bytes", maxArchive)
+	if c.n < 0 {
+		return 0, tooBig
+	}
+	if int64(len(p)) > c.n+1 {
+		p = p[:c.n+1]
+	}
+	n, err := c.r.Read(p)
+	if c.n -= int64(n); c.n < 0 {
+		return n, tooBig
+	}
+	return n, err
+}
+
+// untar writes regular files and directories only; any path leaving dst, or
+// that is not local on this OS (a backslash or a drive or stream colon reads
+// as a separator or volume on Windows), is refused. The stream (headers
+// included) and the file contents are each capped at maxArchive.
 func untar(r io.Reader, dst string) error {
-	tr := tar.NewReader(r)
+	tr := tar.NewReader(&capReader{r: r, n: maxArchive})
 	var total int64
 	for {
 		h, err := tr.Next()
@@ -65,7 +116,7 @@ func untar(r io.Reader, dst string) error {
 			return err
 		}
 		name := path.Clean(h.Name)
-		if path.IsAbs(name) || name == ".." || strings.HasPrefix(name, "../") {
+		if strings.ContainsAny(h.Name, `\:`) || !filepath.IsLocal(filepath.FromSlash(name)) {
 			return fmt.Errorf("archive entry %q leaves the checkout", h.Name)
 		}
 		p := filepath.Join(dst, filepath.FromSlash(name))
