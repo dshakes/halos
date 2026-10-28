@@ -1,15 +1,19 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/dshakes/halos/internal/policy"
+	"github.com/dshakes/halos/internal/storage"
 )
 
 const governanceYAML = `governance:
@@ -217,5 +221,91 @@ func TestIncidentFreeze(t *testing.T) {
 	b, _ := json.Marshal(v)
 	if !strings.Contains(string(b), "no weekend deploys") {
 		t.Fatalf("reason missing: %s", b)
+	}
+}
+
+// appendFailShared fails appends to the requests log while fail is set.
+type appendFailShared struct {
+	*memShared
+	fail *atomic.Bool
+}
+
+func (f appendFailShared) OpenLog(ctx context.Context, name string, replay func([]byte)) (storage.Log, error) {
+	l, err := f.memShared.OpenLog(ctx, name, replay)
+	if name != "requests" {
+		return l, err
+	}
+	return appendFailLog{l, f.fail}, err
+}
+
+type appendFailLog struct {
+	storage.Log
+	fail *atomic.Bool
+}
+
+func (l appendFailLog) Append(ctx context.Context, key string, rec []byte) error {
+	if l.fail.Load() {
+		return errors.New("store down")
+	}
+	return l.Log.Append(ctx, key, rec)
+}
+
+// TestApprovalRolledBackWhenSaveFails: when the approval that meets the quorum
+// cannot be persisted (the decision after an opened PR, or the approvals after
+// a failed PR), the in-memory request drops it too, so a retry does not see a
+// quorum the store never recorded; the approver approves again (audited again).
+func TestApprovalRolledBackWhenSaveFails(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		prErr error
+		code  int
+	}{
+		{"decision save fails after the PR opened", nil, http.StatusInternalServerError},
+		{"approvals save fails after the PR failed", errors.New("gh down"), http.StatusBadGateway},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var fail atomic.Bool
+			e := newEnv(t, func(c *Config) {
+				c.Backend = appendFailShared{newMemShared(), &fail}
+				p := filepath.Join(c.PolicyDir, "halos.yaml")
+				b, err := os.ReadFile(p)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(p, append(b, governanceYAML...), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			})
+			w := e.as(dev, "POST", "/api/v1/requests", `{"kind":"mcp-server","item":"jira","justification":"triage","ticket":"CHG1"}`)
+			if w.Code != http.StatusCreated {
+				t.Fatalf("create: %d %s", w.Code, w.Body)
+			}
+			id := decode[Request](t, w).ID
+			if w := e.as(sre1, "POST", "/api/v1/requests/"+id+"/approve", ""); w.Code != http.StatusAccepted {
+				t.Fatalf("first approval: %d %s", w.Code, w.Body)
+			}
+			fail.Store(true)
+			e.w.err = tc.prErr
+			if w := e.as(mgr1, "POST", "/api/v1/requests/"+id+"/approve", ""); w.Code != tc.code {
+				t.Fatalf("quorum approval with the store failing: %d %s", w.Code, w.Body)
+			}
+			fail.Store(false)
+			e.w.err = nil
+			var got *Request
+			for _, r := range decode[[]Request](t, e.as(admin, "GET", "/api/v1/requests", "")) {
+				if r.ID == id {
+					got = &r
+				}
+			}
+			if got == nil || got.Status != StatusPending || len(got.Approvals) != 1 {
+				t.Fatalf("in-memory request after the failed save = %+v, want pending with the 1 persisted approval", got)
+			}
+			if w := e.as(mgr1, "POST", "/api/v1/requests/"+id+"/approve", ""); w.Code != http.StatusOK {
+				t.Fatalf("retry: %d %s", w.Code, w.Body)
+			}
+			if n := auditCount(t, e, "request.approval"); n != 3 {
+				t.Fatalf("request.approval audit entries = %d, want 3 (the failed attempt's stays, the retry is audited)", n)
+			}
+		})
 	}
 }

@@ -304,6 +304,10 @@ func (s *Server) decide(approve bool) authedHandler {
 			return
 		}
 		var quorum *policy.QuorumResult
+		// persisted is how many approvals the store holds: a failed save drops
+		// the one recordApproval added (its audit entry stays), so a retry
+		// cannot see a quorum the store never recorded.
+		persisted := len(req.Approvals)
 		if approve {
 			var done bool
 			if quorum, done = s.recordApproval(w, r, p, req); done {
@@ -312,7 +316,7 @@ func (s *Server) decide(approve bool) authedHandler {
 			}
 			if quorum != nil && !quorum.Met {
 				if err := l.save(req); err != nil {
-					req.Approvals = req.Approvals[:len(req.Approvals)-1]
+					req.Approvals = req.Approvals[:persisted]
 					l.mu.Unlock()
 					s.cfg.Log.Error("persist approval", "id", req.ID, "err", err)
 					apiErr(w, http.StatusInternalServerError, "store failed")
@@ -336,6 +340,7 @@ func (s *Server) decide(approve bool) authedHandler {
 			if err := l.save(req); err != nil {
 				*req = prev
 				req.Status = StatusPending // also out of approving: nothing was recorded
+				req.Approvals = req.Approvals[:persisted]
 				s.cfg.Log.Error("persist decision", "id", req.ID, "pr", pr, "err", err)
 				msg := "store failed: decision not recorded"
 				if pr != "" {
@@ -390,6 +395,7 @@ func (s *Server) decide(approve bool) authedHandler {
 		default:
 			req.Status = StatusPending          // nothing lost: admin can retry
 			if err := l.save(req); err != nil { // keep the recorded approvals
+				req.Approvals = req.Approvals[:persisted]
 				s.cfg.Log.Error("persist approvals", "id", req.ID, "err", err)
 			}
 			s.cfg.Log.Error("policy writer failed", "id", req.ID, "err", err)
