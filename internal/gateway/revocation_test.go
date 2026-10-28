@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -91,6 +92,9 @@ func TestDirectoryRevocations(t *testing.T) {
 	}
 	now := time.Unix(1_000_000, 0)
 	c.Now = func() time.Time { return now }
+	var outcomes []string // Resolve is called serially here
+	c.Observe = func(o string) { outcomes = append(outcomes, o) }
+	unavailable := func() int { return strings.Count(strings.Join(outcomes, ","), "revocations_unavailable") }
 	ctx := context.Background()
 	wl := &policy.Subject{ID: "workload:gh:acme/app", Kind: policy.SubjectWorkload, Credential: &policy.CredentialRef{IDs: []string{"w1"}, IssuedAt: now.Unix()}}
 	agent := agentSub("workload:gh:acme/app", policy.SubjectWorkload, now.Unix(), now.Unix(), []string{"a1", "w1"}, "reviewer")
@@ -114,10 +118,16 @@ func TestDirectoryRevocations(t *testing.T) {
 			t.Fatalf("%s at RevocationTTL: %v, want ErrCredentialRevoked", s.Delegation.Chain(), err)
 		}
 	}
+	if n := unavailable(); n != 0 {
+		t.Fatalf("revocations_unavailable reported while halo-server answers: %v", outcomes)
+	}
 	down.Store(1)
 	now = now.Add(4 * time.Minute)
 	if _, err := c.Resolve(ctx, wl); !errors.Is(err, ErrCredentialRevoked) {
 		t.Fatalf("outage within grace: %v", err)
+	}
+	if n := unavailable(); n != 1 {
+		t.Fatalf("failed fetch within grace: revocations_unavailable reported %d times: %v", n, outcomes)
 	}
 	now = now.Add(2 * time.Minute)
 	if _, err := c.Resolve(ctx, wl); !errors.Is(err, ErrCredentialRevoked) {
@@ -130,6 +140,9 @@ func TestDirectoryRevocations(t *testing.T) {
 	c.FailClosed = true
 	if _, err := c.Resolve(ctx, other); !errors.Is(err, ErrDirectoryUnavailable) {
 		t.Fatalf("fail closed past grace: %v", err)
+	}
+	if n := unavailable(); n != 4 { // within grace, fail open twice, fail closed
+		t.Fatalf("every failed fetch is reported: revocations_unavailable %d times, want 4: %v", n, outcomes)
 	}
 	fresh, _ := NewDirectoryClient(srv.URL, "tok", 0, 0, nil, false)
 	fresh.FailClosed = true

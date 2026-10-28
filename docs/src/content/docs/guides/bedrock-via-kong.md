@@ -121,7 +121,7 @@ Set `HALO_KONG_METRICS_LISTEN` (for example `127.0.0.1:9542`) in the plugin serv
 
 | Metric | Labels |
 |---|---|
-| `halo_kong_directory_resolutions_total` | `outcome`: `ok`, `stale` (cached entry served through an outage), `failopen`, `unavailable` (503), `not_provisioned` (403), `invalid_config_failopen`, `invalid_config_refused` |
+| `halo_kong_directory_resolutions_total` | `outcome`: `ok`, `stale` (cached entry served through an outage), `failopen`, `unavailable` (503), `not_provisioned` (403), `invalid_config_failopen`, `invalid_config_refused`, `revocations_unavailable` (a revocation-list fetch failed; the fail mode then decides) |
 | `halo_kong_posture_total` | `ring`, `outcome`: `pass`, `fail` (warn, let through), `deny` (enforce, 403), `unknown` |
 | `halo_kong_header_cap_rejections_total` | none |
 | `halo_kong_agent_denials_total` | none: delegated agent calls refused by the agent policy |

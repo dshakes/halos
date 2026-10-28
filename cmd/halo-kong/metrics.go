@@ -47,7 +47,8 @@ func (m *kongMetrics) dlpTruncated(outcome string) {
 }
 
 // directoryOutcome counts one directory resolution: ok, stale, failopen,
-// unavailable or not_provisioned (gateway.DirectoryClient.Observe), and
+// unavailable or not_provisioned, plus revocations_unavailable per failed
+// revocation-list fetch (gateway.DirectoryClient.Observe), and
 // invalid_config_failopen / invalid_config_refused for an invalid config.
 func (m *kongMetrics) directoryOutcome(outcome string) {
 	m.mu.Lock()
@@ -82,7 +83,7 @@ func esc(s string) string {
 func (m *kongMetrics) write(w io.Writer) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	fmt.Fprintln(w, "# HELP halo_kong_directory_resolutions_total Directory lookups of verified callers by outcome: ok, stale (cached entry served through an outage), failopen (kept with no groups), unavailable (503, failMode closed), not_provisioned (403), invalid_config_failopen, invalid_config_refused.")
+	fmt.Fprintln(w, "# HELP halo_kong_directory_resolutions_total Directory lookups of verified callers by outcome: ok, stale (cached entry served through an outage), failopen (kept with no groups), unavailable (503, failMode closed), not_provisioned (403), invalid_config_failopen, invalid_config_refused; revocations_unavailable counts failed revocation-list fetches.")
 	fmt.Fprintln(w, "# TYPE halo_kong_directory_resolutions_total counter")
 	dk := make([]string, 0, len(m.directory))
 	for k := range m.directory {

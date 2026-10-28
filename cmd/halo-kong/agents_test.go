@@ -87,7 +87,8 @@ func TestAccessDelegatedAgent(t *testing.T) {
 	}
 	var mb strings.Builder
 	kmetrics.write(&mb)
-	for _, want := range []string{`halo_kong_directory_resolutions_total{outcome="failopen"}`, `halo_kong_directory_resolutions_total{outcome="invalid_config_failopen"}`} {
+	for _, want := range []string{`halo_kong_directory_resolutions_total{outcome="failopen"}`, `halo_kong_directory_resolutions_total{outcome="invalid_config_failopen"}`,
+		`halo_kong_directory_resolutions_total{outcome="revocations_unavailable"}`} {
 		if !strings.Contains(mb.String(), want) {
 			t.Fatalf("metrics lack %s:\n%s", want, mb.String())
 		}

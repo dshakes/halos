@@ -59,6 +59,7 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ### Fixed
 
+- Gateways: a failed revocation-list fetch is now reported through the directory client's `Observe` hook as `revocations_unavailable`, and `halo-kong` counts it in `halo_kong_directory_resolutions_total{outcome="revocations_unavailable"}`. Before, it was only logged.
 - Real-CLI UAT: the Claude Code `permissions.disableBypassPermissionsMode` check now runs as a non-root user and requires Claude Code's own "bypassPermissions mode is disabled by settings" in its debug log, with the session in the default mode. It accepted any non-zero exit before, and the recorded PASS came from Claude Code refusing `--dangerously-skip-permissions` as root, not from the managed setting; that row is marked superseded until the UAT is re-run.
 
 ## [0.3.0] - 2026-10-23

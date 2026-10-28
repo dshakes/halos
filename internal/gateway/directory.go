@@ -51,7 +51,9 @@ type DirectoryClient struct {
 	FailClosed bool
 	// Observe, when set, is told every Resolve outcome of a looked-up subject:
 	// ok, stale (cached entry served through an outage), failopen,
-	// unavailable (FailClosed) or not_provisioned. For metrics.
+	// unavailable (FailClosed) or not_provisioned. It is also told
+	// revocations_unavailable each time the revocation list cannot be fetched
+	// (whatever the fail mode then does). For metrics.
 	Observe func(outcome string)
 	// RevocationTTL: the revocation list is refetched once it is older
 	// (0 = DefaultRevocationTTL). It is fetched only for callers holding a
@@ -280,6 +282,7 @@ func (c *DirectoryClient) revocations(ctx context.Context) (*RevocationList, err
 		c.revMu.Unlock()
 		return got, nil
 	}
+	c.observe("revocations_unavailable")
 	switch {
 	case l != nil && age < c.Grace:
 		c.warn("revocation list refresh failed; serving the cached list", err)
