@@ -46,7 +46,8 @@ func sandboxOn(p *policy.Profile) bool {
 
 // sandboxWarnings: what Gemini CLI's sandbox cannot hold (ADR-0032). The
 // system settings file sets tools.sandbox, but the --sandbox flag and the
-// GEMINI_SANDBOX environment variable take precedence; on Linux and Windows
+// GEMINI_SANDBOX environment variable take precedence and a set SANDBOX skips
+// it (gemini-cli 0.66.0 getSandboxCommand); on Linux and Windows
 // the sandbox needs Docker/Podman (or the experimental Windows-native one),
 // so it is rendered on macOS only, where Seatbelt is built in. There is no
 // domain allow/deny list (Seatbelt's *-proxied profiles route through a
@@ -58,7 +59,7 @@ func sandboxWarnings(p *policy.Profile, os harness.OS) []string {
 	if !sandboxOn(p) {
 		return nil
 	}
-	w := []string{"gemini: the sandbox (tools.sandbox) is a default, not a lock: the --sandbox flag and GEMINI_SANDBOX take precedence over the system settings file"}
+	w := []string{"gemini: the sandbox (tools.sandbox) is a default, not a lock: the --sandbox flag and GEMINI_SANDBOX take precedence over the system settings file, and any SANDBOX environment variable skips it; the default Seatbelt profile (permissive-open) does not restrict network access"}
 	if os != harness.Darwin {
 		w = append(w, "gemini: the sandbox is not rendered on "+string(os)+": it needs Docker or Podman there; set GEMINI_SANDBOX=docker|podman on the device")
 	}

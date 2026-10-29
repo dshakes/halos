@@ -4,6 +4,10 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Changed
+
+- Release warnings name the remaining local overrides found by testing the current CLIs (gemini-cli 0.66.0, opencode 1.19.5, codex 0.166.0, whose managed keys all matched): any `SANDBOX` environment variable skips Gemini CLI's sandbox and its default Seatbelt profile does not restrict network; `OPENCODE_PERMISSION` or an agent's `permission.webfetch` in user config overrides OpenCode's managed `webfetch`.
+
 ## [0.4.0] - 2026-10-29
 
 ### Added
