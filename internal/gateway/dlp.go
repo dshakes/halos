@@ -314,7 +314,11 @@ func near(re *regexp.Regexp, s string, at []int, whole bool, back, fwd int, gate
 		return scan(0, len(s), 0) || !b.exhausted()
 	}
 	lo, hi := -1, -1
-	for _, i := range at {
+	for n, i := range at {
+		// A gate that rejects every anchor feeds no regex, so check the deadline here too.
+		if n&1023 == 1023 && !b.spend(0) {
+			return false
+		}
 		if gate != nil && !gate(s, i) {
 			continue
 		}
@@ -1091,12 +1095,16 @@ func (s *DLPResponseScanner) flush() {
 	// to a response however it is shaped.
 	t0 := time.Now()
 	s.budget.deadline = t0.Add(dlpScanBudget - s.spent)
-	defer func() { s.spent += time.Since(t0) }()
 	for _, m := range s.e.secrets(string(s.buf), s.budget) {
 		if k := m.det + m.hash; !s.seen[k] {
 			s.seen[k] = true
 			s.findings = append(s.findings, DLPFinding{Kind: DLPSecret, Detector: m.det, Hash: m.hash, Location: "response"})
 		}
+	}
+	// The budget is scan time, whatever did the work: anchor indexing and
+	// gates count even when no regex ran.
+	if s.spent += time.Since(t0); s.spent >= dlpScanBudget && s.budget != nil {
+		s.budget.out = true
 	}
 	if s.budget.exhausted() {
 		s.Truncated = true
