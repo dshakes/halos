@@ -295,6 +295,31 @@ func TestScanAdversarialBodies(t *testing.T) {
 	}
 }
 
+// TestScanBudgetHoldsWithoutRegexWork: the budget is scan time whatever did
+// the work. Anchors that every gate rejects feed no regex, yet near still
+// stops at the deadline, and a response that has spent its scan time is
+// truncated.
+func TestScanBudgetHoldsWithoutRegexWork(t *testing.T) {
+	re := regexp.MustCompile(`x`)
+	at := make([]int, 4096)
+	past := newScanBudget(time.Now().Add(-time.Second))
+	if near(re, strings.Repeat("a", len(at)), at, false, 0, 1, func(string, int) bool { return false }, false, past, func([]int) bool { return true }) || !past.exhausted() {
+		t.Fatal("near ignored a passed deadline when no anchor reached a regex")
+	}
+
+	s := NewDLPResponseScanner(dlpOn(policy.DLPMonitor, policy.DLPMonitor), "", nil)
+	s.spent = dlpScanBudget
+	s.buf = []byte("key: value")
+	s.flush()
+	if !s.Truncated {
+		t.Fatal("response scanner kept scanning past its scan-time budget")
+	}
+	s.Text("more")
+	if s.total != 0 {
+		t.Fatal("text accepted after the budget ran out")
+	}
+}
+
 // TestHTMLCommentImperativeMatchesRegex: the linear matcher agrees with the
 // regex it replaced.
 func TestHTMLCommentImperativeMatchesRegex(t *testing.T) {
