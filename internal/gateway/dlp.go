@@ -525,6 +525,15 @@ type injSignal struct {
 	// match, when set, replaces near(re): a linear matcher for a signal whose
 	// regex is too costly to run on every window (counted repetitions).
 	match func(s string, b *scanBudget) bool
+	// gate, when set, rejects an anchor offset before any regex runs near it.
+	gate func(s string, i int) bool
+}
+
+// exfilGate: the exfil-url regex needs "](" within its 200-byte label, so an
+// anchor without one never reaches the regex. Without it a run of "![" made
+// the counted repetition cost about 200 regex steps per anchor.
+func exfilGate(s string, i int) bool {
+	return strings.Contains(s[i:min(len(s), i+2+200+2)], "](")
 }
 
 // htmlCommentKeywords are the imperatives html-comment-imperative looks for.
@@ -566,14 +575,14 @@ func htmlCommentImperative(s string, b *scanBudget) bool {
 // and the default threshold needs two independent ones.
 var injectionSignals = []injSignal{
 	{"instruction-override", 3, []string{"ignore", "disregard", "forget", "override"}, 1, 120,
-		regexp.MustCompile(`(?i)\b(?:ignore|disregard|forget|override)\s+(?:all\s+|any\s+|the\s+|your\s+)*(?:previous|prior|above|earlier|preceding|original|system)\s+(?:instructions?|prompts?|rules|directives|guidelines|messages)\b`), nil},
+		regexp.MustCompile(`(?i)\b(?:ignore|disregard|forget|override)\s+(?:all\s+|any\s+|the\s+|your\s+)*(?:previous|prior|above|earlier|preceding|original|system)\s+(?:instructions?|prompts?|rules|directives|guidelines|messages)\b`), nil, nil},
 	{"role-reassignment", 2, []string{"you are now", "new instructions", "new system instructions", "from now on", "system prompt"}, 16, 64,
-		regexp.MustCompile(`(?i)\b(?:you are now (?:a|an|in|the|DAN)\b|new (?:system )?instructions?\s*:|from now on,? you (?:must|will|are)\b|(?:reveal|print|output|repeat) (?:your|the) system prompt)`), nil},
+		regexp.MustCompile(`(?i)\b(?:you are now (?:a|an|in|the|DAN)\b|new (?:system )?instructions?\s*:|from now on,? you (?:must|will|are)\b|(?:reveal|print|output|repeat) (?:your|the) system prompt)`), nil, nil},
 	{"fake-turn", 2, []string{"<system>", "</system>", "<instructions>", "</instructions>", "<tool_result>", "</tool_result>", "<function_results>", "</function_results>", "[inst]", "[/inst]", "<|im_", "human:", "assistant:", "system:"}, 64, 24,
-		regexp.MustCompile(`(?m)(?:^|\n)[ \t]*(?:</?(?:system|instructions|tool_result|function_results|antml:[a-z_]+)>|\[/?INST\]|<\|im_(?:start|end)\|>|(?:Human|Assistant|SYSTEM):\s)`), nil},
+		regexp.MustCompile(`(?m)(?:^|\n)[ \t]*(?:</?(?:system|instructions|tool_result|function_results|antml:[a-z_]+)>|\[/?INST\]|<\|im_(?:start|end)\|>|(?:Human|Assistant|SYSTEM):\s)`), nil, nil},
 	{name: "html-comment-imperative", weight: 2, anchors: []string{"<!--"}, match: htmlCommentImperative},
 	{"exfil-url", 2, []string{"!["}, 0, 800,
-		regexp.MustCompile(`(?i)!\[[^\]]{0,200}\]\(https?://[^)\s]{1,500}[?&][a-z0-9_]{1,40}=[^)\s&]{24,}`), nil},
+		regexp.MustCompile(`(?i)!\[[^\]]{0,200}\]\(https?://[^)\s]{1,500}[?&][a-z0-9_]{1,40}=[^)\s&]{24,}`), nil, exfilGate},
 }
 
 var signalAnchors = func() *anchorIndex {
@@ -628,7 +637,7 @@ func injectionScore(s string, secrets []secretMatch, b *scanBudget) (score int, 
 		case sg.match != nil:
 			hit = sg.match(s, b)
 		default:
-			near(sg.re, s, hits[i], false, sg.back, sg.fwd, nil, false, b, func([]int) bool { hit = true; return false })
+			near(sg.re, s, hits[i], false, sg.back, sg.fwd, sg.gate, false, b, func([]int) bool { hit = true; return false })
 		}
 		if hit {
 			score += sg.weight
