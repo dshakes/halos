@@ -528,8 +528,10 @@ def architecture():
         "Halos architecture",
         "Policy compiles to a signed release and ring pointers. The client plane (halod, MDM, Dev "
         "Container Feature, Coder, CI action) applies it; the traffic plane (halo-proxy or the Kong "
-        "plugin) routes to Anthropic, Bedrock, Vertex or OpenAI, meters budgets and carries delegated agent "
-        "credentials; the evidence plane (OTEL, ClickHouse, halo eval, controller, MCP, and halo-server "
+        "plugin) routes to Anthropic, Bedrock, Vertex or OpenAI, scans for secrets and prompt injection, meters "
+        "budgets and carries revocable delegated agent credentials; the client plane also enforces the sandbox, "
+        "egress, MCP registry and digest-pinned agent artifacts; the evidence plane (OTEL with the session ledger, "
+        "ClickHouse, halo eval, controller with randomized ROI, MCP and halo copilot, and halo-server "
         "with RBAC, SCIM and SIEM audit export on Postgres) proposes promotion PRs and fires the kill switch. "
         "Six harnesses run on the client plane.",
         out=("assets", "docs"),
@@ -562,6 +564,7 @@ def architecture():
                 ("MDM exports", ["Jamf · Kandji · Intune"]),
                 ("Dev Container · Coder", ["Codespaces · cloud workspaces"]),
                 ("CI action", ["runners · workload identity"]),
+                ("Sandbox · supply chain", ["egress · MCP list · AI-BOM"]),
                 (
                     "Six harnesses",
                     ["Claude Code · Codex · Gemini", "Copilot · Cursor · OpenCode"],
@@ -575,20 +578,20 @@ def architecture():
                 ("halo-proxy", ["OIDC · model routes · failover"], "accent"),
                 ("Kong + halo-kong", ["drop-in gateway plugin"]),
                 ("halo-shadow", ["async multi-turn mirror"]),
-                ("Budgets · agent identity", ["cost caps · delegated tokens"]),
+                ("DLP · budgets · identity", ["secret scan · caps · revocation"]),
             ],
         ),
         (
             "Evidence plane",
             "decides",
             [
-                ("OTEL collector", ["normalize to halo.*"]),
+                ("OTEL collector", ["halo.* · session ledger"]),
                 ("ClickHouse", ["halo.* tables"]),
                 ("halo eval", ["pass@k · LLM judge · matrix"]),
-                ("controller", ["mSPRT verdicts · rollback"], "accent"),
+                ("controller", ["mSPRT · ROI · rollback"], "accent"),
                 ("halo-server", ["console · RBAC · SCIM · SIEM"]),
                 ("Postgres (HA)", ["replicas · leader lease"]),
-                ("MCP", ["halo mcp serve · agents"]),
+                ("MCP · copilot", ["halo mcp serve · halo copilot"]),
             ],
         ),
     ]

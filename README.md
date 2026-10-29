@@ -197,6 +197,15 @@ Traffic goes through `halo-proxy` to Anthropic, Bedrock (SigV4), Vertex, OpenAI,
 | HA on Postgres | Several `halo-server` replicas behind one load balancer with a fenced controller lease | [production deployment](https://dshakes.github.io/halos/guides/production-deployment/) |
 | Vendor admin sync | One policy drives the vendors' cloud admin consoles; `halo admin plan` fails CI on drift, `apply` writes what has a public API and never loosens | [vendor admin sync](https://dshakes.github.io/halos/guides/vendor-admin-sync/) |
 | Change governance | Freeze windows and an incident freeze hold advances and promotions, never rollbacks; N-of-M approvals with separation of duties and tickets; `halo plan --diff` previews who a change reaches | [change governance](https://dshakes.github.io/halos/guides/change-governance/) |
+| Credential revocation | Revoke one agent or workload credential and everything exchanged from it by `jti`, or all of a subject's; every replica refuses it, gateways within 30 s | [agent identity](https://dshakes.github.io/halos/guides/agent-identity/#revoke-a-credential) |
+| Egress and sandbox | One profile states what the agent's shell may read and write and which hosts it may reach; each adapter renders it natively and warns where a harness cannot | [egress and sandbox](https://dshakes.github.io/halos/guides/egress-and-sandbox/) |
+| Gateway DLP | `halo-proxy` and `halo-kong` scan requests for secrets and tool results for prompt injection, act per ring and unit, and record findings without storing the secret | [DLP](https://dshakes.github.io/halos/guides/dlp/) |
+| MCP registry | `halos.yaml` lists approved MCP servers; releases render them into every harness, `halod` reports unapproved ones, halo-server can authorize your own remote servers | [MCP registry](https://dshakes.github.io/halos/guides/mcp-registry/) |
+| Agent supply chain | Skills, hooks, commands and subagents pinned by digest, scanned, signed with the release and checked by `halod`; CycloneDX AI-BOM and SLSA provenance | [agent supply chain](https://dshakes.github.io/halos/guides/agent-supply-chain/) |
+| Cloud agents | `cloudAgents` governs agents no managed machine runs: the Claude Code GitHub Action, Copilot cloud agent, Codex cloud and Cursor cloud agents | [cloud agents](https://dshakes.github.io/halos/guides/cloud-agents/) |
+| Session ledger | One record per agent session: who (and the delegated chain), release, ring, variant, models, MCP tools, repos, tokens, cost and outcome, from gateway, OTel and vendor audit APIs | [session ledger](https://dshakes.github.io/halos/guides/session-ledger/) |
+| Delivery ROI | `halo roi` joins PR outcomes to randomized experiment arms, so the effect is the change's, not self-selection's; informational, never gates promotion | [delivery ROI](https://dshakes.github.io/halos/guides/delivery-roi/) |
+| Policy copilot | `halo copilot` drafts a policy change from an intent, runs validate, plan, impact and stats on it, and commits only to a local branch; a human opens and merges the PR | [policy copilot](https://dshakes.github.io/halos/guides/policy-copilot/) |
 
 ## Runs everywhere
 
