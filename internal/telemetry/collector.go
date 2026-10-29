@@ -6,14 +6,16 @@
 // Normalised CLIs, exactly:
 //   - Claude Code: metrics and log events.
 //   - Gemini CLI: metrics and log events.
-//   - Codex: log events only (its native metrics are not mapped, see below).
+//   - Codex: log events only (its native metrics, including any lines-of-code
+//     metric, are not mapped: the vendor metric name is UNVERIFIED in this repo).
 //   - Copilot CLI: metrics only (gen_ai.client.token.usage,
 //     gen_ai.client.operation.duration, github.copilot.tool.call.count). It
 //     emits spans and span events but no OTel log records, so it produces no
-//     halo.api.request / halo.tool.call rows. Not mapped: its
-//     github.copilot.code.lines_added/_removed counters (separate counters, where
-//     halo.loc is one counter split by a type attribute) and the other
-//     github.copilot.* / gen_ai.invoke_agent.* metrics.
+//     halo.api.request / halo.tool.call rows. Its github.copilot.code.lines_added
+//     and _removed counters are separate counters; both map to halo.loc with the
+//     type attribute (added|removed) stamped from the source name, as Claude Code
+//     reports it. Not mapped: the other github.copilot.* / gen_ai.invoke_agent.*
+//     metrics.
 //     https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference
 //
 // Not normalised, on purpose (nothing is invented for them):
@@ -100,6 +102,16 @@ var Mappings = []Mapping{
 	// Copilot CLI emits the same gen_ai.client.* names as Gemini CLI (mapped
 	// above); statements() claims them for copilot-cli by service.name first.
 	{"copilot-cli", "github.copilot.tool.call.count", "halo.tool.calls"},
+	// Two Copilot counters, one halo.loc: locTypes stamps the type attribute.
+	{"copilot-cli", "github.copilot.code.lines_added", "halo.loc"},
+	{"copilot-cli", "github.copilot.code.lines_removed", "halo.loc"},
+}
+
+// locTypes is the halo.loc type attribute for vendor metrics that report added
+// and removed lines as separate counters (Claude Code sets type itself).
+var locTypes = []struct{ From, Type string }{
+	{"github.copilot.code.lines_added", "added"},
+	{"github.copilot.code.lines_removed", "removed"},
 }
 
 // Options configures the generated collector.
@@ -172,6 +184,17 @@ func statements() []string {
 	}
 	for _, m := range Mappings {
 		out = append(out, fmt.Sprintf(`set(name, %q) where name == %q`, m.To, m.From))
+	}
+	return out
+}
+
+// typeStatements stamps the halo.loc type attribute on each data point. They run
+// in the datapoint context before the metric rename, while the source name is
+// still known.
+func typeStatements() []string {
+	out := make([]string, 0, len(locTypes))
+	for _, l := range locTypes {
+		out = append(out, fmt.Sprintf(`set(datapoint.attributes["type"], %q) where metric.name == %q`, l.Type, l.From))
 	}
 	return out
 }
@@ -255,10 +278,10 @@ func Generate(o Options) ([]byte, error) {
 			"transform/source-gateway": withSpanStamp(sourceStamp(SourceGateway), SourceGateway),
 			"transform/halo": map[string]any{
 				"error_mode": "ignore",
-				"metric_statements": []any{map[string]any{
-					"context":    "metric",
-					"statements": statements(),
-				}},
+				"metric_statements": []any{
+					map[string]any{"context": "datapoint", "statements": typeStatements()},
+					map[string]any{"context": "metric", "statements": statements()},
+				},
 			},
 		},
 		"exporters": map[string]any{

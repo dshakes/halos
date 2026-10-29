@@ -62,7 +62,7 @@ func providers() []provider {
 			name: "anthropic", kind: "anthropic", harness: "claude-code", wire: "anthropic-messages",
 			needs:    needAll("ANTHROPIC_API_KEY"),
 			upstream: func(*testing.T) string { return "{kind: anthropic, url: https://api.anthropic.com}" },
-			model:    envOr("HALO_SMOKE_ANTHROPIC_MODEL", "claude-haiku-4-5"),
+			model:    envOr("HALO_SMOKE_ANTHROPIC_MODEL", "claude-haiku-5-5"),
 			headers:  `{x-api-key: "${ANTHROPIC_API_KEY}", anthropic-version: "2023-06-01"}`,
 		},
 		{
@@ -211,7 +211,7 @@ upstreams:
   anthropic-direct: {kind: anthropic, url: https://api.anthropic.com}
   smoke: %s
 models:
-  sonnet: {upstream: anthropic-direct, model: claude-sonnet-4-5}
+  sonnet: {upstream: anthropic-direct, model: claude-sonnet-5-5}
   smoke: {upstream: smoke, model: %q}
 `, protocols, p.upstream(t), p.model))
 	snap := filepath.Join(dir, "policy.json")

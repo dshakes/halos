@@ -19,6 +19,7 @@ halo rollout status <name> [flags]
 | `--data-dir` |  | string |  | controller data dir: read &lt;data-dir>/rollouts/&lt;name>.json for step entry time and history |
 | `--database` |  | string |  | ClickHouse database |
 | `--policy-dir` |  | string |  | policy repo directory (default ".") |
+| `--server` |  | string |  | halo-server base URL (or HALO_SERVER) for the incident freeze and step approvals (ADR-0030); session from HALO_SESSION |
 | `--user` |  | string |  | ClickHouse user (password from HALO_CLICKHOUSE_PASSWORD) |
 
 ## Global flags

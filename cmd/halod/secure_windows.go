@@ -14,6 +14,12 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+// openNonblock: Windows has no FIFOs in the file namespace to guard against.
+const openNonblock = 0
+
+// openNoFollow: os.Root and the Lstat/SameFile check cover symlinks on Windows.
+const openNoFollow = 0
+
 // trustedUID is unused on windows (kept so tests compile everywhere).
 var trustedUID uint32
 

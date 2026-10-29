@@ -15,7 +15,9 @@ Routes are registered in `internal/server/server.go` (`Handler`). This page list
 | **Fleet or device token** | `Authorization: Bearer` with the shared fleet token (`--token-file`) or a per-device token | 401, or 429 after repeated failures |
 | **Device token** | Per-device bearer token from enrollment | 401, or 429 |
 | **Gateway token** | `Authorization: Bearer` with `--gateway-token-file`, or the endpoint's own `--gateway-{killswitch,posture,budget,directory}-token-file` token when set (then the only one accepted there) | 401, or 429 after repeated failures; 404 if the kill switch is not configured |
-| **SCIM token** | `Authorization: Bearer` with a token whose SHA-256 is in `--scim-token-sha256-file`. A session cookie is never accepted | SCIM error 401, or 429 after repeated failures; 404 when SCIM is off |
+| **SCIM token** | `Authorization: Bearer` with a token whose SHA-256 is in `--scim-token-sha256-file`. A session cookie is never accepted | SCIM error 401, or 429 after repeated failures (a valid token is accepted even then); 404 when SCIM is off |
+
+Failed-authentication budgets (the 429s) are per endpoint class and per client address, an IPv6 address counted by its /64: 10 failures, then one per 6 seconds. With the Postgres backend every failure is also counted in the database, so all replicas share one budget per address ([ADR-0021](/halos/adr/0021-ha-control-plane-on-postgres/)).
 
 State-changing Session and Admin requests (anything but `GET`) are rejected with 403 when an `Origin` header does not match the host. `--dev-insecure-user` replaces the session check with a fixed user; demos only.
 
@@ -41,6 +43,8 @@ State-changing Session and Admin requests (anything but `GET`) are rejected with
 | `GET /api/v1/devices/{id}` | Admin | One device: binding, last report, and up to 50 recent reports (newest first; history resets on server restart). Token hashes are never returned |
 | `POST /api/v1/devices/{id}/revoke` | Admin | Revoke a device token. Audited |
 | `POST /api/v1/users/{id}/revoke-sessions` | Admin | Invalidate a user's console sessions everywhere. Audited |
+| `POST /api/v1/revocations` | Admin | Revoke a halo-server credential ([ADR-0026](/halos/adr/0026-per-credential-revocation/)). Body: exactly one of `jti` (1-128 of `A-Z a-z 0-9 - _`; kills the credential and every credential exchanged from it) and `subject` (`agent:<name>`, `workload:<subject>` or a human id; kills every credential issued at or before the revocation, anywhere in a chain; a human id also revokes their sessions), plus `reason` (required, at most 1000 characters). Returns the revocation with `revokedBefore` (subjects) and `expires`. 400 for an invalid body, 409 at 10,000 active revocations for a new key, 503 if the store is unavailable (nothing revoked), 500 if the audit append fails (the revocation holds). Audited as `credential.revoke`. `halo agents revoke` |
+| `GET /api/v1/revocations` | Admin | Active revocations with who, why and when. `halo agents revocations` |
 
 ### Releases and audit
 
@@ -48,6 +52,12 @@ State-changing Session and Admin requests (anything but `GET`) are rejected with
 |---|---|---|
 | `GET /api/v1/releases` | Admin | Per ring: the signature-verified pointer read from the registry (digest, `seq`, issued and expiry times, `expired`, `expiringSoon` under 48 hours), convergence of reporting devices on that digest, and drift. Cached 30 seconds; if the registry is unreachable the last verified state is returned flagged `stale`. Needs `registry` and `pubKeyFile` in the portal config |
 | `GET /api/v1/audit` | Admin | Hash-chained audit log. Query: `limit` (1 to 500, default 100), `since` (sequence number or RFC3339 time; returns entries after it, oldest first, else the newest `limit`), exact-match `actor` and `action`. Response: `entries`, `next` (pass as `since` to page), `total`, `verified` (the whole chain, across rotated segments), `verifyError`, `head`. Reads stream, so memory is bounded by `limit` whatever the log size |
+| `GET /api/v1/sessions` | Audit role | Agent session ledger ([ADR-0031](/halos/adr/0031-agent-session-ledger/)): the newest stored version of each session, newest start first. Query: `user` (Halos identity, or the vendor identity of an unresolved session), `harness`, `ring`, `tool` (a tool or MCP server), `since`/`until` (RFC3339, on the session start), `limit` (1 to 5000, default 100). Response: `sessions` (each record with `auditSeq` and `auditHash`, the audit entry holding it), `total`, `verified`, `verifyError`, `head` |
+| `GET /api/v1/sessions/{id}` | Audit role | One session by ledger id or harness session id; 404 when unknown |
+| `POST /api/v1/sessions` | Admin | Store normalized session records (`halo sessions import`): `{"records": [...]}`, up to 1000. Every record is validated first and one invalid record (prose in any field, an unhashed path, a forged id, an unknown field) refuses the whole batch with 400. `who.user` is set from the SCIM directory, never from the body. Each record is appended to the audit log as action `session.record`. Answers the stored records |
+| `GET /api/v1/cloud-agents` | Read | Cloud agent tasks ([ADR-0034](/halos/adr/0034-cloud-agent-governance/)) updated in the last 7 days, each attributed to a Halos user from `cloudAgents.identities`, with policy alerts (`disabled`, `ungoverned`, `unmanaged`, `repo`, `model`, `unattributed`, `concurrency`, `budget`) and `configured` (webhook, GitHub and Cursor clients). `?active=true` keeps queued and running tasks |
+| `POST /api/v1/cloud-agents/kill` | Operate | `{"scope": "user\|ring\|experiment", "name", "reason", "dryRun"}`: cancel the active cloud tasks of a user, or of every user a ring or experiment resolves. Reason required; `dryRun` defaults to `true` (plan only). A real run is audited (`cloudagent.kill`) before any vendor call and each result after; answers `actions` (task, vendor call, manual step, result), `unattributed` and `next_steps` |
+| `POST /api/v1/cloud-agents/webhooks/github` | `X-Hub-Signature-256` HMAC | GitHub `workflow_run` deliveries (404 without `--cloud-webhook-secret-file`; body at most 1 MiB). Governed runs are stored as `cloudagent.task`, finished ones also as `session.record`; an older delivery than the stored task answers 202 `stale`. Alerts are audited (`cloudagent.alert`); with `onOverLimit: pause` the tasks are paused (`cloudagent.pause`) |
 
 ### Policy, experiments and the kill switch
 
@@ -68,10 +78,11 @@ State-changing Session and Admin requests (anything but `GET`) are rejected with
 | `GET /api/v1/rollouts/{name}` | Admin | One rollout, same shape |
 | `GET /api/v1/killswitch` | Admin | Active kills with who, when and why, and the list `version` |
 | `GET /api/v1/gateway/killswitch` | Gateway token | The signed kill list for `halo-proxy` and `halo-kong` |
-| `GET /api/v1/gateway/directory` | Gateway token | SCIM directory entry for `?subject=<id>`: `{"active": true, "groups": [...]}` for an active provisioned user, `{"active": false}` otherwise. 404 without SCIM or a gateway token ([SCIM provisioning](/halos/guides/scim-provisioning/)) |
+| `GET /api/v1/gateway/directory` | Gateway token | SCIM directory entry for `?subject=<id>`: `{"active": true, "groups": [...]}` for an active provisioned user, `{"active": false}` otherwise. 404 without SCIM or a gateway token ([SCIM provisioning](/halos/guides/scim-provisioning/)). With `?revocations=1` instead: the credential revocation list, `{"jtis": {jti: expiry}, "subjects": {subject: epoch}}` (unix seconds), which gateways fetch every 30 seconds (served without SCIM too; 404 only without a gateway token); 503 if the store is unavailable |
 | `GET /api/v1/gateway/posture` | Gateway token | Device-posture verdict for `?subject=<id>` (at most 256 characters), read by `halo-proxy` posture gates. 404 when no gateway token is configured |
 | `POST /api/v1/gateway/budget/check` | Gateway token | Budget verdict for `{"subject","groups","ring"}`: every counter the caller is charged to, with spend, limits, action, `alertAt` and `resetAt` ([cost budgets](/halos/guides/cost-budgets/)). 404 when no gateway token is configured |
 | `POST /api/v1/gateway/budget/usage` | Gateway token | A proxy replica's usage: `{"batch","records":[{"subject","groups","ring","usd","tokens","at"}]}`, at most 5000 records and 8 MiB. A batch id seen in the last hour returns `"duplicate": true` and is not counted again |
+| `POST /api/v1/gateway/dlp/events` | Gateway token | DLP findings from a gateway: `{"batch","events":[{"at","gateway","subject","ring","unit","protocol","harness","direction","action","kind","detector","hash","location","score","signals"}]}`, at most 500 events and 1 MiB. Each event is appended to the audit log as `dlp.secret` or `dlp.injection` (actor `gateway:<name>`). `hash` must be 8 hex characters; never a secret. A batch id seen in the last hour returns `"duplicate": true`; 503 when the audit log cannot be written (the gateway resends) ([data-loss prevention](/halos/guides/dlp/)) |
 | `GET /api/v1/budgets` | Admin | Every budget counter with spend in its current window, plus org and group counters at zero. Exact-match filters `?budget=` and `?key=` (for example `user:alice@acme.com`). `halo budget status` reads it |
 | `GET /api/v1/fleet/killswitch` | Device token | The same signed list for `halod` (client-axis devices; configured via `killSwitch` in `halod.yaml`; portal enrollment sets it when the server has a kill key). 404 when the server has no kill key |
 | `GET /api/v1/capabilities` | Session | Optional features this server is configured for. `killSwitch` is true only when a kill-list signing key (`--killswitch-key-file`) is set and the kill route is registered, so the console never probes with a real POST |
@@ -84,7 +95,7 @@ State-changing Session and Admin requests (anything but `GET`) are rejected with
 | `GET /api/v1/whoami` | Session | Ring and variants for a user. Developers: self only; admins: any user |
 | `POST /api/v1/launch/{launcher}` | Session | Launcher output (`devcontainer`, `codespaces`, `coder`, `laptop`) |
 | `POST /api/v1/requests`, `GET /api/v1/requests` | Session | Submit and list access requests |
-| `POST /api/v1/requests/{id}/approve`, `/deny` | Admin | Decide a request; approval opens a PR |
+| `POST /api/v1/requests/{id}/approve`, `/deny` | Admin | Decide a request; approval opens a PR. 500 if the decision cannot be stored (the request stays pending; the message names a PR already opened) or audited (the decision stands) |
 
 ### Enrollment (public)
 
@@ -140,4 +151,4 @@ curl -X POST https://halo.acme.example/api/v1/experiments/opus-5-5-canary/kill \
 
 ### Audit actions
 
-`login`, `logout`, `request.create`, `request.approve`, `request.deny`, `device.enroll`, `device.revoke`, `session.revoke`, `experiment.status`, `experiment.kill`, `experiment.unkill`, `toggle.propose`, `toggle.kill`, `toggle.unkill`. The controller's kills are recorded with actor `halo-controller`. SCIM mutations are recorded with actor `scim`: `scim.user.create`, `scim.user.replace`, `scim.user.patch`, `scim.user.delete`, `scim.group.create`, `scim.group.replace`, `scim.group.patch`, `scim.group.delete`.
+`login`, `logout`, `request.create`, `request.approve`, `request.deny`, `device.enroll`, `device.revoke`, `session.revoke`, `credential.revoke`, `experiment.status`, `experiment.kill`, `experiment.unkill`, `toggle.propose`, `toggle.kill`, `toggle.unkill`. The controller's kills are recorded with actor `halo-controller`. SCIM mutations are recorded with actor `scim`: `scim.user.create`, `scim.user.replace`, `scim.user.patch`, `scim.user.delete`, `scim.group.create`, `scim.group.replace`, `scim.group.patch`, `scim.group.delete`.

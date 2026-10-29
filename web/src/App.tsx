@@ -1,6 +1,7 @@
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { ApiError, useCan, useMe, useRequests } from "./api";
 import { Audit } from "./pages/Audit";
+import { Budgets } from "./pages/Budgets";
 import { Approvals } from "./pages/Approvals";
 import { Debugger } from "./pages/Debugger";
 import { Device } from "./pages/Device";
@@ -10,6 +11,7 @@ import { Kiosk } from "./pages/Kiosk";
 import { Overview } from "./pages/Overview";
 import { Policy } from "./pages/Policy";
 import { Releases } from "./pages/Releases";
+import { Rollouts } from "./pages/Rollouts";
 import { Toggles } from "./pages/Toggles";
 import { ErrorBox } from "./ui";
 
@@ -56,7 +58,7 @@ export function App() {
   const signOut = () => { void fetch("/auth/logout", { method: "POST" }).then(() => window.location.reload()); };
   const nav: [string, string][] = [
     ...(read
-      ? [["", "Overview"], ["kiosk", "Kiosk"], ["fleet", "Fleet"], ["releases", "Releases"], ["experiments", "Experiments"], ["toggles", "Toggles"], ["policy", "Policy"], ["debug", "Assignment"]]
+      ? [["", "Overview"], ["kiosk", "Kiosk"], ["fleet", "Fleet"], ["releases", "Releases"], ["rollouts", "Rollouts"], ["budgets", "Cost & budgets"], ["experiments", "Experiments"], ["toggles", "Toggles"], ["policy", "Policy"], ["debug", "Assignment"]]
       : [["", "Home"], ["debug", "Why this setup?"]]) as [string, string][],
     ...(approve ? [["approvals", "Approvals"] as [string, string]] : []),
     ...(audit ? [["audit", "Audit log"] as [string, string]] : []),
@@ -68,6 +70,8 @@ export function App() {
     case "debug": view = <Debugger self={read ? undefined : me.data.id} />; break;
     case "fleet": view = read ? <Fleet /> : <Kiosk />; break;
     case "releases": view = read ? <Releases /> : <Kiosk />; break;
+    case "rollouts": view = read ? <Rollouts name={arg ? decodeURIComponent(arg) : undefined} /> : <Kiosk />; break;
+    case "budgets": view = read ? <Budgets /> : <Kiosk />; break;
     case "audit": view = audit ? <Audit /> : <Kiosk />; break;
     case "devices": view = read && arg ? <Device id={decodeURIComponent(arg)} /> : <Kiosk />; break;
     case "experiments": view = read ? <Experiments name={arg ? decodeURIComponent(arg) : undefined} /> : <Kiosk />; break;

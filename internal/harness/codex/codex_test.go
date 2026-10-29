@@ -39,7 +39,7 @@ func TestGoldenAndSemantics(t *testing.T) {
 		hutiltest.Golden(t, f.Path[strings.LastIndex(f.Path, "/")+1:], f.Data)
 	}
 	all := strings.Join(warns, "\n")
-	for _, want := range []string{"self-enforce version", `"off" mapped to workspace-write`, `"models.allowed"`, `"permissions.allow"`, `"hooks.items"`, `"egress.allowedDomains"`, `"instructions"`, `"env"`, `"mcp.denied"`} {
+	for _, want := range []string{"self-enforce version", `"off" mapped to workspace-write`, `"models.allowed"`, `"permissions.allow"`, `"hooks.items"`, "experimental_network", `"instructions"`, `"env"`, `"mcp.denied"`} {
 		if !strings.Contains(all, want) {
 			t.Errorf("missing warning %q in\n%s", want, all)
 		}

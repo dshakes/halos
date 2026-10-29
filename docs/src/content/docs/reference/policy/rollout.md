@@ -15,7 +15,7 @@ Generated from `schemas/rollout.schema.json`; do not edit. Nested fields use dot
 | `baseline.release` | string |  |  |  |  | Client axis: switch-back release digest. |
 | `change` | object | yes |  |  |  | What rolls out. |
 | `change.alias` | string |  |  |  |  | Traffic axis: gateway model alias re-routed to the treatment's route on completion. |
-| `change.release` | string |  |  |  |  | Client axis: release digest the ring pointers move to. |
+| `change.release` | string |  |  |  | pattern ^sha256:[0-9a-f]&#123;64}$ | Client axis: release digest (sha256:&lt;64 hex>) the ring pointers move to. Step approvals are keyed on it. |
 | `change.version` | string |  |  |  |  | Client axis: human label of the release. |
 | `experiment` | string |  |  |  |  | Backing two-arm experiment (exposure, evidence, kill switch). Optional when every step is progressive or blue-green. |
 | `kind` | string | yes |  | const Rollout |  | Document kind. |

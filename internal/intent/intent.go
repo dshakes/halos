@@ -82,7 +82,10 @@ func (c *Change) Validate() ([]policy.Issue, error) {
 }
 
 // Load loads the policy as it would be after Apply, from a scratch copy of
-// the repo's YAML (the repo itself is untouched).
+// the repo (the repo itself is untouched). Every regular file is copied, not
+// just YAML: supply-chain artifacts and their keys and signatures (ADR-0028)
+// are validated too. ponytail: copies the whole repo; restrict to YAML plus
+// declared artifact paths if policy repos grow large.
 func (c *Change) Load() (*policy.Org, error) {
 	tmp, err := os.MkdirTemp("", "halo-intent-")
 	if err != nil {
@@ -99,8 +102,8 @@ func (c *Change) Load() (*policy.Org, error) {
 			}
 			return nil
 		}
-		if ext := filepath.Ext(p); ext != ".yaml" && ext != ".yml" {
-			return nil
+		if !d.Type().IsRegular() {
+			return nil // a symlinked artifact file stays missing, as policy.Load refuses it
 		}
 		rel, _ := filepath.Rel(c.Dir, p)
 		b, err := os.ReadFile(p) //nolint:gosec // walks the operator-owned policy repo

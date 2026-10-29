@@ -2,7 +2,7 @@
 
 `make uat-clis` (`scripts/uat-clis.sh` -> `go test -tags uat -run TestCLIs ./test/uat/`) drives the
 **real** AI CLIs at the versions pinned in `examples/acme-corp` against mock upstreams. There are
-no API keys. Latest run: 2026-10-01, Docker Desktop 28.0.1 (linuxkit 6.10.14, arm64), **86 s**
+no API keys. Latest run: 2026-10-28, Docker Desktop 28.0.1 (linuxkit 6.10.14, arm64), **129 s**
 warm (a cold run adds about a minute for the Feature install downloading the pinned CLIs). Result:
 **58 PASS, 2 FAIL (known, environmental: no Landlock), 2 UNVERIFIED, 0 unexpected**. The generated table with full evidence is
 `test/uat/cli-results.md` (rewritten on every run).
@@ -18,8 +18,10 @@ warm (a cold run adds about a minute for the Feature install downloading the pin
 
 All of it runs on one Docker network (`test/uat/clis_env_test.go`):
 
-1. **Release.** The UAT policy is `examples/acme-corp` (same org, ring `ring3-ga`, same pins and
-   per-harness models) with the issuer, gateway, MCP servers and OTLP endpoint pointed at the mock,
+1. **Release.** The UAT policy is the whole `examples/acme-corp` tree (same org, supply-chain
+   artifacts, units, governance, egress, DLP, same pins and per-harness models), cut to ring
+   `ring3-ga` (other rings, the MCP registry servers scoped only to them, and acme's experiments,
+   rollouts and toggles removed), with the issuer, gateway, MCP servers and OTLP endpoint pointed at the mock,
    plus a running traffic experiment (`uat-route`, routing `sonnet`, `codex-default` and
    `gemini-default`) so a variant is stamped. `halo release publish` pins the vendor artifacts, signs
    the release and pushes it to `registry:2` over TLS.
@@ -53,7 +55,8 @@ but a known gap that starts passing does. UNVERIFIED = not observable here, with
 | claude-code | `claude doctor` shows managed env | PASS | "Auto-updates: disabled (set by env: DISABLE_AUTOUPDATER)" |
 | claude-code | answer via halo-proxy; ring/variant stamped; JWT not forwarded; alias rewritten | PASS | sonnet -> claude-uat-sonnet-upstream, ring3-ga |
 | claude-code | OTEL carries halo.ring/halo.release/halo.harness | PASS | `halo.harness=claude-code, halo.release=uat.1, halo.ring=ring3-ga` |
-| claude-code | deny `Read(./.env)`; model lock; MCP allowlist; bypassPermissions refused | PASS | see cli-results.md |
+| claude-code | deny `Read(./.env)`; model lock; MCP allowlist | PASS | see cli-results.md |
+| claude-code | bypassPermissions refused by `permissions.disableBypassPermissionsMode` (non-root `uat` user) | PASS | `claude --debug -p --permission-mode bypassPermissions hi` as `uat`: no root/sudo refusal, debug log `[WARN] bypassPermissions mode is disabled by settings`, no `mode=bypassPermissions`; it then answers in the default mode (rc=0, UAT-MOCK-ANSWER) |
 | claude-code | disallowed `--model`: fallback goes to a gateway alias | **PASS** | the CLI drops `--model my-rogue-model` silently and dispatches its built-in `claude-opus-5-5[1m]`; the adapter's `modelOverrides` sends it as `opus` (upstream `claude-uat-opus-upstream`, answered). Before that it got the gateway's 400 on the first attempt with our message (verified, then superseded) |
 | codex | managed_config.toml loads with the per-harness model | PASS | banner "model: codex-default / provider: halos" (G7) |
 | codex | answer via halo-proxy; ring/variant stamped; JWT not forwarded; alias rewritten | PASS | codex-default -> gpt-uat-upstream |

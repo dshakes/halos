@@ -62,6 +62,9 @@ func newUnitBuild(org *policy.Org, prof *policy.Profile, m *Manifest) (*unitBuil
 	sort.Slice(ub.units, func(i, j int) bool { return ub.units[i].Name < ub.units[j].Name })
 	for _, u := range ub.units {
 		p, err := org.EffectiveProfile(prof, u.Name)
+		if err == nil {
+			p, err = org.WithMCPRegistry(p, m.Ring, u.Name) // prof already holds the ring's registry servers
+		}
 		if err != nil {
 			return nil, fmt.Errorf("unit %q: %w", u.Name, err)
 		}
@@ -106,7 +109,7 @@ func (ub *unitBuild) add(ad harness.Adapter, os harness.OS, base []harness.File,
 			sum := sha256.Sum256(f.Data)
 			h := hex.EncodeToString(sum[:])
 			blobs[h] = f.Data
-			entries = append(entries, FileEntry{Path: f.Path, Mode: f.Mode, SHA256: h})
+			entries = append(entries, FileEntry{Path: f.Path, Mode: f.Mode, SHA256: h, Artifact: f.Artifact, ArtifactPath: f.ArtifactPath})
 		}
 		for _, f := range base {
 			if !rendered[f.Path] {

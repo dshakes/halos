@@ -29,7 +29,7 @@ upstreams:
 models:
   sonnet:
     upstream: anthropic-direct
-    model: claude-sonnet-4-5
+    model: claude-sonnet-5-5
 `,
 	"profiles/base.yaml": `apiVersion: halos.dev/v1
 kind: Profile

@@ -10,6 +10,7 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -55,6 +56,12 @@ type Options struct {
 	// AdminBaseURLs overrides admin_plan's vendor API base URLs (tests);
 	// empty = the vendors' public APIs. Never a tool argument.
 	AdminBaseURLs map[string]string
+	// ROIIdentities is the identity roster CSV for roi_report and for the
+	// delivery-ROI section of propose_promotion PRs (`halo mcp serve
+	// --roi-identities`); ROIStore a local JSONL store of PR outcomes, else
+	// they come from ClickHouse. Never tool arguments.
+	ROIIdentities string
+	ROIStore      string
 }
 
 func (s *srv) prOpener() promote.PROpener {
@@ -93,6 +100,7 @@ func New(o Options) (*mcp.Server, error) {
 	s.addReadTools(m)
 	s.addOnboardTools(m)
 	s.addAutopilotTools(m)
+	s.addCopilotTools(m)
 	if o.AllowWrites {
 		s.addWriteTools(m)
 	}
@@ -223,13 +231,47 @@ func (s *srv) readPolicy(_ context.Context, req *mcp.ReadResourceRequest) (*mcp.
 	}
 	// Only regular files whose resolved path stays inside the policy dir:
 	// a symlink (or symlinked parent dir) must not reach e.g. /etc/hosts.
-	root, err1 := filepath.EvalSymlinks(s.dir)
-	real, err2 := filepath.EvalSymlinks(p)
-	st, err3 := os.Lstat(p)
-	if err1 != nil || err2 != nil || err3 != nil || !st.Mode().IsRegular() || !within(root, real) {
+	real, err1 := resolveWithin(s.dir, p)
+	st, err2 := os.Lstat(p)
+	if err1 != nil || err2 != nil || !st.Mode().IsRegular() {
 		return nil, mcp.ResourceNotFoundError(uri)
 	}
 	return readContents(uri, "application/yaml", real)
+}
+
+// resolveWithin returns p (under dir) with every symlink resolved, refusing
+// it when the resolved path leaves dir's resolved root. A path that does not
+// exist yet (an output to create) resolves through its deepest existing
+// ancestor; a dangling symlink is refused, since a write would follow it.
+// ponytail: checked at call time, not held open (no openat2/RESOLVE_BENEATH);
+// a racing swap of a directory for a symlink is out of scope.
+func resolveWithin(dir, p string) (string, error) {
+	p = filepath.Clean(p)
+	if !within(dir, p) {
+		return "", fmt.Errorf("%q is not under the policy dir", p)
+	}
+	root, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return "", fmt.Errorf("resolve policy dir %s: %w", dir, err)
+	}
+	cur, rest := p, ""
+	for {
+		real, err := filepath.EvalSymlinks(cur)
+		if err == nil {
+			if real = filepath.Join(real, rest); !within(root, real) {
+				return "", fmt.Errorf("%q resolves to %s, outside the policy dir", p, real)
+			}
+			return real, nil
+		}
+		if _, lerr := os.Lstat(cur); lerr == nil || !errors.Is(err, fs.ErrNotExist) {
+			return "", fmt.Errorf("resolve %s: %w", p, err) // dangling symlink, loop or permission error
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return "", fmt.Errorf("resolve %s: %w", p, err)
+		}
+		cur, rest = parent, filepath.Join(filepath.Base(cur), rest)
+	}
 }
 
 func readFile(p string) mcp.ResourceHandler {

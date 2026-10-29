@@ -48,7 +48,11 @@ type sigVerifiedKey struct{}
 // refetched when no cached key verifies a token (key rotation), and once the
 // set is jwksMaxAge old (a key the issuer withdrew stops verifying), except
 // for a CacheOnly context. One fetch runs at a time; callers that waited for
-// it use its result instead of fetching again.
+// it use its result instead of fetching again. Once a set is cached, an
+// unknown kid (or a signature no cached key verifies) refetches at most once
+// per jwksUnknownKidEvery: anyone can mint such a token, and must not be able
+// to make the gateway hammer the issuer. A rotated key is accepted once the
+// window has passed.
 //
 // A stale set keeps verifying when it cannot be refreshed: under CacheOnly
 // (a blocked IP never makes halo-server fetch), and when the issuer is
@@ -68,6 +72,7 @@ type jwksKeySet struct {
 	now       func() time.Time
 
 	fetchMu sync.Mutex
+	lastTry time.Time // last fetch attempt; guarded by fetchMu
 }
 
 // maxJWKSBody bounds a JWKS response.
@@ -79,6 +84,9 @@ const (
 	// jwksStaleRetry: after a failed refresh of a stale set, the stale set
 	// serves this long before the next attempt.
 	jwksStaleRetry = time.Minute
+	// jwksUnknownKidEvery: the least time between two refetches triggered by
+	// a token no cached key verifies.
+	jwksUnknownKidEvery = 30 * time.Second
 )
 
 func (k *jwksKeySet) clock() time.Time {
@@ -111,7 +119,7 @@ func (k *jwksKeySet) VerifySignature(ctx context.Context, raw string) ([]byte, e
 	k.mu.RUnlock()
 	refreshed := false
 	if !cacheOnly(ctx) && !refreshAt.IsZero() && !k.clock().Before(refreshAt) {
-		if fresh, err := k.refresh(ctx, gen); err == nil {
+		if fresh, err := k.refresh(ctx, gen, false); err == nil {
 			keys, refreshed = fresh, true
 		} else { // keep the stale set (see jwksKeySet); retry later
 			k.mu.Lock()
@@ -123,7 +131,7 @@ func (k *jwksKeySet) VerifySignature(ctx context.Context, raw string) ([]byte, e
 	}
 	payload, ok := verifyWith(jws, kid, keys)
 	if !ok && !refreshed && !cacheOnly(ctx) {
-		if keys, err = k.refresh(ctx, gen); err != nil {
+		if keys, err = k.refresh(ctx, gen, true); err != nil {
 			return nil, err
 		}
 		payload, ok = verifyWith(jws, kid, keys)
@@ -149,8 +157,10 @@ func verifyWith(jws *jose.JSONWebSignature, kid string, keys []jose.JSONWebKey) 
 }
 
 // refresh fetches the JWKS unless a fetch completed since the caller read
-// generation seen, and returns the current keys.
-func (k *jwksKeySet) refresh(ctx context.Context, seen uint64) ([]jose.JSONWebKey, error) {
+// generation seen, and returns the current keys. unknownKid (no cached key
+// verified the token) is throttled to one attempt per jwksUnknownKidEvery
+// once a set is cached; the cached keys are returned instead.
+func (k *jwksKeySet) refresh(ctx context.Context, seen uint64, unknownKid bool) ([]jose.JSONWebKey, error) {
 	k.fetchMu.Lock()
 	defer k.fetchMu.Unlock()
 	k.mu.RLock()
@@ -159,6 +169,11 @@ func (k *jwksKeySet) refresh(ctx context.Context, seen uint64) ([]jose.JSONWebKe
 	if gen != seen {
 		return keys, nil
 	}
+	now := k.clock()
+	if unknownKid && gen > 0 && now.Sub(k.lastTry) < jwksUnknownKidEvery {
+		return keys, nil
+	}
+	k.lastTry = now
 	keys, err := k.fetch(ctx)
 	if err != nil {
 		return nil, err

@@ -142,11 +142,26 @@ func TestSecretsNeverLogged(t *testing.T) {
 
 	// Upstream failure with forwardAuth (credentials and ?key= are forwarded):
 	// the transport error is logged, the credentials are not.
-	dead := httptest.NewServer(http.NotFoundHandler())
-	dead.Close()
+	// A listener that drops every connection: unlike a closed httptest server, its port
+	// cannot be reused by a parallel test, which once answered this "dead" upstream with a 404.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			_ = c.Close()
+		}
+	}()
+	deadURL := "http://" + ln.Addr().String()
 	e2 := testEnv(t, up, func(c *Config, o *policy.Org) {
 		c.ForwardAuth = true
-		o.Gateway.Upstreams["up"] = policy.Upstream{URL: dead.URL, Kind: "anthropic"}
+		o.Gateway.Upstreams["up"] = policy.Upstream{URL: deadURL, Kind: "anthropic"}
 	})
 	e2.p.log = e.p.log
 	good2 := e2.token(t, "alice@acme.com")
@@ -154,8 +169,8 @@ func TestSecretsNeverLogged(t *testing.T) {
 	if r := e2.post(t, "/v1/messages?key="+secret, good2, msgBody, hdr); r.StatusCode != http.StatusBadGateway {
 		t.Fatalf("dead upstream: status %d", r.StatusCode)
 	}
-	e2.cfg.NextHop = dead.URL
-	e2.p.next, _ = parseBase(dead.URL)
+	e2.cfg.NextHop = deadURL
+	e2.p.next, _ = parseBase(deadURL)
 	if r := e2.post(t, "/v1/messages?key="+secret, good2, msgBody, hdr); r.StatusCode != http.StatusBadGateway {
 		t.Fatalf("dead next hop: status %d", r.StatusCode)
 	}

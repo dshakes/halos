@@ -84,8 +84,10 @@ func TestDirectoryIsAuthoritative(t *testing.T) {
 // credential (not in SCIM) keeps its identity, groups and Kind.
 func TestDirectoryKeepsWorkloads(t *testing.T) {
 	var hits atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		hits.Add(1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Has("subject") { // the revocation list (ADR-0026) is fetched, a SCIM lookup must not be
+			hits.Add(1)
+		}
 		_ = json.NewEncoder(w).Encode(gateway.DirectoryEntry{})
 	}))
 	t.Cleanup(srv.Close)
@@ -166,10 +168,43 @@ func TestDirectoryConfig(t *testing.T) {
 		{"plain http off-cluster", DirectoryConfig{URL: "http://halo.example/d", TokenFile: tok}, true, "directory url"},
 		{"plain http in cluster", DirectoryConfig{URL: "http://halo-server.halos.svc/d", TokenFile: tok, AllowInsecureInCluster: true}, false, ""},
 		{"https", DirectoryConfig{URL: "https://halo.example/d", TokenFile: tok}, false, ""},
+		{"revocations only", DirectoryConfig{URL: "https://halo.example/d", TokenFile: tok, Mode: "revocations"}, false, ""},
+		{"unknown mode", DirectoryConfig{URL: "https://halo.example/d", TokenFile: tok, Mode: "scim"}, true, "directory.mode"},
 	} {
 		dc, err := c.cfg.build(log)
 		if (err != nil) != (c.wantErr != "") || (err != nil && !strings.Contains(err.Error(), c.wantErr)) || (dc == nil) != c.wantNil {
 			t.Errorf("%s: client %v err %v", c.name, dc, err)
+		}
+		if dc != nil && dc.RevocationsOnly != (c.cfg.Mode == "revocations") {
+			t.Errorf("%s: RevocationsOnly %v", c.name, dc.RevocationsOnly)
+		}
+	}
+}
+
+// Accepting halo-server credentials without a directory URL cannot enforce
+// revocations: halo-proxy says so at startup.
+func TestNoRevocationWarning(t *testing.T) {
+	tok := filepath.Join(t.TempDir(), "t")
+	_ = os.WriteFile(tok, []byte("x"), 0o600)
+	for _, c := range []struct {
+		name     string
+		keys     string
+		dir      DirectoryConfig
+		wantWarn bool
+	}{
+		{"workload keys, no directory", "PEM", DirectoryConfig{}, true},
+		{"workload keys, revocations directory", "PEM", DirectoryConfig{URL: "https://halo.example/d", TokenFile: tok, Mode: "revocations"}, false},
+		{"no workload keys", "", DirectoryConfig{}, false},
+	} {
+		var buf strings.Builder
+		cfg := defaults()
+		cfg.Policy = filepath.Join(t.TempDir(), "missing.json")
+		cfg.Identity.workloadKeys, cfg.Directory = c.keys, c.dir
+		if _, err := newProxy(cfg, slog.New(slog.NewTextHandler(&buf, nil))); err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if got := strings.Contains(buf.String(), "revoked credential"); got != c.wantWarn {
+			t.Errorf("%s: warned=%v, want %v:\n%s", c.name, got, c.wantWarn, buf.String())
 		}
 	}
 }

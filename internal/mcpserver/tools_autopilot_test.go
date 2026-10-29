@@ -22,7 +22,7 @@ import (
 func TestAutopilotGuideNamesRealTools(t *testing.T) {
 	cs := connect(t, Options{PolicyDir: example, AllowWrites: true})
 	have := toolNames(t, cs)
-	for _, n := range []string{"status", "release_build", "wait_for", "kill_switch_status", "fleet_status", "audit_tail", "kill_switch", "eval_run"} {
+	for _, n := range []string{"status", "release_build", "wait_for", "kill_switch_status", "fleet_status", "audit_tail", "session_ledger", "kill_switch", "eval_run"} {
 		if !have[n] {
 			t.Errorf("tool %s missing", n)
 		}
@@ -160,6 +160,12 @@ func (f *fakeServer) handler() http.Handler {
 		f.record(r)
 		_ = json.NewEncoder(w).Encode(map[string]any{"entries": []map[string]any{{"seq": 7, "action": "kill", "q": r.URL.RawQuery}}})
 	})
+	sessions := func(w http.ResponseWriter, r *http.Request) {
+		f.record(r)
+		_ = json.NewEncoder(w).Encode(map[string]any{"verified": true, "sessions": []map[string]any{{"id": r.PathValue("id"), "q": r.URL.RawQuery}}})
+	}
+	m.HandleFunc("GET /api/v1/sessions", sessions)
+	m.HandleFunc("GET /api/v1/sessions/{id}", sessions)
 	m.HandleFunc("POST /api/v1/{kind}/{name}/{verb}", func(w http.ResponseWriter, r *http.Request) {
 		f.record(r)
 		var in struct{ Reason string }
@@ -195,7 +201,7 @@ func TestFleetToolsNeedServer(t *testing.T) {
 	if err != nil || out["configured"] != false || !strings.Contains(out["next_steps"].([]any)[0].(string), "HALO_SESSION") {
 		t.Fatalf("kill_switch_status without server: %v %v", out, err)
 	}
-	for _, tool := range []string{"fleet_status", "audit_tail"} {
+	for _, tool := range []string{"fleet_status", "audit_tail", "session_ledger"} {
 		if _, err := call(t, cs, tool, nil); err == nil || !strings.Contains(err.Error(), "HALO_SERVER") {
 			t.Errorf("%s without server: %v", tool, err)
 		}
@@ -251,6 +257,17 @@ func TestFleetToolsAndKillSwitch(t *testing.T) {
 	au, err := call(t, ro, "audit_tail", map[string]any{"limit": 5, "since": "3"})
 	if err != nil || !strings.Contains(au["entries"].([]any)[0].(map[string]any)["q"].(string), "limit=5") {
 		t.Fatalf("audit_tail: %v %v", au, err)
+	}
+	sl, err := call(t, ro, "session_ledger", map[string]any{"user": "dev@acme.example", "tool": "github", "limit": 10})
+	if err != nil || sl["verified"] != true || len(sl["next_steps"].([]any)) == 0 {
+		t.Fatalf("session_ledger: %v %v", sl, err)
+	}
+	if q := sl["sessions"].([]any)[0].(map[string]any)["q"].(string); q != "limit=10&tool=github&user=dev%40acme.example" {
+		t.Fatalf("session_ledger query: %q", q)
+	}
+	one, err := call(t, ro, "session_ledger", map[string]any{"id": "../audit", "user": "ignored"})
+	if err != nil || one["sessions"].([]any)[0].(map[string]any)["id"] != "../audit" || one["sessions"].([]any)[0].(map[string]any)["q"] != "" {
+		t.Fatalf("session_ledger by id (escaped, filters ignored): %v %v", one, err)
 	}
 	// Read-only: kill_switch previews, refuses the real call.
 	if _, err := call(t, ro, "kill_switch", map[string]any{"name": "opus-5-5-canary", "reason": "r", "dry_run": false}); err == nil || !strings.Contains(err.Error(), "--allow-writes") {
@@ -320,8 +337,26 @@ func TestEvalRunDryRunAndGates(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, ".halos", "scorecards")); !os.IsNotExist(err) {
 		t.Fatal("dry run created the scorecard dir")
 	}
-	if _, err := call(t, ro, "eval_run", map[string]any{"suite": "evals/suite.yaml", "dry_run": false}); err == nil || !strings.Contains(err.Error(), "--allow-writes") {
+	if _, err := call(t, ro, "eval_run", map[string]any{"suite": "evals/suite.yaml", "dry_run": false, "reason": "pre-canary gate"}); err == nil || !strings.Contains(err.Error(), "--allow-writes") {
 		t.Fatalf("read-only real run accepted: %v", err)
+	}
+	// write tools require a reason: a real run without one never starts
+	rw := connect(t, Options{PolicyDir: dir, AllowWrites: true})
+	for _, r := range []any{nil, "", "  "} {
+		args := map[string]any{"suite": "evals/suite.yaml", "dry_run": false}
+		if r != nil {
+			args["reason"] = r
+		}
+		if out, err := call(t, rw, "eval_run", args); err == nil || !strings.Contains(err.Error(), "reason is required") {
+			t.Fatalf("real run without a reason (%v): %v %v", r, out, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".halos", "scorecards")); !os.IsNotExist(err) {
+		t.Fatal("reasonless run created the scorecard dir")
+	}
+	// a preview accepts one and echoes it
+	if out, err := call(t, ro, "eval_run", map[string]any{"suite": "evals/suite.yaml", "reason": "why"}); err != nil || out["reason"] != "why" {
+		t.Fatalf("dry run with reason: %v %v", out, err)
 	}
 	for _, args := range []map[string]any{{"suite": "/etc/passwd"}, {"suite": "../outside.yaml"}, {"suite": "evals/missing.yaml"}, {}} {
 		if _, err := call(t, ro, "eval_run", args); err == nil {
@@ -372,7 +407,7 @@ func TestWriteToolsCarryNextSteps(t *testing.T) {
 		t.Fatalf("dry run next_steps: %v %v", out, err)
 	}
 	out, err = call(t, cs, "pause_experiment", map[string]any{"name": "opus-5-5-canary", "reason": "r", "dry_run": false})
-	if err != nil || !strings.Contains(out["next_steps"].([]any)[0].(string), "git -C "+dir+" push -u origin "+out["branch"].(string)) {
+	if err != nil || !strings.Contains(out["next_steps"].([]any)[0].(string), shJoin("git", "-C", dir, "push", "-u", "origin", out["branch"].(string))) {
 		t.Fatalf("applied next_steps: %v %v", out, err)
 	}
 	out, err = call(t, cs, "propose_promotion", map[string]any{"experiment": "opus-5-5-canary", "ring": "ring1-canary", "release": "sha256:" + strings.Repeat("ab", 32), "reason": "r"})

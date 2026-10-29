@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -28,6 +29,26 @@ import (
 
 var sha = strings.Repeat("ab", 32)
 
+// exampleSupplyChain is acme-corp's halos.yaml supplyChain block (up to the
+// next top-level key), for fixtures that replace halos.yaml but keep the
+// example profiles, which reference those artifacts.
+func exampleSupplyChain(t testing.TB) string {
+	t.Helper()
+	b, err := os.ReadFile("../../examples/acme-corp/halos.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := strings.Index(string(b), "\nsupplyChain:\n")
+	if i < 0 {
+		t.Fatal("examples/acme-corp/halos.yaml has no top-level supplyChain")
+	}
+	block := string(b[i+1:])
+	if j := regexp.MustCompile(`\n[A-Za-z]`).FindStringIndex(block[1:]); j != nil {
+		block = block[:j[0]+2]
+	}
+	return block
+}
+
 // portalPolicy copies acme-corp and enables identity + self-service + one opt-in ring.
 func portalPolicy(t testing.TB) string {
 	t.Helper()
@@ -37,7 +58,7 @@ func portalPolicy(t testing.TB) string {
 	}
 	root := "org: acme-corp\nidentity:\n  issuer: https://idp.example\n  clientID: halo\n  adminGroups: [platform-admins]\n" +
 		"selfService:\n  enabled: true\n  launchers: [devcontainer, codespaces, coder, laptop]\n  requestable: [mcp-server, ring-opt-in, harness]\n  enrollmentTTLSeconds: 600\n" +
-		"  catalog:\n    - name: jira\n      url: https://mcp.acme.example/jira\n"
+		"  catalog:\n    - name: jira\n      url: https://mcp.acme.example/jira\n" + exampleSupplyChain(t)
 	if err := os.WriteFile(filepath.Join(dst, "halos.yaml"), []byte(root), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -537,7 +558,7 @@ func TestGitPolicyWriter(t *testing.T) {
 	if string(before) != string(after) {
 		t.Error("writer must leave file writing to the opener; it edited in place")
 	}
-	want := []string{"rev-parse --show-toplevel", "fetch origin main", "checkout -f -B main origin/main", "clean -fd", "checkout -f -B main origin/main", "clean -fd"}
+	want := []string{"rev-parse --show-toplevel", "fetch origin main", "-c core.autocrlf=false -c core.eol=lf checkout -f -B main origin/main", "clean -fd", "-c core.autocrlf=false -c core.eol=lf checkout -f -B main origin/main", "clean -fd"}
 	if !slices.Equal(gitCalls, want) {
 		t.Errorf("git calls: %v", gitCalls)
 	}

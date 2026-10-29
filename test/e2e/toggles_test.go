@@ -69,8 +69,8 @@ traffic:
     sonnet: {upstream: candidate, model: claude-sonnet-next}
 `)
 	// group-targeted toggles: a client env flag, and a traffic route for a second alias
-	replaceIn(t, filepath.Join(pol, "gateway.yaml"), "  sonnet: {upstream: primary, model: claude-sonnet-4-5}\n",
-		"  sonnet: {upstream: primary, model: claude-sonnet-4-5}\n  haiku: {upstream: primary, model: claude-haiku-4-5}\n")
+	replaceIn(t, filepath.Join(pol, "gateway.yaml"), "  sonnet: {upstream: primary, model: claude-sonnet-5-5}\n",
+		"  sonnet: {upstream: primary, model: claude-sonnet-5-5}\n  haiku: {upstream: primary, model: claude-haiku-5-5}\n")
 	writeFile(t, filepath.Join(pol, "toggles/e2e-group.yaml"), `apiVersion: halos.dev/v1
 kind: Toggle
 name: e2e-group
@@ -300,7 +300,7 @@ traffic:
 		if got := routed(grpUser, "haiku", "e2e-grp"); got != "candidate/claude-haiku-next" {
 			t.Fatalf("group member routed to %s", got)
 		}
-		if got := routed(grpUser, "haiku"); got != "primary/claude-haiku-4-5" {
+		if got := routed(grpUser, "haiku"); got != "primary/claude-haiku-5-5" {
 			t.Fatalf("non-member routed to %s", got)
 		}
 	})
@@ -325,14 +325,14 @@ traffic:
 			}
 		}
 		waitFor(t, killPoll+4*time.Second, "device flag off", func() bool { return flag(on) == "" })
-		waitFor(t, 6*time.Second, "gateway route off", func() bool { return routed(onUser, "sonnet") == "primary/claude-sonnet-4-5" })
+		waitFor(t, 6*time.Second, "gateway route off", func() bool { return routed(onUser, "sonnet") == "primary/claude-sonnet-5-5" })
 		if got := routed(grpUser, "haiku", "e2e-grp"); got != "candidate/claude-haiku-next" {
 			t.Fatalf("killing other toggles turned the group route off: %s", got)
 		}
 		if code, body := post(admin, "/api/v1/toggles/e2e-route-grp/kill", `{"reason":"e2e"}`); code != 200 {
 			t.Fatalf("kill e2e-route-grp: %d %s", code, body)
 		}
-		waitFor(t, 6*time.Second, "group route off", func() bool { return routed(grpUser, "haiku", "e2e-grp") == "primary/claude-haiku-4-5" })
+		waitFor(t, 6*time.Second, "group route off", func() bool { return routed(grpUser, "haiku", "e2e-grp") == "primary/claude-haiku-5-5" })
 		if code, body := post(admin, "/api/v1/toggles/e2e-route-grp/unkill", `{"reason":"e2e done"}`); code != 200 {
 			t.Fatalf("unkill e2e-route-grp: %d %s", code, body)
 		}

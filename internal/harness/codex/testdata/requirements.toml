@@ -2,6 +2,14 @@ allowed_approval_policies = ['on-request']
 allowed_login_methods = ['api']
 allowed_sandbox_modes = ['read-only', 'workspace-write']
 
+[experimental_network]
+enabled = true
+managed_allowed_domains_only = true
+
+[experimental_network.domains]
+'example.com' = 'allow'
+'github.com' = 'allow'
+
 [marketplaces]
 restrict_to_allowed_sources = true
 
@@ -32,3 +40,7 @@ value = '-y'
 [[mcp_servers.lint.identity.command.args]]
 match = 'exact'
 value = 'lint-mcp'
+
+[mcp_servers.tickets]
+[mcp_servers.tickets.identity]
+url = 'https://mcp.example.com/tickets'

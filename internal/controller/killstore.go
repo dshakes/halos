@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/dshakes/halos/internal/fsutil"
+	"github.com/dshakes/halos/internal/policy"
 	"github.com/dshakes/halos/internal/storage"
 )
 
@@ -191,31 +192,71 @@ func (s *KillStore) Unkill(ctx context.Context, experiment, by, reason string) (
 	return s.set(ctx, experiment, by, reason, false)
 }
 
+// incidentKey holds the incident freeze (ADR-0030) in the kill store, so it
+// shares its persistence, HA log and cross-process reads. ValidName forbids
+// ':', so no experiment or toggle can collide; Killed never lists it, so it
+// never reaches a gateway's or device's kill list.
+const incidentKey = "freeze:" + policy.IncidentFreezeName
+
+// Freeze sets the incident freeze; changed is false when it was already set.
+func (s *KillStore) Freeze(ctx context.Context, by, reason string) (bool, error) {
+	return s.set(ctx, incidentKey, by, reason, true)
+}
+
+// Unfreeze lifts the incident freeze; changed is false when it was not set.
+func (s *KillStore) Unfreeze(ctx context.Context, by, reason string) (bool, error) {
+	return s.set(ctx, incidentKey, by, reason, false)
+}
+
+// Incident returns the incident freeze, or nil when none is set.
+func (s *KillStore) Incident() (*KillRecord, error) {
+	var out *KillRecord
+	err := s.read(func(state map[string]KillRecord) {
+		if r, ok := state[incidentKey]; ok && r.Killed {
+			out = &r
+		}
+	})
+	return out, err
+}
+
 // Killed returns the active kills sorted by experiment, and the state version.
 func (s *KillStore) Killed() ([]KillRecord, uint64, error) {
+	out := []KillRecord{}
+	var version uint64
+	err := s.read(func(state map[string]KillRecord) {
+		for _, r := range state {
+			if r.Killed && r.Experiment != incidentKey {
+				out = append(out, r)
+			}
+		}
+		version = s.version
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Experiment < out[j].Experiment })
+	return out, version, nil
+}
+
+// read catches up with other writers and calls f with the state under mu.
+func (s *KillStore) read(f func(map[string]KillRecord)) error {
 	if s.log != nil {
 		// Gateways poll this on every replica: concurrent polls share one
 		// catch-up, and s.mu is not held while they wait for it.
 		if err := s.cc.Do(func() error { s.mu.Lock(); defer s.mu.Unlock(); return s.refresh() }); err != nil {
-			return nil, 0, err
+			return err
 		}
 		s.mu.Lock()
 	} else {
 		s.mu.Lock()
 		if err := s.refresh(); err != nil {
 			s.mu.Unlock()
-			return nil, 0, err
+			return err
 		}
 	}
 	defer s.mu.Unlock()
-	out := []KillRecord{}
-	for _, r := range s.state {
-		if r.Killed {
-			out = append(out, r)
-		}
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Experiment < out[j].Experiment })
-	return out, s.version, nil
+	f(s.state)
+	return nil
 }
 
 // Close closes the log file.

@@ -29,7 +29,7 @@ $ halo validate
 OK: policy valid (0 warnings)
 ```
 
-`halos.yaml` is the whole policy: Claude Code `2.1.280`, provider `anthropic`, model `claude-sonnet-4-5`, `safety: standard`, `rollout: standard`. `halo explain` prints the gateway, profile and four rings it expands to.
+`halos.yaml` is the whole policy: Claude Code `2.1.280`, provider `anthropic`, model `claude-sonnet-5-5`, `safety: standard`, `rollout: standard`. `halo explain` prints the gateway, profile and four rings it expands to.
 
 ## 3. See who lands where
 
@@ -54,13 +54,13 @@ Ring membership is deterministic: a group match wins (`ring0-team`), everyone el
 $ halo render --ring ring0-team --out rendered --release-version 0.1.0
 write rendered/Library/Application Support/ClaudeCode/managed-settings.json
 $ grep -iE 'bypass|requiredM|BASE_URL' "rendered/Library/Application Support/ClaudeCode/managed-settings.json"
-  "disableBypassPermissionsMode": "disable",
     "ANTHROPIC_BASE_URL": "https://ai.acme.example",
+    "disableBypassPermissionsMode": "disable"
   "requiredMaximumVersion": "2.1.280",
   "requiredMinimumVersion": "2.1.280",
 ```
 
-That file is what `halod` writes on a laptop: bypass mode disabled, the CLI pinned to one version, traffic pointed at your gateway.
+That file is what `halod` writes on a laptop: bypass mode disabled (`permissions.disableBypassPermissionsMode`), the CLI pinned to one version, traffic pointed at your gateway.
 
 ## 5. Generate a dev signing key
 

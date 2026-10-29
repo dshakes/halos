@@ -26,6 +26,7 @@ halo rollout advance <name> [flags]
 | `--force` |  | bool | false | advance even though a gate failed |
 | `--policy-dir` |  | string |  | policy repo directory (default ".") |
 | `--reason` |  | string |  | why (required; recorded in the commit message and PR body) |
+| `--server` |  | string |  | halo-server base URL (or HALO_SERVER) for the incident freeze and step approvals (ADR-0030); session from HALO_SESSION |
 | `--user` |  | string |  | ClickHouse user (password from HALO_CLICKHOUSE_PASSWORD) |
 
 ## Global flags

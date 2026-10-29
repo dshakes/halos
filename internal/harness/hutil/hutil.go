@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 
@@ -95,12 +96,20 @@ func Populated(p *policy.Profile) []string {
 	add(p.MCP.ManagedOnly, "mcp.managedOnly")
 	add(len(p.MCP.Servers) > 0, "mcp.servers")
 	add(len(p.MCP.Denied) > 0, "mcp.denied")
+	add(slices.ContainsFunc(p.MCP.Servers, func(s policy.MCPServer) bool { return len(s.Tools.Allow) > 0 }), "mcp.tools.allow")
+	add(slices.ContainsFunc(p.MCP.Servers, func(s policy.MCPServer) bool { return len(s.Tools.Deny) > 0 }), "mcp.tools.deny")
+	add(slices.ContainsFunc(p.MCP.Servers, HasAuth), "mcp.auth")
 	add(p.Hooks.ManagedOnly, "hooks.managedOnly")
 	add(len(p.Hooks.Hooks) > 0, "hooks.items")
 	add(p.Telemetry.Enabled, "telemetry.enabled")
 	add(p.Telemetry.LogPrompts, "telemetry.logPrompts")
 	add(len(p.Telemetry.Attributes) > 0, "telemetry.attributes")
 	add(len(p.Egress.AllowedDomains) > 0, "egress.allowedDomains")
+	add(p.Egress.Default != "", "egress.default")
+	add(len(p.Egress.DeniedDomains) > 0, "egress.deniedDomains")
+	add(len(p.Egress.Presets) > 0, "egress.presets")
+	add(len(p.Sandbox.WritableRoots) > 0, "sandbox.writableRoots")
+	add(len(p.Sandbox.ProtectedPaths) > 0, "sandbox.protectedPaths")
 	add(p.Instructions != "", "instructions")
 	add(len(p.Env) > 0, "env")
 	e := p.Extensions
@@ -114,8 +123,65 @@ func Populated(p *policy.Profile) []string {
 	add(e.Subagents.PluginOnly, "extensions.subagents.pluginOnly")
 	add(e.OutputStyle != "", "extensions.outputStyle")
 	add(e.StatusLine.Command != "", "extensions.statusLine")
+	add(len(e.Artifacts) > 0, "extensions.artifacts")
 	add(p.Login != "", "login")
 	return out
+}
+
+// HasAuth reports whether s declares an MCP authorization mode other than none.
+func HasAuth(s policy.MCPServer) bool {
+	return s.Auth.Mode != "" && s.Auth.Mode != policy.MCPAuthNone
+}
+
+// MCPTokenHelper is the command a harness runs for a header-producing helper
+// (Claude Code headersHelper) for a server with auth mode halos: it prints
+// {"Authorization": "Bearer <token>"}, a token halo-server mints for exactly
+// that server (ADR-0029). url is a validated registry URL (no quotes or spaces).
+func MCPTokenHelper(url string) string {
+	return "halo mcp token --resource " + ShQuote(url) + " --format headers"
+}
+
+// SandboxPaths are the fields every egress/sandbox-aware adapter handles.
+var SandboxPaths = []string{"permissions.sandbox", "egress.allowedDomains", "egress.default", "egress.deniedDomains", "egress.presets",
+	"sandbox.writableRoots", "sandbox.protectedPaths"}
+
+// ProtectedRules turns sandbox.protectedPaths into Read and Edit permission
+// rules (Claude Code rule syntax, which OpenCode's translation also reads).
+// An absolute path gets absPrefix in front ("/" makes Claude's "//abs"), a
+// relative one matches at any depth ("**/x"), and a path without a glob also
+// covers everything below it.
+func ProtectedRules(paths []string, absPrefix string) []string {
+	var out []string
+	for _, p := range paths {
+		switch {
+		case strings.HasPrefix(p, "/"):
+			p = absPrefix + p
+		case strings.HasPrefix(p, "~/"):
+		default:
+			p = "**/" + strings.TrimPrefix(strings.TrimPrefix(p, "./"), "**/")
+		}
+		pats := []string{p}
+		if !strings.ContainsAny(p, "*?[") {
+			pats = append(pats, strings.TrimSuffix(p, "/")+"/**")
+		}
+		for _, pat := range pats {
+			out = append(out, "Read("+pat+")", "Edit("+pat+")")
+		}
+	}
+	return out
+}
+
+// SplitPaths separates paths a system-wide file can name (absolute, or ~/
+// when home is true) from the rest (workspace-relative globs).
+func SplitPaths(paths []string, home bool) (ok, rest []string) {
+	for _, p := range paths {
+		if strings.HasPrefix(p, "/") || (home && strings.HasPrefix(p, "~/")) {
+			ok = append(ok, p)
+		} else {
+			rest = append(rest, p)
+		}
+	}
+	return ok, rest
 }
 
 // WarnUnsupported returns one warning per populated profile field not in handled.
@@ -152,6 +218,16 @@ func VersionBefore(v string, major, minor int) bool {
 		return false
 	}
 	return a < major || (a == major && b < minor)
+}
+
+// PatchBefore reports whether a "major.minor.patch[...]" version is below
+// major.minor.patch. Unparseable versions report false, like VersionBefore.
+func PatchBefore(v string, major, minor, patch int) bool {
+	var a, b, c int
+	if _, err := fmt.Sscanf(v, "%d.%d.%d", &a, &b, &c); err != nil {
+		return false
+	}
+	return a < major || (a == major && (b < minor || (b == minor && c < patch)))
 }
 
 // Model is the default model alias for harness name: its own harnesses.<name>.model,
@@ -221,4 +297,56 @@ func OTELShellWrapper(binary, attrs string) string {
 	return "# Halos: label this CLI's telemetry with the release (login shells).\n" +
 		binary + "() { OTEL_RESOURCE_ATTRIBUTES=" + ShQuote(attrs) + " command " + binary + " \"$@\"; }\n" +
 		"[ -z \"${BASH_VERSION:-}\" ] || export -f " + binary + "\n"
+}
+
+// ArtifactDirs says where an adapter places each supply-chain artifact kind
+// (ADR-0028) on one OS: a directory kind lands as <dir>/<name>/<file>, a
+// single-file kind as <dir>/<name>.md. A kind in neither map is warned,
+// never dropped.
+type ArtifactDirs struct {
+	Dirs   map[string]string // kind -> directory for directory kinds
+	Single map[string]string // kind -> directory for one-Markdown-file kinds
+	Why    map[string]string // kind -> why it is not rendered
+}
+
+// RenderArtifacts places p.Resolved per ad and returns the files plus a
+// warning for each artifact it cannot place.
+func RenderArtifacts(adapter string, os harness.OS, p *policy.Profile, ad ArtifactDirs) ([]harness.File, []string) {
+	var files []harness.File
+	var warns []string
+	for _, n := range p.Extensions.Artifacts {
+		i := slices.IndexFunc(p.Resolved, func(r policy.ResolvedArtifact) bool { return r.Name == n })
+		if i < 0 {
+			warns = append(warns, fmt.Sprintf("%s: artifact %q was not rendered: the profile was not resolved against halos.yaml supplyChain.artifacts", adapter, n))
+			continue
+		}
+		a := p.Resolved[i]
+		if a.Files == nil {
+			warns = append(warns, fmt.Sprintf("%s: artifact %q (%s) was not rendered: its content is not resolved here (%s is fetched by `halo release build`)", adapter, a.Name, a.Kind, a.Source))
+			continue
+		}
+		if d, ok := ad.Dirs[a.Kind]; ok {
+			for _, rel := range SortedKeys(a.Files) {
+				files = append(files, harness.File{Path: Join(os, append([]string{d, a.Name}, strings.Split(rel, "/")...)...), Mode: 0o644,
+					Data: a.Files[rel], Artifact: a.Name, ArtifactPath: rel})
+			}
+			continue
+		}
+		if d, ok := ad.Single[a.Kind]; ok {
+			if len(a.Files) != 1 {
+				warns = append(warns, fmt.Sprintf("%s: artifact %q (%s) was not rendered: a %s is one Markdown file, it has %d", adapter, a.Name, a.Kind, a.Kind, len(a.Files)))
+				continue
+			}
+			for rel, b := range a.Files {
+				files = append(files, harness.File{Path: Join(os, d, a.Name+".md"), Mode: 0o644, Data: b, Artifact: a.Name, ArtifactPath: rel})
+			}
+			continue
+		}
+		why := ad.Why[a.Kind]
+		if why == "" {
+			why = "the CLI has no documented managed location for it"
+		}
+		warns = append(warns, fmt.Sprintf("%s: artifact %q (%s) was not rendered: %s; it is still pinned, scanned and listed in the release AI-BOM", adapter, a.Name, a.Kind, why))
+	}
+	return files, warns
 }

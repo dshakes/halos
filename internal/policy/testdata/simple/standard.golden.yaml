@@ -12,10 +12,10 @@ models:
     model: gpt-5-codex
   default:
     upstream: anthropic
-    model: claude-sonnet-4-5
+    model: claude-sonnet-5-5
   strong:
     upstream: anthropic
-    model: claude-opus-4-1
+    model: claude-opus-5-5
 upstreams:
   anthropic:
     url: https://api.anthropic.com

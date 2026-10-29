@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/dshakes/halos/internal/harness/hutil"
 	"github.com/dshakes/halos/internal/policy"
 	"github.com/dshakes/halos/internal/promote"
 	"github.com/dshakes/halos/internal/yamledit"
@@ -49,6 +52,8 @@ type writeOut struct {
 	PR      string `json:"pr,omitempty"`
 	Verdict string `json:"verdict,omitempty"`
 	Note    string `json:"note,omitempty"`
+	// ROI is the delivery-ROI section of a promotion PR body (informational).
+	ROI string `json:"roi,omitempty"`
 	// NextSteps names the next tool call, or the exact human command at a gate.
 	NextSteps []string `json:"next_steps"`
 }
@@ -81,6 +86,36 @@ func need(reason string) (string, error) {
 	}
 	return "", errors.New("reason is required for write tools")
 }
+
+// needUnlessDry is need for tools that preview by default: a dry run takes a
+// reason but does not require one; a real run does.
+func needUnlessDry(dry *bool, reason string) (string, error) {
+	if isDry(dry) {
+		return strings.TrimSpace(reason), nil
+	}
+	return need(reason)
+}
+
+// shJoin renders argv as a command a human can paste into a POSIX shell:
+// every value is single-quoted unless it is plainly safe.
+func shJoin(argv ...string) string {
+	q := make([]string, len(argv))
+	for i, a := range argv {
+		q[i] = sh(a)
+	}
+	return strings.Join(q, " ")
+}
+
+// sh quotes one value for a copy-paste command (hutil.ShQuote), leaving
+// plain words (flags, names, paths without metacharacters) readable.
+func sh(a string) string {
+	if a != "" && safeWord.MatchString(a) {
+		return a
+	}
+	return hutil.ShQuote(a)
+}
+
+var safeWord = regexp.MustCompile(`^[A-Za-z0-9_@%+=:,./-]+$`)
 
 func (s *srv) setStatus(ctx context.Context, verb string, in writeIn) (writeOut, error) {
 	reason, err := need(in.Reason)
@@ -147,7 +182,7 @@ func (s *srv) finish(ctx context.Context, dry bool, files map[string][]byte, edi
 	}
 	out.Applied, out.Branch, out.Commit = true, branch, c
 	out.Note = "committed locally; push and merge are human steps"
-	out.NextSteps = []string{fmt.Sprintf("human gate: git -C %s push -u origin %s && gh pr create --head %s --fill; then review and merge", s.dir, branch, branch)}
+	out.NextSteps = []string{fmt.Sprintf("human gate: %s && %s; then review and merge", shJoin("git", "-C", s.dir, "push", "-u", "origin", branch), shJoin("gh", "pr", "create", "--head", branch, "--fill"))}
 	return out, nil
 }
 
@@ -207,6 +242,18 @@ func (s *srv) proposePromotion(ctx context.Context, _ *mcp.CallToolRequest, in p
 	if err != nil {
 		return nil, writeOut{}, err
 	}
+	// A change freeze refuses a promotion (ADR-0030); rollbacks never are.
+	g, governed, err := s.governance(ctx, nil)
+	if err != nil {
+		return nil, writeOut{}, err
+	}
+	fz := org.FreezeAt(time.Now(), org.RingTarget(in.Ring))
+	if g.Incident != nil {
+		fz.AddIncident(g.Incident.By, g.Incident.Reason)
+	}
+	if fz.Frozen && !isDry(in.DryRun) {
+		return nil, writeOut{}, fmt.Errorf("promote %s into %s: %s; not opening a PR (propose_rollback is always allowed)", e.Name, in.Ring, fz.String())
+	}
 	out := writeOut{DryRun: isDry(in.DryRun), Patch: ch.Patch, Verdict: "unknown (no ClickHouse configured)"}
 	var rep promote.Report
 	if s.ClickHouse != nil {
@@ -214,6 +261,11 @@ func (s *srv) proposePromotion(ctx context.Context, _ *mcp.CallToolRequest, in p
 			return nil, writeOut{}, fmt.Errorf("analyze %s: %w", e.Name, err)
 		}
 		out.Verdict = string(rep.Verdict)
+	}
+	// Delivery ROI is informational: a failure never blocks the proposal.
+	var roiNote []string
+	if out.ROI, err = s.roiSection(ctx, org, e); err != nil {
+		out.ROI, roiNote = "", []string{"delivery ROI left out of the PR (informational, not a gate): " + err.Error()}
 	}
 	if out.DryRun {
 		out.Note = "dry run: no PR opened"
@@ -225,17 +277,28 @@ func (s *srv) proposePromotion(ctx context.Context, _ *mcp.CallToolRequest, in p
 		default:
 			out.NextSteps = []string{gateApprove, "the release digest must already be published (halo release publish is the human's step)"}
 		}
+		if fz.Frozen {
+			out.Note += "; refused if applied now: " + fz.String()
+			out.NextSteps = []string{"wait: " + fz.String()}
+		}
+		out.NextSteps = append(out.NextSteps, roiNote...)
+		if !governed {
+			warnNoIncidentFreeze(&out)
+		}
 		return nil, out, nil
 	}
 	if s.ClickHouse == nil {
 		return nil, writeOut{}, errors.New("opening a promotion PR needs evidence: " + gateEvidence)
 	}
 	o := reasonOpener{reason: reason, gh: s.prOpener()}
-	if out.PR, err = promote.OpenPR(ctx, o, t, ch, e, rep, in.Base); err != nil {
+	if out.PR, err = promote.OpenPR(ctx, o, t, ch, e, rep, in.Base, out.ROI); err != nil {
 		return nil, writeOut{}, err
 	}
 	out.Applied, out.Note = true, "PR opened; a human reviews and merges"
-	out.NextSteps = []string{gateMerge + ": " + out.PR, "after the merge: wait_for kind=rollout (if one backs this experiment) or status to confirm the ring points at the release"}
+	out.NextSteps = append([]string{gateMerge + ": " + out.PR, "after the merge: wait_for kind=rollout (if one backs this experiment) or status to confirm the ring points at the release"}, roiNote...)
+	if !governed {
+		warnNoIncidentFreeze(&out)
+	}
 	return nil, out, nil
 }
 

@@ -139,7 +139,8 @@ func (a *app) cmdExp() *cobra.Command {
 	analyze.Flags().StringVar(&verdictsFile, "verdicts-file", "", "upsert this verdict into a JSON array file read by halo-server")
 
 	var pch clickhouseFlags
-	var ring, rel, base string
+	var psf serverFlags
+	var ring, rel, base, roiIDs string
 	var dry bool
 	prom := &cobra.Command{
 		Use: "promote <name>", Short: "Open a PR pointing --ring at --release (never merges); requires a promote verdict", Args: cobra.ExactArgs(1), Annotations: policyDirAnno,
@@ -150,6 +151,9 @@ func (a *app) cmdExp() *cobra.Command {
 			}
 			org, err := a.load(dir)
 			if err != nil {
+				return err
+			}
+			if _, err := findRing(org, ring); err != nil {
 				return err
 			}
 			e, err := a.findExp(org, args[0])
@@ -179,11 +183,32 @@ func (a *app) cmdExp() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// A change freeze refuses the PR (ADR-0030); rollbacks never are.
+			fz, governed, err := freezeFor(cmd.Context(), org, org.RingTarget(ring), psf, time.Now())
+			if err != nil {
+				return err
+			}
+			if !governed {
+				a.warnNoIncidentFreeze()
+			}
+			if fz.Frozen {
+				if !dry {
+					return fmt.Errorf("promote %s into %s: %s", e.Name, ring, fz.String())
+				}
+				fmt.Fprintln(a.errw, a.yellow("warning:"), fz.String())
+			}
+			section := ""
+			if roiIDs != "" {
+				section = a.roiSection(cmd.Context(), pch.client(), org, e, roiIDs)
+			}
 			if dry {
 				fmt.Fprintf(a.out, "verdict: %s\n%s", rep.Verdict, change.Patch)
+				if section != "" {
+					fmt.Fprintf(a.out, "\n%s", section)
+				}
 				return nil
 			}
-			url, err := promote.OpenPR(cmd.Context(), promote.GHOpener{}, t, change, e, rep, base)
+			url, err := promote.OpenPR(cmd.Context(), promote.GHOpener{}, t, change, e, rep, base, section)
 			if err != nil {
 				return err
 			}
@@ -191,10 +216,12 @@ func (a *app) cmdExp() *cobra.Command {
 		},
 	}
 	pch.add(prom)
+	psf.add(prom, "for the incident freeze (ADR-0030)")
 	prom.Flags().StringVar(&ring, "ring", "", "ring to re-point (required)")
 	prom.Flags().StringVar(&rel, "release", "", "release digest to pin (required)")
 	prom.Flags().StringVar(&base, "base", "", "PR base branch")
 	prom.Flags().BoolVar(&dry, "dry-run", false, "print the patch instead of opening a PR")
+	prom.Flags().StringVar(&roiIDs, "roi-identities", "", "identity roster CSV: add the delivery ROI (halo roi report) to the PR body; informational only")
 	_ = prom.MarkFlagRequired("ring")
 	_ = prom.MarkFlagRequired("release")
 

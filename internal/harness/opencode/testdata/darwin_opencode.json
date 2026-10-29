@@ -25,6 +25,14 @@
         "lint-mcp"
       ],
       "type": "local"
+    },
+    "tickets": {
+      "oauth": {
+        "clientId": "halos-cli",
+        "scope": "tickets:read"
+      },
+      "type": "remote",
+      "url": "https://mcp.example.com/tickets"
     }
   },
   "model": "halos/halo-haiku",
@@ -38,7 +46,8 @@
     },
     "read": {
       ".env": "deny"
-    }
+    },
+    "webfetch": "ask"
   },
   "provider": {
     "halos": {
@@ -61,5 +70,8 @@
         }
       }
     }
+  },
+  "tools": {
+    "docs_delete_page": false
   }
 }

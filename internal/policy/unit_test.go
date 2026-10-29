@@ -49,10 +49,17 @@ func TestUnitOverlayEnforcement(t *testing.T) {
 			Egress:      Egress{AllowedDomains: []string{"ai.acme.example", "otel.internal.acme.example", "mcp-docs.internal.acme.example"}},
 			Env:         map[string]string{"BU": "u"}, Instructions: "be careful",
 		})}, nil},
+		{"tighten egress and sandbox", []*Unit{testUnit("u", "", Overlay{
+			Egress:  Egress{DeniedDomains: []string{"pastebin.com"}},
+			Sandbox: Sandbox{ProtectedPaths: []string{"~/.kube"}},
+		})}, nil},
+		{"egress default allow", []*Unit{testUnit("u", "", Overlay{Egress: Egress{Default: "allow"}})},
+			[]string{"units[u].overlay.egress.default", "units[u].overlay.egress.default"}}, // loosening + allow with an allowlist
+		{"writable root added", []*Unit{testUnit("u", "", Overlay{Sandbox: Sandbox{WritableRoots: []string{"/opt/cache"}}})}, []string{"units[u].overlay.sandbox.writableRoots"}},
 		{"sandbox off", []*Unit{testUnit("u", "", Overlay{Permissions: Permissions{Sandbox: "off"}})}, []string{"units[u].overlay.permissions.sandbox"}},
 		{"mode auto", []*Unit{testUnit("u", "", Overlay{Permissions: Permissions{Mode: "auto"}})}, []string{"units[u].overlay.permissions.mode"}},
 		{"mode bypass", []*Unit{testUnit("u", "", Overlay{Permissions: Permissions{Mode: "bypassPermissions"}})},
-			[]string{"units[u].overlay.permissions.mode", "units[u].overlay.permissions.mode"}}, // loosening + no-bypass guardrail
+			[]string{"units[u].overlay.permissions.mode", "units[u].overlay.permissions.mode", "units[u].overlay.permissions.mode"}}, // loosening + no-bypass guardrail + bypass-token scan
 		{"allow added", []*Unit{testUnit("u", "", Overlay{Permissions: Permissions{Allow: []string{"Bash(*)"}}})}, []string{"units[u].overlay.permissions.allow"}},
 		{"egress added", []*Unit{testUnit("u", "", Overlay{Egress: Egress{AllowedDomains: []string{"ai.acme.example", "evil.example"}}})}, []string{"units[u].overlay.egress.allowedDomains"}},
 		{"telemetry endpoint", []*Unit{testUnit("u", "", Overlay{Telemetry: Telemetry{OTLPEndpoint: "https://otel.evil.example"}})}, []string{"units[u].overlay.telemetry.otlpEndpoint"}},
@@ -63,7 +70,7 @@ func TestUnitOverlayEnforcement(t *testing.T) {
 			[]string{"units[u].overlay.models.allowed", "units[u].overlay.models"}}, // + not a gateway alias
 		{"mcp name clash", []*Unit{testUnit("u", "", Overlay{MCP: MCP{Servers: []MCPServer{{Name: "acme-docs", URL: "https://x.example/mcp"}}}})}, []string{"units[u].overlay.mcp.servers"}},
 		{"mcp plain http", []*Unit{testUnit("u", "", Overlay{MCP: MCP{Servers: []MCPServer{{Name: "u-mcp", URL: "http://x.example/mcp"}}}})}, []string{"units[u].overlay.mcp.servers[u-mcp]", "units[u].overlay.mcp.servers[2].url"}},
-		{"forbidden env", []*Unit{testUnit("u", "", Overlay{Env: map[string]string{"MODE": "bypassPermissions"}})}, []string{"units[u].overlay.env.MODE", "units[u].overlay"}}, // new key + no-bypass guardrail on the effective profile
+		{"forbidden env", []*Unit{testUnit("u", "", Overlay{Env: map[string]string{"MODE": "bypassPermissions"}})}, []string{"units[u].overlay.env.MODE", "units[u].overlay.env.MODE"}}, // new key + bypass-token scan
 		{"child loosens its parent", []*Unit{
 			testUnit("bu", "", Overlay{Permissions: Permissions{Mode: "plan", Sandbox: "read-only"}}),
 			testUnit("team", "bu", Overlay{Permissions: Permissions{Mode: "default"}}),

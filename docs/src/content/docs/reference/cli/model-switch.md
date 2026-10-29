@@ -5,7 +5,7 @@ description: "Point an alias at a model: in place, or with --canary as a guardra
 
 Point an alias at a model: in place, or with --canary as a guardrailed traffic rollout
 
-&lt;model> is a provider model id, optionally prefixed &lt;provider>/ (e.g. bedrock/anthropic.claude-opus-4-1).
+&lt;model> is a provider model id, optionally prefixed &lt;provider>/ (e.g. bedrock/anthropic.claude-opus-5-5).
 Without --canary the route is edited in place (halos.yaml models.&lt;alias> in simple mode).
 With --canary it writes a traffic-axis Rollout from the rollout preset plus its experiment.
 

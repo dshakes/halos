@@ -67,7 +67,7 @@ workloads:
       subject: "workload:gh:{repository}"
       groups: [ai-platform]
       maxTTLSeconds: 600
-`, iss.URL)
+`, iss.URL) + exampleSupplyChain(t)
 	if err := os.WriteFile(filepath.Join(dir, "halos.yaml"), []byte(root), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -485,8 +485,11 @@ func TestExchangeLimiterCountsOnlyForgeries(t *testing.T) {
 	if n := jwksFetches.Load(); n != before {
 		t.Fatalf("a blocked IP made halo-server fetch the JWKS (%d fetches)", n-before)
 	}
-	if w := e.post(exchangeForm(forged), ""); w.Code != http.StatusBadRequest || jwksFetches.Load() == before {
-		t.Fatalf("forged token from a fresh IP: %d, fetches %d, want 400 after a JWKS refetch", w.Code, jwksFetches.Load()-before)
+	// From a fresh IP it is refused too; its unknown kid does not refetch the
+	// JWKS again within the throttle window (identity.jwksUnknownKidEvery),
+	// so forgeries cannot be used to hammer the issuer.
+	if w := e.post(exchangeForm(forged), ""); w.Code != http.StatusBadRequest || jwksFetches.Load() != before {
+		t.Fatalf("forged token from a fresh IP: %d, fetches %d, want 400 without a refetch inside the throttle window", w.Code, jwksFetches.Load()-before)
 	}
 
 	// Delegation has its own budget (agentFails): CI failures that blocked

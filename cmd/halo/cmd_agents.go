@@ -105,7 +105,7 @@ func (a *app) cmdAgents() *cobra.Command {
 	v.Flags().StringVar(&jwksURL, "jwks-url", "", "https JWKS whose key must have signed the card")
 	v.Flags().BoolVar(&allowPrivate, "allow-private", false, "allow loopback, private and link-local destinations (an internal agent)")
 	v.Flags().DurationVar(&timeout, "timeout", a2a.DefaultTimeout, "fetch timeout")
-	c.AddCommand(v)
+	c.AddCommand(v, a.cmdAgentsRevoke(), a.cmdAgentsRevocations())
 	return c
 }
 

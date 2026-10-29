@@ -95,6 +95,15 @@ type statusErr struct{ code int }
 
 func (e statusErr) Error() string { return fmt.Sprintf("HTTP %d", e.code) }
 
+// StatusCode is the HTTP status of a vendor API error from a Client, or 0.
+func StatusCode(err error) int {
+	var se statusErr
+	if errors.As(err, &se) {
+		return se.code
+	}
+	return 0
+}
+
 func hasStatus(err error, code int) bool {
 	var se statusErr
 	return errors.As(err, &se) && se.code == code
@@ -123,7 +132,7 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any, hdr
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	if c.Vendor == "copilot" {
+	if c.Vendor == "copilot" || c.Vendor == "github" {
 		req.Header.Set("Accept", "application/vnd.github+json")
 		req.Header.Set("X-GitHub-Api-Version", githubVersion)
 	}
@@ -160,6 +169,21 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any, hdr
 	return resp.Header, nil
 }
 
+// Get is an authenticated GET under the same rules as the console calls: the
+// token only in the Authorization header and scrubbed from errors, no
+// redirects, https (or loopback http) only, body capped at 1 MiB. The session
+// ledger's vendor sources (internal/ledger) read audit APIs through it.
+func (c *Client) Get(ctx context.Context, path string, out any, hdr ...string) (http.Header, error) {
+	return c.do(ctx, http.MethodGet, path, nil, out, hdr...)
+}
+
+// Send is an authenticated request with an optional JSON body under the same
+// rules as Get. The cloud agent cancel and pause calls (internal/cloudagents)
+// go through it.
+func (c *Client) Send(ctx context.Context, method, path string, body, out any) (http.Header, error) {
+	return c.do(ctx, method, path, body, out)
+}
+
 // Read returns the live values of the settings p desires, keyed like
 // Setting.Key, plus conflictsKey when other resources govern the target.
 func (c *Client) Read(ctx context.Context, p *Plan) (map[string]any, error) {
@@ -171,6 +195,9 @@ func (c *Client) Read(ctx context.Context, p *Plan) (map[string]any, error) {
 		return c.geminiRead(ctx, p)
 	case "copilot":
 		cur, _, err := c.copilotRead(ctx)
+		if err == nil {
+			err = c.copilotCloudRead(ctx, p, cur)
+		}
 		return cur, err
 	}
 	return nil, fmt.Errorf("%s has no read API", c.Vendor)

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 	"github.com/dshakes/halos/internal/delivery/devcontainer"
 	"github.com/dshakes/halos/internal/delivery/mdm"
 	"github.com/dshakes/halos/internal/fsutil"
+	"github.com/dshakes/halos/internal/impact"
 	"github.com/dshakes/halos/internal/policy"
 	"github.com/dshakes/halos/internal/release"
 )
@@ -142,7 +144,7 @@ func (a *app) cmdRelease() *cobra.Command {
 	c := &cobra.Command{Use: "release", Short: "Build, publish and promote releases"}
 
 	var ring, out, ver, dir string
-	var noArt bool
+	var noArt, strict bool
 	build := &cobra.Command{
 		Use:         "build",
 		Annotations: policyDirAnno,
@@ -153,29 +155,38 @@ func (a *app) cmdRelease() *cobra.Command {
 			if dir, err = policyDir(cmd, args); err != nil {
 				return err
 			}
-			rel, err := a.buildRelease(dir, ring, ver)
+			rel, org, err := a.buildRelease(cmd.Context(), dir, ring, ver, strict)
 			if err != nil {
 				return err
 			}
 			if rel, err = a.resolveArtifacts(cmd.Context(), rel, noArt); err != nil {
 				return err
 			}
-			if err := writeFile(out, rel.Tar, 0o644); err != nil {
-				return fmt.Errorf("write %s: %w", out, err)
+			if err := a.attest(dir, org, rel); err != nil {
+				return err
 			}
-			return a.emit(map[string]string{"file": out, "digest": rel.Digest, "version": rel.Manifest.Version, "ring": ring}, func() {
-				fmt.Fprintf(a.out, "%s %s (%s)\n", a.green("built"), out, rel.Digest)
+			bomFile, provFile := attestationFiles(out)
+			for _, w := range []struct {
+				path string
+				data []byte
+			}{{out, rel.Tar}, {bomFile, rel.Attestations.BOM}, {provFile, rel.Attestations.Provenance}} {
+				if err := writeFile(w.path, w.data, 0o644); err != nil {
+					return fmt.Errorf("write %s: %w", w.path, err)
+				}
+			}
+			return a.emit(map[string]string{"file": out, "digest": rel.Digest, "version": rel.Manifest.Version, "ring": ring, "bom": bomFile, "provenance": provFile}, func() {
+				fmt.Fprintf(a.out, "%s %s (%s); AI-BOM %s, provenance %s\n", a.green("built"), out, rel.Digest, bomFile, provFile)
 			})
 		},
 	}
+	build.Flags().BoolVar(&strict, "strict", false, strictHelp)
 	build.Flags().StringVar(&ring, "ring", "", "ring to build (required)")
 	build.Flags().StringVarP(&out, "out", "o", "release.tar", "output tarball")
 	build.Flags().StringVar(&ver, "release-version", "0.0.0-dev", "release version label")
 	build.Flags().BoolVar(&noArt, "no-artifacts", false, noArtHelp)
-	_ = build.MarkFlagRequired("ring")
 
 	var pRing, pVer string
-	var pNoArt bool
+	var pNoArt, pStrict bool
 	var pf regFlags
 	var ppf ptrFlags
 	publish := &cobra.Command{
@@ -196,7 +207,7 @@ func (a *app) cmdRelease() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			rel, variants, err := a.buildRing(dir, pRing, pVer)
+			rel, variants, org, err := a.buildRing(cmd.Context(), dir, pRing, pVer, pStrict)
 			if err != nil {
 				return err
 			}
@@ -208,6 +219,11 @@ func (a *app) cmdRelease() *cobra.Command {
 			}
 			for i := 0; i < len(variants) && !pNoArt; i++ { // --no-artifacts: warned once above
 				if variants[i], err = a.resolveArtifacts(cmd.Context(), variants[i], false); err != nil {
+					return err
+				}
+			}
+			for _, r := range append([]*release.Release{rel}, variants...) {
+				if err := a.attest(dir, org, r); err != nil {
 					return err
 				}
 			}
@@ -240,21 +256,27 @@ func (a *app) cmdRelease() *cobra.Command {
 	publish.Flags().StringVar(&pRing, "ring", "", "ring to publish (required)")
 	publish.Flags().StringVar(&pVer, "release-version", "", "release version, becomes tag v<version> (required)")
 	publish.Flags().BoolVar(&pNoArt, "no-artifacts", false, noArtHelp)
+	publish.Flags().BoolVar(&pStrict, "strict", false, strictHelp)
 	pf.add(publish, true, false)
 	ppf.add(publish, "")
-	_ = publish.MarkFlagRequired("ring")
 	_ = publish.MarkFlagRequired("release-version")
 
 	var from, to string
 	var prf regFlags
 	var pp ptrFlags
 	promote := &cobra.Command{
-		Use:   "promote",
-		Short: "Point --to-ring at the release --from-ring's signed pointer names; experiment channels stay with the ring they were built for",
+		Use:         "promote",
+		Annotations: policyDirAnno,
+		Short:       "Point --to-ring at the release --from-ring's signed pointer names; experiment channels stay with the ring they were built for",
 		Long: "The source release is taken from --from-ring's signed pointer (signature, ring, org, expiry and\n" +
 			"--state-file continuity checked), never from the unauthenticated ring-<name> tag.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			for _, r := range []struct{ flag, v string }{{"from-ring", from}, {"to-ring", to}} {
+				if r.v == "" {
+					return a.needRing(cmd, r.flag)
+				}
+			}
 			return a.retag(cmd.Context(), &prf, &pp, bundle.Source{Ring: from}, to, "promoted")
 		},
 	}
@@ -262,10 +284,8 @@ func (a *app) cmdRelease() *cobra.Command {
 	promote.Flags().StringVar(&to, "to-ring", "", "destination ring (required)")
 	prf.add(promote, true, false)
 	pp.add(promote, "refuse unless --from-ring serves this release digest (sha256:...)")
-	_ = promote.MarkFlagRequired("from-ring")
-	_ = promote.MarkFlagRequired("to-ring")
 
-	c.AddCommand(build, publish, promote, a.cmdRefresh())
+	c.AddCommand(build, publish, promote, a.cmdRefresh(), a.cmdReleaseBOM())
 	return c
 }
 
@@ -332,8 +352,9 @@ func (a *app) cmdRefresh() *cobra.Command {
 	var rf regFlags
 	var pf ptrFlags
 	c := &cobra.Command{
-		Use:   "refresh",
-		Short: "Re-sign a ring's pointer and its experiment channel pointers (same releases, new seq and expiry)",
+		Use:         "refresh",
+		Annotations: policyDirAnno,
+		Short:       "Re-sign a ring's pointer and its experiment channel pointers (same releases, new seq and expiry)",
 		Long: "Pointers expire after 7 days and halod then refuses the ring. Run refresh on a schedule\n" +
 			"well inside that window (e.g. daily); see .github/workflows/refresh-pointers.yml.example.\n" +
 			"The pointers of every client-axis experiment channel the ring's current release routes to\n" +
@@ -345,6 +366,9 @@ func (a *app) cmdRefresh() *cobra.Command {
 			"--expect-digest with the release digest the ring must be serving.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if ring == "" {
+				return a.needRing(cmd, "ring")
+			}
 			s, err := rf.signer()
 			if err != nil {
 				return err
@@ -367,7 +391,6 @@ func (a *app) cmdRefresh() *cobra.Command {
 	c.Flags().StringVar(&ring, "ring", "", "ring to refresh (required)")
 	rf.add(c, true, false)
 	pf.add(c, "refuse unless the ring currently serves this release digest (sha256:...); the stateless replay guard for CI")
-	_ = c.MarkFlagRequired("ring")
 	return c
 }
 
@@ -376,12 +399,16 @@ func (a *app) cmdRollback() *cobra.Command {
 	var rf regFlags
 	var pf ptrFlags
 	c := &cobra.Command{
-		Use:   "rollback",
-		Short: "Point a ring (and its experiment channels) back at an earlier signed release (version or manifest digest)",
+		Use:         "rollback",
+		Annotations: policyDirAnno,
+		Short:       "Point a ring (and its experiment channels) back at an earlier signed release (version or manifest digest)",
 		Long: "--to <version> resolves tag v<version> and refuses the release unless its signed manifest\n" +
 			"carries that version (a retagged v-tag is refused); --to sha256:<manifest digest> is content-addressed.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if ring == "" { // rollback never defaults a ring
+				return a.needRing(cmd, "ring")
+			}
 			src := bundle.Source{Version: strings.TrimPrefix(to, "v")}
 			if strings.HasPrefix(to, "sha256:") {
 				src = bundle.Source{Manifest: to}
@@ -393,7 +420,6 @@ func (a *app) cmdRollback() *cobra.Command {
 	c.Flags().StringVar(&to, "to", "", "release version or sha256 manifest digest (required)")
 	rf.add(c, true, false)
 	pf.add(c, "refuse unless --to names this release digest (sha256:...)")
-	_ = c.MarkFlagRequired("ring")
 	_ = c.MarkFlagRequired("to")
 	return c
 }
@@ -458,58 +484,194 @@ func createExcl(p string, data []byte, mode os.FileMode) error {
 }
 
 func (a *app) cmdPlan() *cobra.Command {
-	var ring, against, ver string
+	var ring, against, ver, diffBase string
 	var rf regFlags
+	var sf serverFlags
 	c := &cobra.Command{
 		Use:         "plan",
 		Annotations: policyDirAnno,
-		Short:       "Diff the release a ring would get against a previous release (or show it whole for a first release)",
-		Args:        cobra.MaximumNArgs(1),
+		Short:       "Diff the release each ring (or --ring) would get against a previous release, and with --diff who is affected",
+		Long: "Without --ring every ring is planned. --diff <git ref> diffs against the policy at that ref (the\n" +
+			"releases it builds, unless --against is set) and previews the impact: how many users, devices and\n" +
+			"agents change ring, experiment variant or effective settings, by org unit, with examples. The\n" +
+			"population is halo-server's enrolled fleet with --server (or HALO_SERVER) and HALO_SESSION, else a\n" +
+			"policy-only estimate. Assignment uses the same hashing as the fleet (internal/assign).\n" +
+			"A --diff base whose supply-chain artifacts cannot be fetched or verified is an error (fix access, or\n" +
+			"pass --against with a built release); a ring the base cannot build otherwise diffs as a first release.",
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dir, err := policyDir(cmd, args)
 			if err != nil {
 				return err
 			}
-			cur, err := a.buildRelease(dir, ring, ver)
-			if err != nil {
-				return err
+			baseDir := ""
+			if diffBase != "" {
+				d, cleanup, err := impact.CheckoutAt(cmd.Context(), dir, diffBase)
+				if err != nil {
+					return err
+				}
+				defer cleanup()
+				baseDir = d
 			}
-			prev := &release.Release{} // no --against: the first release, so everything is new
-			if against != "" {
-				if prev, err = a.openBaseline(cmd.Context(), against, ring, &rf); err != nil {
+			rings := []string{ring}
+			if ring == "" {
+				if rings, err = a.ringNames(dir); err != nil {
 					return err
 				}
 			}
-			diff := release.Diff(prev, cur)
-			bumps := versionBumps(prev, cur)
-			return a.emit(map[string]any{"changed": diff != "", "from": prev.Digest, "to": cur.Digest, "versions": bumps, "diff": diff}, func() {
-				if diff == "" {
-					fmt.Fprintln(a.out, "no changes vs", against)
-					return
+			var plans []map[string]any
+			var texts []func()
+			for _, rg := range rings {
+				p, text, err := a.planRing(cmd, dir, baseDir, rg, against, ver, &rf)
+				if err != nil {
+					return err
 				}
-				for _, l := range strings.Split(strings.TrimRight(diff, "\n"), "\n") {
-					switch {
-					case strings.HasPrefix(l, "+"):
-						l = a.green(l)
-					case strings.HasPrefix(l, "-"):
-						l = a.red(l)
+				plans, texts = append(plans, p), append(texts, text)
+			}
+			var rep *impact.Report
+			if diffBase != "" {
+				if rep, err = a.planImpact(cmd, dir, baseDir, sf); err != nil {
+					return err
+				}
+			}
+			out := map[string]any{"rings": plans}
+			if ring != "" {
+				out = plans[0] // one ring: the shape it has always had
+			}
+			if rep != nil {
+				out["impact"] = rep
+			}
+			return a.emit(out, func() {
+				for i, text := range texts {
+					if ring == "" {
+						fmt.Fprintf(a.out, "%s %s\n", a.bold("ring"), a.bold(rings[i]))
 					}
-					fmt.Fprintln(a.out, l)
+					text()
+					if ring == "" {
+						fmt.Fprintln(a.out)
+					}
 				}
-				fmt.Fprintln(a.out, a.bold("\nversion changes:"))
-				for _, b := range bumps {
-					fmt.Fprintln(a.out, " ", b)
+				if rep != nil {
+					fmt.Fprint(a.out, rep.Text(diffBase))
 				}
 			})
 		},
 	}
-	c.Flags().StringVar(&ring, "ring", "", "ring to plan (required)")
-	c.Flags().StringVar(&against, "against", "", "release.tar or registry ref host/org/name[:tag] (default: none, the first release)")
+	c.Flags().StringVar(&ring, "ring", "", "ring to plan (default: every ring)")
+	c.Flags().StringVar(&against, "against", "", "release.tar or registry ref host/org/name[:tag] (default: the --diff policy's release, else none: the first release)")
 	c.Flags().StringVar(&ver, "release-version", "0.0.0-dev", "release version label")
+	c.Flags().StringVar(&diffBase, "diff", "", "git ref of the policy to compare with (e.g. main): release diffs from it, plus the impact preview")
+	sf.add(c, "for the impact preview over the enrolled fleet")
 	rf.add(c, false, true)
-	_ = c.MarkFlagRequired("ring")
 	return c
 }
+
+// planRing diffs ring's release against --against, else the base policy's
+// release for the ring (baseDir), else nothing (a first release).
+func (a *app) planRing(cmd *cobra.Command, dir, baseDir, ring, against, ver string, rf *regFlags) (map[string]any, func(), error) {
+	cur, _, err := a.buildRelease(cmd.Context(), dir, ring, ver, false)
+	if err != nil {
+		return nil, nil, err
+	}
+	prev := &release.Release{} // no --against: the first release, so everything is new
+	switch {
+	case against != "":
+		if prev, err = a.openBaseline(cmd.Context(), against, ring, rf); err != nil {
+			return nil, nil, err
+		}
+	case baseDir != "":
+		if b, _, err := a.buildRelease(cmd.Context(), baseDir, ring, ver, false); err == nil {
+			prev = b
+		} else if errors.Is(err, errSupplyChain) {
+			// Diffing against an empty release would show every setting as new.
+			return nil, nil, fmt.Errorf("ring %s at the --diff base: %w; the diff needs the base's artifacts: fix access to it (network, git or registry credentials), or diff against a built release with --against", ring, err)
+		} else {
+			fmt.Fprintf(a.errw, "%s ring %s at the --diff base does not build (%v); diffing against an empty release\n", a.yellow("warning:"), ring, err)
+		}
+	}
+	diff := release.Diff(prev, cur)
+	bumps := versionBumps(prev, cur)
+	return map[string]any{"ring": ring, "changed": diff != "", "from": prev.Digest, "to": cur.Digest, "versions": bumps, "diff": diff}, func() {
+		if diff == "" {
+			fmt.Fprintln(a.out, "no changes vs", cmp.Or(against, "the --diff base"))
+			return
+		}
+		for _, l := range strings.Split(strings.TrimRight(diff, "\n"), "\n") {
+			switch {
+			case strings.HasPrefix(l, "+"):
+				l = a.green(l)
+			case strings.HasPrefix(l, "-"):
+				l = a.red(l)
+			}
+			fmt.Fprintln(a.out, l)
+		}
+		fmt.Fprintln(a.out, a.bold("\nversion changes:"))
+		for _, b := range bumps {
+			fmt.Fprintln(a.out, " ", b)
+		}
+	}, nil
+}
+
+// ringNames lists the policy's rings in order.
+func (a *app) ringNames(dir string) ([]string, error) {
+	org, err := a.loadValid(dir)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, r := range org.Rings {
+		out = append(out, r.Name)
+	}
+	if len(out) == 0 {
+		return nil, errors.New("policy defines no rings")
+	}
+	return out, nil
+}
+
+// planImpact previews who the change from baseDir's policy to dir's affects:
+// the enrolled fleet when a halo-server is configured, else a policy estimate.
+func (a *app) planImpact(cmd *cobra.Command, dir, baseDir string, sf serverFlags) (*impact.Report, error) {
+	cur, err := a.loadValid(dir)
+	if err != nil {
+		return nil, err
+	}
+	base, err := a.load(baseDir)
+	if err != nil {
+		return nil, fmt.Errorf("policy at the --diff base: %w", err)
+	}
+	srv, session, err := sf.resolve()
+	if err != nil {
+		return nil, err
+	}
+	var members []impact.Member
+	source := "policy"
+	if srv != "" {
+		var fleet struct {
+			Hosts []impact.FleetHost `json:"hosts"`
+		}
+		var devs []impact.FleetDevice
+		if err := sessionJSON(cmd.Context(), srv, session, "GET", "/api/v1/fleet", nil, &fleet); err != nil {
+			return nil, fmt.Errorf("impact: %w", err)
+		}
+		if err := sessionJSON(cmd.Context(), srv, session, "GET", "/api/v1/devices", nil, &devs); err != nil {
+			return nil, fmt.Errorf("impact: %w", err)
+		}
+		members, source = impact.FleetMembers(fleet.Hosts, devs, base, cur), "fleet"
+	} else {
+		members = impact.PolicyMembers(impactSamples, base, cur)
+	}
+	rep := impact.Compute(base, cur, members, impactExamples)
+	rep.Source = source
+	return &rep, nil
+}
+
+// impactSamples is the hashed sample size of a policy-only estimate (0.1%
+// resolution at 1000; ring and variant cuts are 0.01%, so smaller shares
+// show as an approximate percentage).
+const (
+	impactSamples  = 1000
+	impactExamples = 8
+)
 
 func (a *app) openBaseline(ctx context.Context, against, ring string, rf *regFlags) (*release.Release, error) {
 	if st, err := os.Stat(against); err == nil && st.Mode().IsRegular() {

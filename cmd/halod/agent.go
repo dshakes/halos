@@ -72,6 +72,10 @@ type Status struct {
 	// Unit is the org unit whose files are applied (ADR-0018): picked from the
 	// signed manifest with the subject and IdP groups the ring endpoint returned.
 	Unit string `json:"unit,omitempty"`
+	// MCPDrift lists MCP servers in the console user's own configs that the
+	// release's registry does not approve for this device, or approves at
+	// another URL or version (ADR-0029), each with a fix hint.
+	MCPDrift []policy.MCPFinding `json:"mcpDrift,omitempty"`
 }
 
 // State is persisted to state.json between runs.
@@ -118,6 +122,10 @@ type Agent struct {
 	Download  *http.Client // install artifacts (long timeout)
 	// ConsoleUser, if set, refreshes User each cycle (halod runs as root).
 	ConsoleUser func(ctx context.Context) string
+	// Home returns a user's home directory for the MCP drift (ADR-0029) and
+	// posture (ADR-0032) checks of per-user settings; nil = looked up from
+	// the system, "" skips them.
+	Home func(user string) string
 	// Open returns the registry source for Cfg.Registry.
 	Open func(ctx context.Context) (oras.ReadOnlyTarget, error)
 	// Log receives diagnostics (stderr JSON in production); nil = slog.Default().
@@ -465,6 +473,7 @@ func (a *Agent) apply(ctx context.Context, st *Status, prev State, ring, subject
 	if unit != nil {
 		st.Unit = unit.Name
 	}
+	st.MCPDrift = a.mcpDrift(rel, unit)
 	// A toggle flip or unit change rewrites files without a new release: not drift.
 	sameRelease := prev.Digest == rel.Digest && slices.Equal(prev.Status.Toggles, st.Toggles) && prev.Status.Unit == st.Unit
 	owned := map[string]bool{}
@@ -493,6 +502,13 @@ func (a *Agent) apply(ctx context.Context, st *Status, prev State, ring, subject
 			data := af.data
 			if !af.ok {
 				errs = append(errs, fmt.Errorf("blob for %s missing", f.Path))
+				continue
+			}
+			// A supply-chain artifact file is written only if it matches its
+			// artifact's pinned digest (ADR-0028); a mismatch is drift.
+			if err := rel.Manifest.CheckArtifactFile(f, data); err != nil {
+				errs = append(errs, fmt.Errorf("refusing %s: %w", f.Path, err))
+				st.Drift = append(st.Drift, f.Path)
 				continue
 			}
 			drift, err := a.ensureFile(f, data, sameRelease)
@@ -529,6 +545,7 @@ func (a *Agent) apply(ctx context.Context, st *Status, prev State, ring, subject
 			}
 		}
 	}
+	a.postureDrift(rel, st)
 	files := make([]string, 0, len(owned))
 	for p := range owned {
 		files = append(files, p)

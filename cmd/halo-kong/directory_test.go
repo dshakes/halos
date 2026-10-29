@@ -10,6 +10,52 @@ import (
 	"github.com/dshakes/halos/internal/gateway"
 )
 
+// TestDirectoryRevocationsMode: directory_mode revocations checks only the
+// revocation list (no SCIM on halo-server), and workload_pubkey without a
+// directory_url warns once that revocations are not enforced.
+func TestDirectoryRevocationsMode(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "SCIM directory not configured", http.StatusNotFound)
+	}))
+	t.Cleanup(srv.Close)
+	pol := testPolicy(t)
+	cfg := trustedCfg(pol)
+	cfg.DirectoryURL, cfg.DirectoryToken, cfg.DirectoryMode = srv.URL, "gw-token", "revocations"
+	k := &fakeKong{peer: "10.1.2.3", path: "/v1/messages", body: []byte(firstTurn),
+		hdrs: map[string][]string{"x-acme-user": {"alice"}, "x-acme-groups": {"ai-platform"}}}
+	if dc, invalid := cfg.directoryClient(k); dc == nil || invalid || !dc.RevocationsOnly {
+		t.Fatalf("revocations mode: %+v invalid=%v", dc, invalid)
+	}
+	cfg.access(k)
+	if k.exitStatus != 0 || k.set["x-halo-ring"] != "ring0" {
+		t.Fatalf("revocations mode asked SCIM: exit %d ring %q logs %v", k.exitStatus, k.set["x-halo-ring"], k.logs)
+	}
+	bad := cfg
+	bad.DirectoryMode = "scim"
+	if dc, invalid := bad.directoryClient(k); dc != nil || !invalid {
+		t.Fatal("unknown directory_mode must be an invalid config")
+	}
+
+	warned := func(c Config) int {
+		k := &fakeKong{}
+		c.warnNoRevocation(k)
+		c.warnNoRevocation(k)
+		return strings.Count(strings.Join(k.logs, "\n"), "revoked credential")
+	}
+	wl := Config{WorkloadPubkey: "test-key-" + t.Name()}
+	if n := warned(wl); n != 1 {
+		t.Fatalf("workload_pubkey without directory_url: %d warnings, want 1", n)
+	}
+	wl.WorkloadPubkey += "-dir"
+	wl.DirectoryURL = srv.URL
+	if n := warned(wl); n != 0 {
+		t.Fatalf("with directory_url: %d warnings", n)
+	}
+	if n := warned(Config{}); n != 0 {
+		t.Fatalf("no workload_pubkey: %d warnings", n)
+	}
+}
+
 // TestAccessDirectoryIsAuthoritative: with directory_url set, the trusted
 // groups header no longer decides the ring; halo-server's SCIM directory does,
 // and an unknown or deprovisioned user is refused. An unreachable directory or

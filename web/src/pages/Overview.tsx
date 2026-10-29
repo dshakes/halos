@@ -1,4 +1,5 @@
-import { useCapabilities, useExperiments, useFleet, useKills, usePolicy, useReleases, useRequests, type RingRelease, type RingStats } from "../api";
+import { useBudgets, useCapabilities, useExperiments, useFleet, useKills, usePolicy, useReleases, useRequests, useRollouts, type RingRelease, type RingStats } from "../api";
+import { utilization } from "./Budgets";
 import { Card, Empty, ErrorBox, Mono, Pill, shortDigest, statusTone, type Tone } from "../ui";
 
 function top(m: Record<string, number>): [string, number][] {
@@ -76,6 +77,9 @@ export function Overview() {
   const reqs = useRequests();
   const caps = useCapabilities();
   const kills = useKills(caps.data?.killSwitch === true);
+  const rolls = useRollouts();
+  const budgets = useBudgets();
+  const overBudget = (budgets.data?.budgets ?? []).filter((b) => utilization(b) >= Math.min(...(b.alertAt.length ? b.alertAt : [0.8]))).length;
   if (policy.error) return <ErrorBox error={policy.error} />;
   const stats = new Map((fleet.data?.rings ?? []).map((r) => [r.ring, r]));
   const relByRing = new Map((rels.data?.rings ?? []).map((r) => [r.ring, r]));
@@ -112,6 +116,10 @@ export function Overview() {
           <Track key={s.ring} name={s.ring || "(none)"} order={0} stats={s} profile="not in policy" />
         ))}
       </Card>
+      <div className="grid gap-3 md:grid-cols-2">
+        <Tile label="Rollouts" value={rolls.data ? (rolls.data.length === 0 ? "none defined" : `${rolls.data.filter((r) => r.timeline.status === "active").length} active`) : "—"} tone={rolls.data?.some((r) => r.state?.halted) ? "bad" : undefined} href="#/rollouts" hint={rolls.data?.some((r) => r.state?.halted) ? "a rollout is halted" : "step timelines, gates and bake"} />
+        <Tile label="Cost and budgets" value={budgets.data ? (budgets.data.budgets.length === 0 ? "none set" : overBudget > 0 ? `${overBudget} over alert` : "within limits") : "—"} tone={overBudget > 0 ? "warn" : undefined} href="#/budgets" hint="spend vs limit per scope" />
+      </div>
       <Card title="Experiments" right={<a href="#/experiments" className="text-accent hover:underline">all →</a>}>
         {exps.error ? <ErrorBox error={exps.error} /> : exps.isLoading ? <Empty>Loading…</Empty> : (exps.data ?? []).length === 0 ? <Empty>No experiments. Define one under <Mono>experiments:</Mono> in the policy repo; it starts from the Experiments page as a PR.</Empty> : (
           <ul>

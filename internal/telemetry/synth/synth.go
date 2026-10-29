@@ -115,10 +115,10 @@ func sessionEvents(rng *rand.Rand, c Cohort, h string, t time.Time, ids map[stri
 		fail := rng.Float64() < c.APIErrorRate
 		switch {
 		case h == "claude-code" && fail:
-			out = append(out, ev(t, "claude_code.api_error", with(map[string]any{"event.name": "api_error", "model": "claude-sonnet-4-5",
+			out = append(out, ev(t, "claude_code.api_error", with(map[string]any{"event.name": "api_error", "model": "claude-sonnet-5-5",
 				"status_code": 529, "duration_ms": ms / 4, "error": "Overloaded", "attempt": 1})))
 		case h == "claude-code":
-			out = append(out, ev(t, "claude_code.api_request", with(map[string]any{"event.name": "api_request", "model": "claude-sonnet-4-5",
+			out = append(out, ev(t, "claude_code.api_request", with(map[string]any{"event.name": "api_request", "model": "claude-sonnet-5-5",
 				"duration_ms": ms, "cost_usd": "0.01"})))
 		case h == "gemini-cli" && fail:
 			out = append(out, ev(t, "API error", with(map[string]any{"event.name": "gemini_cli.api_error", "model_name": "gemini-2.5-pro",
@@ -197,13 +197,13 @@ func Generate(cfg Config, cohorts []Cohort) (metrics, logs []kv) {
 				ms := []kv{sumPoint("claude_code.session.count", "count", 1, t, attrs(base...))}
 				// A session is several API requests; cost.usage is per request.
 				for i := 0; i < 3; i++ {
-					ms = append(ms, sumPoint("claude_code.cost.usage", "USD", cost/3, t, attrs(append(base, "model", "claude-sonnet-4-5")...)))
+					ms = append(ms, sumPoint("claude_code.cost.usage", "USD", cost/3, t, attrs(append(base, "model", "claude-sonnet-5-5")...)))
 				}
 				for _, tt := range []struct {
 					typ string
 					n   float64
 				}{{"input", 1200}, {"output", 400}, {"cacheRead", 8000}, {"cacheCreation", 300}} {
-					ms = append(ms, sumPoint("claude_code.token.usage", "tokens", tt.n, t, attrs(append(base, "type", tt.typ, "model", "claude-sonnet-4-5")...)))
+					ms = append(ms, sumPoint("claude_code.token.usage", "tokens", tt.n, t, attrs(append(base, "type", tt.typ, "model", "claude-sonnet-5-5")...)))
 				}
 				for i := 0; i < 10; i++ {
 					d := "reject"

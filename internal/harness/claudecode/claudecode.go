@@ -36,7 +36,7 @@ func (Adapter) Capabilities() []harness.Capability {
 	return []harness.Capability{
 		harness.CapVersionPin, harness.CapModelLock, harness.CapMCPAllowlist, harness.CapHooksLock,
 		harness.CapPermissions, harness.CapGateway, harness.CapTelemetry, harness.CapInstructions, harness.CapHeaders,
-		harness.CapExtensions,
+		harness.CapExtensions, harness.CapSandbox, harness.CapEgress,
 	}
 }
 
@@ -62,12 +62,13 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 	warns := hutil.WarnUnsupported(name, p,
 		"models.default", "models.allowed", "models.enforce",
 		"permissions.mode", "permissions.allow", "permissions.deny", "permissions.ask", "permissions.disableBypass", "permissions.sandbox",
-		"mcp.managedOnly", "mcp.servers", "mcp.denied", "hooks.managedOnly", "hooks.items",
+		"mcp.managedOnly", "mcp.servers", "mcp.denied", "mcp.tools.allow", "mcp.tools.deny", "mcp.auth", "hooks.managedOnly", "hooks.items",
 		"telemetry.enabled", "telemetry.logPrompts", "telemetry.attributes",
-		"egress.allowedDomains", "instructions", "env",
+		"egress.allowedDomains", "egress.default", "egress.deniedDomains", "egress.presets",
+		"sandbox.writableRoots", "sandbox.protectedPaths", "instructions", "env",
 		"extensions.marketplaces", "extensions.blockedMarketplaces", "extensions.plugins.enabled", "extensions.plugins.blocked",
 		"extensions.skills.deny", "extensions.skills.pluginOnly", "extensions.subagents.deny", "extensions.subagents.pluginOnly",
-		"extensions.outputStyle", "extensions.statusLine", "login")
+		"extensions.outputStyle", "extensions.statusLine", "extensions.artifacts", "login")
 
 	// The profile's env goes in first: every key Halos sets below (gateway
 	// routing, model pins, telemetry's OTEL_*) is written after it and wins,
@@ -188,11 +189,31 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 	// matches the skill under any of its names, Agent(NAME) the subagent.
 	// https://code.claude.com/docs/en/permissions
 	deny := slices.Clone(p.Permissions.Deny)
+	// Protected paths: Read/Edit deny rules cover the built-in file tools, which
+	// the sandbox does not confine; sandbox.filesystem below covers Bash.
+	// Egress deny rules: WebFetch(domain:...) for the fetch tool, which the
+	// sandbox proxy does not see. https://code.claude.com/docs/en/permissions
+	deny = append(deny, hutil.ProtectedRules(p.Sandbox.ProtectedPaths, "/")...)
+	er := p.Egress.Rules()
+	for _, d := range er.Deny {
+		deny = append(deny, "WebFetch(domain:"+d+")")
+	}
 	for _, n := range p.Extensions.Skills.Deny {
 		deny = append(deny, "Skill(skill:"+n+")")
 	}
 	for _, n := range p.Extensions.Subagents.Deny {
 		deny = append(deny, "Agent("+n+")")
+	}
+	// A bare-name deny rule removes the MCP tool from Claude's context; there is
+	// no per-server allowlist (deny always wins over allow), so tools.allow warns.
+	// https://code.claude.com/docs/en/permissions
+	for _, sv := range p.MCP.Servers {
+		for _, t := range sv.Tools.Deny {
+			deny = append(deny, "mcp__"+sv.Name+"__"+t)
+		}
+		if len(sv.Tools.Allow) > 0 {
+			warns = append(warns, fmt.Sprintf("%s: mcp server %q tools.allow is not rendered: Claude Code has no per-server tool allowlist (a deny rule always wins over allow), so every tool the server exposes stays available; deny the others with tools.deny", name, sv.Name))
+		}
 	}
 	perms := map[string]any{}
 	for k, v := range map[string][]string{"allow": p.Permissions.Allow, "deny": deny, "ask": p.Permissions.Ask} {
@@ -203,11 +224,14 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 	if p.Permissions.Mode != "" {
 		perms["defaultMode"] = p.Permissions.Mode
 	}
+	// Claude Code reads the bypass lock only inside the permissions object; a
+	// top-level key is ignored. Verified 2026-10-27 at
+	// https://code.claude.com/docs/en/settings-reference#permissions-disablebypasspermissionsmode
+	if p.Permissions.DisableBypass {
+		perms["disableBypassPermissionsMode"] = "disable"
+	}
 	if len(perms) > 0 {
 		s["permissions"] = perms
-	}
-	if p.Permissions.DisableBypass {
-		s["disableBypassPermissionsMode"] = "disable"
 	}
 
 	// Plugin, skill, subagent, output style, status line and login keys. All are
@@ -310,41 +334,10 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 		warns = append(warns, name+": no version pinned; CLI version is not enforced")
 	}
 
-	// sandbox.network.* is inert unless sandbox.enabled; allowUnsandboxedCommands
-	// false removes the dangerouslyDisableSandbox retry escape hatch.
-	// Claude's sandbox confines Bash writes to the working directory, which is
-	// workspace-write; it has no read-only mode.
-	// https://code.claude.com/docs/en/sandboxing#enforce-sandboxing-with-managed-settings
-	egress := p.Egress.AllowedDomains
-	sandboxOn := len(egress) > 0
-	switch p.Permissions.Sandbox {
-	case "workspace-write":
-		sandboxOn = true
-	case "read-only":
-		sandboxOn = true
-		warns = append(warns, name+`: permissions.sandbox "read-only" has no Claude Code equivalent; rendered as the workspace-write sandbox`)
-	case "off":
-		if sandboxOn {
-			warns = append(warns, name+`: permissions.sandbox "off" overridden: egress.allowedDomains is enforced by the sandbox, so it is enabled`)
-		}
-	}
-	if p.Permissions.SandboxRequired {
-		sandboxOn = true
-	}
-	if sandboxOn {
-		sb := map[string]any{"enabled": true, "allowUnsandboxedCommands": false}
-		if p.Permissions.SandboxRequired {
-			// Missing bubblewrap/socat blocks startup instead of running unsandboxed.
-			// https://code.claude.com/docs/en/sandboxing
-			sb["failIfUnavailable"] = true
-		}
-		if len(egress) > 0 {
-			sb["network"] = map[string]any{"allowedDomains": egress, "allowManagedDomainsOnly": true}
-		}
+	sb, sw := sandbox(p, er, c.OS)
+	warns = append(warns, sw...)
+	if sb != nil {
 		s["sandbox"] = sb
-		if c.OS == harness.Windows {
-			warns = append(warns, name+": the Claude Code sandbox does not run on native Windows; sandbox and egress settings are not enforced there (use WSL2)")
-		}
 	}
 
 	hutil.DeepMerge(s, spec.Overrides)
@@ -370,6 +363,7 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 					}
 					e["headers"] = sv.Headers
 				}
+				warns = append(warns, claudeAuth(e, sv)...)
 				servers[sv.Name] = e
 			case len(sv.Command) > 0:
 				e := map[string]any{"command": sv.Command[0]}
@@ -390,7 +384,136 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 	if p.Instructions != "" {
 		files = append(files, harness.File{Path: hutil.Join(c.OS, d, "CLAUDE.md"), Mode: 0o644, Data: []byte(p.Instructions)})
 	}
-	return files, warns, nil
+	af, aw := hutil.RenderArtifacts(name, c.OS, p, artifactDirs(c.OS))
+	return append(files, af...), append(warns, aw...), nil
+}
+
+// sandbox renders the sandbox block: mode, filesystem lists and the network
+// allow/deny lists (ADR-0032). sandbox.network.* and sandbox.filesystem.* are
+// inert unless sandbox.enabled; allowUnsandboxedCommands false removes the
+// dangerouslyDisableSandbox retry escape hatch; allowManagedDomainsOnly makes
+// the managed allowlist the only one and refuses other hosts without a
+// prompt; a deniedDomains host is refused in every permission mode.
+// Claude's sandbox confines Bash writes to the working directory, which is
+// workspace-write; it has no read-only mode.
+// https://code.claude.com/docs/en/sandboxing, .../settings-reference#sandbox-settings
+func sandbox(p *policy.Profile, er policy.EgressRules, os harness.OS) (map[string]any, []string) {
+	var warns []string
+	restricted := p.Egress.Restricted()
+	paths := len(p.Sandbox.ProtectedPaths)+len(p.Sandbox.WritableRoots) > 0
+	on := restricted || paths || p.Permissions.SandboxRequired
+	switch p.Permissions.Sandbox {
+	case "workspace-write":
+		on = true
+	case "read-only":
+		on = true
+		warns = append(warns, name+`: permissions.sandbox "read-only" has no Claude Code equivalent; rendered as the workspace-write sandbox`)
+	case "off":
+		if restricted || paths {
+			warns = append(warns, name+`: permissions.sandbox "off" overridden: egress and sandbox paths are enforced by the sandbox, so it is enabled`)
+		}
+	}
+	if !on {
+		return nil, nil
+	}
+	sb := map[string]any{"enabled": true, "allowUnsandboxedCommands": false}
+	if p.Permissions.SandboxRequired {
+		// Missing bubblewrap/socat blocks startup instead of running unsandboxed.
+		sb["failIfUnavailable"] = true
+	}
+	fs := map[string]any{}
+	if len(p.Sandbox.WritableRoots) > 0 {
+		fs["allowWrite"] = p.Sandbox.WritableRoots
+	}
+	// Relative sandbox paths resolve against the project (project settings) or
+	// ~/.claude (user settings); managed settings are not documented, so only
+	// absolute and ~/ protected paths go in; the rest stay permission rules.
+	abs, rel := hutil.SplitPaths(p.Sandbox.ProtectedPaths, true)
+	if len(abs) > 0 {
+		fs["denyRead"], fs["denyWrite"] = abs, abs
+	}
+	if len(rel) > 0 {
+		warns = append(warns, fmt.Sprintf("%s: sandbox.protectedPaths %v are workspace-relative; managed sandbox.filesystem paths have no documented project root, so they are enforced on the Read/Edit tools only, not on Bash", name, rel))
+	}
+	if len(fs) > 0 {
+		sb["filesystem"] = fs
+	}
+	if restricted {
+		net := map[string]any{}
+		if er.Default == policy.EgressDeny {
+			net["allowedDomains"] = append([]string{}, er.Allow...) // [] (not null): nothing allowed
+			net["allowManagedDomainsOnly"] = true
+			warns = append(warns, name+": egress default deny: the WebFetch tool still asks before fetching a host outside the allowlist (deny rules win over allow rules, so deny-by-default cannot be expressed for it); Bash is held to the allowlist by the sandbox")
+		} else {
+			warns = append(warns, name+": egress default allow: the sandbox still asks before Bash reaches a new host (Claude Code has no allow-everything sandbox network setting)")
+		}
+		if len(er.Deny) > 0 {
+			net["deniedDomains"] = er.Deny
+		}
+		sb["network"] = net
+	}
+	if os == harness.Windows {
+		warns = append(warns, name+": the Claude Code sandbox does not run on native Windows; sandbox and egress settings are not enforced there (use WSL2)")
+	}
+	return sb, warns
+}
+
+// artifactDirs places supply-chain artifacts (ADR-0028) in the managed
+// directory's .claude/ tree, the managed scope of Claude Code's skills,
+// subagents and commands. Hook scripts get a Halos-owned directory that a
+// hooks.items command runs (`sh <managed dir>/hooks/<name>/<script>`; halod
+// writes 0644, so invoke them through an interpreter). ponytail: placement
+// read from the skills/subagents docs' managed scope, not yet UAT'd
+// (ADR-0028 open items).
+func artifactDirs(os harness.OS) hutil.ArtifactDirs {
+	d := dir(os)
+	return hutil.ArtifactDirs{
+		Dirs: map[string]string{
+			policy.ArtifactSkill: hutil.Join(os, d, ".claude", "skills"),
+			policy.ArtifactHook:  hutil.Join(os, d, "hooks"),
+		},
+		Single: map[string]string{
+			policy.ArtifactAgent:   hutil.Join(os, d, ".claude", "agents"),
+			policy.ArtifactCommand: hutil.Join(os, d, ".claude", "commands"),
+		},
+		Why: map[string]string{
+			policy.ArtifactPlugin: "Claude Code installs plugins from marketplaces; allow its marketplace with extensions.marketplaces and pin it with extensions.plugins.enabled",
+		},
+	}
+}
+
+// claudeAuth renders a remote server's authorization into its managed-mcp.json
+// entry e: oauth.clientId and oauth.scopes (a space-separated string) for mode
+// oauth, headersHelper running `halo mcp token` for mode halos.
+// https://code.claude.com/docs/en/mcp (pre-configured OAuth credentials, headersHelper)
+func claudeAuth(e map[string]any, sv policy.MCPServer) []string {
+	a := sv.Auth
+	var warns []string
+	switch a.Mode {
+	case policy.MCPAuthOAuth:
+		o := map[string]any{}
+		if a.ClientID != "" {
+			o["clientId"] = a.ClientID
+		}
+		if len(a.Scopes) > 0 {
+			o["scopes"] = strings.Join(a.Scopes, " ")
+		}
+		if len(o) > 0 {
+			e["oauth"] = o
+		}
+		if a.ClientIDMetadataURL != "" {
+			warns = append(warns, fmt.Sprintf("%s: mcp server %q auth.clientIDMetadataURL is not rendered: Claude Code presents its own Client ID Metadata Document and has no setting for an org-hosted one", name, sv.Name))
+		}
+		if a.Issuer != "" {
+			warns = append(warns, fmt.Sprintf("%s: mcp server %q auth.issuer is not rendered: Claude Code discovers the authorization server (RFC 9728, then RFC 8414)", name, sv.Name))
+		}
+	case policy.MCPAuthEnterprise:
+		warns = append(warns, fmt.Sprintf("%s: mcp server %q auth mode enterprise is not rendered: Claude Code documents no Enterprise-Managed Authorization (ID-JAG) client; users authorize the server with /mcp", name, sv.Name))
+	case policy.MCPAuthHalos:
+		// Managed servers' helpers run from ~/.claude with the user's environment.
+		e["headersHelper"] = hutil.MCPTokenHelper(sv.URL)
+	}
+	return warns
 }
 
 // hooks groups hooks by event then matcher, preserving first-seen order.

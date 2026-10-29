@@ -29,11 +29,43 @@ func (Adapter) Meta() harness.Meta {
 func (Adapter) Capabilities() []harness.Capability {
 	return []harness.Capability{harness.CapModelLock, harness.CapMCPAllowlist, harness.CapTelemetry, harness.CapGateway,
 		harness.CapExtensions, // partial: skills and subagent deny; no plugin marketplaces
+		harness.CapSandbox,    // partial: tools.sandbox on macOS only, a default the user can override
 	}
 }
 
 func (Adapter) InstallCommand(version string, _ harness.OS) string {
 	return "npm install -g @google/gemini-cli@" + version
+}
+
+// sandboxOn: the profile asks for a sandbox. Egress and path rules do not turn
+// it on: Gemini CLI's sandbox enforces neither (they warn as unsupported).
+func sandboxOn(p *policy.Profile) bool {
+	m := p.Permissions.Sandbox
+	return m == "workspace-write" || m == "read-only"
+}
+
+// sandboxWarnings: what Gemini CLI's sandbox cannot hold (ADR-0032). The
+// system settings file sets tools.sandbox, but the --sandbox flag and the
+// GEMINI_SANDBOX environment variable take precedence; on Linux and Windows
+// the sandbox needs Docker/Podman (or the experimental Windows-native one),
+// so it is rendered on macOS only, where Seatbelt is built in. There is no
+// domain allow/deny list (Seatbelt's *-proxied profiles route through a
+// user-supplied proxy; tools.sandboxNetworkAccess is all-or-nothing with an
+// undocumented scope) and no managed path list, so egress.* and sandbox.*
+// warn as unsupported.
+// https://raw.githubusercontent.com/google-gemini/gemini-cli/main/docs/cli/sandbox.md
+func sandboxWarnings(p *policy.Profile, os harness.OS) []string {
+	if !sandboxOn(p) {
+		return nil
+	}
+	w := []string{"gemini: the sandbox (tools.sandbox) is a default, not a lock: the --sandbox flag and GEMINI_SANDBOX take precedence over the system settings file"}
+	if os != harness.Darwin {
+		w = append(w, "gemini: the sandbox is not rendered on "+string(os)+": it needs Docker or Podman there; set GEMINI_SANDBOX=docker|podman on the device")
+	}
+	if p.Permissions.Sandbox == "read-only" {
+		w = append(w, `gemini: permissions.sandbox "read-only" has no Gemini CLI equivalent; the Seatbelt default confines writes to the project (workspace-write)`)
+	}
+	return w
 }
 
 // Paths and keys verified in internal/harness/FACTS.md.
@@ -49,9 +81,13 @@ func settingsPath(os harness.OS) string {
 }
 
 func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []string, error) {
-	warns := hutil.WarnUnsupported(name, p,
-		"models.default", "permissions.disableBypass", "mcp.servers", "mcp.managedOnly", "mcp.denied", "telemetry.enabled", "telemetry.logPrompts", "telemetry.attributes",
-		"extensions.skills.deny", "extensions.subagents.deny", "login")
+	handled := []string{"models.default", "permissions.disableBypass", "mcp.servers", "mcp.managedOnly", "mcp.denied", "mcp.tools.allow", "mcp.tools.deny", "mcp.auth", "telemetry.enabled", "telemetry.logPrompts", "telemetry.attributes",
+		"extensions.skills.deny", "extensions.subagents.deny", "login"}
+	if sandboxOn(p) {
+		handled = append(handled, "permissions.sandbox") // "off" (Gemini's default) still warns: nothing is rendered for it
+	}
+	warns := hutil.WarnUnsupported(name, p, handled...)
+	warns = append(warns, sandboxWarnings(p, c.OS)...)
 	warns = append(warns, "gemini: cannot self-enforce version; halod enforces")
 	if c.Ring != "" || c.Release != "" {
 		warns = append(warns, "gemini: ring/release request headers are not supported")
@@ -67,6 +103,11 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 		// 0.34.0 the admin block comes only from Google's remote admin controls, so
 		// the system settings file's copy is ignored (verified in test/uat).
 		s["security"] = map[string]any{"disableYoloMode": true}
+	}
+	if sandboxOn(p) && c.OS == harness.Darwin {
+		// macOS Seatbelt (sandbox-exec) ships with the OS; its default profile
+		// confines writes to the project directory.
+		s["tools"] = map[string]any{"sandbox": true}
 	}
 	if len(p.MCP.Servers) > 0 {
 		servers := map[string]any{}
@@ -87,6 +128,16 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 			default:
 				return nil, nil, fmt.Errorf("gemini: mcp server %q has neither url nor command", sv.Name)
 			}
+			// includeTools / excludeTools: exclude wins; across settings files
+			// inclusions intersect and exclusions union, so a user file cannot widen them.
+			// https://github.com/google-gemini/gemini-cli/blob/main/docs/tools/mcp-server.md
+			if len(sv.Tools.Allow) > 0 {
+				e["includeTools"] = sv.Tools.Allow
+			}
+			if len(sv.Tools.Deny) > 0 {
+				e["excludeTools"] = sv.Tools.Deny
+			}
+			warns = append(warns, geminiAuth(e, sv)...)
 			servers[sv.Name] = e
 			names = append(names, sv.Name)
 		}
@@ -200,4 +251,33 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 		files = append(files, harness.File{Path: "/etc/profile.d/halos-gemini.sh", Mode: 0o644, Data: []byte(script)})
 	}
 	return files, warns, nil
+}
+
+// geminiAuth renders a remote server's authorization into its mcpServers
+// entry e: the oauth block (enabled, clientId, issuer, scopes) for mode oauth.
+// https://github.com/google-gemini/gemini-cli/blob/main/docs/tools/mcp-server.md
+func geminiAuth(e map[string]any, sv policy.MCPServer) []string {
+	a := sv.Auth
+	switch a.Mode {
+	case policy.MCPAuthOAuth:
+		o := map[string]any{"enabled": true}
+		if a.ClientID != "" {
+			o["clientId"] = a.ClientID
+		}
+		if a.Issuer != "" {
+			o["issuer"] = a.Issuer
+		}
+		if len(a.Scopes) > 0 {
+			o["scopes"] = a.Scopes
+		}
+		e["oauth"] = o
+		if a.ClientIDMetadataURL != "" {
+			return []string{fmt.Sprintf("gemini: mcp server %q auth.clientIDMetadataURL is not rendered: Gemini CLI documents no Client ID Metadata Document setting (clientId or dynamic registration only)", sv.Name)}
+		}
+	case policy.MCPAuthEnterprise:
+		return []string{fmt.Sprintf("gemini: mcp server %q auth mode enterprise is not rendered: Gemini CLI documents no Enterprise-Managed Authorization (ID-JAG) client; users authorize the server with /mcp auth", sv.Name)}
+	case policy.MCPAuthHalos:
+		return []string{fmt.Sprintf("gemini: mcp server %q auth mode halos is not rendered: Gemini CLI has no per-connection header helper (headers are static), so a Halos token cannot be minted per session; run `halo mcp token` and set the header yourself, or use mode oauth", sv.Name)}
+	}
+	return nil
 }

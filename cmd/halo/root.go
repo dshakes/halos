@@ -109,9 +109,37 @@ func newRoot(out, errw io.Writer) *cobra.Command {
 		a.cmdRollback(), a.cmdKeys(), a.cmdWhoami(), a.cmdHarnesses(), a.cmdExport(),
 		a.cmdExp(), a.cmdController(), a.cmdGateway(), a.cmdTelemetry(), a.cmdEval(), a.cmdUpgrade(), a.cmdMCP(), a.cmdToggle(), a.cmdRollout(), a.cmdVersion(), a.cmdDocs(),
 		a.cmdModel(), a.cmdEnable(), a.cmdKill(), a.cmdStatus(), a.cmdExplain(), a.cmdEject(), a.cmdMigrate(),
-		a.cmdDoctor(), a.cmdOnboard(), a.cmdQuickstart(), a.cmdUnits(), a.cmdAudit(), a.cmdBudget(), a.cmdCI(), a.cmdAgents(), a.cmdAdmin())
+		a.cmdDoctor(), a.cmdOnboard(), a.cmdQuickstart(), a.cmdUnits(), a.cmdAudit(), a.cmdBudget(), a.cmdCI(), a.cmdAgents(), a.cmdAdmin(), a.cmdCloudAgents(), a.cmdROI(), a.cmdSessions(), a.cmdFreeze(),
+		a.cmdArtifact(), a.cmdEgress(), a.cmdDLP(), a.cmdCopilot())
 	addPolicyDirFlags(root)
+	groupCommands(root)
 	return root
+}
+
+// helpGroups orders `halo --help`; it only groups, every command keeps its name.
+var helpGroups = []struct {
+	id, title string
+	cmds      []string
+}{
+	{"start", "Get started:", []string{"quickstart", "init", "onboard", "doctor", "status", "version"}},
+	{"policy", "Policy & releases:", []string{"validate", "explain", "render", "plan", "release", "artifact", "rollback", "keys", "export", "eject", "migrate", "harnesses", "whoami", "units", "model", "enable", "egress"}},
+	{"rollout", "Rollouts & experiments:", []string{"exp", "rollout", "toggle", "eval", "upgrade", "controller", "kill", "freeze", "roi"}},
+	{"fleet", "Fleet & gateway:", []string{"gateway", "telemetry", "audit", "budget", "dlp", "ci"}},
+	{"agents", "Agents & MCP:", []string{"agents", "cloud-agents", "mcp", "sessions", "copilot"}},
+	{"admin", "Admin:", []string{"admin"}},
+}
+
+func groupCommands(root *cobra.Command) {
+	for _, g := range helpGroups {
+		root.AddGroup(&cobra.Group{ID: g.id, Title: g.title})
+		for _, n := range g.cmds {
+			for _, c := range root.Commands() {
+				if c.Name() == n {
+					c.GroupID = g.id
+				}
+			}
+		}
+	}
 }
 
 // run executes halo and returns the process exit code.
@@ -187,15 +215,23 @@ func (a *app) loadValid(dir string) (*policy.Org, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := a.checkValid(org); err != nil {
+		return nil, err
+	}
+	return org, nil
+}
+
+// checkValid refuses (exit 2) an org with validation errors.
+func (a *app) checkValid(org *policy.Org) error {
 	issues := org.Validate()
 	if policy.HasErrors(issues) {
 		// always human-readable on stderr so JSON stdout stays clean
 		for _, i := range issues {
 			fmt.Fprintln(a.errw, i.String())
 		}
-		return nil, &exitErr{code: exitValidation, err: errors.New("policy has validation errors; run `halo validate`")}
+		return &exitErr{code: exitValidation, err: errors.New("policy has validation errors; run `halo validate`")}
 	}
-	return org, nil
+	return nil
 }
 
 func findRing(org *policy.Org, name string) (*policy.Ring, error) {
@@ -206,29 +242,58 @@ func findRing(org *policy.Org, name string) (*policy.Ring, error) {
 		}
 		names = append(names, r.Name)
 	}
+	if name == "" { // never default a ring: acting on the wrong one is the failure to avoid
+		return nil, fmt.Errorf("--ring is required (rings in policy: %s)", strings.Join(names, ", "))
+	}
 	return nil, fmt.Errorf("unknown ring %q (have: %s)", name, strings.Join(names, ", "))
 }
 
-func (a *app) buildRelease(dir, ring, ver string) (*release.Release, error) {
-	rel, _, err := a.buildRing(dir, ring, ver)
-	return rel, err
+// needRing is the empty-flag error for commands that take a ring name but do
+// not load policy themselves (registry commands): it lists the rings of the
+// policy at --policy-dir (default ".") when one loads, and never defaults.
+func (a *app) needRing(cmd *cobra.Command, flag string) error {
+	msg := "--" + flag + " is required"
+	if dir, err := policyDir(cmd, nil); err == nil {
+		if org, err := policy.Load(dir); err == nil && len(org.Rings) > 0 {
+			names := make([]string, len(org.Rings))
+			for i, r := range org.Rings {
+				names[i] = r.Name
+			}
+			msg += " (rings in policy: " + strings.Join(names, ", ") + ")"
+		}
+	}
+	return errors.New(msg)
+}
+
+func (a *app) buildRelease(ctx context.Context, dir, ring, ver string, strict bool) (*release.Release, *policy.Org, error) {
+	rel, _, org, err := a.buildRing(ctx, dir, ring, ver, strict)
+	return rel, org, err
 }
 
 // buildRing builds ring's release plus the variant releases of the running
-// client-axis experiments enrolling it (see release.BuildRing).
-func (a *app) buildRing(dir, ring, ver string) (*release.Release, []*release.Release, error) {
-	org, err := a.loadValid(dir)
+// client-axis experiments enrolling it (see release.BuildRing). Remote
+// supply-chain artifacts are fetched and every artifact is scanned and
+// signature-checked first (ADR-0028); strict makes scan findings errors.
+func (a *app) buildRing(ctx context.Context, dir, ring, ver string, strict bool) (*release.Release, []*release.Release, *policy.Org, error) {
+	org, err := a.load(dir)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
+	}
+	strictScan(org, strict)
+	if err := a.resolveSupplyChain(ctx, dir, org); err != nil {
+		return nil, nil, nil, err
+	}
+	if err := a.checkValid(org); err != nil {
+		return nil, nil, nil, err
 	}
 	if _, err := findRing(org, ring); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	rel, variants, err := release.BuildRing(org, ring, release.Options{Version: ver, Org: org.Name})
 	if err != nil {
-		return nil, nil, fmt.Errorf("build release for ring %s: %w", ring, err)
+		return nil, nil, nil, fmt.Errorf("build release for ring %s: %w", ring, err)
 	}
-	return rel, variants, nil
+	return rel, variants, org, nil
 }
 
 // refusePinned stops publish from moving a ring that policy pins to another
@@ -266,7 +331,7 @@ func writeFile(p string, data []byte, mode os.FileMode) error {
 	if mode == 0 {
 		mode = 0o644
 	}
-	return os.WriteFile(p, data, mode)
+	return os.WriteFile(p, data, mode) //nolint:gosec // p is the operator's own output path (-o / --out)
 }
 
 func (a *app) cmdVersion() *cobra.Command {

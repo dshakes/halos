@@ -208,6 +208,7 @@ Halos ships six binaries from `cmd/`. Two more surfaces run inside one of them o
   - `internal/promote`: verdicts, ClickHouse source and PRs.
   - `internal/rollout`: rollout evaluation and hash-chained state.
   - `web`: the console, embedded with `-tags=webdist`.
+    - Operator pages (read role): Fleet (per-ring compliance, a drift count per device and an "in sync" filter; the device page lists the drifted settings from halod's last report), Releases, **Rollouts** (`#/rollouts[/name]`: step timeline with the live step, per-gate status, bake countdown, halt and rollback events, and the ring-to-release pointers; the controller state is shown only when `halo-server --controller` keeps it in the data dir) and **Cost & budgets** (`#/budgets`, see [cost budgets](/halos/guides/cost-budgets/)).
 - **State and storage:** files under `--data-dir`:
   - `reports.jsonl`
   - `devices.jsonl`

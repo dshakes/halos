@@ -144,6 +144,7 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return exec.CommandContext(ctx, name, args...).CombinedOutput()
 	}
 	a.ConsoleUser = func(ctx context.Context) string { return consoleUser(ctx, a.Run) }
+	a.Home = homeDir
 	a.Open = func(ctx context.Context) (oras.ReadOnlyTarget, error) {
 		return bundle.Repository(cfg.Registry, cfg.PlainHTTP)
 	}

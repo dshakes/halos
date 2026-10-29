@@ -14,13 +14,20 @@ Generated from `schemas/profile.schema.json`; do not edit. Nested fields use dot
 | `agents.remote` | array of string |  |  |  |  | agents.remote names these members may call; empty = every entry whose rings or units admit them. |
 | `agents.remote[]` | string |  |  |  | minLength 1 |  |
 | `apiVersion` | string | yes |  | const halos.dev/v1 |  | Document version. |
-| `egress` | object |  |  |  |  | Egress policy. |
-| `egress.allowedDomains` | array of string |  |  |  |  | Only egress permitted from managed environments; must include the gateway host when non-empty. |
-| `egress.allowedDomains[]` | string |  |  |  |  |  |
+| `egress` | object |  |  |  |  | Network egress for the agent's shell and fetch tools (ADR-0032). A deny rule wins over an allow rule; unmatched hosts take the default. Rendered natively per harness; what a harness cannot hold is a release warning. |
+| `egress.allowedDomains` | array of string |  |  |  |  | Allowlist: exact hosts or *.domain (subdomains only, not the apex). Must allow the gateway host. Replaces the parent's list. |
+| `egress.allowedDomains[]` | string |  |  |  | pattern ^(\*\.)?([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)*[a-z0-9]([a-z0-9-]*[a-z0-9])?$ |  |
+| `egress.default` | string |  |  | allow, deny |  | For hosts no rule matches. Unset: deny when allowedDomains or presets allow anything, else allow. allow with an allowlist is an error. |
+| `egress.deniedDomains` | array of string |  |  |  |  | Always denied, even when an allow rule matches. Unions down an extends chain and across units. |
+| `egress.deniedDomains[]` | string |  |  |  | pattern ^(\*\.)?([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)*[a-z0-9]([a-z0-9-]*[a-z0-9])?$ |  |
+| `egress.presets` | array of string |  |  |  |  | Named domain sets added to the allowlist (see the egress and sandbox guide for each set's hosts). |
+| `egress.presets[]` | string |  |  | package-registries, vcs, model-providers |  |  |
 | `env` | object |  |  |  |  | Extra environment applied to every harness. |
 | `env.*` | string |  |  |  |  |  |
 | `extends` | string |  |  |  |  | Parent profile. Scalars: child wins; lists: child replaces; maps: merged. |
 | `extensions` | object |  |  |  |  | Plugin, skill, subagent, output style and status line governance. Unset means unrestricted; each adapter renders what its harness can enforce and warns about the rest. |
+| `extensions.artifacts` | array of string |  |  |  |  | Supply-chain artifacts (halos.yaml supplyChain.artifacts names) this profile delivers (ADR-0028). Claude Code places skills, agents, commands and hooks in its managed directory; other adapters warn. |
+| `extensions.artifacts[]` | string |  |  |  | minLength 1 |  |
 | `extensions.blockedMarketplaces` | array of object |  |  |  |  | Marketplace sources users may never use (Claude Code blockedMarketplaces). Unions down an extends chain. |
 | `extensions.blockedMarketplaces[]` | object |  |  |  |  | A plugin marketplace source. |
 | `extensions.blockedMarketplaces[].hostPattern` | string |  |  |  |  | Regular expression over marketplace hosts (source hostPattern). |
@@ -75,11 +82,23 @@ Generated from `schemas/profile.schema.json`; do not edit. Nested fields use dot
 | `mcp.managedOnly` | boolean |  |  |  |  | Block every server not listed. |
 | `mcp.servers` | array of object |  |  |  |  | Allowed MCP servers. |
 | `mcp.servers[]` | object |  |  |  |  | An allowed MCP server. |
+| `mcp.servers[].auth` | object |  |  |  |  | How clients authorize to a remote server (ADR-0029). |
+| `mcp.servers[].auth.clientID` | string |  |  |  |  | Pre-registered OAuth client id (oauth, enterprise). |
+| `mcp.servers[].auth.clientIDMetadataURL` | string |  |  |  | format uri; pattern ^https:// | https URL of an org-hosted Client ID Metadata Document (oauth); the URL is the client id. |
+| `mcp.servers[].auth.issuer` | string |  |  |  | format uri; pattern ^https:// | Authorization server issuer (oauth, enterprise). |
+| `mcp.servers[].auth.mode` | string |  |  | none, oauth, enterprise, halos |  | none (default) \| oauth (the server's authorization server) \| enterprise (Enterprise-Managed Authorization: an ID-JAG from identity.issuer) \| halos (halo-server mints audience-bound tokens). |
+| `mcp.servers[].auth.scopes` | array of string |  |  |  |  | Scopes to request (oauth, enterprise). |
+| `mcp.servers[].auth.scopes[]` | string |  |  |  | pattern ^\S+$ |  |
 | `mcp.servers[].command` | array of string |  |  |  |  | stdio command line (exclusive with url). |
 | `mcp.servers[].command[]` | string |  |  |  |  |  |
 | `mcp.servers[].headers` | object |  |  |  |  | HTTP headers. |
 | `mcp.servers[].headers.*` | string |  |  |  |  |  |
 | `mcp.servers[].name` | string | yes |  |  |  | Server name. |
+| `mcp.servers[].tools` | object |  |  |  |  | Narrows the server's tools (ADR-0029). deny wins over allow; empty allow = every tool. |
+| `mcp.servers[].tools.allow` | array of string |  |  |  |  | Only these tools (where the harness supports an allowlist; else a manifest warning). |
+| `mcp.servers[].tools.allow[]` | string |  |  |  | pattern ^[A-Za-z0-9_.-]&#123;1,128}$ |  |
+| `mcp.servers[].tools.deny` | array of string |  |  |  |  | Never these tools. |
+| `mcp.servers[].tools.deny[]` | string |  |  |  | pattern ^[A-Za-z0-9_.-]&#123;1,128}$ |  |
 | `mcp.servers[].url` | string |  |  |  | format uri | https URL (exclusive with command). |
 | `models` | object |  |  |  |  | Model policy. |
 | `models.allowed` | array of string |  |  |  |  | Allowed model aliases. |
@@ -98,6 +117,12 @@ Generated from `schemas/profile.schema.json`; do not edit. Nested fields use dot
 | `permissions.mode` | string |  |  | default, acceptEdits, plan, auto |  | Default permission mode. |
 | `permissions.sandbox` | string |  |  | off, workspace-write, read-only |  | Harness sandbox policy. |
 | `permissions.sandboxRequired` | boolean |  |  |  |  | Fail closed: the harness refuses to run (Claude: sandbox.failIfUnavailable) instead of running unsandboxed when its sandbox dependencies are missing. |
+| `sandbox` | object |  |  |  |  | Agent sandbox (ADR-0032): mode, extra writable roots and paths the agent may never read or write. |
+| `sandbox.mode` | string |  |  | off, workspace-write, read-only |  | Same setting as permissions.sandbox (set either; both must agree). off is an error while egress or sandbox paths are set. |
+| `sandbox.protectedPaths` | array of string |  |  |  |  | Never read or written by the agent: absolute, ~/ or workspace-relative globs such as .env*. Unions down an extends chain and across units. |
+| `sandbox.protectedPaths[]` | string |  |  |  | minLength 1 |  |
+| `sandbox.writableRoots` | array of string |  |  |  |  | Absolute or ~/ directories writable beyond the workspace (no globs, not / or ~, not over a protected path). Replaces the parent's list; a unit adding one is a loosening. |
+| `sandbox.writableRoots[]` | string |  |  |  | pattern ^(/\|~/) |  |
 | `telemetry` | object |  |  |  |  | Telemetry policy. |
 | `telemetry.attributes` | object |  |  |  |  | Extra resource attributes. |
 | `telemetry.attributes.*` | string |  |  |  |  |  |

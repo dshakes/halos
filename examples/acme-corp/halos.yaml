@@ -12,6 +12,8 @@ identity:
   userClaim: email
   groupsClaim: groups
   adminGroups: [ai-platform]
+  roles:
+    approver: [sre-leads] # ga-two-person needs an sre-leads approver who can approve
 selfService:
   enabled: true
   launchers: [devcontainer, codespaces, laptop]
@@ -20,3 +22,113 @@ selfService:
     - name: linear
       url: https://mcp.linear.app/sse
   enrollmentTTLSeconds: 900
+# Change governance (ADR-0030). Freeze windows hold rollout advances and
+# promotions into ring3-ga (never rollbacks or the kill switch); the approval
+# rule needs two approvers from different groups, never the requester, and a
+# change ticket before anything reaches GA.
+governance:
+  freezes:
+    - name: ga-weekend
+      reason: No GA changes over the weekend
+      timezone: America/New_York
+      scope: {rings: [ring3-ga]}
+      weekly: {from: "Fri 18:00", to: "Mon 06:00"}
+    - name: year-end
+      reason: Year-end change freeze
+      timezone: America/New_York
+      scope: {rings: [ring3-ga]}
+      start: "2026-12-18T18:00"
+      end: "2027-01-04T06:00"
+  approvals:
+    - name: ga-two-person
+      scope: {rings: [ring3-ga]}
+      quorum: 2
+      groups: [ai-platform, sre-leads]
+      distinctGroups: true
+      ticket: 'CHG[0-9]{7}'
+
+# Agent supply chain (ADR-0028): extension artifacts releases deliver, pinned
+# by content digest (`halo artifact digest <path>`), statically scanned by
+# `halo validate` / `halo release build`, and listed in each release's AI-BOM.
+supplyChain:
+  scan: enforce
+  artifacts:
+    - name: pr-review
+      kind: skill
+      path: artifacts/skills/pr-review
+      digest: sha256:39a6210a056f9c0c889b5c13ef9a18f9b0584e7a7558fdb115b4812f24ab5186
+    - name: security-reviewer
+      kind: agent
+      path: artifacts/agents/security-reviewer.md
+      digest: sha256:858764f48a3e32de6d9f6f673be53c39c6b6fca23a117179e569c6689dd906d2
+    - name: audit-bash
+      kind: hook
+      path: artifacts/hooks/audit-bash
+      digest: sha256:0e2e2c237c5854be316839c26a7115e9b84f36721b52f12ade825df1d2ae0cad
+
+# Approved MCP servers (ADR-0029). Releases render each ring's and unit's
+# servers into every harness's native MCP settings, toggles may deliver only
+# these, and halod reports any other server (or another version) in user
+# configs. mode: warn while profiles/base.yaml still declares acme-docs and
+# acme-tickets itself; move them here and switch to allowlist (the default) to
+# make the registry each harness's managed MCP allowlist.
+# Add one from the official MCP Registry: halo mcp registry import <name|url|file>.
+mcp:
+  mode: warn
+  servers:
+    - id: acme-wiki
+      url: https://mcp-wiki.internal.acme.example/mcp
+      rings: [ring0-harness-team, ring1-canary]
+      tools:
+        deny: [delete_page]
+      auth:
+        mode: halos # halo-server mints a 5-minute token whose audience is this URL
+    - id: github
+      url: https://api.githubcopilot.com/mcp/
+      headers:
+        Authorization: Bearer ${GITHUB_MCP_TOKEN}
+      units: [payments] # and toggles/github-mcp delivers it to 10% of ring1-canary
+    - id: playwright
+      registryName: io.github.microsoft/playwright-mcp
+      version: 0.0.82
+      package:
+        type: npm
+        identifier: "@playwright/mcp"
+        version: 0.0.82
+      rings: [ring0-harness-team]
+
+# Cloud agents (ADR-0034): background agents on vendor or CI infrastructure.
+# `halo cloud-agents render` writes the pinned workflows for the repo-configured
+# ones; `halo admin plan` covers the console-configured ones.
+cloudAgents:
+  identities:
+    - user: alice@acme.com
+      github: alice-acme
+    - user: bob@acme.com
+      github: bob-acme
+  claude:
+    enabled: true
+    repos: [acme-corp/payments-api, acme-corp/web]
+    models: [claude-sonnet-5]
+    maxConcurrent: {perUser: 2}
+    network: {mode: allowlist, recommended: true, allow: [packages.acme.example]}
+    timeoutMinutes: 30
+  copilot:
+    enabled: true
+    repos: [acme-corp/*]
+    maxConcurrent: {perUser: 3}
+    network: {mode: allowlist, recommended: true}
+    timeoutMinutes: 45
+  cursor:
+    enabled: true
+    repos: [acme-corp/web]
+    budgets:
+      - {name: cursor-daily, scope: user, window: day, limitTokens: 5000000}
+    onOverLimit: pause
+  codex:
+    enabled: false
+  gemini:
+    enabled: true
+    repos: [acme-corp/payments-api]
+    models: [gemini-2.5-pro]
+    version: 0.34.0

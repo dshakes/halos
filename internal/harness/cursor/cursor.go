@@ -87,6 +87,15 @@ func matcher(m string) (string, bool) {
 
 func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []string, error) {
 	warns := hutil.WarnUnsupported(name, p, "hooks.items")
+	if p.Permissions.Sandbox != "" || p.Egress.Restricted() || len(p.Sandbox.ProtectedPaths)+len(p.Sandbox.WritableRoots) > 0 {
+		// The native keys exist (sandbox.json type and networkPolicy
+		// {default, allow, deny}; cli-config.json permissions.deny
+		// WebFetch(domain)/Read(glob)) but only per user, per repo or in the
+		// team admin dashboard; halo doctor reports the per-user sandbox type.
+		// https://cursor.com/docs/reference/sandbox.md,
+		// https://cursor.com/docs/cli/reference/configuration.md
+		warns = append(warns, "cursor-agent: sandbox and egress are not rendered: Cursor reads sandbox.json (type, networkPolicy) and cli-config.json permission rules per user (~/.cursor) or per repo only, and team policy from its admin dashboard (no system-wide file); set the team sandbox policy there and check devices with halo doctor")
+	}
 	warns = append(warns,
 		"cursor-agent: cannot self-enforce version; halod enforces, but Cursor's installer cannot pin one, so halod cannot install it",
 		"cursor-agent: gateway not rendered; Cursor CLI talks to Cursor's backend and documents no base-URL override (-H/--header is a per-invocation flag); traffic is not routed through Halos",

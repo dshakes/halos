@@ -5,6 +5,8 @@ sandbox_mode = 'workspace-write'
 
 [mcp_servers]
 [mcp_servers.docs]
+disabled_tools = ['delete_page']
+enabled_tools = ['search', 'fetch']
 url = 'https://mcp.example.com/docs'
 
 [mcp_servers.docs.http_headers]
@@ -13,6 +15,9 @@ X-Org = 'acme'
 [mcp_servers.lint]
 args = ['-y', 'lint-mcp']
 command = 'npx'
+
+[mcp_servers.tickets]
+url = 'https://mcp.example.com/tickets'
 
 [model_providers]
 [model_providers.halos]
@@ -40,3 +45,6 @@ enabled = true
 
 [plugins.'risky@acme-plugins']
 enabled = false
+
+[sandbox_workspace_write]
+network_access = false

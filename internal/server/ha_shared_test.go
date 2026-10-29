@@ -349,13 +349,13 @@ func TestSharedDelegationRoot(t *testing.T) {
 		b := nb()
 		a, c := replicaEnv(t, b, nil), replicaEnv(t, b, nil)
 		sess := c.s.seal(cookiePayload{Sub: dev.ID, Iat: time.Now().Add(-time.Minute).UnixNano(), Exp: time.Now().Add(time.Hour).Unix()})
-		if _, err := c.s.verifyParent(sess, tokenTypeSession, time.Now()); err != nil {
+		if _, err := c.s.verifyParent(context.Background(), sess, tokenTypeSession, time.Now()); err != nil {
 			t.Fatalf("live session refused: %v", err)
 		}
 		if w := a.as(admin, "POST", "/api/v1/users/"+dev.ID+"/revoke-sessions", ""); w.Code != 204 {
 			t.Fatalf("revoke on a: %d", w.Code)
 		}
-		if _, err := c.s.verifyParent(sess, tokenTypeSession, time.Now()); err == nil {
+		if _, err := c.s.verifyParent(context.Background(), sess, tokenTypeSession, time.Now()); err == nil {
 			t.Fatal("a session revoked on a still delegates on c")
 		}
 	})

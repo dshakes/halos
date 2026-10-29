@@ -1,15 +1,21 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/dshakes/halos/internal/bundle"
 )
 
 // A developer sees only their own devices, with the posture verdict the gateway would give.
 func TestMyDevices(t *testing.T) {
 	e := newEnv(t, nil)
+	// Nothing published for the ring: the release check has nothing to compare (an
+	// unreachable registry would make posture unknown, see TestPostureUnknown).
+	e.s.relFetch = func(context.Context, string) (bundle.Pointer, bool, error) { return bundle.Pointer{}, false, nil }
 	other := Principal{ID: "other@acme.example"}
 	get := func(p Principal) MyDevices {
 		t.Helper()

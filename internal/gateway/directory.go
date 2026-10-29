@@ -27,8 +27,13 @@ type DirectoryEntry struct {
 const (
 	DefaultDirectoryTTL   = time.Minute     // an entry is reused this long before halo-server is asked again
 	DefaultDirectoryGrace = 5 * time.Minute // a cached entry outlives an unreachable halo-server this long
-	maxDirectoryEntries   = 100_000
-	maxDirectoryBody      = 64 << 10
+	// DefaultRevocationTTL is how long the revocation list (ADR-0026) is
+	// used before halo-server is asked again: with halo-server reachable, a
+	// revocation reaches the gateway within this (plus one fetch).
+	DefaultRevocationTTL = 30 * time.Second
+	maxDirectoryEntries  = 100_000
+	maxDirectoryBody     = 64 << 10
+	maxRevocationBody    = 4 << 20
 )
 
 // DirectoryClient makes halo-server's SCIM directory authoritative for a
@@ -44,9 +49,28 @@ type DirectoryClient struct {
 	// FailClosed: refuse (ErrDirectoryUnavailable) instead of failing open
 	// when the directory cannot be asked (DirectoryFailClosed).
 	FailClosed bool
+	// Observe, when set, is told every Resolve outcome of a looked-up subject:
+	// ok, stale (cached entry served through an outage), failopen,
+	// unavailable (FailClosed) or not_provisioned. It is also told
+	// revocations_unavailable each time the revocation list cannot be fetched
+	// (whatever the fail mode then does). For metrics.
+	Observe func(outcome string)
+	// RevocationTTL: the revocation list is refetched once it is older
+	// (0 = DefaultRevocationTTL). It is fetched only for callers holding a
+	// halo-server credential (workload or delegated agent).
+	RevocationTTL time.Duration
+	// RevocationsOnly (DirectoryModeRevocations) checks halo-server credentials
+	// against the revocation list and never looks a subject up in SCIM: groups
+	// stay the verified credential's. For deployments without SCIM.
+	RevocationsOnly bool
 
 	mu    sync.Mutex
 	cache map[string]directoryEntry
+
+	revMu    sync.Mutex // guards rev and revAt
+	rev      *RevocationList
+	revAt    time.Time
+	revFetch sync.Mutex // one revocation fetch at a time
 }
 
 type directoryEntry struct {
@@ -69,6 +93,23 @@ func NewDirectoryClient(url, token string, ttl, grace time.Duration, log *slog.L
 		grace = DefaultDirectoryGrace
 	}
 	return &DirectoryClient{URL: url, Token: token, TTL: ttl, Grace: grace, Log: log}, nil
+}
+
+func (c *DirectoryClient) observe(outcome string) {
+	if c.Observe != nil {
+		c.Observe(outcome)
+	}
+}
+
+// FailOpenSubject is sub kept with no groups, as Resolve answers when the
+// directory cannot be asked under the open fail mode. Kind, Delegation and
+// Credential stay: a delegated agent keeps its chain, so the agent policy
+// still applies, and the credential stays checkable against revocations.
+func FailOpenSubject(sub *policy.Subject) *policy.Subject {
+	if sub == nil {
+		return nil
+	}
+	return &policy.Subject{ID: sub.ID, Kind: sub.Kind, Delegation: sub.Delegation, Credential: sub.Credential}
 }
 
 func (c *DirectoryClient) now() time.Time {
@@ -112,6 +153,30 @@ const (
 	DirectoryFailClosed = "closed"
 )
 
+// Directory modes (directory.mode): what the directory client asks halo-server.
+const (
+	// DirectoryModeFull (default) resolves every verified subject in SCIM and
+	// checks halo-server credentials against the revocation list.
+	DirectoryModeFull = "full"
+	// DirectoryModeRevocations only checks halo-server credentials (workload,
+	// delegated agent) against the revocation list (ADR-0026): no SCIM lookup,
+	// so it works on a halo-server without SCIM.
+	DirectoryModeRevocations = "revocations"
+)
+
+// CheckDirectoryMode validates a directory.mode value ("" = full).
+func CheckDirectoryMode(m string) error {
+	if m != "" && m != DirectoryModeFull && m != DirectoryModeRevocations {
+		return fmt.Errorf("directory.mode %q must be full or revocations", m)
+	}
+	return nil
+}
+
+// NoRevocationWarning is the startup warning a gateway logs when it accepts
+// halo-server credentials (workload keys set) without a directory URL: it
+// cannot see revocations (ADR-0026).
+const NoRevocationWarning = "workload and delegated agent credentials are accepted, but no directory URL is set: a revoked credential (ADR-0026) is accepted until it expires; set the directory URL (mode revocations needs no SCIM)"
+
 // CheckDirectoryFailMode validates a directory.failMode value ("" = open).
 func CheckDirectoryFailMode(m string) error {
 	if m != "" && m != DirectoryFailOpen && m != DirectoryFailClosed {
@@ -134,19 +199,32 @@ func CheckDirectoryFailMode(m string) error {
 // directory: a delegated agent (ADR-0024) is looked up as its root principal,
 // so an agent acting for a deprovisioned user is refused like the user, and
 // keeps its chain (and the agent policy) on every path, fail open included.
+// A caller holding a halo-server credential (workload or delegated agent)
+// is first checked against the revocation list (ADR-0026, see revocations):
+// a revoked credential is ErrCredentialRevoked, workload-rooted chains
+// included.
 // ponytail: concurrent misses for one subject each call halo-server, as PostureClient.Check does.
 func (c *DirectoryClient) Resolve(ctx context.Context, sub *policy.Subject) (*policy.Subject, error) {
 	if sub == nil || sub.ID == "" {
 		return nil, nil
 	}
-	if sub.Kind == policy.SubjectWorkload {
-		return &policy.Subject{ID: sub.ID, Groups: append([]string(nil), sub.Groups...), Kind: sub.Kind, Delegation: sub.Delegation}, nil
+	if sub.Credential != nil {
+		l, err := c.revocations(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if err := l.Check(sub); err != nil {
+			return nil, err
+		}
+	}
+	if sub.Kind == policy.SubjectWorkload || c.RevocationsOnly {
+		return &policy.Subject{ID: sub.ID, Groups: append([]string(nil), sub.Groups...), Kind: sub.Kind, Delegation: sub.Delegation, Credential: sub.Credential}, nil
 	}
 	now := c.now()
 	c.mu.Lock()
 	ce, ok := c.cache[sub.ID]
 	c.mu.Unlock()
-	e := ce.e
+	e, outcome := ce.e, "ok"
 	if !ok || now.Sub(ce.at) >= c.TTL {
 		got, err := c.fetch(ctx, sub.ID)
 		switch {
@@ -159,31 +237,123 @@ func (c *DirectoryClient) Resolve(ctx context.Context, sub *policy.Subject) (*po
 			if c.Log != nil {
 				c.Log.Warn("directory refused the lookup; caller refused as not provisioned", "err", err)
 			}
+			c.observe("not_provisioned")
 			return nil, ErrNotProvisioned
 		case ok && !ce.e.Active:
 			// The last answer was inactive: an outage, however long, never
 			// re-admits a deactivated user (fail open included).
+			c.observe("not_provisioned")
 			return nil, ErrNotProvisioned
 		case ok && now.Sub(ce.at) < c.Grace:
 			if c.Log != nil {
 				c.Log.Warn("directory lookup failed; serving cached entry", "err", err)
 			}
+			outcome = "stale"
 		case c.FailClosed:
 			if c.Log != nil {
 				c.Log.Warn("directory lookup failed; request refused (failMode closed)", "err", err)
 			}
+			c.observe("unavailable")
 			return nil, fmt.Errorf("%w: %w", ErrDirectoryUnavailable, err)
 		default:
 			if c.Log != nil {
 				c.Log.Warn("directory lookup failed; caller keeps their identity with no groups", "err", err)
 			}
-			return &policy.Subject{ID: sub.ID, Kind: sub.Kind, Delegation: sub.Delegation}, nil
+			c.observe("failopen")
+			return FailOpenSubject(sub), nil
 		}
 	}
 	if !e.Active {
+		c.observe("not_provisioned")
 		return nil, ErrNotProvisioned
 	}
-	return &policy.Subject{ID: sub.ID, Groups: append([]string(nil), e.Groups...), Kind: sub.Kind, Delegation: sub.Delegation}, nil
+	c.observe(outcome)
+	return &policy.Subject{ID: sub.ID, Groups: append([]string(nil), e.Groups...), Kind: sub.Kind, Delegation: sub.Delegation, Credential: sub.Credential}, nil
+}
+
+// revocations returns the revocation list, refetched once older than
+// RevocationTTL. One caller fetches at a time; meanwhile the others keep a
+// list younger than Grace. When halo-server cannot be asked, the directory's
+// fail mode applies: a list younger than Grace keeps serving; past it, fail
+// closed refuses (ErrDirectoryUnavailable) and fail open keeps the last list,
+// however old, so an outage never forgets a revocation the gateway has seen.
+// Any answer but 200 is an outage here: an old halo-server without the list
+// answers 400, and the fail mode decides.
+func (c *DirectoryClient) revocations(ctx context.Context) (*RevocationList, error) {
+	ttl := c.RevocationTTL
+	if ttl <= 0 {
+		ttl = DefaultRevocationTTL
+	}
+	cur := func() (*RevocationList, time.Duration) {
+		c.revMu.Lock()
+		defer c.revMu.Unlock()
+		return c.rev, c.now().Sub(c.revAt)
+	}
+	l, age := cur()
+	if l != nil && age < ttl {
+		return l, nil
+	}
+	if !c.revFetch.TryLock() {
+		if l != nil && age < c.Grace {
+			return l, nil
+		}
+		c.revFetch.Lock()
+	}
+	defer c.revFetch.Unlock()
+	if l, age = cur(); l != nil && age < ttl { // refreshed while this caller waited
+		return l, nil
+	}
+	got, err := c.fetchRevocations(ctx)
+	if err == nil {
+		c.revMu.Lock()
+		c.rev, c.revAt = got, c.now()
+		c.revMu.Unlock()
+		return got, nil
+	}
+	c.observe("revocations_unavailable")
+	switch {
+	case l != nil && age < c.Grace:
+		c.warn("revocation list refresh failed; serving the cached list", err)
+		return l, nil
+	case c.FailClosed:
+		c.warn("revocation list unavailable; credential refused (failMode closed)", err)
+		return nil, fmt.Errorf("%w: revocations: %w", ErrDirectoryUnavailable, err)
+	}
+	c.warn("revocation list unavailable; checking against the last list seen (failMode open)", err)
+	return l, nil
+}
+
+func (c *DirectoryClient) warn(msg string, err error) {
+	if c.Log != nil {
+		c.Log.Warn(msg, "err", err)
+	}
+}
+
+func (c *DirectoryClient) fetchRevocations(ctx context.Context) (*RevocationList, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.URL+"?revocations=1", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+	hc := c.Client
+	if hc == nil {
+		hc = &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	}
+	resp, err := hc.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }() // read-only response
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("revocations: HTTP %d", resp.StatusCode)
+	}
+	var l RevocationList
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxRevocationBody)).Decode(&l); err != nil {
+		return nil, fmt.Errorf("revocations: decode: %w", err)
+	}
+	return &l, nil
 }
 
 func (c *DirectoryClient) store(subject string, e DirectoryEntry, now time.Time) {

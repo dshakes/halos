@@ -3,7 +3,6 @@ package mcpserver
 import (
 	"context"
 	"errors"
-	"fmt"
 	"path/filepath"
 	"strings"
 
@@ -23,7 +22,8 @@ type upgradeIn struct {
 	Config string `json:"config,omitempty" jsonschema:"upgrade watcher config under the policy dir (default .halos/upgrade.yaml)"`
 }
 
-// policyFile resolves rel under the policy dir, refusing anything outside it.
+// policyFile resolves rel under the policy dir, refusing anything outside it,
+// including through a symlink (the same containment as policy resources).
 func (s *srv) policyFile(rel, def string) (string, error) {
 	if rel == "" {
 		rel = def
@@ -32,10 +32,7 @@ func (s *srv) policyFile(rel, def string) (string, error) {
 	if !filepath.IsAbs(p) {
 		p = filepath.Join(s.dir, rel)
 	}
-	if !within(s.dir, filepath.Clean(p)) {
-		return "", fmt.Errorf("%q is not under the policy dir", rel)
-	}
-	return p, nil
+	return resolveWithin(s.dir, p)
 }
 
 type harvestIn struct {
@@ -51,11 +48,13 @@ type harvestIn struct {
 	RedactPatterns []string `json:"redact_patterns,omitempty" jsonschema:"extra RE2 regexes to redact"`
 	KeepFields     []string `json:"keep_fields,omitempty" jsonschema:"extra top-level request fields to keep"`
 	DryRun         *bool    `json:"dry_run,omitempty" jsonschema:"default true: select and redact, return the summary, write nothing; false writes the cases (needs --allow-writes)"`
+	Reason         string   `json:"reason,omitempty" jsonschema:"why this harvest; required when dry_run is false"`
 }
 
 type harvestOut struct {
 	DryRun         bool               `json:"dry_run"`
 	Written        bool               `json:"written"`
+	Reason         string             `json:"reason,omitempty"`
 	Out            string             `json:"out"`
 	Command        string             `json:"command"`
 	Steps          int                `json:"steps"`
@@ -70,7 +69,7 @@ type harvestOut struct {
 func (s *srv) addEvalTools(m *mcp.Server) {
 	mcp.AddTool(m, &mcp.Tool{Name: "eval_matrix", Description: "Expand an eval suite's harness x model x provider matrix into the cells `halo eval run --matrix` would run. Runs nothing.", Annotations: readOnly}, s.evalMatrix)
 	mcp.AddTool(m, &mcp.Tool{Name: "eval_harvest", Annotations: &mcp.ToolAnnotations{DestructiveHint: boolp(false), IdempotentHint: true},
-		Description: "Turn halo-shadow steps where the candidate regressed (diverged, invalid call, premature stop, judge loss, or a depth-stratified sample) into redacted step-level eval cases (`halo eval harvest`). Returns provenance and expected tool names only, never request content. dry_run (default true) writes nothing; false writes 0600 case files under the policy dir and needs --allow-writes. Redaction always runs and fails closed."},
+		Description: "Turn halo-shadow steps where the candidate regressed (diverged, invalid call, premature stop, judge loss, or a depth-stratified sample) into redacted step-level eval cases (`halo eval harvest`). Returns provenance and expected tool names only, never request content. dry_run (default true) writes nothing; false writes 0600 case files under the policy dir and needs --allow-writes plus a reason. Redaction always runs and fails closed."},
 		s.evalHarvest)
 	mcp.AddTool(m, &mcp.Tool{Name: "upgrade_candidates", Description: "List new upstream CLI versions (npm) and provider models that `halo upgrade check` would evaluate, with install-artifact verification. Reads the network; writes nothing, runs no eval, opens no PR.", Annotations: readOnly}, s.upgradeCandidates)
 }
@@ -136,12 +135,15 @@ func (s *srv) evalHarvest(ctx context.Context, _ *mcp.CallToolRequest, in harves
 		args = append(args, "--select", strings.Join(in.Select, ","))
 	}
 	for _, p := range in.RedactPatterns {
-		args = append(args, "--redact-pattern", "'"+p+"'")
+		args = append(args, "--redact-pattern", p)
 	}
 	for _, f := range in.KeepFields {
 		args = append(args, "--keep-field", f)
 	}
-	out.Command = strings.Join(args, " ")
+	out.Command = shJoin(args...)
+	if out.Reason, err = needUnlessDry(in.DryRun, in.Reason); err != nil {
+		return nil, out, err
+	}
 	write, err := s.mayWrite(in.DryRun, out.Command)
 	if err != nil {
 		return nil, out, err
@@ -165,7 +167,7 @@ func (s *srv) evalHarvest(ctx context.Context, _ *mcp.CallToolRequest, in harves
 	out.Written = true
 	out.NextSteps = []string{
 		"the human reviews the redacted case files in " + dst + " before anything is committed: they hold real prompts and terminal output",
-		"replay them against the candidate route: halo eval steps run --suite " + dst + " --model ROUTE --url GATEWAY_URL --key-env VAR",
+		"replay them against the candidate route: " + shJoin("halo", "eval", "steps", "run", "--suite", dst) + " --model ROUTE --url GATEWAY_URL --key-env VAR",
 	}
 	return nil, out, nil
 }

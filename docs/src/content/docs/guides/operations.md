@@ -28,7 +28,9 @@ Design and guarantees: [ADR-0021](/halos/adr/0021-ha-control-plane-on-postgres/)
 - **Fail closed.** If a replica cannot read Postgres, device authentication answers 503 and sessions are treated as revoked; `/readyz` fails so the Service stops sending it traffic. `/healthz` does not check the database, so an outage does not restart pods.
 - **Locks and claims.** Leases, the SCIM cluster lock, the access-request decision claim and userName claims are rows with an owner token and an expiry computed by the database: replica clocks never decide who holds them, and only the owner releases one. A SCIM mutation that cannot take the cluster lock within 10s answers 503 (the IdP retries); it never runs unlocked.
 - **Clock skew.** Session revocations and enrollment-token voids are padded by one minute for replica clock skew; a login after a revocation is stamped past it. Keep replicas NTP-synced (well within a minute).
-- **Rate limits are per replica.** The failed-auth buckets (per IP and endpoint class) live in each replica's memory, so with N replicas a client spread across them gets up to N times the configured budget (10 failures/min becomes up to 10N). Use session affinity on the ingress if that matters ([ADR-0021](/halos/adr/0021-ha-control-plane-on-postgres/) explains why they are not in the database).
+- **Rate limits are shared.** The failed-auth buckets (per address and endpoint class, an IPv6 address counted by its /64) are in each replica's memory, and every failure is also counted in Postgres, so N replicas grant one budget (10 failures, then one per 6 seconds), not N. If the count cannot be written each replica's own budget still applies ([ADR-0021](/halos/adr/0021-ha-control-plane-on-postgres/)).
+- **Revocations are shared.** Credential revocations ([ADR-0026](/halos/adr/0026-per-credential-revocation/)) are a table every replica reads on each delegation exchange and egress decision, so a revocation on one replica holds on all of them at once; gateways pick it up within 30 seconds. A replica that cannot read the table refuses those requests (503). Roll every replica to a release with migration 0003 before relying on revocation: an older binary ignores the table.
+- **Posture.** Each posture check catches up with the shared device registry first; if it cannot, the verdict is unknown, never compliant.
 - **Policy.** Each replica refuses a policy with security validation errors and keeps its last good one; the controller acts on that same accepted policy. A replica started while the repository head is refused stays unready until a good commit lands.
 - **halo-shadow** workers keep nothing: pairs go to `halo_shadow_pairs` (sealed exactly as in the file) and `budgetUSD` is one budget for every replica, named by `database.budgetScope`. Unlike the file mode's counter it does not reset on restart: use a new scope name (for example the quarter) to start a fresh budget. `halo-shadow export-pairs -database-url-file F > pairs.jsonl` writes the rows `decrypt-pairs` reads.
 
@@ -219,6 +221,7 @@ Two things no exporter covers, so wire them from CI: the daily `halo release ref
 | Audit log | `<data-dir>/audit.jsonl` and rotated `<data-dir>/audit-<seq>.jsonl` | `internal/server/audit.go` | Hash-chained across segments; a gap is detectable (`halo audit verify`, `GET /api/v1/audit` reports `verified`) but not recoverable here. With [SIEM export](/halos/guides/siem-export/) the SIEM holds a second copy |
 | Audit export cursors | `<data-dir>/audit-forward/<sink>.json` | `internal/server/audit_export.go` | Each sink re-sends from the oldest entry still on disk (duplicates, never gaps) |
 | Session revocations | `<data-dir>/session-revocations.jsonl` | `internal/server/sessions.go:40` | Revoked user sessions become valid again until they expire |
+| Credential revocations | `<data-dir>/credential-revocations.jsonl` | `internal/server/revocations.go:66` | Revoked agent and workload credentials become valid again until they expire (at most an hour) |
 | Kill list | `<data-dir>/killswitch.jsonl` | `internal/controller/killstore.go:65` | Active kills are forgotten: gateways and `halod` get an **empty** list at the next poll and the killed change comes back. Treat this file as the one you cannot lose |
 | Controller action log | `<data-dir>/controller-state.jsonl` | `internal/controller/state.go:68` | The controller may open duplicate PRs for verdicts it already acted on |
 | Rollout state | `<data-dir>/rollouts/<name>.json` | `internal/rollout/state.go:151` | Rollout step and gate history |
@@ -233,7 +236,7 @@ Two things no exporter covers, so wire them from CI: the daily `halo release ref
 
 All `--data-dir` files are append-only JSONL, last line per id wins, never compacted (the audit log is split into segments by [rotation](#audit-log-rotation), never rewritten). Files are opened with `O_APPEND` and written one line at a time, so a snapshot taken while the server runs is consistent at line granularity: at worst the last line is torn, and replay skips it (`internal/fsutil/jsonl.go:26-47`). The chart keeps the PVC on `helm uninstall` (`helm.sh/resource-policy: keep`).
 
-With the Postgres backend none of the `--data-dir` rows above exist on the pods: the same data lives in the database (table per row: `halo_journal` streams `devices`, `requests`, `session-revocations`, `killswitch`, `controller-state`, `scim`; `halo_audit` (one table, no segments); `halo_docs` for rollout state, verdicts and SIEM export cursors; `halo_budget_buckets` and `halo_budget_batches`; `halo_reports`; `halo_kv` for enrollment tokens, sessions and the workload replay cache; `halo_shadow_pairs`), and the database is the one thing to back up. Keys are unchanged.
+With the Postgres backend none of the `--data-dir` rows above exist on the pods: the same data lives in the database (table per row: `halo_journal` streams `devices`, `requests`, `session-revocations`, `killswitch`, `controller-state`, `scim`; `halo_audit` (one table, no segments); `halo_docs` for rollout state, verdicts and SIEM export cursors; `halo_budget_buckets` and `halo_budget_batches`; `halo_reports`; `halo_kv` for enrollment tokens, sessions, the workload replay cache and failed-auth counts; `halo_revocations` for credential revocations; `halo_shadow_pairs`), and the database is the one thing to back up. Keys are unchanged.
 
 ### Backup
 
@@ -329,7 +332,7 @@ For Kong, the public key and token live in `HALO_KILLSWITCH_PUBKEY` / `HALO_KILL
 
 ### Split the gateway token per capability (recommended)
 
-One `--gateway-token-file` token opens all four gateway endpoints on `halo-server`: the kill list, posture verdicts, budget usage writes and SCIM directory reads. Anyone holding it can mark spend against any user's budget or enumerate who is provisioned. Give each capability its own token instead; when one is set, it is the **only** token that endpoint accepts and it opens nothing else:
+One `--gateway-token-file` token opens all five gateway endpoints on `halo-server`: the kill list, posture verdicts, budget usage writes, SCIM directory reads and DLP audit appends. Anyone holding it can mark spend against any user's budget or enumerate who is provisioned. Give each capability its own token instead; when one is set, it is the **only** token that endpoint accepts and it opens nothing else:
 
 | `halo-server` flag | Endpoint | `halo-proxy` setting | `halo-kong` field |
 |---|---|---|---|
@@ -337,6 +340,7 @@ One `--gateway-token-file` token opens all four gateway endpoints on `halo-serve
 | `--gateway-posture-token-file` | `GET /api/v1/gateway/posture` | `posture.tokenFile` | `posture_token` |
 | `--gateway-budget-token-file` | `/api/v1/gateway/budget/*` | `budgets.tokenFile` | (no budgets) |
 | `--gateway-directory-token-file` | `GET /api/v1/gateway/directory` | `directory.tokenFile` | `directory_token` |
+| `--gateway-dlp-token-file` | `POST /api/v1/gateway/dlp/events` | `dlp.tokenFile` | `dlp_token` |
 
 Each token must be at least 32 characters with 128 bits of estimated entropy (length times log2 of its distinct characters; `openssl rand -hex 32` gives 256) and differ from the shared one; `halo-server` refuses to start otherwise, naming the flag. A capability without its own flag keeps accepting `--gateway-token-file`, so you can migrate one at a time: write the new token to the gateway's file for that capability, restart `halo-server` with the new flag, then roll the gateways. Between the two restarts that capability's calls return 401: posture and directory fall back to their cached entries for `grace`, the kill list keeps the last accepted list, and budgets follow their unknown-state policy. `--killswitch-key-file` accepts either the shared or the kill-switch token.
 

@@ -20,6 +20,7 @@ halo release build [flags]
 | `--policy-dir` |  | string |  | policy repo directory (default ".") |
 | `--release-version` |  | string | 0.0.0-dev | release version label |
 | `--ring` |  | string |  | ring to build (required) |
+| `--strict` |  | bool | false | treat supply-chain scan findings as errors (same as supplyChain.scan: enforce) |
 
 ## Global flags
 

@@ -4,6 +4,7 @@
       "headers": {
         "X-Org": "acme"
       },
+      "headersHelper": "halo mcp token --resource 'https://mcp.example.com/docs' --format headers",
       "type": "http",
       "url": "https://mcp.example.com/docs"
     },
@@ -13,6 +14,14 @@
         "lint-mcp"
       ],
       "command": "npx"
+    },
+    "tickets": {
+      "oauth": {
+        "clientId": "halos-cli",
+        "scopes": "tickets:read"
+      },
+      "type": "http",
+      "url": "https://mcp.example.com/tickets"
     }
   }
 }

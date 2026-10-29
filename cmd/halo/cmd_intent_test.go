@@ -43,7 +43,8 @@ func TestSimpleExampleRendersRelease(t *testing.T) {
 		t.Fatal(err)
 	}
 	var m map[string]any
-	if err := json.Unmarshal(b, &m); err != nil || m["disableBypassPermissionsMode"] != "disable" {
+	err = json.Unmarshal(b, &m)
+	if perms, _ := m["permissions"].(map[string]any); err != nil || perms["disableBypassPermissionsMode"] != "disable" {
 		t.Fatalf("managed settings: %v %s", err, b)
 	}
 	if strings.Contains(strings.ToLower(string(b)), "bypasspermissions\"") {
@@ -54,7 +55,7 @@ func TestSimpleExampleRendersRelease(t *testing.T) {
 func TestInitSimpleFlagsAndInteractive(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "p")
 	code, out, errs := halo(t, "init", dir, "--org", "globex", "--tools", "claude-code@2.1.280,codex@0.99.0",
-		"--provider", "bedrock", "--model", "default=anthropic.claude-sonnet-4-5", "--model", "strong=anthropic/claude-opus-4-1",
+		"--provider", "bedrock", "--model", "default=anthropic.claude-sonnet-5-5", "--model", "strong=anthropic/claude-opus-5-5",
 		"--safety", "strict", "--rollout", "careful")
 	if code != 0 {
 		t.Fatalf("init %d\n%s%s", code, out, errs)
@@ -70,7 +71,7 @@ func TestInitSimpleFlagsAndInteractive(t *testing.T) {
 	}
 	// codex on anthropic: init adds a codex alias on OpenAI, notes it on stderr, and the result validates.
 	q := filepath.Join(t.TempDir(), "q")
-	code, out, errs = halo(t, "init", q, "--tools", "claude-code@2.1.280,codex@0.99.0", "--model", "strong=claude-opus-4-1")
+	code, out, errs = halo(t, "init", q, "--tools", "claude-code@2.1.280,codex@0.99.0", "--model", "strong=claude-opus-5-5")
 	if code != 0 || !strings.Contains(errs, "note: codex: added model alias codex = openai/gpt-5-codex") {
 		t.Fatalf("init codex on anthropic: %d\n%s%s", code, out, errs)
 	}
@@ -78,7 +79,7 @@ func TestInitSimpleFlagsAndInteractive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"codex: {version: 0.99.0, model: codex}", "default: claude-sonnet-4-5", "codex: openai/gpt-5-codex"} {
+	for _, want := range []string{"codex: {version: 0.99.0, model: codex}", "default: claude-sonnet-5-5", "codex: openai/gpt-5-codex"} {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("halos.yaml lacks %q:\n%s", want, b)
 		}

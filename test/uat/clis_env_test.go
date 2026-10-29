@@ -208,6 +208,19 @@ func (e *cliEnv) tls() error {
 // pointed at the mock, plus a running traffic experiment so variants are stamped.
 func (e *cliEnv) policy() error {
 	src, dst := filepath.Join(e.root, "examples/acme-corp"), filepath.Join(e.dir, "policy")
+	// The whole tree, so what the org declares (supply-chain artifacts, units,
+	// governance, egress, DLP, the MCP registry) is published and validated as
+	// shipped. Experiments, rollouts and toggles route to acme's own gateway
+	// upstreams, which the UAT gateway replaces, so they go. Only cliRing is
+	// kept, so every identity lands in it (halo-proxy assigns by percent).
+	if err := os.CopyFS(dst, os.DirFS(src)); err != nil {
+		return fmt.Errorf("copy examples/acme-corp: %w", err)
+	}
+	for _, d := range []string{"experiments", "rollouts", "toggles", "rings"} {
+		if err := os.RemoveAll(filepath.Join(dst, d)); err != nil {
+			return err
+		}
+	}
 	read := func(p string) (string, error) { b, err := os.ReadFile(filepath.Join(src, p)); return string(b), err }
 	write := func(p, s string) error {
 		if err := os.MkdirAll(filepath.Dir(filepath.Join(dst, p)), 0o755); err != nil {
@@ -229,6 +242,9 @@ func (e *cliEnv) policy() error {
 		return err
 	}
 	if halos, err = replace(halos, "https://acme.okta.com/oauth2/default", "https://mock:8443"); err != nil {
+		return err
+	}
+	if halos, err = onlyRingMCP(halos, cliRing); err != nil {
 		return err
 	}
 	base, err := read("profiles/base.yaml")
@@ -334,6 +350,44 @@ stopping: {method: msprt, alpha: 0.05, minSamples: 100, maxDays: 14, maxSpendUSD
 	return nil
 }
 
+// onlyRingMCP drops the mcp.servers scoped to rings that exclude ring: they
+// never reach ring's users, and their ring names no longer resolve once the
+// other rings are gone. Servers with no ring scope (all rings, or units) stay.
+func onlyRingMCP(halos, ring string) (string, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(halos), &doc); err != nil {
+		return "", fmt.Errorf("halos.yaml: %w", err)
+	}
+	get := func(m *yaml.Node, k string) *yaml.Node {
+		for i := 0; m != nil && m.Kind == yaml.MappingNode && i+1 < len(m.Content); i += 2 {
+			if m.Content[i].Value == k {
+				return m.Content[i+1]
+			}
+		}
+		return nil
+	}
+	servers := get(get(doc.Content[0], "mcp"), "servers")
+	if servers == nil {
+		return halos, nil
+	}
+	kept := servers.Content[:0]
+	for _, s := range servers.Content {
+		rs, keep := get(s, "rings"), true
+		if rs != nil {
+			keep = false
+			for _, r := range rs.Content {
+				keep = keep || r.Value == ring
+			}
+		}
+		if keep {
+			kept = append(kept, s)
+		}
+	}
+	servers.Content = kept
+	out, err := yaml.Marshal(&doc)
+	return string(out), err
+}
+
 func (e *cliEnv) containers() error {
 	label := "--label=halos-uat-clis=" + e.id
 	if out, err := cliDocker("network", "create", label, e.net); err != nil {
@@ -364,6 +418,9 @@ func (e *cliEnv) containers() error {
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git python3 procps && rm -rf /var/lib/apt/lists/*
 COPY ca.pem /usr/local/share/ca-certificates/halos-uat.crt
 RUN update-ca-certificates
+# A non-root developer: Claude Code refuses --dangerously-skip-permissions as root
+# on its own, so the bypass check must run as someone else.
+RUN useradd -m -s /bin/bash uat
 ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
 `
 	if err := os.WriteFile(filepath.Join(img, "Dockerfile"), []byte(df), 0o644); err != nil { //nolint:gosec // test fixture
@@ -457,8 +514,16 @@ func (e *cliEnv) proxy() error {
 // Feature's /etc/profile.d gateway env applies, as in a developer terminal).
 func (e *cliEnv) sh(script string) (string, int) { return e.shEnv(nil, script) }
 
+// shUser runs a script as the non-root developer `uat` (login shell, $HOME cwd).
+func (e *cliEnv) shUser(script string) (string, int) {
+	return e.dockerExec([]string{"exec", "-u", "uat", "-w", "/home/uat"}, nil, script)
+}
+
 func (e *cliEnv) shEnv(env []string, script string) (string, int) {
-	args := []string{"exec", "-w", "/root"}
+	return e.dockerExec([]string{"exec", "-w", "/root"}, env, script)
+}
+
+func (e *cliEnv) dockerExec(args, env []string, script string) (string, int) {
 	for _, kv := range env {
 		args = append(args, "-e", kv)
 	}

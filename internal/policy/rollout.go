@@ -290,6 +290,9 @@ func (v *validator) rolloutChange(p string, r *Rollout, exp *Experiment) {
 	case AxisClient:
 		if r.Change.Release == "" {
 			v.errf(p+".change.release", "client-axis rollouts need the release digest to roll out")
+		} else if !sha256DigestRe.MatchString(r.Change.Release) {
+			// The digest is what an approval is keyed on: no movable names.
+			v.errf(p+".change.release", "release %q is not a sha256:<64 hex> digest", r.Change.Release)
 		}
 		if r.Change.Alias != "" {
 			v.errf(p+".change.alias", "alias is for traffic-axis rollouts")

@@ -19,6 +19,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/dshakes/halos/internal/cloudagents"
 	"github.com/dshakes/halos/internal/controller"
 	"github.com/dshakes/halos/internal/harness"
 	_ "github.com/dshakes/halos/internal/harness/all" // register adapters for the capability matrix
@@ -68,6 +69,13 @@ type Config struct {
 	GatewayPostureToken    string
 	GatewayBudgetToken     string
 	GatewayDirectoryToken  string
+	GatewayDLPToken        string // POST /api/v1/gateway/dlp/events (ADR-0033)
+	// GatewayDLPTokens maps a gateway name to its own DLP token. An event
+	// batch sent with one is attributed to that gateway (a gateway name in the
+	// body that differs is refused); one sent with GatewayDLPToken or the
+	// shared token is recorded as gateway:unverified with the name it claims.
+	// Setting any enables the endpoint.
+	GatewayDLPTokens map[string]string
 
 	// PostureMaxAge: a device whose last report is older is stale (GET
 	// /api/v1/gateway/posture, served whenever GatewayToken is set). 0 = DefaultPostureMaxAge.
@@ -88,6 +96,12 @@ type Config struct {
 	// /api/v1/token/exchange (ADR-0023); nil disables the endpoint.
 	WorkloadKey ed25519.PrivateKey
 
+	// Cloud agents (ADR-0034). CloudWebhookSecrets verify GitHub deliveries
+	// to POST /api/v1/cloud-agents/webhooks/github (two while rotating; none =
+	// 404). CloudClients cancel and pause tasks; a nil client is not attempted.
+	CloudWebhookSecrets []string
+	CloudClients        cloudagents.Clients
+
 	// DevUser disables authentication and acts as this user. INSECURE: local demos only.
 	// DevRoles are its roles (ADR-0015); DevAdmin adds RoleAdmin.
 	DevUser   string
@@ -104,6 +118,8 @@ type Server struct {
 	oidc   oidcState
 	enroll enrollments
 	reqs   *requestLog
+	// approvals are rollout-step approvals (ADR-0030).
+	approvals *approvalLog
 
 	devices *deviceStore
 	// Failed-auth budgets per client IP, one per endpoint class, so failures on
@@ -124,11 +140,15 @@ type Server struct {
 	relChannels   channelsFetch // ring release -> experiment channels; swapped in tests
 	kills         *controller.KillStore
 	gwSums        map[gatewayCap][32]byte // sha256 of the token each enabled gateway capability accepts
+	dlpGateways   []namedSum              // per-gateway DLP tokens (GatewayDLPTokens), hashed
 	scim          *scimService            // nil = SCIM off
 	budgets       *budgetStore
+	dlpBatches    dlpBatches // recent DLP audit batch ids (ADR-0033)
 	wl            workloadExchange
 	kv            storage.KV    // ephemeral state: Backend, else in process
 	auditFails    atomic.Uint64 // audit appends that failed (strict and best-effort)
+	revs          revocationStore
+	metrics       serverMetrics
 }
 
 // New validates cfg and returns a Server. It does not require the policy dir to load yet.
@@ -138,6 +158,11 @@ func New(cfg Config) (*Server, error) {
 	}
 	if err := validRoles(cfg.DevRoles); err != nil {
 		return nil, fmt.Errorf("server: dev roles: %w", err)
+	}
+	for name, t := range cfg.GatewayDLPTokens {
+		if !dlpEnumRe.MatchString(name) || t == "" {
+			return nil, fmt.Errorf("server: gateway DLP token %q: the name must match %s and the token be set", name, dlpEnumRe)
+		}
 	}
 	if cfg.DevAdmin && !slices.Contains(cfg.DevRoles, RoleAdmin) {
 		cfg.DevRoles = append(slices.Clip(cfg.DevRoles), RoleAdmin)
@@ -198,6 +223,11 @@ func New(cfg Config) (*Server, error) {
 		return nil, err
 	}
 	closers = append(closers, reqs.close)
+	approvals, err := openApprovalLog(logs)
+	if err != nil {
+		return nil, err
+	}
+	closers = append(closers, approvals.close)
 	devs, err := openDeviceStore(logs, cfg.DeviceTTL)
 	if err != nil {
 		return nil, err
@@ -208,6 +238,15 @@ func New(cfg Config) (*Server, error) {
 		return nil, err
 	}
 	closers = append(closers, revoked.close)
+	var revs revocationStore = cfg.Backend
+	if cfg.Backend == nil {
+		rl, err := openRevocationLog(logs, cfg.Now)
+		if err != nil {
+			return nil, err
+		}
+		closers = append(closers, rl.close)
+		revs = rl
+	}
 	al, err := openAuditLog(auditDir)
 	if err != nil {
 		return nil, err
@@ -226,8 +265,17 @@ func New(cfg Config) (*Server, error) {
 	if cfg.gatewayToken(capBudget) != "" && cfg.DataDir == "" && cfg.Backend == nil {
 		cfg.Log.Warn("no --data-dir: gateway budget counters are in memory and reset on restart")
 	}
-	s := &Server{cfg: cfg, tokSum: sha256.Sum256([]byte(cfg.Token)), pol: &policyHolder{dir: cfg.PolicyDir, log: cfg.Log}, reqs: reqs, devices: devs, revoked: revoked,
-		auditLog: al, forwarders: fwds, relCache: &releaseCache{byKey: map[string]cachedPointer{}, chans: map[string][]string{}}, budgets: bs, kv: kv}
+	s := &Server{cfg: cfg, tokSum: sha256.Sum256([]byte(cfg.Token)), pol: &policyHolder{dir: cfg.PolicyDir, log: cfg.Log}, reqs: reqs, approvals: approvals, devices: devs, revoked: revoked,
+		auditLog: al, forwarders: fwds, relCache: &releaseCache{byKey: map[string]cachedPointer{}, chans: map[string][]string{}}, budgets: bs, kv: kv, revs: revs}
+	for _, l := range []struct {
+		a     *authLimiter
+		class string
+	}{{&s.authFails, "device"}, {&s.loginFails, "login"}, {&s.gwFails, "gateway"}, {&s.exchangeFails, "exchange"}, {&s.agentFails, "agent"}, {&s.scimFails, "scim"}} {
+		l.a.class, l.a.log = l.class, cfg.Log
+		if cfg.Backend != nil { // one budget across replicas (ADR-0021, amended)
+			l.a.shared = cfg.Backend
+		}
+	}
 	s.oidc.kv, s.enroll.kv = kv, kv
 	s.relFetch, s.relChannels = s.registryFetch, s.registryChannels
 	if s.kills = cfg.KillStore; s.kills == nil {
@@ -246,6 +294,9 @@ func New(cfg Config) (*Server, error) {
 		}
 	}
 	s.gwSums = gatewaySums(cfg)
+	for name, t := range cfg.GatewayDLPTokens {
+		s.dlpGateways = append(s.dlpGateways, namedSum{name, sha256.Sum256([]byte(t))})
+	}
 	if s.scim, err = newSCIM(cfg); err != nil {
 		return nil, err
 	}
@@ -256,7 +307,10 @@ func New(cfg Config) (*Server, error) {
 // Close releases the files New opened under Config.DataDir. A Store or
 // KillStore passed in via Config stays the caller's to close.
 func (s *Server) Close() error {
-	errs := []error{s.reqs.close(), s.devices.close(), s.revoked.close(), s.auditLog.close(), s.scim.close(), s.budgets.save(s.cfg.Now(), true)}
+	errs := []error{s.reqs.close(), s.approvals.close(), s.devices.close(), s.revoked.close(), s.auditLog.close(), s.scim.close(), s.budgets.save(s.cfg.Now(), true)}
+	if c, ok := s.revs.(*revocationLog); ok {
+		errs = append(errs, c.close())
+	}
 	if s.cfg.KillStore == nil && s.kills != nil {
 		errs = append(errs, s.kills.Close())
 	}
@@ -325,6 +379,9 @@ func (s *Server) mux() *routeMux {
 	s.route(m, "GET /api/v1/devices", s.listDevices)
 	s.route(m, "GET /api/v1/devices/{id}", s.getDevice)
 	s.route(m, "GET /api/v1/audit", s.getAudit)
+	s.route(m, "GET /api/v1/sessions", s.getSessions)
+	s.route(m, "GET /api/v1/sessions/{id}", s.getSession)
+	s.route(m, "POST /api/v1/sessions", s.postSessions)
 	s.route(m, "GET /api/v1/capabilities", s.capabilities(m.ServeMux))
 	s.route(m, "GET /api/v1/releases", s.getReleases)
 	s.route(m, "POST /api/v1/experiments/{name}/status", s.postExperimentStatus)
@@ -339,16 +396,23 @@ func (s *Server) mux() *routeMux {
 	m.HandleFunc("GET /api/v1/gateway/killswitch", s.getGatewayKillswitch)
 	m.HandleFunc("GET /api/v1/gateway/posture", s.getGatewayPosture)
 	m.HandleFunc("POST /api/v1/gateway/budget/check", s.postGatewayBudgetCheck) // gateway token
+	m.HandleFunc("POST /api/v1/gateway/dlp/events", s.postGatewayDLPEvents)     // gateway token (ADR-0033)
 	m.HandleFunc("POST /api/v1/gateway/budget/usage", s.postGatewayBudgetUsage) // gateway token
 	s.route(m, "GET /api/v1/budgets", s.getBudgets)
 	s.route(m, "POST /api/v1/devices/{id}/revoke", s.revokeDevice)
 	s.route(m, "POST /api/v1/users/{id}/revoke-sessions", s.revokeSessions)
+	s.route(m, "POST /api/v1/revocations", s.postRevocation)
+	s.route(m, "GET /api/v1/revocations", s.listRevocations)
 	s.route(m, "GET /api/v1/fleet", s.getFleet)
 	s.route(m, "GET /api/v1/policy", s.getPolicy)
 	s.route(m, "GET /api/v1/experiments", s.listExperiments)
 	s.route(m, "GET /api/v1/experiments/{name}", s.getExperiment)
 	s.route(m, "GET /api/v1/rollouts", s.listRollouts)
 	s.route(m, "GET /api/v1/rollouts/{name}", s.getRollout)
+	s.route(m, "GET /api/v1/rollouts/{name}/approvals", s.getRolloutApprovals)
+	s.route(m, "POST /api/v1/rollouts/{name}/approve", s.postRolloutApprove)
+	s.route(m, "GET /api/v1/freeze", s.getFreeze)
+	s.route(m, "POST /api/v1/freeze", s.postFreeze)
 	s.route(m, "GET /api/v1/harnesses", s.getHarnesses)
 	s.route(m, "GET /api/v1/whoami", s.whoami) // developers: self only; read permission: any user
 	// developer self-service
@@ -370,6 +434,9 @@ func (s *Server) mux() *routeMux {
 	m.HandleFunc("POST /api/v1/token/exchange", s.postTokenExchange)
 	// Remote (A2A) agent egress decisions: a Halos workload or agent credential is the credential (ADR-0024)
 	m.HandleFunc("POST /api/v1/agents/egress", s.postAgentEgress)
+	m.HandleFunc("POST /api/v1/cloud-agents/webhooks/github", s.postGitHubWebhook) // HMAC-authenticated
+	s.route(m, "GET /api/v1/cloud-agents", s.getCloudAgents)
+	s.route(m, "POST /api/v1/cloud-agents/kill", s.postCloudKill)
 	// OIDC login
 	m.HandleFunc("GET /auth/login", s.login)
 	m.HandleFunc("GET /auth/callback", s.callback)
@@ -413,7 +480,9 @@ func (s *Server) logging(next http.Handler) http.Handler {
 		w.Header().Set("X-Request-Id", id)
 		r = r.WithContext(withReqMeta(r.Context(), reqMeta{ip: s.clientIP(r), id: id}))
 		next.ServeHTTP(rec, r)
-		s.cfg.Log.Info("request", "method", r.Method, "path", r.URL.Path, "status", rec.code, "dur", time.Since(t), "remote", r.RemoteAddr)
+		d := time.Since(t)
+		s.metrics.request(r.Pattern, rec.code, d) // the mux set Pattern on r: a bounded route label, never the raw path
+		s.cfg.Log.Info("request", "method", r.Method, "path", r.URL.Path, "status", rec.code, "dur", d, "remote", r.RemoteAddr)
 	})
 }
 

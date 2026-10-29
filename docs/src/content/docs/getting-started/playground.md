@@ -25,7 +25,7 @@ halo quickstart down     # later: stop it and delete its volumes
 make demo                # make demo-down removes it
 ```
 
-A one-shot `seed` container copies `examples/acme-corp` plus a small overlay (`deploy/compose/demo/policy`: mock IdP issuer, mock upstreams, the shadow experiment running at 100%), generates throwaway keys, publishes a signed release per ring to a local `registry:2` and compiles `policy.json`. When everything is healthy it prints:
+A one-shot `seed` container copies `examples/acme-corp` plus a small overlay (`deploy/compose/demo/policy`: mock upstreams, the shadow experiment running at 100%; `halos.yaml` is patched to the mock IdP issuer), generates throwaway keys, publishes a signed release per ring to a local `registry:2` and compiles `policy.json`. When everything is healthy it prints:
 
 | What | URL |
 |---|---|

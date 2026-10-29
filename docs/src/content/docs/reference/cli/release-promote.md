@@ -25,6 +25,7 @@ halo release promote [flags]
 | `--from-ring` |  | string |  | source ring (required) |
 | `--key` |  | string |  | ed25519 private key PEM (create one with: halo keys generate) |
 | `--plain-http` |  | bool | false | use HTTP instead of HTTPS (local registries) |
+| `--policy-dir` |  | string |  | policy repo directory (default ".") |
 | `--registry` |  | string |  | registry repo, e.g. ghcr.io/acme/halos |
 | `--state-file` |  | string |  | signer state file recording the last pointer written per registry repo and ring; a registry serving an older pointer (replay) is refused. Default $XDG_STATE_HOME/halos/pointers.json (~/.local/state/halos/pointers.json). CI: cache this file between runs |
 | `--to-ring` |  | string |  | destination ring (required) |

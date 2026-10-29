@@ -306,7 +306,7 @@ func TestOpenPRNeverMerges(t *testing.T) {
 		return []byte("https://github.com/o/r/pull/7\n"), nil
 	}}
 	rep := Report{Verdict: Promote, Reason: "ok", Control: "control", Treatment: "candidate"}
-	url, err := OpenPR(context.Background(), g, tg, ch, e, rep, "main")
+	url, err := OpenPR(context.Background(), g, tg, ch, e, rep, "main", "")
 	if err != nil || url != "https://github.com/o/r/pull/7" {
 		t.Fatalf("url %q err %v", url, err)
 	}
@@ -323,7 +323,7 @@ func TestOpenPRNeverMerges(t *testing.T) {
 		t.Fatal("the user's working tree must not be modified")
 	}
 	// Only promote verdicts may open a promotion PR.
-	if _, err := OpenPR(context.Background(), g, tg, ch, e, Report{Verdict: Rollback}, ""); err == nil {
+	if _, err := OpenPR(context.Background(), g, tg, ch, e, Report{Verdict: Rollback}, "", ""); err == nil {
 		t.Fatal("non-promote verdict must be refused")
 	}
 	// A failing step surfaces with context.
@@ -333,7 +333,34 @@ func TestOpenPRNeverMerges(t *testing.T) {
 		}
 		return nil, nil
 	}}
-	if _, err := OpenPR(context.Background(), failing, tg, ch, e, rep, ""); err == nil || !strings.Contains(err.Error(), "permission") {
+	if _, err := OpenPR(context.Background(), failing, tg, ch, e, rep, "", ""); err == nil || !strings.Contains(err.Error(), "permission") {
 		t.Fatalf("want wrapped push error, got %v", err)
+	}
+}
+
+type bodyOpener struct{ req PRRequest }
+
+func (b *bodyOpener) OpenPR(_ context.Context, r PRRequest) (string, error) {
+	b.req = r
+	return "https://example.test/pr/1", nil
+}
+
+func TestOpenPRROISection(t *testing.T) {
+	tg := repo(t)
+	e := exp()
+	ch, err := PlanPromote(tg, e, "ring1-canary", "sha256:new")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rep := Report{Verdict: Promote, Reason: "ok", Control: "control", Treatment: "candidate"}
+	for _, roi := range []string{"", "### Delivery ROI (randomized, informational)\n\n| x |\n"} {
+		o := &bodyOpener{}
+		if _, err := OpenPR(context.Background(), o, tg, ch, e, rep, "", roi); err != nil {
+			t.Fatal(err)
+		}
+		i, j := strings.Index(o.req.Body, "### Delivery ROI"), strings.Index(o.req.Body, "```diff")
+		if (roi != "") != (i >= 0) || i > j {
+			t.Fatalf("roi %q: want the section above the patch exactly when given; body:\n%s", roi, o.req.Body)
+		}
 	}
 }

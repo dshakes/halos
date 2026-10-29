@@ -163,3 +163,7 @@ The same data is at `GET /api/v1/budgets` (admin; `?budget=` and `?key=` filter)
 | `halo_proxy_budget_dropped_total` | |
 
 The alert rules are in [operations](/halos/guides/operations/#alerts).
+
+## 5. Watch spend in the console
+
+The console's **Cost & budgets** page (`#/budgets`, read role) lists every counter from `GET /api/v1/budgets` grouped by scope (org, ring, group, user): spend against the USD and token limits, the window and period, `warn` or `enforce` mode, the `alertAt` thresholds marked on a utilization bar, and when the counter resets. The bar turns amber at the lowest `alertAt` (default 80%) and red at the limit. With no `Budget` documents in the policy repo the page says so instead of showing an empty table; the Overview page carries a tile that links to it.

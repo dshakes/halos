@@ -33,6 +33,8 @@ const (
 	CapInstructions Capability = "instructions"  // managed org-wide memory file
 	CapHeaders      Capability = "headers"       // custom request headers (ring stamping)
 	CapExtensions   Capability = "extensions"    // plugin marketplaces, plugins, skills, subagents (each adapter covers a subset; the rest warns)
+	CapSandbox      Capability = "sandbox"       // managed sandbox for shell commands (ADR-0032; paths and modes vary, the rest warns)
+	CapEgress       Capability = "egress"        // per-domain network allow/deny for shell commands (ADR-0032)
 )
 
 // File is one rendered artifact.
@@ -41,6 +43,10 @@ type File struct {
 	Path string
 	Mode uint32
 	Data []byte
+	// Artifact and ArtifactPath are set on a file that is part of a
+	// supply-chain artifact (ADR-0028): the artifact's name and the file's
+	// path inside it, which halod checks against the artifact's pinned digest.
+	Artifact, ArtifactPath string
 }
 
 // Context carries everything an adapter needs beyond the profile.

@@ -192,6 +192,35 @@ func permission(p policy.Permissions) (map[string]any, []string) {
 	return out, warns
 }
 
+// webfetch is the webfetch permission for an egress policy: OpenCode 1's
+// webfetch takes one action for every URL (no URL patterns), so a default
+// deny with nothing allowed is "deny" and any other restricted policy "ask".
+// https://opencode.ai/docs/permissions/
+func webfetch(e policy.Egress) string {
+	if !e.Restricted() {
+		return ""
+	}
+	if r := e.Rules(); r.Default == policy.EgressDeny && len(r.Allow) == 0 {
+		return "deny"
+	}
+	return "ask"
+}
+
+// sandboxWarnings: OpenCode has no sandbox (no key in its config schema), so
+// the mode, writable roots and the egress deny list and presets warn as
+// unsupported; protected paths become read/edit deny rules and the allowlist
+// the webfetch permission.
+func sandboxWarnings(p *policy.Profile) []string {
+	var w []string
+	if len(p.Sandbox.ProtectedPaths) > 0 {
+		w = append(w, "opencode: sandbox.protectedPaths are rendered as read/edit deny rules for the file tools; bash can still read them (no sandbox)")
+	}
+	if p.Egress.Restricted() {
+		w = append(w, fmt.Sprintf("opencode: egress is rendered as the webfetch permission (one action for every URL: deny when nothing is allowed, else ask), so fetches cannot be limited to the allowlist %v; bash network access is not restricted (no sandbox)", p.Egress.Rules().Allow))
+	}
+	return w
+}
+
 // modelSet is the sorted, de-duplicated model names the provider exposes: the
 // default plus models.allowed, each as the name a client sends.
 func modelSet(p *policy.Profile, c harness.Context, def string) []string {
@@ -208,7 +237,9 @@ func modelSet(p *policy.Profile, c harness.Context, def string) []string {
 func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []string, error) {
 	warns := hutil.WarnUnsupported(name, p,
 		"models.default", "models.allowed", "permissions.allow", "permissions.deny", "permissions.ask",
-		"mcp.servers", "mcp.denied", "instructions")
+		"mcp.servers", "mcp.denied", "mcp.tools.allow", "mcp.tools.deny", "mcp.auth", "instructions",
+		"egress.allowedDomains", "sandbox.protectedPaths")
+	warns = append(warns, sandboxWarnings(p)...)
 	warns = append(warns, "opencode: cannot self-enforce version; halod enforces")
 
 	cfg := map[string]any{}
@@ -266,8 +297,16 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 		}
 	}
 
-	perm, pw := permission(p.Permissions)
+	perms := p.Permissions
+	perms.Deny = append(slices.Clone(perms.Deny), hutil.ProtectedRules(p.Sandbox.ProtectedPaths, "")...)
+	perm, pw := permission(perms)
 	warns = append(warns, pw...)
+	if a := webfetch(p.Egress); a != "" {
+		if perm == nil {
+			perm = map[string]any{}
+		}
+		perm["webfetch"] = a
+	}
 	if perm != nil {
 		cfg["permission"] = perm
 	}
@@ -276,7 +315,7 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 	}
 
 	if len(p.MCP.Servers) > 0 || len(p.MCP.Denied) > 0 {
-		mcp := map[string]any{}
+		mcp, disabled := map[string]any{}, map[string]any{}
 		for _, sv := range p.MCP.Servers {
 			if slices.Contains(p.MCP.Denied, sv.Name) {
 				return nil, nil, fmt.Errorf("opencode: mcp server %q is both defined and denied", sv.Name)
@@ -293,12 +332,25 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 			default:
 				return nil, nil, fmt.Errorf("opencode: mcp server %q has neither url nor command", sv.Name)
 			}
+			warns = append(warns, opencodeAuth(e, sv)...)
 			mcp[sv.Name] = e
+			// MCP tools are registered as <server>_<tool>; tools.<name>: false
+			// disables one (M). The order of mixed true/false globs is not
+			// documented, so an allowlist is not rendered.
+			for _, t := range sv.Tools.Deny {
+				disabled[sv.Name+"_"+t] = false
+			}
+			if len(sv.Tools.Allow) > 0 {
+				warns = append(warns, fmt.Sprintf("opencode: mcp server %q tools.allow is not rendered: OpenCode documents tools.<glob>: false to disable tools but not how a later true overrides an earlier false glob; deny the others with tools.deny", sv.Name))
+			}
 		}
 		for _, d := range p.MCP.Denied {
 			mcp[d] = map[string]any{"enabled": false}
 		}
 		cfg["mcp"] = mcp
+		if len(disabled) > 0 {
+			cfg["tools"] = disabled
+		}
 		warns = append(warns, "opencode: OpenCode has no MCP allowlist: user-defined servers still load, and mcp.denied disables by name only (a renamed server is not matched)")
 	}
 
@@ -325,4 +377,35 @@ func (Adapter) Render(p *policy.Profile, c harness.Context) ([]harness.File, []s
 	}
 	files = append([]harness.File{{Path: hutil.Join(c.OS, dir, "opencode.json"), Mode: 0o644, Data: data}}, files...)
 	return files, warns, nil
+}
+
+// opencodeAuth renders a remote server's authorization into its mcp entry e:
+// oauth.clientId and oauth.scope (space-separated) for mode oauth (M).
+func opencodeAuth(e map[string]any, sv policy.MCPServer) []string {
+	a := sv.Auth
+	var warns []string
+	switch a.Mode {
+	case policy.MCPAuthOAuth:
+		o := map[string]any{}
+		if a.ClientID != "" {
+			o["clientId"] = a.ClientID
+		}
+		if len(a.Scopes) > 0 {
+			o["scope"] = strings.Join(a.Scopes, " ")
+		}
+		if len(o) > 0 {
+			e["oauth"] = o
+		}
+		if a.ClientIDMetadataURL != "" {
+			warns = append(warns, fmt.Sprintf("opencode: mcp server %q auth.clientIDMetadataURL is not rendered: OpenCode documents clientId or dynamic client registration only", sv.Name))
+		}
+		if a.Issuer != "" {
+			warns = append(warns, fmt.Sprintf("opencode: mcp server %q auth.issuer is not rendered: OpenCode discovers the authorization server after a 401", sv.Name))
+		}
+	case policy.MCPAuthEnterprise:
+		warns = append(warns, fmt.Sprintf("opencode: mcp server %q auth mode enterprise is not rendered: OpenCode documents no Enterprise-Managed Authorization (ID-JAG) client; users authorize with opencode mcp auth", sv.Name))
+	case policy.MCPAuthHalos:
+		warns = append(warns, fmt.Sprintf("opencode: mcp server %q auth mode halos is not rendered: OpenCode has no header helper ({env:VAR} headers are fixed per process), so a Halos token cannot be minted per connection", sv.Name))
+	}
+	return warns
 }

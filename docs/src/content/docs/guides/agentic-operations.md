@@ -41,6 +41,7 @@ Read tools are always on and annotated read-only.
 | `release_build` | Build a ring's release in memory: digest, per-harness versions, file list, adapter warnings, and the human's `halo release publish` command |
 | `wait_for` | Poll an experiment (until the verdict leaves `continue`; needs `--clickhouse`) or a rollout (until its decision leaves `hold`) with a bounded timeout (default 60 s, max 600 s); call again to keep waiting |
 | `kill_switch_status`, `fleet_status`, `audit_tail` | halo-server's kill list, devices per ring with drift, and the audit log (needs `--server` + `HALO_SESSION`) |
+| `session_ledger` | The agent session ledger: one record per agent session with who, harness, ring, models, tools, tokens, cost and evidence, and whether the audit chain verifies ([ADR-0031](/halos/adr/0031-agent-session-ledger/); needs `--server` + `HALO_SESSION` with the audit role) |
 | `plan` | Diff the release a ring would get against a baseline `release.tar` |
 | `render_preview` | Render a ring's harness files for an OS and return their contents; writes nothing |
 | `whoami` | Ring and experiment variants a user would be assigned |
@@ -68,18 +69,20 @@ Write tools exist only with `--allow-writes`:
 | `propose_rollback` | Pause an experiment and optionally re-point a ring at a known-good release **in policy YAML**. Does not touch the registry |
 | `propose_rollout_advance`, `propose_rollout_rollback` | Move a rollout to its next step or abort it in policy YAML (advance is refused when a gate failed). `open_pr: true` pushes a review branch and opens the PR instead of committing locally |
 | `kill_switch` | Kill or unkill an experiment, toggle or rollout (its backing experiment) through halo-server's signed kill list: the fast, reversible rollback. Registered always; `dry_run: false` needs `--allow-writes`, a `reason`, `--server` and `HALO_SESSION`. Never edits policy |
-| `eval_run` | `halo eval run --output json` with a bounded timeout, scorecard under `<policy>/.halos/scorecards`. Registered always; the real run spends credentials and needs `--allow-writes` |
-| `eval_harvest` | `halo eval harvest`: turn shadow steps where the candidate regressed into redacted step-level eval cases ([ADR-0020](/halos/adr/0020-harvest-shadow-sessions-into-replay-evals/)). Registered always; the preview returns provenance and expected tool names, never request content. `dry_run: false` needs `--allow-writes` and writes 0600 files under the policy dir |
+| `eval_run` | `halo eval run --output json` with a bounded timeout, scorecard under `<policy>/.halos/scorecards`. Registered always; the real run spends credentials and needs `--allow-writes` and a `reason` (a preview accepts one) |
+| `eval_harvest` | `halo eval harvest`: turn shadow steps where the candidate regressed into redacted step-level eval cases ([ADR-0020](/halos/adr/0020-harvest-shadow-sessions-into-replay-evals/)). Registered always; the preview returns provenance and expected tool names, never request content. `dry_run: false` needs `--allow-writes` and a `reason`, and writes 0600 files under the policy dir |
 | `propose_toggle_change` | Change a toggle's default, a rule's rollout percent or its expiry |
 | `init_policy`, `local_install`, `local_proxy`, `onboard_company`, `verify_harness` | Onboarding side effects (`halo onboard local\|install\|proxy\|company --apply`, `halo onboard verify`). Registered always so every step can be previewed; `dry_run: false` needs `--allow-writes`, otherwise the tool returns the preview plus the `halo` command for the human. They write local files or run one CLI with the human's own credentials: no commit, no publish, no enrollment |
 
 Rules enforced in code, not just in the prompt:
 
 1. **`dry_run` defaults to true.** The tool returns the diff and changes nothing until called again with `dry_run: false`.
-2. **`reason` is required** and is recorded in the commit message (and PR body).
+2. **`reason` is required** for every real write and is recorded in the commit message (and PR body), the halo-server audit log (`kill_switch`) or the tool's output (`eval_run`, `eval_harvest`).
 3. **Local branch or PR only.** A real call commits to a new local branch or opens a PR. Nothing pushes to a default branch.
 4. **No tool publishes a release, retags a registry ring, signs a pointer, merges, or pushes to a default branch** (`propose_promotion` pushes only its own review branch to open the PR). These are `halo release publish`, `promote`, `refresh`, `halo rollback` and a human clicking merge, and they are deliberately absent. Do not add one ([AGENTS.md](https://github.com/dshakes/halos/blob/main/AGENTS.md)).
 5. **Status transitions are constrained:** `start` from draft, paused or unset; `pause` from running; `conclude` from running or paused.
+6. **Commands in `next_steps` are paste-safe.** Every value interpolated into a command for the human (names, reasons, paths, redaction patterns) is single-quoted for a POSIX shell, so a hostile value cannot run anything when pasted.
+7. **Paths stay in the policy dir.** A tool path argument (eval suite, upgrade config, harvest output) is resolved through symlinks, as policy resources are; one that escapes `--policy-dir`, or a dangling symlink, is refused.
 
 Because promotion is a PR and rollback in policy is a PR-or-branch, the agent's worst case is a reviewable diff that a human rejects. Note the asymmetry: `propose_rollback` edits policy, which is not the same as the fast rollback a human performs with `halo kill` (effective at the next poll) or `halo rollback` (a new signed pointer, picked up on the next `halod` pull).
 

@@ -15,13 +15,9 @@ import (
 )
 
 // strictHarnesses are the adapters whose rendered JSON/TOML must parse; for
-// any other adapter unparseable files are skipped (only parseable ones get
-// the universal checks).
+// any other adapter unparseable files skip the parsed checks (the raw
+// invariant 1 scan still runs on every byte).
 var strictHarnesses = []string{"claude-code", "codex", "gemini-cli", "cursor-agent", "opencode"}
-
-// forbiddenValues may never appear as a config value in any rendered file
-// (AGENTS.md invariant 1).
-var forbiddenValues = []string{"bypassPermissions", "danger-full-access"}
 
 // CheckRendered asserts security invariants on the files an adapter rendered,
 // by parsing the output rather than trusting how it was produced. It is the
@@ -30,6 +26,9 @@ var forbiddenValues = []string{"bypassPermissions", "danger-full-access"}
 func CheckRendered(harnessName string, os harness.OS, files []harness.File, p *policy.Profile, g *policy.Gateway) error {
 	strict := slices.Contains(strictHarnesses, harnessName)
 	for _, f := range files {
+		fail := func(format string, a ...any) error {
+			return fmt.Errorf("%s/%s %s: security invariant violated: %s", harnessName, os, f.Path, fmt.Sprintf(format, a...))
+		}
 		// Every file, any format: bundles land world-readable (0644 ceiling).
 		// The value is not echoed, so the error itself never leaks it.
 		if policy.HasTokenShape(string(f.Data)) {
@@ -42,25 +41,27 @@ func CheckRendered(harnessName string, os harness.OS, files []harness.File, p *p
 			err = json.Unmarshal(f.Data, &doc)
 		case strings.HasSuffix(f.Path, ".toml"):
 			err = toml.Unmarshal(f.Data, &doc)
-		default:
-			continue
 		}
-		if err != nil {
-			if strict {
-				return fmt.Errorf("%s/%s %s: parse rendered config: %w", harnessName, os, f.Path, err)
-			}
-			continue
+		if err != nil && strict {
+			return fmt.Errorf("%s/%s %s: parse rendered config: %w", harnessName, os, f.Path, err)
 		}
-		fail := func(format string, a ...any) error {
-			return fmt.Errorf("%s/%s %s: security invariant violated: %s", harnessName, os, f.Path, fmt.Sprintf(format, a...))
-		}
+		// Invariant 1: decoded values first (names the field, sees through
+		// escapes), then every raw byte, so no format or parse failure skips it.
 		if err := walk(doc, "", func(path string, v any) error {
-			if s, ok := v.(string); ok && slices.Contains(forbiddenValues, s) {
-				return fail("%s = %q is never allowed", path, s)
+			if s, ok := v.(string); ok {
+				if tok := policy.BypassToken(s); tok != "" {
+					return fail("%s = %q contains permission-bypass token %q (invariant 1)", path, s, tok)
+				}
 			}
 			return nil
 		}); err != nil {
 			return err
+		}
+		if tok := policy.BypassToken(string(f.Data)); tok != "" {
+			return fail("contains permission-bypass token %q (invariant 1)", tok)
+		}
+		if doc == nil || err != nil {
+			continue
 		}
 		switch {
 		case harnessName == "claude-code" && strings.HasSuffix(f.Path, "managed-settings.json"):
@@ -96,8 +97,23 @@ func checkClaude(d map[string]any, p *policy.Profile, g *policy.Gateway, fail fu
 			return fail("profile sets permissions.sandboxRequired but sandbox.enabled/failIfUnavailable = %v", d["sandbox"])
 		}
 	}
-	if p.Permissions.DisableBypass && d["disableBypassPermissionsMode"] != "disable" {
-		return fail(`profile sets permissions.disableBypass but disableBypassPermissionsMode = %v, want "disable"`, d["disableBypassPermissionsMode"])
+	// Claude Code reads the bypass lock only as permissions.disableBypassPermissionsMode
+	// (https://code.claude.com/docs/en/settings-reference#permissions-disablebypasspermissionsmode).
+	// A top-level key (rendered by Halos before v0.4) is ignored, so it fails
+	// rather than reading as enforced; any other value anywhere fails too.
+	if _, ok := d["disableBypassPermissionsMode"]; ok {
+		return fail(`disableBypassPermissionsMode is set at the top level, where Claude Code does not read it; set permissions.disableBypassPermissionsMode = "disable" instead`)
+	}
+	if err := walkKey(d, "", "disableBypassPermissionsMode", func(path string, v any) error {
+		if v != "disable" {
+			return fail(`%s = %v, want "disable"`, path, v)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	if perms, _ := d["permissions"].(map[string]any); p.Permissions.DisableBypass && perms["disableBypassPermissionsMode"] != "disable" {
+		return fail(`profile sets permissions.disableBypass but permissions.disableBypassPermissionsMode = %v, want "disable"`, perms["disableBypassPermissionsMode"])
 	}
 	if p.Hooks.ManagedOnly && d["allowManagedHooksOnly"] != true {
 		return fail("profile sets hooks.managedOnly but allowManagedHooksOnly = %v", d["allowManagedHooksOnly"])
@@ -148,10 +164,10 @@ func checkCodex(d map[string]any, p *policy.Profile, g *policy.Gateway, managedC
 		switch {
 		case (key == "approval_policy" || key == "allowed_approval_policies") && v == "never":
 			return fail(`%s = "never" is not permitted by any profile`, path)
-		case key == "writable_roots" && !tmpRoot(v):
-			return fail("%s = %v is outside the workspace (only /tmp is permitted)", path, v)
-		case key == "network_access" && v == true && len(p.Egress.AllowedDomains) > 0:
-			return fail("%s = true but the profile restricts egress to %v", path, p.Egress.AllowedDomains)
+		case key == "writable_roots" && !tmpRoot(v) && !policyRoot(p, v):
+			return fail("%s = %v is outside the workspace (only /tmp and sandbox.writableRoots are permitted)", path, v)
+		case key == "network_access" && v == true && p.Egress.Restricted() && p.Egress.Rules().Default == policy.EgressDeny:
+			return fail("%s = true but the profile's egress default is deny (allowlist %v)", path, p.Egress.Rules().Allow)
 		case path == "notify" || strings.HasPrefix(path, "notify["):
 			return fail("%s: notify runs an arbitrary command and is not permitted", path)
 		case key == "trust_level" && v == "trusted":
@@ -201,6 +217,14 @@ func tmpRoot(v any) bool {
 	s, _ := v.(string)
 	c := path.Clean(s)
 	return c == "/tmp" || strings.HasPrefix(c, "/tmp/")
+}
+
+// policyRoot: a writable root the profile's sandbox.writableRoots names and
+// validation would accept (no home or system directory, no overlap with a
+// protected path): a profile that skipped validation cannot smuggle one in.
+func policyRoot(p *policy.Profile, v any) bool {
+	s, ok := v.(string)
+	return ok && slices.Contains(p.Sandbox.WritableRoots, s) && policy.WritableRootProblem(s, p.Sandbox.ProtectedPaths) == ""
 }
 
 // checkGemini: security.disableYoloMode refuses YOLO mode. (admin.secureModeEnabled
@@ -283,6 +307,35 @@ func checkCursor(d map[string]any, fail func(string, ...any) error) error {
 
 // walk visits every leaf value of a decoded JSON/TOML document with a dotted
 // path (array elements share their parent's path plus "[i]").
+// walkKey calls fn with the path and value of every map entry named key, at
+// any depth and whatever the value's type.
+func walkKey(v any, path, key string, fn func(string, any) error) error {
+	switch t := v.(type) {
+	case map[string]any:
+		for _, k := range sortedKeys(t) {
+			p := k
+			if path != "" {
+				p = path + "." + k
+			}
+			if k == key {
+				if err := fn(p, t[k]); err != nil {
+					return err
+				}
+			}
+			if err := walkKey(t[k], p, key, fn); err != nil {
+				return err
+			}
+		}
+	case []any:
+		for i, c := range t {
+			if err := walkKey(c, fmt.Sprintf("%s[%d]", path, i), key, fn); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func walk(v any, path string, fn func(string, any) error) error {
 	switch t := v.(type) {
 	case map[string]any:

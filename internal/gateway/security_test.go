@@ -51,15 +51,15 @@ func forwardedModels(t testing.TB, body []byte) [][2]string {
 // first-wins upstream parser must not be able to read a different model.
 func TestModelSmugglingViaDuplicateOrCaseVariantKeys(t *testing.T) {
 	org := testOrg()
-	org.Gateway.Models["claude-sonnet-4-5"] = policy.ModelRoute{Upstream: "anthropic", Model: "claude-sonnet-4-5"}
+	org.Gateway.Models["claude-sonnet-5-5"] = policy.ModelRoute{Upstream: "anthropic", Model: "claude-sonnet-5-5"}
 	org.Experiments = nil
 	sub := &policy.Subject{ID: "alice"}
 	for _, tc := range []struct{ name, path, body string }{
-		{"case variant after", PathMessages, `{"model":"claude-opus-4","Model":"claude-sonnet-4-5","messages":[]}`},
-		{"case variant before", PathMessages, `{"MODEL":"claude-opus-4","model":"claude-sonnet-4-5","messages":[]}`},
-		{"duplicate key", PathMessages, `{"model":"claude-opus-4","model":"claude-sonnet-4-5","messages":[]}`},
-		{"responses wire", PathResponses, `{"model":"gpt-5-pro","mOdEl":"claude-sonnet-4-5","input":"hi"}`},
-		{"plain", PathMessages, `{"model":"claude-sonnet-4-5","messages":[]}`},
+		{"case variant after", PathMessages, `{"model":"claude-opus-4","Model":"claude-sonnet-5-5","messages":[]}`},
+		{"case variant before", PathMessages, `{"MODEL":"claude-opus-4","model":"claude-sonnet-5-5","messages":[]}`},
+		{"duplicate key", PathMessages, `{"model":"claude-opus-4","model":"claude-sonnet-5-5","messages":[]}`},
+		{"responses wire", PathResponses, `{"model":"gpt-5-pro","mOdEl":"claude-sonnet-5-5","input":"hi"}`},
+		{"plain", PathMessages, `{"model":"claude-sonnet-5-5","messages":[]}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			res := PrepareVerified(org, sub, http.Header{}, tc.path, []byte(tc.body))
@@ -67,8 +67,8 @@ func TestModelSmugglingViaDuplicateOrCaseVariantKeys(t *testing.T) {
 				return // refusing is fine
 			}
 			ms := forwardedModels(t, res.Body)
-			if len(ms) != 1 || ms[0] != [2]string{"model", "claude-sonnet-4-5"} {
-				t.Fatalf("forwarded body %s: model keys %v, want exactly model=claude-sonnet-4-5", res.Body, ms)
+			if len(ms) != 1 || ms[0] != [2]string{"model", "claude-sonnet-5-5"} {
+				t.Fatalf("forwarded body %s: model keys %v, want exactly model=claude-sonnet-5-5", res.Body, ms)
 			}
 		})
 	}

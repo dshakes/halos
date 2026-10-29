@@ -163,10 +163,10 @@ var providerWires = map[string][]string{
 var (
 	// toolVendor is the provider/model a tool starts on when the org's
 	// provider cannot answer its wire.
-	toolVendor = map[string]string{"claude-code": "anthropic/claude-sonnet-4-5", "codex": "openai/gpt-5-codex", "gemini-cli": "gemini/gemini-2.5-pro", "opencode": "anthropic/claude-sonnet-4-5"}
+	toolVendor = map[string]string{"claude-code": "anthropic/claude-sonnet-5-5", "codex": "openai/gpt-5-codex", "gemini-cli": "gemini/gemini-2.5-pro", "opencode": "anthropic/claude-sonnet-5-5"}
 	// providerModel is the default alias's model per provider.
-	providerModel = map[string]string{"anthropic": "claude-sonnet-4-5", "bedrock": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
-		"vertex": "claude-sonnet-4-5@20250929", "openai": "gpt-5", "gemini": "gemini-2.5-pro", ProviderMulti: "anthropic/claude-sonnet-4-5"}
+	providerModel = map[string]string{"anthropic": "claude-sonnet-5-5", "bedrock": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+		"vertex": "claude-sonnet-4-5@20250929", "openai": "gpt-5", "gemini": "gemini-2.5-pro", ProviderMulti: "anthropic/claude-sonnet-5-5"}
 )
 
 // DefaultModelFor is the model `halo init` gives the default alias on provider.

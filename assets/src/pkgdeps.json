@@ -7,7 +7,10 @@
         "cmd/halo/scaffold",
         "internal/a2a",
         "internal/bundle",
+        "internal/cloudagents",
+        "internal/cloudagents/workflow",
         "internal/controller",
+        "internal/copilot",
         "internal/delivery/devcontainer",
         "internal/delivery/mdm",
         "internal/docgen",
@@ -17,16 +20,20 @@
         "internal/gateway/kong",
         "internal/harness",
         "internal/harness/all",
+        "internal/impact",
         "internal/intent",
+        "internal/ledger",
         "internal/mcpserver",
         "internal/onboard",
         "internal/pgstore",
         "internal/policy",
         "internal/promote",
         "internal/release",
+        "internal/roi",
         "internal/rollout",
         "internal/server",
         "internal/shadow",
+        "internal/supplychain",
         "internal/telemetry",
         "internal/toggle",
         "internal/upgrade",
@@ -61,11 +68,13 @@
       "path": "cmd/halo-server",
       "imports": [
         "internal/bundle",
+        "internal/cloudagents",
         "internal/controller",
         "internal/pgstore",
         "internal/promote",
         "internal/rollout",
-        "internal/server"
+        "internal/server",
+        "internal/vendoradmin"
       ]
     },
     {
@@ -117,6 +126,22 @@
       ]
     },
     {
+      "path": "internal/cloudagents",
+      "imports": [
+        "internal/budget",
+        "internal/cloudagents/workflow",
+        "internal/ledger",
+        "internal/policy",
+        "internal/vendoradmin"
+      ]
+    },
+    {
+      "path": "internal/cloudagents/workflow",
+      "imports": [
+        "internal/policy"
+      ]
+    },
+    {
       "path": "internal/controller",
       "imports": [
         "internal/fsutil",
@@ -124,6 +149,20 @@
         "internal/promote",
         "internal/rollout",
         "internal/storage",
+        "internal/yamledit"
+      ]
+    },
+    {
+      "path": "internal/copilot",
+      "imports": [
+        "internal/eval",
+        "internal/harness/hutil",
+        "internal/impact",
+        "internal/policy",
+        "internal/promote",
+        "internal/release",
+        "internal/roi",
+        "internal/stats",
         "internal/yamledit"
       ]
     },
@@ -275,6 +314,13 @@
       "imports": []
     },
     {
+      "path": "internal/impact",
+      "imports": [
+        "internal/policy",
+        "internal/promote"
+      ]
+    },
+    {
       "path": "internal/intent",
       "imports": [
         "internal/fsutil",
@@ -284,16 +330,27 @@
       ]
     },
     {
+      "path": "internal/ledger",
+      "imports": [
+        "internal/promote",
+        "internal/vendoradmin"
+      ]
+    },
+    {
       "path": "internal/mcpserver",
       "imports": [
+        "internal/copilot",
         "internal/eval",
         "internal/harness",
         "internal/harness/all",
+        "internal/harness/hutil",
+        "internal/impact",
         "internal/intent",
         "internal/onboard",
         "internal/policy",
         "internal/promote",
         "internal/release",
+        "internal/roi",
         "internal/rollout",
         "internal/shadow",
         "internal/toggle",
@@ -328,7 +385,8 @@
     {
       "path": "internal/policy",
       "imports": [
-        "internal/assign"
+        "internal/assign",
+        "internal/supplychain"
       ]
     },
     {
@@ -344,9 +402,20 @@
     {
       "path": "internal/release",
       "imports": [
+        "internal/cloudagents/workflow",
         "internal/harness",
         "internal/policy",
+        "internal/supplychain",
         "internal/toggle"
+      ]
+    },
+    {
+      "path": "internal/roi",
+      "imports": [
+        "internal/policy",
+        "internal/promote",
+        "internal/stats",
+        "internal/vendoradmin"
       ]
     },
     {
@@ -365,12 +434,14 @@
       "imports": [
         "internal/budget",
         "internal/bundle",
+        "internal/cloudagents",
         "internal/controller",
         "internal/fsutil",
         "internal/gateway",
         "internal/harness",
         "internal/harness/all",
         "internal/identity",
+        "internal/ledger",
         "internal/pgstore",
         "internal/policy",
         "internal/promote",
@@ -398,6 +469,10 @@
       "imports": [
         "internal/fsutil"
       ]
+    },
+    {
+      "path": "internal/supplychain",
+      "imports": []
     },
     {
       "path": "internal/telemetry",

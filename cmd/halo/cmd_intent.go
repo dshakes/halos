@@ -118,7 +118,7 @@ func (a *app) cmdInit() *cobra.Command {
 		Long: "Writes a simple-mode halos.yaml: tools, provider, models, gateway, safety and rollout presets.\n" +
 			"Load expands it into the Gateway, Profile and Rings; `halo explain` shows them, `halo eject` writes them out.",
 		Example: "  halo init --org acme --tools claude-code@2.1.280,codex@0.99.0 --provider bedrock \\\n" +
-			"    --model default=claude-sonnet-4-5 --model strong=claude-opus-4-1 --gateway https://ai.acme.com",
+			"    --model default=claude-sonnet-5-5 --model strong=claude-opus-5-5 --gateway https://ai.acme.com",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dir, err := policyDir(cmd, args)
@@ -265,7 +265,20 @@ func regFromEnv(rf *regFlags) {
 // buildCandidate builds c's release (and its treatment variant release, when
 // it has an experiment) exactly as `halo upgrade publish` will rebuild it, so
 // the digest written into the rollout is reproducible.
-func (a *app) buildCandidate(ctx context.Context, org *policy.Org, c intent.Candidate, noArt bool) (rel, variant *release.Release, err error) {
+func (a *app) buildCandidate(ctx context.Context, dir string, org *policy.Org, c intent.Candidate, noArt bool) (rel, variant *release.Release, err error) {
+	if err := a.resolveSupplyChain(ctx, dir, org); err != nil {
+		return nil, nil, err
+	}
+	if err := a.checkValid(org); err != nil { // scans the fetched artifacts too
+		return nil, nil, err
+	}
+	defer func() {
+		for _, r := range []*release.Release{rel, variant} {
+			if err == nil && r != nil {
+				err = a.attest(dir, org, r)
+			}
+		}
+	}()
 	if rel, err = release.Build(org, c.Profile, c.Ring, release.Options{Version: c.Label}); err != nil {
 		return nil, nil, fmt.Errorf("build candidate %s: %w", c.Label, err)
 	}
@@ -360,7 +373,7 @@ func (a *app) cmdUpgradeStart() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				if rel, variant, err = a.buildCandidate(cmd.Context(), org, plan.Candidate, noArt); err != nil {
+				if rel, variant, err = a.buildCandidate(cmd.Context(), r.Dir, org, plan.Candidate, noArt); err != nil {
 					return err
 				}
 				cand = rel.Digest
@@ -454,7 +467,7 @@ func (a *app) cmdUpgradePublish() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			rel, variant, err := a.buildCandidate(cmd.Context(), r.Org, cand, noArt)
+			rel, variant, err := a.buildCandidate(cmd.Context(), r.Dir, r.Org, cand, noArt)
 			if err != nil {
 				return err
 			}
@@ -485,7 +498,7 @@ func (a *app) cmdModel() *cobra.Command {
 	sw := &cobra.Command{
 		Use:   "switch <alias> <model>",
 		Short: "Point an alias at a model: in place, or with --canary as a guardrailed traffic rollout",
-		Long: "<model> is a provider model id, optionally prefixed <provider>/ (e.g. bedrock/anthropic.claude-opus-4-1).\n" +
+		Long: "<model> is a provider model id, optionally prefixed <provider>/ (e.g. bedrock/anthropic.claude-opus-5-5).\n" +
 			"Without --canary the route is edited in place (halos.yaml models.<alias> in simple mode).\n" +
 			"With --canary it writes a traffic-axis Rollout from the rollout preset plus its experiment.",
 		Args: cobra.ExactArgs(2), Annotations: policyDirAnno,

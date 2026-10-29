@@ -25,6 +25,9 @@ const (
 	// a client copy is always discarded.
 	HeaderActor      = "x-halo-actor"
 	HeaderActorDepth = "x-halo-actor-depth"
+
+	// CodeAgentNotPermitted is the Rejection code of every admitAgent refusal.
+	CodeAgentNotPermitted = "agent_not_permitted"
 )
 
 // admitAgent applies the current policy to a delegated caller's model call:
@@ -37,7 +40,7 @@ const (
 // error the CLIs show instead of retrying.
 func admitAgent(org *policy.Org, sub *policy.Subject, req RequestInfo, path string, body []byte) *Rejection {
 	deny := func(format string, a ...any) *Rejection {
-		return &Rejection{Status: http.StatusBadRequest, Protocol: req.Protocol, Code: "agent_not_permitted",
+		return &Rejection{Status: http.StatusBadRequest, Protocol: req.Protocol, Code: CodeAgentNotPermitted,
 			Message: "halos: " + fmt.Sprintf(format, a...)}
 	}
 	d := sub.Delegation

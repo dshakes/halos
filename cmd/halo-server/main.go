@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -23,10 +24,12 @@ import (
 	"unicode/utf8"
 
 	"github.com/dshakes/halos/internal/bundle"
+	"github.com/dshakes/halos/internal/cloudagents"
 	"github.com/dshakes/halos/internal/controller"
 	"github.com/dshakes/halos/internal/pgstore"
 	"github.com/dshakes/halos/internal/promote"
 	"github.com/dshakes/halos/internal/server"
+	"github.com/dshakes/halos/internal/vendoradmin"
 )
 
 func main() {
@@ -55,7 +58,8 @@ type options struct {
 	interval                                                       time.Duration
 	chURL, chDB, chUser, chPasswordFile                            string
 	killKeyFile, gatewayTokenFile                                  string
-	gatewayCapTokenFiles                                           [4]string // killswitch, posture, budget, directory (gatewayCapFlags order)
+	gatewayCapTokenFiles                                           [5]string // killswitch, posture, budget, directory, dlp (gatewayCapFlags order)
+	gatewayDLPTokensDir                                            string    // one file per gateway: name = gateway, content = its DLP token
 	workloadKeyFile                                                string
 	slackURLFile, webhookURLFile, webhookSecretFile                string
 	policyRepoDir, policyRepoSubdir, policyRepoBase, metricsListen string
@@ -63,6 +67,10 @@ type options struct {
 	// SCIM provisioning (ADR-0022)
 	scimTokenHashFile string
 	scimAuthoritative bool
+
+	// Cloud agents (ADR-0034)
+	cloudWebhookSecretFile, cloudGitHubTokenFile, cloudGitHubBaseURL string
+	cloudCursorTokenFile, cloudCursorBaseURL, cloudCursorUser        string
 
 	// HA: shared Postgres state instead of --data-dir files (ADR-0021)
 	dbURLFile   string
@@ -103,6 +111,7 @@ func parseFlags(args []string) (options, error) {
 	for i, name := range gatewayCapFlags {
 		fs.StringVar(&o.gatewayCapTokenFiles[i], "gateway-"+name+"-token-file", "", "file holding the only bearer token /api/v1/gateway/"+name+" accepts (recommended; overrides --gateway-token-file for it)")
 	}
+	fs.StringVar(&o.gatewayDLPTokensDir, "gateway-dlp-tokens-dir", "", "directory of per-gateway DLP tokens: each file is named for one gateway and holds the token that gateway posts /api/v1/gateway/dlp/events with; its events are attributed to it (recommended over --gateway-dlp-token-file, whose events are recorded as gateway:unverified)")
 	fs.StringVar(&o.workloadKeyFile, "workload-key-file", "", "ed25519 PKCS#8 PEM private key signing CI/cloud workload credentials from POST /api/v1/token/exchange (halo keys generate --name workload); empty disables the endpoint")
 	fs.DurationVar(&o.postureMaxAge, "posture-max-age", server.DefaultPostureMaxAge, "a device whose last halod report is older is non-compliant for the gateway posture gate")
 	fs.StringVar(&o.slackURLFile, "notify-slack-url-file", "", "file holding a Slack incoming-webhook URL")
@@ -114,6 +123,12 @@ func parseFlags(args []string) (options, error) {
 	fs.StringVar(&o.metricsListen, "metrics-listen", "", "address serving /metrics: audit export, controller with --controller, leader lease and database with --database-url-file (unauthenticated; keep it internal; empty disables)")
 	fs.StringVar(&o.scimTokenHashFile, "scim-token-sha256-file", "", "file holding the hex SHA-256 of each accepted SCIM bearer token, one per line (two while rotating); enables /scim/v2")
 	fs.BoolVar(&o.scimAuthoritative, "scim-authoritative", false, "the SCIM directory decides who is active and their groups (console, devices); unprovisioned users are refused")
+	fs.StringVar(&o.cloudWebhookSecretFile, "cloud-webhook-secret-file", "", "file holding the GitHub webhook secret(s), one per line (two while rotating); enables POST /api/v1/cloud-agents/webhooks/github (ADR-0034)")
+	fs.StringVar(&o.cloudGitHubTokenFile, "cloud-github-token-file", "", "file holding a GitHub token (actions: write) for cloud agent kill fan-out and over-limit pauses; empty: those are planned, not sent")
+	fs.StringVar(&o.cloudGitHubBaseURL, "cloud-github-base-url", "", "GitHub API base URL (default https://api.github.com; https, or http to loopback only)")
+	fs.StringVar(&o.cloudCursorTokenFile, "cloud-cursor-token-file", "", "file holding a Cursor API key for cancelling and archiving Cursor cloud agents")
+	fs.StringVar(&o.cloudCursorBaseURL, "cloud-cursor-base-url", "", "Cursor API base URL (default https://api.cursor.com)")
+	fs.StringVar(&o.cloudCursorUser, "cloud-cursor-user", "", "Halos user the Cursor key belongs to (Cursor names no user on agents)")
 	fs.StringVar(&o.dbURLFile, "database-url-file", "", "file holding a Postgres URL: shared state for running several replicas (replaces --data-dir state; see `halo-server migrate`)")
 	fs.BoolVar(&o.dbInsecureTLS, "database-insecure-tls", false, insecureTLSUsage)
 	fs.IntVar(&o.dbMaxConns, "database-max-conns", pgstore.DefaultMaxConns, "with --database-url-file: connection pool size per replica (replicas x this must stay under the server's max_connections)")
@@ -201,7 +216,7 @@ func policyWriter(portal server.Portal, policyDir string) (server.PolicyWriter, 
 
 // gatewayCapFlags names the per-capability --gateway-<name>-token-file flags,
 // in options.gatewayCapTokenFiles order.
-var gatewayCapFlags = [4]string{"killswitch", "posture", "budget", "directory"}
+var gatewayCapFlags = [5]string{"killswitch", "posture", "budget", "directory", "dlp"}
 
 // Gateway token strength. halo-server accepts a valid gateway token even
 // from an IP blocked for failed attempts (so a gateway sharing an egress IP
@@ -302,7 +317,7 @@ func checkGatewayToken(t string) error {
 // readGatewayTokens reads the shared gateway token and the per-capability
 // ones. Each must pass checkGatewayToken, and a per-capability token must
 // differ from the shared one (otherwise it separates nothing).
-func readGatewayTokens(o options) (shared string, caps [4]string, err error) {
+func readGatewayTokens(o options) (shared string, caps [5]string, err error) {
 	read := func(flag, path string) (string, error) {
 		if path == "" {
 			return "", nil
@@ -330,6 +345,102 @@ func readGatewayTokens(o options) (shared string, caps [4]string, err error) {
 		}
 	}
 	return shared, caps, nil
+}
+
+// dlpGatewayNameRe is the gateway name a --gateway-dlp-tokens-dir file may
+// carry (server.Config.GatewayDLPTokens).
+var dlpGatewayNameRe = regexp.MustCompile(`^[a-z0-9-]{1,64}$`)
+
+// readDLPGatewayTokens reads --gateway-dlp-tokens-dir: one regular file per
+// gateway, named for it. Each token must pass checkGatewayToken and differ
+// from every other gateway token, so one gateway can never write as another.
+func readDLPGatewayTokens(dir string, others ...string) (map[string]string, error) {
+	if dir == "" {
+		return nil, nil
+	}
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, fmt.Errorf("--gateway-dlp-tokens-dir: %w", err)
+	}
+	out := map[string]string{}
+	seen := map[string]string{}
+	for _, t := range others {
+		if t != "" {
+			seen[t] = "another gateway token flag"
+		}
+	}
+	for _, e := range ents {
+		if strings.HasPrefix(e.Name(), ".") { // Kubernetes secret volumes add ..data and friends
+			continue
+		}
+		if !dlpGatewayNameRe.MatchString(e.Name()) {
+			return nil, fmt.Errorf("--gateway-dlp-tokens-dir: %q: a file name is the gateway name and must match %s", e.Name(), dlpGatewayNameRe)
+		}
+		b, err := os.ReadFile(filepath.Join(dir, e.Name())) // follows the secret volume's symlinks
+		if err != nil {
+			return nil, fmt.Errorf("--gateway-dlp-tokens-dir: %w", err)
+		}
+		t := strings.TrimSpace(string(b))
+		if err := checkGatewayToken(t); err != nil {
+			return nil, fmt.Errorf("--gateway-dlp-tokens-dir: %s: %w", e.Name(), err)
+		}
+		if prev, dup := seen[t]; dup {
+			return nil, fmt.Errorf("--gateway-dlp-tokens-dir: %s: token is the same as %s's; every gateway needs its own", e.Name(), prev)
+		}
+		seen[t], out[e.Name()] = e.Name(), t
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("--gateway-dlp-tokens-dir: %s holds no tokens", dir)
+	}
+	return out, nil
+}
+
+// cloudAgentsConfig reads the cloud agent webhook secrets and vendor API
+// credentials (ADR-0034). Every secret comes from a file, never a flag value.
+func cloudAgentsConfig(o options) ([]string, cloudagents.Clients, error) {
+	var cl cloudagents.Clients
+	read := func(flag, path string) (string, error) {
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return "", fmt.Errorf("--%s: %w", flag, err)
+		}
+		return strings.TrimSpace(string(b)), nil
+	}
+	var secrets []string
+	if o.cloudWebhookSecretFile != "" {
+		all, err := read("cloud-webhook-secret-file", o.cloudWebhookSecretFile)
+		if err != nil {
+			return nil, cl, err
+		}
+		for _, l := range strings.Split(all, "\n") {
+			if l = strings.TrimSpace(l); l != "" && !strings.HasPrefix(l, "#") {
+				if len(l) < 16 {
+					return nil, cl, errors.New("--cloud-webhook-secret-file: each secret must be at least 16 characters")
+				}
+				secrets = append(secrets, l)
+			}
+		}
+		if len(secrets) == 0 || len(secrets) > 2 {
+			return nil, cl, errors.New("--cloud-webhook-secret-file: want one secret, or two while rotating")
+		}
+	}
+	for _, v := range []struct {
+		name, file, base string
+		dst              **vendoradmin.Client
+	}{{"github", o.cloudGitHubTokenFile, o.cloudGitHubBaseURL, &cl.GitHub}, {"cursor", o.cloudCursorTokenFile, o.cloudCursorBaseURL, &cl.Cursor}} {
+		if v.file == "" {
+			continue
+		}
+		tok, err := read("cloud-"+v.name+"-token-file", v.file)
+		if err != nil {
+			return nil, cl, err
+		}
+		if *v.dst, err = cloudagents.NewClient(v.name, v.base, tok); err != nil {
+			return nil, cl, fmt.Errorf("--cloud-%s-base-url: %w", v.name, err)
+		}
+	}
+	cl.CursorUser = o.cloudCursorUser
+	return secrets, cl, nil
 }
 
 // readSCIMHashes reads one hex SHA-256 per line; blank lines and # comments
@@ -466,6 +577,13 @@ func run(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	dlpTokens, err := readDLPGatewayTokens(o.gatewayDLPTokensDir, append([]string{gwToken}, gwCaps[:]...)...)
+	if err != nil {
+		return err
+	}
+	if dlpTokens == nil && gwCaps[4] != "" {
+		slog.Warn("gateway DLP events authenticate with a token every gateway shares: they are recorded as gateway:unverified; give each gateway its own with --gateway-dlp-tokens-dir")
+	}
 	scimHashes, err := readSCIMHashes(o.scimTokenHashFile)
 	if err != nil {
 		return err
@@ -486,9 +604,13 @@ func run(ctx context.Context, args []string) error {
 		SessionKey: []byte(sessionKey), OIDCClientSecret: clientSecret, Portal: portal, DataDir: o.dataDir, Writer: writer,
 		DeviceTTL: o.deviceTTL, DevUser: o.devUser, DevGroups: o.devGroups, DevRoles: o.devRoles, DevAdmin: o.devAdmin, TrustedProxies: o.trusted,
 		KillStore: kills, KillKey: killKey, GatewayToken: gwToken, PostureMaxAge: o.postureMaxAge, Audit: audit,
-		GatewayKillswitchToken: gwCaps[0], GatewayPostureToken: gwCaps[1], GatewayBudgetToken: gwCaps[2], GatewayDirectoryToken: gwCaps[3],
-		SCIMTokenSHA256: scimHashes, SCIMAuthoritative: o.scimAuthoritative,
+		GatewayKillswitchToken: gwCaps[0], GatewayPostureToken: gwCaps[1], GatewayBudgetToken: gwCaps[2], GatewayDirectoryToken: gwCaps[3], GatewayDLPToken: gwCaps[4],
+		GatewayDLPTokens: dlpTokens,
+		SCIMTokenSHA256:  scimHashes, SCIMAuthoritative: o.scimAuthoritative,
 		WorkloadKey: workloadKey,
+	}
+	if cfg.CloudWebhookSecrets, cfg.CloudClients, err = cloudAgentsConfig(o); err != nil {
+		return err
 	}
 	if db != nil {
 		cfg.Backend = &server.PGBackend{DB: db, LeaseTTL: o.leaseTTL}
@@ -641,6 +763,7 @@ func newController(o options, portal server.Portal, portalWriter server.PolicyWr
 		Notifier:     notifiers,
 		VerdictsPath: o.verdicts,
 		PolicyDir:    o.policyDir,
+		Governance:   srv.RolloutGovernance, // incident freeze and step approvals (ADR-0030)
 	}
 	if o.dataDir != "" { // rollouts need persistent state; GET /api/v1/rollouts reads it here (HA: set per leadership term)
 		c.RolloutStateDir = filepath.Join(o.dataDir, "rollouts")

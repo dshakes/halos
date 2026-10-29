@@ -13,6 +13,7 @@ import (
 	"github.com/dshakes/halos/internal/controller"
 	"github.com/dshakes/halos/internal/policy"
 	"github.com/dshakes/halos/internal/promote"
+	"github.com/dshakes/halos/internal/rollout"
 	"github.com/dshakes/halos/internal/server"
 )
 
@@ -79,6 +80,16 @@ func (a *app) cmdController() *cobra.Command {
 				// Rollouts: state in <data-dir>/rollouts, scorecards under the policy dir.
 				RolloutStateDir: filepath.Join(dataDir, "rollouts"),
 				PolicyDir:       dir,
+				// The incident freeze shares killswitch.jsonl with halo-server.
+				// Step approvals live on halo-server only: a step an approval
+				// rule covers waits here (run the server's in-process controller).
+				Governance: func(context.Context, *policy.Org, *policy.Rollout) (rollout.Governance, error) {
+					rec, err := kills.Incident()
+					if err != nil || rec == nil {
+						return rollout.Governance{}, err
+					}
+					return rollout.Governance{Incident: &policy.ActiveFreeze{Name: policy.IncidentFreezeName, Reason: rec.Reason, By: rec.By, Incident: true}}, nil
+				},
 			}
 			if !killServed {
 				// Only the operator knows whether a halo-server with a kill key serves this file.

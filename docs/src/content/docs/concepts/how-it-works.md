@@ -36,7 +36,7 @@ tools:
   claude-code: 2.1.280
 provider: anthropic   # anthropic | bedrock | vertex | openai | gemini | multi
 models:
-  default: claude-sonnet-4-5
+  default: claude-sonnet-5-5
 gateway: https://ai.my-org.example
 safety: standard   # strict | standard | relaxed
 rollout: standard   # fast | standard | careful

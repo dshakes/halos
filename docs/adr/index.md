@@ -34,5 +34,15 @@ Decisions that shape Halos. New ADRs use [MADR](https://adr.github.io/madr/): co
 | [0023](/halos/adr/0023-workload-identity-federation/) | Workload identity federation for headless CI and cloud agents |
 | [0024](/halos/adr/0024-agent-identity-and-delegation/) | Agent identity and delegation: RFC 8693 act chains, root-principal routing, remote A2A agent allowlist |
 | [0025](/halos/adr/0025-vendor-admin-sync/) | Vendor admin sync: one policy drives the vendors' cloud admin consoles, with drift detection (amended after security review) |
+| [0026](/halos/adr/0026-per-credential-revocation/) | Per-credential revocation: jti and per-subject epochs for agent and workload credentials, enforced by halo-server and gateways |
+| [0027](/halos/adr/0027-randomized-roi/) | Randomized delivery ROI: PR outcomes joined to experiment arms for causal effects; ring comparisons labelled observational |
+| [0028](/halos/adr/0028-agent-supply-chain-and-ai-bom/) | Agent supply chain and AI-BOM: digest-pinned, scanned and signed extensions; CycloneDX 1.6 AI-BOM with SLSA provenance |
+| [0029](/halos/adr/0029-mcp-registry-and-authorization/) | MCP registry and authorization: approved, pinned servers rendered into every harness, drift from halod, audience-bound tokens from halo-server |
+| [0030](/halos/adr/0030-change-governance/) | Change governance: freeze windows and an incident freeze (never holding rollbacks), approver quorums with separation of duties, and an impact preview |
+| [0031](/halos/adr/0031-agent-session-ledger/) | Agent session ledger: one identity-linked, redacted record per agent session, stored in the audit chain |
+| [0032](/halos/adr/0032-egress-and-sandbox-policy/) | Egress and sandbox policy: one harness-neutral policy rendered into each harness's native sandbox and egress controls, warned where a harness cannot hold it, verified on the device |
+| [0033](/halos/adr/0033-gateway-dlp-and-injection-defense/) | Data-loss prevention and prompt-injection defense at the gateway: secrets monitored, redacted or blocked per ring and unit, injection signals on tool results, audited to the SIEM |
+| [0034](/halos/adr/0034-cloud-agent-governance/) | Cloud agent governance: SHA-pinned rendered workflows, an identity-mapped task inventory from HMAC-verified webhooks and vendor APIs, kill fan-out and reversible over-limit pauses |
+| [0035](/halos/adr/0035-policy-copilot/) | Policy copilot: the model drafts, Halos' validator, plan, impact and stats verify, a human approves; schema-checked output, capped spend, offline mode |
 
 The canonical files live in `docs/adr/` in the repository; the docs build copies them into the site.

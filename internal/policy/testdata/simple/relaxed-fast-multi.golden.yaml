@@ -13,7 +13,7 @@ models:
     model: gpt-5-codex
   default:
     upstream: anthropic
-    model: claude-sonnet-4-5
+    model: claude-sonnet-5-5
   gemini:
     upstream: gemini
     model: gemini-2.5-pro

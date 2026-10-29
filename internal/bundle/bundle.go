@@ -120,6 +120,11 @@ func publish(ctx context.Context, dst oras.Target, rel *release.Release, s Signe
 	if err := dst.Tag(ctx, desc, vt); err != nil {
 		return ocispec.Descriptor{}, fmt.Errorf("bundle: tag %s: %w", vt, err)
 	}
+	if rel.Attestations != nil {
+		if err := pushAttestations(ctx, dst, desc, rel, s); err != nil {
+			return ocispec.Descriptor{}, err
+		}
+	}
 	for _, r := range rings {
 		if _, err := writePointer(ctx, dst, s, o, r, rel, desc); err != nil {
 			return ocispec.Descriptor{}, err

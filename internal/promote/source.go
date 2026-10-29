@@ -2,6 +2,7 @@ package promote
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -59,21 +60,55 @@ func (c *ClickHouse) table() (string, error) {
 	return t, nil
 }
 
-// query runs sql and streams JSONEachRow lines to fn.
-func (c *ClickHouse) query(ctx context.Context, sql string, params map[string]string, fn func(json.RawMessage) error) error {
+// Query runs sql (without a FORMAT clause) and streams each JSONEachRow line
+// to fn. Values are bound as {name:Type} server-side parameters from params,
+// never interpolated.
+func (c *ClickHouse) Query(ctx context.Context, sql string, params map[string]string, fn func(json.RawMessage) error) error {
+	q := url.Values{}
+	for k, v := range params {
+		q.Set("param_"+k, v)
+	}
+	return c.do(ctx, q, strings.NewReader(sql+" FORMAT JSONEachRow"), fn)
+}
+
+// Insert writes rows, each marshalled as one JSON object, into table
+// ([db.]name) with JSONEachRow. Timestamps may be RFC 3339 strings
+// (date_time_input_format=best_effort).
+func (c *ClickHouse) Insert(ctx context.Context, table string, rows []any) error {
+	if !identRE.MatchString(table) {
+		return fmt.Errorf("clickhouse: invalid table name %q", table)
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+	var body bytes.Buffer
+	enc := json.NewEncoder(&body)
+	for _, r := range rows {
+		if err := enc.Encode(r); err != nil {
+			return fmt.Errorf("clickhouse: encode row for %s: %w", table, err)
+		}
+	}
+	q := url.Values{}
+	q.Set("query", "INSERT INTO "+table+" FORMAT JSONEachRow")
+	q.Set("date_time_input_format", "best_effort")
+	if err := c.do(ctx, q, &body, func(json.RawMessage) error { return nil }); err != nil {
+		return fmt.Errorf("clickhouse insert %s: %w", table, err)
+	}
+	return nil
+}
+
+// do POSTs body with the query-string q (plus the database) and streams the
+// response's non-empty lines to fn.
+func (c *ClickHouse) do(ctx context.Context, q url.Values, body io.Reader, fn func(json.RawMessage) error) error {
 	u, err := url.Parse(c.URL)
 	if err != nil {
 		return fmt.Errorf("clickhouse: bad URL: %w", err)
 	}
-	q := u.Query()
 	if c.Database != "" {
 		q.Set("database", c.Database)
 	}
-	for k, v := range params {
-		q.Set("param_"+k, v)
-	}
 	u.RawQuery = q.Encode()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), strings.NewReader(sql+" FORMAT JSONEachRow"))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), body)
 	if err != nil {
 		return fmt.Errorf("clickhouse: %w", err)
 	}
@@ -119,7 +154,7 @@ func (c *ClickHouse) Window(ctx context.Context, experiment string) (Window, err
 	sql := "SELECT toFloat64(count()) AS n, toFloat64(toUnixTimestamp(min(ts))) AS start, " +
 		"toFloat64(sumIf(value, metric = 'halo.cost.usd')) AS spend FROM " + t + " WHERE experiment = {exp:String}"
 	var w Window
-	err = c.query(ctx, sql, map[string]string{"exp": experiment}, func(raw json.RawMessage) error {
+	err = c.Query(ctx, sql, map[string]string{"exp": experiment}, func(raw json.RawMessage) error {
 		var r struct{ N, Start, Spend float64 }
 		if err := json.Unmarshal(raw, &r); err != nil {
 			return err
@@ -239,7 +274,7 @@ func (c *ClickHouse) Samples(ctx context.Context, experiment, metric string) (ma
 		sql := "SELECT variant, toFloat64(" + se.expr + ") AS v FROM " + t +
 			" WHERE experiment = {exp:String} AND unit_id != '' AND " + metricFilter(derived) + " GROUP BY variant, unit_id HAVING v IS NOT NULL"
 		out := map[string][]float64{}
-		err = c.query(ctx, sql, map[string]string{"exp": experiment, "metric": metric}, func(raw json.RawMessage) error {
+		err = c.Query(ctx, sql, map[string]string{"exp": experiment, "metric": metric}, func(raw json.RawMessage) error {
 			var r struct {
 				Variant string  `json:"variant"`
 				V       float64 `json:"v"`

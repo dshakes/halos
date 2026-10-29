@@ -24,6 +24,7 @@ type fakeKong struct {
 	path    string
 	body    []byte
 	bodyErr error
+	hdrsErr error
 	peer    string
 
 	exitStatus int
@@ -38,7 +39,7 @@ type fakeKong struct {
 	logs       []string
 }
 
-func (f *fakeKong) Headers() (map[string][]string, error) { return f.hdrs, nil }
+func (f *fakeKong) Headers() (map[string][]string, error) { return f.hdrs, f.hdrsErr }
 func (f *fakeKong) Path() (string, error)                 { return f.path, nil }
 func (f *fakeKong) RawBody() ([]byte, error)              { return f.body, f.bodyErr }
 func (f *fakeKong) PeerIP() (string, error)               { return f.peer, nil }
@@ -96,7 +97,7 @@ func testPolicy(t *testing.T) string {
 	org := &policy.Org{
 		Name: "acme",
 		Gateway: &policy.Gateway{
-			Models: map[string]policy.ModelRoute{"sonnet": {Upstream: "orch", Model: "us.anthropic.claude-sonnet-4-5"}},
+			Models: map[string]policy.ModelRoute{"sonnet": {Upstream: "orch", Model: "us.anthropic.claude-sonnet-5-5"}},
 			Upstreams: map[string]policy.Upstream{
 				"orch": {URL: "https://orch.internal:8443/base", Kind: "bedrock"},
 				"cand": {URL: "https://cand.internal", Kind: "anthropic"},
@@ -196,7 +197,7 @@ func TestAccess(t *testing.T) {
 				if fmt.Sprintf("%s:%d", k.host, k.port) != tc.wantTarget || k.scheme != "https" || k.newPath != "/base/v1/messages" {
 					t.Fatalf("target %s://%s:%d%s", k.scheme, k.host, k.port, k.newPath)
 				}
-				if !strings.Contains(k.newBody, "us.anthropic.claude-sonnet-4-5") {
+				if !strings.Contains(k.newBody, "us.anthropic.claude-sonnet-5-5") {
 					t.Fatalf("body not rewritten: %s", k.newBody)
 				}
 			}

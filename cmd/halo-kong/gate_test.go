@@ -30,7 +30,7 @@ func TestAccessGates(t *testing.T) {
 		org := &policy.Org{
 			Name: "acme",
 			Gateway: &policy.Gateway{
-				Models:    map[string]policy.ModelRoute{"sonnet": {Upstream: "up", Model: "claude-sonnet-4-5"}},
+				Models:    map[string]policy.ModelRoute{"sonnet": {Upstream: "up", Model: "claude-sonnet-5-5"}},
 				Upstreams: map[string]policy.Upstream{"up": {URL: "https://up.internal", Kind: "anthropic"}},
 			},
 			Profiles: map[string]*policy.Profile{"base": {Meta: policy.Meta{Name: "base"}, Harnesses: map[string]policy.HarnessSpec{"claude-code": {Version: "2.1.280"}}}},
@@ -81,5 +81,34 @@ func TestAccessGates(t *testing.T) {
 	cleared := strings.Join(k.cleared, ",")
 	if !strings.Contains(cleared, "x-halo-gate") {
 		t.Fatalf("client x-halo-gate not cleared: %v", k.cleared)
+	}
+
+	// posture_url set but its config invalid (the token's env var is unset):
+	// never "gate off". Enforce refuses; warn passes flagged posture=unknown.
+	t.Setenv("HALO_TEST_POSTURE_UNSET", "")
+	for _, c := range []struct {
+		name, pol string
+		exit      int
+	}{{"enforce", enforce, http.StatusForbidden}, {"warn", warn, 0}} {
+		cfg := trustedCfg(c.pol)
+		cfg.PostureURL, cfg.PostureToken = srv.URL+"/invalid", "{vault://env/halo-test-posture-unset}"
+		k := &fakeKong{peer: "10.1.2.3", path: "/v1/messages", body: []byte(firstTurn), hdrs: map[string][]string{"x-acme-user": {"alice"}, "User-Agent": {pinned}}}
+		cfg.access(k)
+		if k.exitStatus != c.exit {
+			t.Fatalf("invalid posture config, %s: exit %d %s", c.name, k.exitStatus, k.exitBody)
+		}
+		if c.exit == 0 && !strings.Contains(k.set["x-halo-gate"], "posture=unknown") {
+			t.Fatalf("invalid posture config, warn: gate %q", k.set["x-halo-gate"])
+		}
+		if c.exit != 0 && !strings.Contains(string(k.exitBody), "posture config is invalid") {
+			t.Fatalf("invalid posture config, enforce: body %s", k.exitBody)
+		}
+	}
+	var b strings.Builder
+	kmetrics.write(&b)
+	for _, want := range []string{`halo_kong_posture_total{ring="ga",outcome="deny"}`, `halo_kong_posture_total{ring="ga",outcome="unknown"}`, `halo_kong_posture_total{ring="ga",outcome="pass"}`} {
+		if !strings.Contains(b.String(), want) {
+			t.Fatalf("metrics lack %s:\n%s", want, b.String())
+		}
 	}
 }

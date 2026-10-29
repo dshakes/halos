@@ -29,9 +29,11 @@ func SyncClone(ctx context.Context, run RunFunc, dir, base string) error {
 }
 
 // ResetClone force-checks-out origin/<base> in dir and cleans untracked files
-// (no fetch, no work-tree-root guard; call SyncClone first).
+// (no fetch, no work-tree-root guard; call SyncClone first). The checkout keeps
+// the committed bytes (no core.autocrlf=true CRLF, the Git for Windows
+// default), so artifact digests in the clone match their pins.
 func ResetClone(ctx context.Context, run RunFunc, dir, base string) error {
-	for _, args := range [][]string{{"checkout", "-f", "-B", base, "origin/" + base}, {"clean", "-fd"}} {
+	for _, args := range [][]string{{"-c", "core.autocrlf=false", "-c", "core.eol=lf", "checkout", "-f", "-B", base, "origin/" + base}, {"clean", "-fd"}} {
 		if _, err := run(ctx, dir, "git", args...); err != nil {
 			return fmt.Errorf("reset policy clone %s: %w", dir, err)
 		}

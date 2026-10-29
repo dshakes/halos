@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"path"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -25,6 +26,15 @@ const (
 	DefaultWorkloadTTL = 15 * time.Minute
 	MaxWorkloadTTL     = time.Hour
 )
+
+// GitHubActionsProvider is TenantClaims' provider name for the GitHub Actions
+// OIDC issuer.
+const GitHubActionsProvider = "GitHub Actions"
+
+// audienceRe is the charset an OIDC audience may use. Rendered workflows pass
+// it to a shell (through env), so nothing that quotes, expands or breaks a
+// line is accepted.
+var audienceRe = regexp.MustCompile(`^[A-Za-z0-9._:/-]{1,128}$`)
 
 // Workloads federates headless agents (CI jobs, cloud workloads) into the
 // gateway: halo-server exchanges a token from a trusted OIDC issuer for a
@@ -75,7 +85,7 @@ type knownIssuer struct {
 }
 
 var knownIssuers = []knownIssuer{
-	{"GitHub Actions", "https://token.actions.githubusercontent.com", []string{"repository_owner_id", "repository_owner", "repository", "repository_id"}, []string{"repository_owner_id", "repository_id"}},
+	{GitHubActionsProvider, "https://token.actions.githubusercontent.com", []string{"repository_owner_id", "repository_owner", "repository", "repository_id"}, []string{"repository_owner_id", "repository_id"}},
 	{"GitLab.com", "https://gitlab.com", []string{"namespace_id", "namespace_path", "project_id", "project_path"}, []string{"namespace_id", "project_id"}},
 	{"Buildkite", "https://agent.buildkite.com", []string{"organization_id", "organization_slug"}, []string{"organization_id"}},
 	{"CircleCI", "https://oidc.circleci.com/org", []string{"oidc.circleci.com/org-id"}, nil},
@@ -341,6 +351,8 @@ func (v *validator) workloads() {
 	}
 	if w.Audience == "" {
 		v.errf("workloads.audience", "required: the aud CI tokens must carry (e.g. halos)")
+	} else if !audienceRe.MatchString(w.Audience) {
+		v.errf("workloads.audience", "%q must match %s", w.Audience, audienceRe)
 	}
 	issuers := map[string]WorkloadIssuer{}
 	urls := map[string]bool{}
@@ -351,6 +363,9 @@ func (v *validator) workloads() {
 		}
 		if !secureIssuerURL(is.URL) {
 			v.errf(p+".url", "%q must be an absolute https URL (http only for loopback)", is.URL)
+		}
+		if is.Audience != "" && !audienceRe.MatchString(is.Audience) {
+			v.errf(p+".audience", "%q must match %s", is.Audience, audienceRe)
 		}
 		if urls[is.URL] {
 			v.errf(p+".url", "duplicate issuer url %q", is.URL)
@@ -424,7 +439,7 @@ func (v *validator) workloadTenantPin(p string, r WorkloadRule, is WorkloadIssue
 		v.warnf(p+".match", "pins the tenant by name only: a %s tenant can be renamed or deleted and the name re-registered by someone else, who then matches; add %s, which never changes",
 			k.provider, strings.Join(k.ids, " or "))
 	}
-	if provider != "GitHub Actions" {
+	if provider != GitHubActionsProvider {
 		return
 	}
 	if _, env := r.Match["environment"]; !env {

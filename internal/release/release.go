@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dshakes/halos/internal/cloudagents/workflow"
 	"github.com/dshakes/halos/internal/harness"
 	"github.com/dshakes/halos/internal/policy"
 )
@@ -44,6 +45,10 @@ type FileEntry struct {
 	Path   string `json:"path"`
 	Mode   uint32 `json:"mode"`
 	SHA256 string `json:"sha256"`
+	// Artifact/ArtifactPath tie the file to a Manifest.SupplyChain entry and
+	// its path inside it; halod checks both before writing (ADR-0028).
+	Artifact     string `json:"artifact,omitempty"`
+	ArtifactPath string `json:"artifactPath,omitempty"`
 }
 
 // HarnessEntry is one harness's pinned version, installer and files, per OS.
@@ -84,6 +89,27 @@ type Manifest struct {
 	// units' members) may call, with each AgentCard's digest (ADR-0024):
 	// signed with the release, so a changed card is a policy change.
 	RemoteAgents []RemoteAgentEntry `json:"remoteAgents,omitempty"`
+	// SupplyChain pins the extension artifacts this release delivers
+	// (ADR-0028): each one's digest and file listing, signed with the release.
+	SupplyChain []SupplyChainEntry `json:"supplyChain,omitempty"`
+	// MCPMode and MCPServers carry the halos.yaml mcp registry (ADR-0029):
+	// its mode and the servers ring's members (or some of its units' members)
+	// get, pinned, so halod reports unapproved and version-drifted servers in
+	// user configs. Empty when the policy has no registry.
+	MCPMode    string          `json:"mcpMode,omitempty"`
+	MCPServers []policy.MCPPin `json:"mcpServers,omitempty"`
+	// CloudAgents are the repository files of the workflow-configured cloud
+	// agents (ADR-0034), signed with the release for review and the PR that
+	// adds them. halod never writes them: they belong in repositories.
+	CloudAgents []CloudAgentFile `json:"cloudAgents,omitempty"`
+}
+
+// CloudAgentFile is one rendered cloud agent repository file.
+type CloudAgentFile struct {
+	Vendor string   `json:"vendor"`
+	Path   string   `json:"path"` // relative to the repository root
+	SHA256 string   `json:"sha256"`
+	Repos  []string `json:"repos,omitempty"` // policy repo patterns it is for
 }
 
 // RemoteAgentEntry is one allowlisted remote agent in a release manifest.
@@ -118,6 +144,10 @@ type Release struct {
 	Blobs    map[string][]byte // sha256 hex -> content
 	Tar      []byte
 	Digest   string // "sha256:<hex>" of Tar
+	// Attestations (AI-BOM and provenance, see Attest) describe the release
+	// by digest; they are not part of Tar. bundle.Publish stores them as a
+	// signed OCI referrer when set.
+	Attestations *Attestations
 }
 
 // Content returns the bytes for a manifest file entry.
@@ -137,6 +167,9 @@ func Build(org ProfileResolver, profileName, ringName string, opts Options) (*Re
 		}
 		if opts.Gateway == nil {
 			opts.Gateway = o.Gateway
+		}
+		if prof, err = o.WithMCPRegistry(prof, ringName, ""); err != nil {
+			return nil, fmt.Errorf("release: profile %q: mcp registry: %w", profileName, err)
 		}
 	}
 	oses := opts.OSes
@@ -202,7 +235,7 @@ func Build(org ProfileResolver, profileName, ringName string, opts Options) (*Re
 				sum := sha256.Sum256(f.Data)
 				h := hex.EncodeToString(sum[:])
 				blobs[h] = f.Data
-				entries = append(entries, FileEntry{Path: f.Path, Mode: f.Mode, SHA256: h})
+				entries = append(entries, FileEntry{Path: f.Path, Mode: f.Mode, SHA256: h, Artifact: f.Artifact, ArtifactPath: f.ArtifactPath})
 			}
 			sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
 			he.Files[string(os)] = entries
@@ -211,7 +244,34 @@ func Build(org ProfileResolver, profileName, ringName string, opts Options) (*Re
 	}
 	toggles.finish()
 	units.finish()
+	if m.SupplyChain, err = supplyChainEntries(prof); err != nil {
+		return nil, fmt.Errorf("release: profile %q: %w", profileName, err)
+	}
+	if err := m.CheckArtifactFiles(); err != nil {
+		return nil, fmt.Errorf("release: profile %q: %w", profileName, err)
+	}
 	m.RemoteAgents = remoteAgents(org0, prof, ringName)
+	if org0 != nil && org0.MCP != nil {
+		m.MCPMode, m.MCPServers = policy.MCPModeAllowlist, org0.MCP.MCPPins(ringName)
+		if !org0.MCP.Allowlist() {
+			m.MCPMode = policy.MCPModeWarn
+		}
+	}
+	if org0 != nil {
+		files, warns, err := workflow.Render(org0)
+		if err != nil {
+			return nil, fmt.Errorf("release: profile %q: %w", profileName, err)
+		}
+		for _, f := range files {
+			sum := sha256.Sum256(f.Data)
+			h := hex.EncodeToString(sum[:])
+			blobs[h] = f.Data
+			m.CloudAgents = append(m.CloudAgents, CloudAgentFile{Vendor: f.Vendor, Path: f.Path, SHA256: h, Repos: f.Repos})
+		}
+		for _, w := range warns {
+			m.Warnings = append(m.Warnings, "cloudAgents."+w)
+		}
+	}
 	if len(m.RemoteAgents) > 0 {
 		for _, name := range names {
 			m.Warnings = append(m.Warnings, name+": "+remoteAgentsWarning(name))
@@ -325,6 +385,11 @@ func Open(tarData []byte) (*Release, error) {
 					}
 				}
 			}
+		}
+	}
+	for _, f := range m.CloudAgents {
+		if _, ok := blobs[f.SHA256]; !ok {
+			return nil, fmt.Errorf("release: manifest cloud agent %s file %s references missing blob %s", f.Vendor, f.Path, f.SHA256)
 		}
 	}
 	sum := sha256.Sum256(tarData)

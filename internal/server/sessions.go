@@ -112,6 +112,14 @@ func (r *sessionRevocations) catchup() error {
 	})
 }
 
+// epoch is user's session revocation epoch (unix nanos, 0 = none) as this
+// replica last saw it.
+func (r *sessionRevocations) epoch(user string) int64 {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.before[canonicalUser(user)]
+}
+
 func (r *sessionRevocations) valid(user string, issuedAt int64) bool {
 	if r.catchup() != nil { // another replica may have revoked: fail closed if we cannot tell
 		return false

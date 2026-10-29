@@ -344,7 +344,7 @@ func TestObsEvidencePlane(t *testing.T) {
 		t.Errorf("codex tokens %v, want %v", got, want)
 	}
 	// Model attribute mapped for both attribute conventions.
-	if n := ch.num(t, "SELECT countIf(model='gemini-2.5-pro') > 0 AND countIf(model='claude-sonnet-4-5') > 0 FROM halo_metrics"); n != 1 {
+	if n := ch.num(t, "SELECT countIf(model='gemini-2.5-pro') > 0 AND countIf(model='claude-sonnet-5-5') > 0 FROM halo_metrics"); n != 1 {
 		t.Error("model not populated for gen_ai.request.model / model")
 	}
 	// Injected effect is visible in the landed data: cost per session +30% (noise <= 10%).
@@ -566,7 +566,7 @@ func sendGatewayMetrics(ctx context.Context, t *testing.T, otlp, tokenFile, exp 
 					status = errStatus
 				}
 				e.Record(gwmetrics.Request{Ring: "ring1-canary", Release: "2.1.300", Experiment: exp, Variant: arm.variant,
-					Harness: "claude-code", Model: "claude-sonnet-4-5", Subject: fmt.Sprintf("%s-%d@acme.test", arm.variant, u), Status: status,
+					Harness: "claude-code", Model: "claude-sonnet-5-5", Subject: fmt.Sprintf("%s-%d@acme.test", arm.variant, u), Status: status,
 					Latency: time.Duration(1000 * arm.mult * math.Exp(0.3*rng.NormFloat64()) * float64(time.Millisecond))})
 			}
 		}

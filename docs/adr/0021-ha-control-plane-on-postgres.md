@@ -7,7 +7,7 @@ date: 2026-10-21
 
 # ADR-0021: HA control plane on Postgres
 
-- Status: accepted (amended 2026-10-22: review fixes)
+- Status: accepted (amended 2026-10-22: review fixes; amended 2026-10-27: shared failed-auth limiters, posture, revocations)
 - Date: 2026-10-21
 
 ## Context and problem statement
@@ -60,7 +60,7 @@ These landed after the first cut of this ADR and are shared the same way:
 - **Audit export and rotation (ADR-0016).** Segments and rotation are file-backend features; on Postgres the chain is one table and rotation is refused. Each sink forwards from one replica under lease `audit-export-<sink>`, with its cursor a fenced document, so sinks do not receive N copies. `GET /api/v1/audit` pages by `seq` and caches the verified prefix while its last hash reads back unchanged; `halo audit verify --database-url-file` re-reads the whole chain.
 
 - **Agent delegation and egress (ADR-0024).** Stateless per request: a delegated credential carries its act chain, depth, scope and parent `jti` in its signed claims, so there is no per-chain counter to share, and delegation is deliberately not single-use (a parent may delegate to several agents). What it reads is shared: the root's session epoch, the server-side session and the SCIM directory, so a revocation or deprovisioning on one replica ends every chain on all of them. Its only per-process state is the token-exchange failure bucket below.
-- **Failed-auth limiters stay per replica (deliberately).** The per-IP, per-endpoint-class buckets (devices and enrollment, logins, gateway tokens, token exchange, SCIM) are in memory on each replica, as they were across restarts. With N replicas behind a Service that spreads one client's requests, the effective budget is up to N times the configured one (10 failures/min/IP/class becomes up to 10N). Sharing them would make every failed attempt a database write, which hands an unauthenticated caller a write-amplification lever against the store every replica depends on; the bounded N-fold loosening is the smaller risk. Session affinity at the ingress brings it back to 1x for a client that keeps its address.
+- **Failed-auth limiters are shared (amended 2026-10-27).** The per-IP, per-endpoint-class buckets (devices and enrollment, logins, gateway tokens, token exchange, delegation, SCIM) are in memory on each replica, and every failure is also counted in the shared store (`CountAuthFailure`, a KV row per class and address with a one-minute window on the database clock), so N replicas grant one budget, not N. See Amended (2026-10-27).
 - **Policy acceptance.** Each replica loads policy from its own git-sync checkout and refuses a policy with `policy.SecurityIssues` errors, keeping the last good one. The in-process controller acts on that same accepted policy (`Server.Policy`), not on a raw load, so the leader never acts on a policy its own API refuses. Replicas can disagree only while their checkouts differ (git-sync period, default 30s); a replica that starts while the repository head is refused has no last good policy and stays unready until a good commit lands.
 
 Replicas are assumed to run NTP-synced clocks within a minute of each other: session revocations compare a cookie's issue time (one replica's clock) with the revocation time (another's), and both the revocation epoch and the enrollment void are padded by one minute to absorb skew (see Amended). Leases, locks and claims use the database clock only.
@@ -119,6 +119,16 @@ Self-review of what the review did not cover:
 - The kill store's catch-up is now coalesced for gateway polls; `set` still catches up under its lock before appending (write path).
 - `GitPolicyWriter`: each replica has its own clone (an `emptyDir`) and lock, so replicas never share a working tree. Console proposals are serialised per request by the decision claim; controller PRs come only from the leader, with intent markers.
 - Known equivalent mutant: removing the guard that stops a rollback when its own record is fenced is masked by the per-call intents (each external call is refused on its own; `TestLeaseLostBeforeKill` kills the per-call mutant).
+
+## Amended (2026-10-27): shared limiters, posture, revocations
+
+A security review of halo-server found these; each has a regression test that fails when the fix is reverted (mutation-checked).
+
+- **Failed-auth limiters shared across replicas.** This ADR first kept them per replica, so N replicas gave a client spread across them N times the budget. Every failure is now also counted in the Backend: the replica whose failure brings the shared count to the burst (10) blocks the address for one minute, and every other replica does at its next failure from it. The write-amplification concern above is bounded instead of avoided: only failures write, and never from an address the replica already blocks, so a flood costs at most burst + N writes per address per window. A store error leaves the local budget in force (logged), never less. IPv6 addresses are keyed by their /64, since one host usually controls its whole /64 (`TestLimiterKeysIPv6By64`, `TestSharedAuthLimiterInMemory`, `TestSharedAuthLimiterPostgres`, `internal/pgstore` `TestCountAuthFailure`).
+- **SCIM checks the token before the limiter.** A valid SCIM token from an address the SCIM budget blocks (a NAT shared with a guesser) is accepted, as gateway tokens already were; only failures are charged (`TestSCIMValidTokenFromBlockedIP`).
+- **Access-request decisions are fail closed.** Approve and deny append with `AuditStrict`: a failed save puts the request back to pending and answers 500; a failed audit append answers 500 with the decision stored (`TestDecisionNotReportedUnlessPersisted`).
+- **Posture never passes on a partial view.** The gateway posture check catches up with the shared device registry first (a device enrolled on another replica counts) and answers unknown, not compliant, if it cannot; an unreachable release registry with no verified pointer cached is unknown too, never current (`TestPostureSeesDevicesFromOtherReplica`, `TestPostureUnknownWhenRegistryUnreachable`).
+- **Credential revocations** ([ADR-0026](/halos/adr/0026-per-credential-revocation/)) are a shared table (`halo_revocations`, migration 0003), read with one indexed query per exchange and egress decision, so a revocation on one replica holds on all of them at once.
 
 ## Implementation status (2026-10-21)
 

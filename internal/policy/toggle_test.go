@@ -29,7 +29,7 @@ func clientToggle(p TogglePatch) *Toggle {
 
 func togglePathIssues(o *Org, sev Severity) string {
 	var b strings.Builder
-	for _, i := range guardToggles(o) {
+	for _, i := range append(guardToggles(o), guardBypassTokens(o)...) {
 		if i.Severity == sev {
 			b.WriteString(i.Path + ": " + i.Message + "\n")
 		}

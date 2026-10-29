@@ -9,6 +9,9 @@
         "-y",
         "lint-mcp"
       ]
+    },
+    {
+      "serverUrl": "https://mcp.example.com/tickets"
     }
   ],
   "deniedMcpServers": [
@@ -23,6 +26,18 @@
   "model": "halo-sonnet",
   "permissions": {
     "disableBypassPermissionsMode": "disable"
+  },
+  "sandbox": {
+    "allowBypass": false,
+    "enabled": true,
+    "userPolicy": {
+      "network": {
+        "allowedHosts": [
+          "example.com",
+          "github.com"
+        ]
+      }
+    }
   },
   "strictKnownMarketplaces": [
     {

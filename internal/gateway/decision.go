@@ -16,6 +16,12 @@ const (
 	HeaderRelease    = "x-halo-release"
 	HeaderExperiment = "x-halo-experiment"
 	HeaderVariant    = "x-halo-variant"
+	// HeaderGate carries warn-mode and unknown gate outcomes (posture=unknown,
+	// version=warn) and HeaderKillswitch a misconfigured kill switch, for the
+	// upstream's log pipeline. Like every owned name they are always cleared,
+	// even when the host's header view was truncated.
+	HeaderGate       = "x-halo-gate"
+	HeaderKillswitch = "x-halo-killswitch"
 
 	RingUnknown = "unknown"
 )

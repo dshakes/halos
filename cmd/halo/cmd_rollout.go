@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -16,6 +17,7 @@ import (
 	"github.com/dshakes/halos/internal/policy"
 	"github.com/dshakes/halos/internal/promote"
 	"github.com/dshakes/halos/internal/rollout"
+	"github.com/dshakes/halos/internal/server"
 )
 
 func findRollout(org *policy.Org, name string) (*policy.Rollout, error) {
@@ -33,6 +35,10 @@ func findRollout(org *policy.Org, name string) (*policy.Rollout, error) {
 type rolloutEvidence struct {
 	dataDir string
 	ch      clickhouseFlags
+	srv     serverFlags
+	// governed: halo-server answered, so the incident freeze and the step's
+	// approvals are known (else policy freeze windows only, no approvals).
+	governed bool
 }
 
 func (f *rolloutEvidence) add(c *cobra.Command) {
@@ -40,6 +46,7 @@ func (f *rolloutEvidence) add(c *cobra.Command) {
 	c.Flags().StringVar(&f.ch.url, "clickhouse", "", "ClickHouse HTTP URL for metric gates (optional)")
 	c.Flags().StringVar(&f.ch.db, "database", "", "ClickHouse database")
 	c.Flags().StringVar(&f.ch.user, "user", "", "ClickHouse user (password from HALO_CLICKHOUSE_PASSWORD)")
+	f.srv.add(c, "for the incident freeze and step approvals (ADR-0030)")
 }
 
 // decide evaluates r's live step with whatever evidence is configured.
@@ -62,6 +69,12 @@ func (f *rolloutEvidence) decide(cmd *cobra.Command, dir string, org *policy.Org
 		return st, ev, rollout.Decision{}, err
 	}
 	ev.Approved = approved
+	g, ok, err := serverGovernance(cmd.Context(), f.srv, r)
+	if err != nil {
+		return st, ev, rollout.Decision{}, fmt.Errorf("change governance: %w", err)
+	}
+	f.governed = ok
+	g.Apply(org, r, st, &ev, now)
 	return st, ev, rollout.Evaluate(rollout.Effective(org, r), st, ev, now), nil
 }
 
@@ -205,8 +218,19 @@ func (a *app) cmdRollout() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if !aev.governed {
+				a.warnNoIncidentFreeze()
+			}
 			if (d.Action == rollout.Rollback || d.Action == rollout.Pause) && !force {
 				return fmt.Errorf("rollout %s: a gate failed (%s); refusing to advance without --force", r.Name, strings.Join(d.Reasons, "; "))
+			}
+			// --force never overrides governance (ADR-0030): a freeze or a short
+			// quorum refuses the PR; --dry-run still shows the patch.
+			if err := governanceRefusal(r, d, aev.governed); err != nil {
+				if !dry {
+					return err
+				}
+				fmt.Fprintln(a.errw, a.yellow("warning:"), err)
 			}
 			act, next := rollout.NextAction(r)
 			intro := fmt.Sprintf("Manual %s of rollout `%s`, from step `%s`.\n\n**Reason:** %s", act, r.Name, stepLabel(r), reason)
@@ -214,7 +238,7 @@ func (a *app) cmdRollout() *cobra.Command {
 		},
 	}
 	aev.add(advance)
-	c.AddCommand(advance)
+	c.AddCommand(advance, a.cmdRolloutApprove())
 
 	for _, verb := range []struct {
 		use     string
@@ -256,6 +280,63 @@ func (a *app) cmdRollout() *cobra.Command {
 			}
 		}
 	}
+	return c
+}
+
+// warnNoIncidentFreeze says, on stderr, that a forward change was checked
+// against the policy's freeze windows only: without halo-server the incident
+// freeze (halo freeze on) is unknown. The CLI stays usable offline; the PR's
+// required `halo freeze check` and the controller still hold it.
+func (a *app) warnNoIncidentFreeze() {
+	fmt.Fprintln(a.errw, a.yellow("warning:"), "no halo-server configured: checked the policy's freeze windows only, not the incident freeze (set --server or HALO_SERVER, and HALO_SESSION)")
+}
+
+// governanceRefusal is why an advance may not be proposed now: a change
+// freeze, or an approval quorum that is not met (nil when neither).
+func governanceRefusal(r *policy.Rollout, d rollout.Decision, governed bool) error {
+	if d.Frozen != "" {
+		return fmt.Errorf("rollout %s: %s", r.Name, d.Frozen)
+	}
+	if q := d.Quorum; q != nil && !q.Met {
+		msg := fmt.Sprintf("rollout %s needs approvals before it advances: %s (halo rollout approve %s)", r.Name, q.String(), r.Name)
+		if !governed {
+			msg += "; approvals are recorded on halo-server: set --server (or HALO_SERVER) and HALO_SESSION"
+		}
+		return errors.New(msg)
+	}
+	return nil
+}
+
+func (a *app) cmdRolloutApprove() *cobra.Command {
+	var sf serverFlags
+	var ticket string
+	c := &cobra.Command{
+		Use: "approve <name>", Short: "Approve advancing a rollout from its live step on halo-server (audited; counts toward the approval quorum)", Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			srv, session, err := sf.resolve()
+			if err != nil {
+				return err
+			}
+			if srv == "" {
+				return errors.New("set --server (or HALO_SERVER) and HALO_SESSION (an approver's halo_session cookie value)")
+			}
+			var res server.RolloutApprovals
+			if err := sessionJSON(cmd.Context(), srv, session, "POST", "/api/v1/rollouts/"+url.PathEscape(args[0])+"/approve", map[string]string{"ticket": ticket}, &res); err != nil {
+				return err
+			}
+			return a.emit(res, func() {
+				fmt.Fprintf(a.out, "approved rollout %s at step %s (%d approvals)\n", res.Rollout, stepLabel(&policy.Rollout{Step: res.Step}), len(res.Approvals))
+				if res.Quorum != nil {
+					fmt.Fprintln(a.out, res.Quorum.String())
+				}
+				if res.Freeze.Frozen {
+					fmt.Fprintln(a.out, a.yellow("frozen:"), res.Freeze.String())
+				}
+			})
+		},
+	}
+	c.Flags().StringVar(&ticket, "ticket", "", "change ticket reference (e.g. CHG0012345), when an approval rule requires one")
+	sf.add(c, "")
 	return c
 }
 
@@ -396,7 +477,12 @@ func (a *app) printStatus(org *policy.Org, r *policy.Rollout, st rollout.State, 
 	case rollout.Rollback, rollout.Pause:
 		next = a.red(next) + " (automatic)"
 	}
-	if d.AwaitingApproval {
+	switch {
+	case d.Frozen != "":
+		next = a.yellow("frozen") + " (the advance waits for the window to open; rollbacks stay allowed)"
+	case d.AwaitingApproval && d.Quorum != nil:
+		next = "awaiting approvals: halo rollout approve " + r.Name + " (by the approver groups)"
+	case d.AwaitingApproval:
 		next = "awaiting approval: halo rollout advance " + r.Name + " --reason ..."
 	}
 	fmt.Fprintf(a.out, "\nNext:       %s\n", a.bold(next))

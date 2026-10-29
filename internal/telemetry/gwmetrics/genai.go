@@ -202,6 +202,12 @@ func (e *Emitter) newSpan(r Request, errType string) span {
 	add("halo.variant", r.Variant)
 	add("halo.harness", r.Harness)
 	add("halo.unit", e.Unit(r.Subject))
+	if r.DLPSecrets > 0 {
+		sp.attrs = append(sp.attrs, spanAttr{k: "halo.dlp.secrets", i: int64(r.DLPSecrets), isInt: true})
+	}
+	if r.DLPInjections > 0 {
+		sp.attrs = append(sp.attrs, spanAttr{k: "halo.dlp.injections", i: int64(r.DLPInjections), isInt: true})
+	}
 	if r.Actor != "" {
 		add("gen_ai.agent.name", r.Actor)
 		add("halo.actor.agent", r.Actor)

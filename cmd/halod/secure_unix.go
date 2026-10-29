@@ -13,6 +13,12 @@ import (
 	"syscall"
 )
 
+// openNonblock keeps opening a FIFO from blocking (posture reads of user files).
+const openNonblock = syscall.O_NONBLOCK
+
+// openNoFollow refuses a final-component symlink (posture reads of user files).
+const openNoFollow = syscall.O_NOFOLLOW
+
 // stateMode is state.json's mode: root-only.
 const stateMode fs.FileMode = 0o600
 

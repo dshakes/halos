@@ -110,7 +110,13 @@ func (s *Server) killHandler(kill bool, kind string) authedHandler {
 			}
 			s.cfg.Log.Warn("killswitch changed", "experiment", name, "killed", kill, "by", p.ID)
 		}
-		writeJSON(w, http.StatusOK, map[string]any{kind: name, "killed": kill, "changed": changed})
+		out := map[string]any{kind: name, "killed": kill, "changed": changed}
+		if kind == "experiment" && kill {
+			if h := s.cloudKillHint(org, name); h != nil {
+				out["cloudAgents"] = h // cancelling them is a separate, explicit call
+			}
+		}
+		writeJSON(w, http.StatusOK, out)
 	}
 }
 
@@ -145,13 +151,14 @@ const (
 	capPosture                      // GET /api/v1/gateway/posture
 	capBudget                       // /api/v1/gateway/budget/* (usage writes)
 	capDirectory                    // GET /api/v1/gateway/directory (SCIM reads)
+	capDLP                          // POST /api/v1/gateway/dlp/events (audit appends)
 )
 
 // gatewayToken is the only token accepted for c: its dedicated token when
 // set, else the shared GatewayToken. "" = the capability is off.
 func (c Config) gatewayToken(cp gatewayCap) string {
 	if t := [...]string{capKillswitch: c.GatewayKillswitchToken, capPosture: c.GatewayPostureToken,
-		capBudget: c.GatewayBudgetToken, capDirectory: c.GatewayDirectoryToken}[cp]; t != "" {
+		capBudget: c.GatewayBudgetToken, capDirectory: c.GatewayDirectoryToken, capDLP: c.GatewayDLPToken}[cp]; t != "" {
 		return t
 	}
 	return c.GatewayToken
@@ -160,7 +167,7 @@ func (c Config) gatewayToken(cp gatewayCap) string {
 // gatewaySums hashes the token of every enabled capability.
 func gatewaySums(c Config) map[gatewayCap][32]byte {
 	out := map[gatewayCap][32]byte{}
-	for _, cp := range []gatewayCap{capKillswitch, capPosture, capBudget, capDirectory} {
+	for _, cp := range []gatewayCap{capKillswitch, capPosture, capBudget, capDirectory, capDLP} {
 		if t := c.gatewayToken(cp); t != "" {
 			out[cp] = sha256.Sum256([]byte(t))
 		}

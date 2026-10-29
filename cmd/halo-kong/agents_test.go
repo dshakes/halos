@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,7 +25,7 @@ func TestAccessDelegatedAgent(t *testing.T) {
 	org := &policy.Org{
 		Name: "acme",
 		Gateway: &policy.Gateway{
-			Models:    map[string]policy.ModelRoute{"sonnet": {Upstream: "orch", Model: "us.anthropic.claude-sonnet-4-5"}},
+			Models:    map[string]policy.ModelRoute{"sonnet": {Upstream: "orch", Model: "us.anthropic.claude-sonnet-5-5"}},
 			Upstreams: map[string]policy.Upstream{"orch": {URL: "https://orch.internal:8443", Kind: "anthropic"}},
 		},
 		Rings: []*policy.Ring{
@@ -65,5 +66,34 @@ func TestAccessDelegatedAgent(t *testing.T) {
 	cfg.access(k)
 	if k.exitStatus != 400 {
 		t.Fatalf("denied tool: exit %d", k.exitStatus)
+	}
+
+	// The directory fails open (unreachable, or its config is invalid): the
+	// agent keeps its delegation chain, so it is still an agent (chain
+	// stamped, agent policy applied), never treated as its human root.
+	for _, url := range []string{"http://127.0.0.1:1/d", "http://halo.example/d"} {
+		dcfg := cfg
+		dcfg.DirectoryURL, dcfg.DirectoryToken = url, "gw-token"
+		k = &fakeKong{peer: "10.1.2.3", path: "/v1/messages", body: []byte(firstTurn), hdrs: hdrs}
+		dcfg.access(k)
+		if k.exitStatus != 0 || k.set["x-halo-actor"] != "planner" {
+			t.Fatalf("%s: exit %d %s, set %v", url, k.exitStatus, k.exitBody, k.set)
+		}
+		k = &fakeKong{peer: "10.1.2.3", path: "/v1/messages", body: []byte(`{"model":"sonnet","messages":[],"tools":[{"name":"Bash"}]}`), hdrs: hdrs}
+		dcfg.access(k)
+		if k.exitStatus != 400 || !strings.Contains(string(k.exitBody), "deniedTools") {
+			t.Fatalf("%s: denied tool admitted after directory fail open: exit %d %s", url, k.exitStatus, k.exitBody)
+		}
+	}
+	var mb strings.Builder
+	kmetrics.write(&mb)
+	for _, want := range []string{`halo_kong_directory_resolutions_total{outcome="failopen"}`, `halo_kong_directory_resolutions_total{outcome="invalid_config_failopen"}`,
+		`halo_kong_directory_resolutions_total{outcome="revocations_unavailable"}`} {
+		if !strings.Contains(mb.String(), want) {
+			t.Fatalf("metrics lack %s:\n%s", want, mb.String())
+		}
+	}
+	if strings.Contains(mb.String(), "halo_kong_agent_denials_total 0\n") {
+		t.Fatalf("agent denials not counted:\n%s", mb.String())
 	}
 }

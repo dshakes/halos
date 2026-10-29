@@ -31,7 +31,7 @@ const (
 	permRead    perm = "read"    // fleet, devices, releases, rollouts, experiments, toggles, policy, other users' assignments
 	permOperate perm = "operate" // kill switch, experiment status
 	permApprove perm = "approve" // decide access requests, see everyone's requests
-	permAudit   perm = "audit"   // read and export the audit log
+	permAudit   perm = "audit"   // read and export the audit log and the session ledger
 	permAdmin   perm = "admin"   // device and session revocation, toggle proposals, launcher setup
 )
 
@@ -73,21 +73,36 @@ var routePerms = map[string]perm{
 	"GET /api/v1/toggles":            permRead,
 	"GET /api/v1/toggles/{name}":     permRead,
 	"GET /api/v1/killswitch":         permRead,
+	"GET /api/v1/freeze":             permRead, // incident freeze and every ring's freeze windows (ADR-0030)
+	"GET /api/v1/cloud-agents":       permRead, // cloud agent tasks and alerts (ADR-0034)
+
+	"GET /api/v1/rollouts/{name}/approvals": permRead,
 
 	"POST /api/v1/experiments/{name}/status": permOperate,
 	"POST /api/v1/experiments/{name}/kill":   permOperate,
 	"POST /api/v1/experiments/{name}/unkill": permOperate,
 	"POST /api/v1/toggles/{name}/kill":       permOperate,
 	"POST /api/v1/toggles/{name}/unkill":     permOperate,
+	"POST /api/v1/cloud-agents/kill":         permOperate, // cancel cloud tasks; dry run by default (ADR-0034)
 
 	"POST /api/v1/requests/{id}/approve": permApprove,
 	"POST /api/v1/requests/{id}/deny":    permApprove,
+	// Approval rules (ADR-0030) narrow this further to their groups, in the handler.
+	"POST /api/v1/rollouts/{name}/approve": permApprove,
 
 	"GET /api/v1/audit": permAudit,
+	// The session ledger (ADR-0031) is per-person activity stored in the audit
+	// chain: read under the audit permission, never read alone.
+	"GET /api/v1/sessions":      permAudit,
+	"GET /api/v1/sessions/{id}": permAudit,
 
 	"POST /api/v1/devices/{id}/revoke":        permAdmin,
 	"POST /api/v1/users/{id}/revoke-sessions": permAdmin,
 	"POST /api/v1/toggles/{name}/propose":     permAdmin,
+	"POST /api/v1/sessions":                   permAdmin, // ingest normalized session records (halo sessions import)
+	"POST /api/v1/freeze":                     permAdmin, // incident freeze on/off (ADR-0030)
+	"POST /api/v1/revocations":                permAdmin, // per-credential revocation (ADR-0026)
+	"GET /api/v1/revocations":                 permAdmin,
 }
 
 // rolesFor returns the roles groups hold under id, in Roles order.
@@ -166,6 +181,7 @@ func (s *Server) route(m *routeMux, pattern string, next authedHandler) {
 // deny answers 403 and audits the attempt. Best effort: the request is refused
 // either way, and failing it with 500 on an audit error would hide the 403.
 func (s *Server) deny(w http.ResponseWriter, r *http.Request, p Principal, route string, need perm) {
+	s.metrics.deny(route)
 	s.Audit(r.Context(), p.ID, "authz.deny", r.URL.Path, map[string]string{
 		"route": route, "method": r.Method, "need": string(need), "roles": strings.Join(p.Roles, ","),
 	})

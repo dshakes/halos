@@ -53,8 +53,8 @@ Most of the core is the Go standard library:
 <!-- check: go.mod -->
 | Module | Version | Used for | Used by |
 | --- | --- | --- | --- |
-| `gopkg.in/yaml.v3` | `v3.0.1` | Policy YAML with strict decoding and line-numbered errors ([`internal/policy/load.go:143-144`](https://github.com/dshakes/halos/blob/main/internal/policy/load.go#L143-L144)), binary configs, and comment-preserving YAML edits for PRs. | `cmd/halo`, `cmd/halo-proxy`, `cmd/halo-shadow`, `cmd/halod`, `internal/eval`, `internal/gateway/kong`, `internal/intent`, `internal/mcpserver`, `internal/policy`, `internal/promote`, `internal/rollout`, `internal/server`, `internal/telemetry`, `internal/upgrade`, `internal/yamledit`; tests: `internal/gateway/adapters` |
-| `github.com/pelletier/go-toml/v2` | `v2.4.3` | Codex `config.toml` rendering, the rendered-config backstop, and toggle fragment merges. | `internal/harness/codex`, `internal/release`, `internal/toggle` |
+| `gopkg.in/yaml.v3` | `v3.0.1` | Policy YAML with strict decoding and line-numbered errors ([`internal/policy/load.go:143-144`](https://github.com/dshakes/halos/blob/main/internal/policy/load.go#L143-L144)), binary configs, and comment-preserving YAML edits for PRs. | `cmd/halo`, `cmd/halo-proxy`, `cmd/halo-shadow`, `cmd/halod`, `internal/cloudagents/workflow`, `internal/copilot`, `internal/eval`, `internal/gateway/kong`, `internal/intent`, `internal/mcpserver`, `internal/policy`, `internal/promote`, `internal/rollout`, `internal/server`, `internal/telemetry`, `internal/upgrade`, `internal/yamledit`; tests: `internal/gateway/adapters` |
+| `github.com/pelletier/go-toml/v2` | `v2.4.3` | Codex `config.toml` rendering, the rendered-config backstop, toggle fragment merges, reading users' Codex MCP servers for drift, and reading Codex settings for the sandbox/egress posture. | `cmd/halod`, `internal/harness`, `internal/harness/codex`, `internal/release`, `internal/toggle` |
 | `github.com/santhosh-tekuri/jsonschema/v6` | `v6.0.3` | Tests that validate policy documents against `schemas/*.schema.json`. | tests: `internal/policy` |
 | `howett.net/plist` | `v1.0.1` | macOS MDM configuration profile export. | `internal/delivery/mdm` |
 <!-- /check -->
@@ -64,9 +64,9 @@ Most of the core is the Go standard library:
 <!-- check: go.mod -->
 | Module | Version | Used for | Used by |
 | --- | --- | --- | --- |
-| `oras.land/oras-go/v2` | `v2.6.2` | Pushing and pulling release bundles and signed ring pointers as OCI artifacts ([`internal/bundle/bundle.go:50-125`](https://github.com/dshakes/halos/blob/main/internal/bundle/bundle.go#L50-L125)). | `cmd/halo`, `cmd/halod`, `internal/bundle`, `internal/server` |
-| `github.com/opencontainers/image-spec` | `v1.1.1` | OCI manifest and descriptor types. | `internal/bundle`; tests: `cmd/halo`, `cmd/halod` |
-| `github.com/opencontainers/go-digest` | `v1.0.0` | Content digests for blobs and pointer statements. | `internal/bundle` |
+| `oras.land/oras-go/v2` | `v2.6.2` | Pushing and pulling release bundles and signed ring pointers as OCI artifacts, and fetching digest-pinned supply-chain artifacts ([`internal/bundle/bundle.go:50-125`](https://github.com/dshakes/halos/blob/main/internal/bundle/bundle.go#L50-L125)). | `cmd/halo`, `cmd/halod`, `internal/bundle`, `internal/server`, `internal/supplychain` |
+| `github.com/opencontainers/image-spec` | `v1.1.1` | OCI manifest and descriptor types. | `internal/bundle`, `internal/supplychain`; tests: `cmd/halo`, `cmd/halod` |
+| `github.com/opencontainers/go-digest` | `v1.0.0` | Content digests for blobs and pointer statements. | `internal/bundle`, `internal/supplychain` |
 <!-- /check -->
 
 Signing itself uses the standard library: ed25519 primary signatures in [`internal/bundle/sign.go`](https://github.com/dshakes/halos/blob/main/internal/bundle/sign.go). cosign is an optional co-signer, called as an external `cosign sign-blob` process ([`internal/bundle/sign.go:103-190`](https://github.com/dshakes/halos/blob/main/internal/bundle/sign.go#L103-L190)); it is not a Go dependency.

@@ -27,7 +27,8 @@ func (a *app) cmdDoctor() *cobra.Command {
 		Short: "Check this machine and the policy repo; print the exact fix for each problem",
 		Long: "Detects the AI CLIs on PATH and their versions, the tools onboarding uses, which credential\n" +
 			"variables are set (never their values), whether the policy validates, whether the pinned CLI\n" +
-			"versions match, and whether the gateway answers. Exits 1 when a check fails.",
+			"versions match, whether the gateway answers, and each installed CLI's effective sandbox and egress\n" +
+			"posture (managed file, per-user settings and environment that weaken it). Exits 1 when a check fails.",
 		Args: cobra.NoArgs, Annotations: policyDirAnno,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			dir, err := policyDir(cmd, nil)

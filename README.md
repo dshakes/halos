@@ -55,7 +55,7 @@ Your platform team keeps a **policy repo**: a Git repo that `halo init` creates.
 org: acme
 tools: {claude-code: 2.1.280, codex: {version: 0.99.0, model: codex}}
 provider: anthropic                    # bedrock | vertex | openai | gemini | multi
-models: {default: claude-sonnet-4-5, strong: claude-opus-4-1, codex: openai/gpt-5-codex}
+models: {default: claude-sonnet-5-5, strong: claude-opus-5-5, codex: openai/gpt-5-codex}
 gateway: https://ai.acme.example
 identity: {issuer: https://login.acme.example, audience: halos, adminGroups: [ai-platform]}
 safety: standard                       # strict | standard | relaxed: never bypasses permissions
@@ -196,6 +196,7 @@ Traffic goes through `halo-proxy` to Anthropic, Bedrock (SigV4), Vertex, OpenAI,
 | OTel GenAI | `gen_ai.*` semantic-convention metrics and opt-in content-free spans from the gateway | [evidence plane](https://dshakes.github.io/halos/concepts/evidence-plane/) |
 | HA on Postgres | Several `halo-server` replicas behind one load balancer with a fenced controller lease | [production deployment](https://dshakes.github.io/halos/guides/production-deployment/) |
 | Vendor admin sync | One policy drives the vendors' cloud admin consoles; `halo admin plan` fails CI on drift, `apply` writes what has a public API and never loosens | [vendor admin sync](https://dshakes.github.io/halos/guides/vendor-admin-sync/) |
+| Change governance | Freeze windows and an incident freeze hold advances and promotions, never rollbacks; N-of-M approvals with separation of duties and tickets; `halo plan --diff` previews who a change reaches | [change governance](https://dshakes.github.io/halos/guides/change-governance/) |
 
 ## Runs everywhere
 
@@ -204,7 +205,7 @@ Traffic goes through `halo-proxy` to Anthropic, Bedrock (SigV4), Vertex, OpenAI,
   <img src="assets/everywhere-light.svg" alt="macOS, Linux, Windows, Dev Containers, Codespaces and Coder workspaces, CI runners, Kubernetes via Helm" width="880">
 </picture>
 
-The current release is [v0.3.0](https://github.com/dshakes/halos/releases/tag/v0.3.0) ([CHANGELOG](CHANGELOG.md)). Or build from source: `git clone https://github.com/dshakes/halos && cd halos && make build`.
+The current release is [v0.3.0](https://github.com/dshakes/halos/releases/tag/v0.3.0) ([CHANGELOG](CHANGELOG.md)). Or build from source: `git clone https://github.com/dshakes/halos && cd halos && make build` (builds `halo`, `halod`, `halo-shadow`, `halo-server`, `halo-proxy` and `halo-kong` into `bin/`).
 
 ```sh
 brew install dshakes/tap/halo                                                            # macOS / Linux

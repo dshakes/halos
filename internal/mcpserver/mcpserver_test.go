@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -24,7 +26,9 @@ func copyExample(t *testing.T) string {
 	if err := os.CopyFS(dir, os.DirFS(example)); err != nil {
 		t.Fatal(err)
 	}
-	for _, args := range [][]string{{"init", "-q"}, {"config", "user.name", "t"}, {"config", "user.email", "t@t"}, {"add", "."}, {"commit", "-qm", "init"}} {
+	// No background auto-maintenance after the commit: it races tests that
+	// copy the repo (maintenance.lock vanishing mid os.CopyFS).
+	for _, args := range [][]string{{"init", "-q"}, {"config", "user.name", "t"}, {"config", "user.email", "t@t"}, {"config", "maintenance.auto", "false"}, {"config", "gc.auto", "0"}, {"add", "."}, {"commit", "-qm", "init"}} {
 		if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
@@ -232,8 +236,8 @@ func TestPrompts(t *testing.T) {
 		t.Fatalf("argument not interpolated: %s", txt)
 	}
 	ps, err := cs.ListPrompts(context.Background(), nil)
-	if err != nil || len(ps.Prompts) != 5 {
-		t.Fatalf("want 5 prompts, got %v %v", ps, err)
+	if err != nil || len(ps.Prompts) != 6 {
+		t.Fatalf("want 6 prompts, got %v %v", ps, err)
 	}
 	// onboard: path is optional (the agent asks); every tool it names must exist.
 	res, err = cs.GetPrompt(context.Background(), &mcp.GetPromptParams{Name: "onboard"})
@@ -423,5 +427,108 @@ func TestResourcesIgnoreSymlinks(t *testing.T) {
 	}
 	if _, err := cs.ReadResource(context.Background(), &mcp.ReadResourceParams{URI: policyPrefix + "halos.yaml"}); err != nil {
 		t.Errorf("regular file: %v", err)
+	}
+}
+
+// Tool path arguments (eval suites, upgrade config, harvest output) get the
+// same symlink containment as policy resources.
+func TestPolicyFileRefusesSymlinkEscape(t *testing.T) {
+	dir := copyExample(t)
+	outside := t.TempDir()
+	suite := filepath.Join(outside, "suite.yaml")
+	if err := os.WriteFile(suite, []byte("name: smoke\ntasks: [x]\nmatrix: {harnesses: [{harness: codex, version: '1.0.0', models: [gpt]}]}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for name, target := range map[string]string{"link.yaml": suite, "linkdir": outside, "dangling": filepath.Join(outside, "nope")} {
+		if err := os.Symlink(target, filepath.Join(dir, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pairs.jsonl"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cs := connect(t, Options{PolicyDir: dir})
+	for _, c := range []struct {
+		tool string
+		args map[string]any
+	}{
+		{"eval_matrix", map[string]any{"suite": "link.yaml"}},
+		{"eval_matrix", map[string]any{"suite": "linkdir/suite.yaml"}},
+		{"eval_run", map[string]any{"suite": "link.yaml"}},
+		{"upgrade_candidates", map[string]any{"config": "linkdir/upgrade.yaml"}},
+		{"eval_harvest", map[string]any{"pairs": "pairs.jsonl", "out": "linkdir/steps"}},
+		{"eval_harvest", map[string]any{"pairs": "pairs.jsonl", "out": "dangling"}},
+		{"eval_harvest", map[string]any{"pairs": "pairs.jsonl", "out": "dangling/steps"}},
+	} {
+		if _, err := call(t, cs, c.tool, c.args); err == nil || !strings.Contains(err.Error(), "policy dir") && !strings.Contains(err.Error(), "resolve") {
+			t.Errorf("%s %v: err = %v, want a containment refusal", c.tool, c.args, err)
+		}
+	}
+	// a real file, and an output dir that does not exist yet, still resolve
+	if err := os.WriteFile(filepath.Join(dir, "suite.yaml"), []byte("name: smoke\ntasks: [x]\nmatrix: {harnesses: [{harness: codex, version: '1.0.0', models: [gpt]}]}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := call(t, cs, "eval_matrix", map[string]any{"suite": "suite.yaml"}); err != nil {
+		t.Errorf("regular suite: %v", err)
+	}
+	if _, err := call(t, cs, "eval_harvest", map[string]any{"pairs": "pairs.jsonl", "out": "new/steps"}); err != nil {
+		t.Errorf("new output dir: %v", err)
+	}
+}
+
+// Every copy-paste command a tool hands the human quotes its interpolated
+// values: a hostile name, reason or path cannot run anything when pasted.
+func TestCommandsAreShellQuoted(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("needs a POSIX sh")
+	}
+	dir := filepath.Join(t.TempDir(), "my policy")
+	if err := os.CopyFS(dir, os.DirFS(copyExample(t))); err != nil {
+		t.Fatal(err)
+	}
+	cs := connect(t, Options{PolicyDir: dir})
+
+	reason := `it's broken; $(touch pwned) "x"`
+	out, err := call(t, cs, "kill_switch", map[string]any{"name": "opus-5-5-canary", "reason": reason})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := shArgv(t, out["command"].(string)); !slices.Equal(got, []string{"halo", "kill", "opus-5-5-canary", "--kind", "experiment", "--reason", reason}) {
+		t.Errorf("kill command argv %q", got)
+	}
+
+	root := "/tmp/a b; id"
+	_, err = call(t, cs, "local_install", map[string]any{"ring": "ring0-harness-team", "root": root, "dry_run": false})
+	if err == nil {
+		t.Fatal("read-only install accepted")
+	}
+	_, cmd, _ := strings.Cut(err.Error(), "`")
+	cmd, _, _ = strings.Cut(cmd, "`")
+	if got := shArgv(t, cmd); !slices.Equal(got, []string{"halo", "onboard", "install", "--policy-dir", dir, "--apply", "--root", root}) {
+		t.Errorf("install command argv %q (from %q)", got, err)
+	}
+
+	out, err = call(t, cs, "release_build", map[string]any{"ring": "ring0-harness-team"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var publish string
+	for _, n := range out["next_steps"].([]any) {
+		if s := n.(string); strings.HasPrefix(s, "human gate (publishes") {
+			publish = s[strings.Index(s, "halo release publish"):strings.Index(s, " --key")]
+		}
+	}
+	if got := shArgv(t, publish); len(got) < 4 || got[3] != dir {
+		t.Errorf("publish command argv %q", got)
+	}
+
+	out, err = call(t, connect(t, Options{PolicyDir: dir, AllowWrites: true}), "pause_experiment", map[string]any{"name": "opus-5-5-canary", "reason": "r", "dry_run": false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gate := out["next_steps"].([]any)[0].(string)
+	push, _, _ := strings.Cut(strings.TrimPrefix(gate, "human gate: "), " && ")
+	if got := shArgv(t, push); len(got) < 3 || got[2] != dir {
+		t.Errorf("push command argv %q (from %q)", got, gate)
 	}
 }

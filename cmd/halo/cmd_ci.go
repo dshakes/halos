@@ -19,6 +19,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/dshakes/halos/internal/harness"
+	"github.com/dshakes/halos/internal/policy"
 	"github.com/dshakes/halos/internal/release"
 	"github.com/dshakes/halos/internal/server"
 )
@@ -132,6 +133,11 @@ func ciSubjectToken(ctx context.Context, hc *http.Client, getenv func(string) st
 }
 
 func ciExchange(ctx context.Context, hc *http.Client, srv, subject string) (server.TokenExchangeResponse, error) {
+	return postExchange(ctx, hc, srv, url.Values{"grant_type": {ciGrantTokenExchange}, "subject_token": {subject}, "subject_token_type": {ciTokenTypeJWT}})
+}
+
+// postExchange POSTs an RFC 8693 form to halo-server's token endpoint.
+func postExchange(ctx context.Context, hc *http.Client, srv string, form url.Values) (server.TokenExchangeResponse, error) {
 	var out server.TokenExchangeResponse
 	if srv == "" {
 		return out, errors.New("--server (or HALO_SERVER) is required")
@@ -141,9 +147,8 @@ func ciExchange(ctx context.Context, hc *http.Client, srv, subject string) (serv
 		return out, fmt.Errorf("--server %q is not an absolute URL", srv)
 	}
 	if u.Scheme != "https" && (u.Scheme != "http" || !isLoopbackHost(u.Hostname())) {
-		return out, fmt.Errorf("--server %q must be https (http only for loopback): the OIDC token is a credential", srv)
+		return out, fmt.Errorf("--server %q must be https (http only for loopback): the subject token is a credential", srv)
 	}
-	form := url.Values{"grant_type": {ciGrantTokenExchange}, "subject_token": {subject}, "subject_token_type": {ciTokenTypeJWT}}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), strings.NewReader(form.Encode()))
 	if err != nil {
 		return out, fmt.Errorf("token exchange: %w", err)
@@ -247,9 +252,6 @@ func orNone(s string) string {
 
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
-// forbiddenModes must never appear in anything halo writes (AGENTS.md invariant 1).
-var forbiddenModes = []string{"bypassPermissions", "danger-full-access"}
-
 func (a *app) cmdCIConfig() *cobra.Command {
 	var h, ring, osName, out, ver string
 	c := &cobra.Command{
@@ -332,10 +334,9 @@ func writeCIFiles(rel *release.Release, files []release.FileEntry, out string) (
 		if !ok {
 			return nil, fmt.Errorf("release is missing blob for %s", f.Path)
 		}
-		for _, m := range forbiddenModes {
-			if bytes.Contains(data, []byte(m)) {
-				return nil, fmt.Errorf("refusing to write %s: it contains %q", f.Path, m)
-			}
+		// invariant 1, re-checked at the last step before disk
+		if tok := policy.BypassToken(string(data)); tok != "" {
+			return nil, fmt.Errorf("refusing to write %s: it contains permission-bypass token %q (invariant 1)", f.Path, tok)
 		}
 		dst := safeJoin(out, f.Path)
 		if err := writeFile(dst, data, os.FileMode(f.Mode)); err != nil {

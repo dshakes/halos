@@ -12,8 +12,11 @@ import (
 //   - scalars: child wins when set (non-zero). ponytail: zero means "unset", so a
 //     child cannot turn a parent's true bool back to false; add pointer bools if needed.
 //   - slices: child replaces the parent's list when non-empty, EXCEPT
-//     permissions.deny, mcp.denied, hooks.items and the extensions deny/blocked
-//     lists, which union (see below).
+//     permissions.deny, mcp.denied, hooks.items, extensions.artifacts, the
+//     extensions deny/blocked lists, egress.deniedDomains and
+//     sandbox.protectedPaths, which union (see below).
+//   - sandbox.mode and permissions.sandbox are one setting: the result
+//     carries the effective mode in both.
 //   - maps: merged per key; struct values (e.g. harnesses) merge recursively,
 //     other values (e.g. overrides) are child-wins per key.
 //
@@ -28,6 +31,7 @@ func (o *Org) ResolveProfile(name string) (*Profile, error) {
 	var deny, mcpDenied, plugBlocked, skillDeny, agentDeny []string
 	var blockedMkts []Marketplace
 	var hooks []Hook
+	var artifacts, deniedDomains, protected []string
 	for i := len(chain) - 1; i >= 0; i-- {
 		mergeValue(reflect.ValueOf(out).Elem(), reflect.ValueOf(chain[i]).Elem())
 		deny = unionAppend(deny, chain[i].Permissions.Deny)
@@ -38,6 +42,10 @@ func (o *Org) ResolveProfile(name string) (*Profile, error) {
 		skillDeny = unionAppend(skillDeny, e.Skills.Deny)
 		agentDeny = unionAppend(agentDeny, e.Subagents.Deny)
 		blockedMkts = unionAppend(blockedMkts, e.BlockedMarketplaces)
+		artifacts = unionAppend(artifacts, e.Artifacts)
+		deniedDomains = unionAppend(deniedDomains, chain[i].Egress.DeniedDomains)
+		protected = unionAppend(protected, chain[i].Sandbox.ProtectedPaths)
+		syncSandboxMode(out, chain[i].Sandbox.Mode, chain[i].Permissions.Sandbox)
 	}
 	// Deny lists and hooks only accumulate down the chain: a child profile can
 	// add restrictions (or audit hooks) but never silently drop a parent's.
@@ -50,6 +58,10 @@ func (o *Org) ResolveProfile(name string) (*Profile, error) {
 	out.Extensions.Skills.Deny = skillDeny
 	out.Extensions.Subagents.Deny = agentDeny
 	out.Extensions.BlockedMarketplaces = blockedMkts
+	out.Extensions.Artifacts = artifacts
+	out.Egress.DeniedDomains = deniedDomains
+	out.Sandbox.ProtectedPaths = protected
+	o.resolveArtifacts(out)
 	out.Extends = ""
 	return out, nil
 }
@@ -75,6 +87,21 @@ func (o *Org) profileChain(name string) ([]*Profile, error) {
 		cur = p.Extends
 	}
 	return chain, nil
+}
+
+// syncSandboxMode applies one layer's sandbox mode, set as sandbox.mode or
+// permissions.sandbox (the later layer wins, as for any scalar), to both
+// fields of out. A layer setting the two differently keeps both for Validate
+// to report.
+func syncSandboxMode(out *Profile, mode, perm string) {
+	switch {
+	case mode != "" && perm != "":
+		out.Sandbox.Mode, out.Permissions.Sandbox = mode, perm
+	case mode != "":
+		out.Sandbox.Mode, out.Permissions.Sandbox = mode, mode
+	case perm != "":
+		out.Sandbox.Mode, out.Permissions.Sandbox = perm, perm
+	}
 }
 
 func unionAppend[T comparable](dst, src []T) []T {

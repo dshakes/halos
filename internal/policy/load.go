@@ -33,16 +33,36 @@ type Root struct {
 	Agents *Agents `yaml:"agents,omitempty" json:"agents,omitempty"`
 	// VendorAdmin drives the vendors' cloud admin consoles (ADR-0025).
 	VendorAdmin *VendorAdmin `yaml:"vendorAdmin,omitempty" json:"vendorAdmin,omitempty"`
+	// CloudAgents governs vendor-hosted background agents (ADR-0034).
+	CloudAgents *CloudAgents `yaml:"cloudAgents,omitempty" json:"cloudAgents,omitempty"`
+	// SupplyChain pins, scans and signs extension artifacts (ADR-0028).
+	SupplyChain *SupplyChain `yaml:"supplyChain,omitempty" json:"supplyChain,omitempty"`
+	// MCP is the approved MCP server registry (ADR-0029).
+	MCP *MCPRegistry `yaml:"mcp,omitempty" json:"mcp,omitempty"`
 	// Delegation is what units may add beyond the baseline (ADR-0018).
 	Delegation *Delegation `yaml:"delegation,omitempty" json:"delegation,omitempty"`
+	// Governance holds change-freeze windows and approval quorums (ADR-0030).
+	Governance *Governance `yaml:"governance,omitempty" json:"governance,omitempty"`
 	// Simple mode fields (tools, provider, models, ...): see simple.go.
 	Simple `yaml:",inline"`
 }
+
+// notFoundError carries an actionable message and still unwraps to fs.ErrNotExist.
+type notFoundError struct {
+	msg string
+	err error
+}
+
+func (e *notFoundError) Error() string { return e.msg }
+func (e *notFoundError) Unwrap() error { return e.err }
 
 // ReadRoot strictly decodes dir's halos.yaml.
 func ReadRoot(dir string) (*Root, error) {
 	rootPath := filepath.Join(dir, RootFile)
 	rb, err := os.ReadFile(rootPath)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, &notFoundError{fmt.Sprintf("no %s in %s; run 'halo init' (or 'halo onboard company'), or pass --policy-dir", RootFile, dir), err}
+	}
 	if err != nil {
 		return nil, fmt.Errorf("policy: read %s: %w", rootPath, err)
 	}
@@ -91,7 +111,9 @@ func Load(dir string) (*Org, error) {
 		return nil, err
 	}
 
-	org := &Org{Name: root.Org, Identity: root.Identity, SelfService: root.SelfService, Workloads: root.Workloads, Agents: root.Agents, VendorAdmin: root.VendorAdmin, Delegation: root.Delegation, Profiles: map[string]*Profile{}}
+	org := &Org{Name: root.Org, Identity: root.Identity, SelfService: root.SelfService, Workloads: root.Workloads, Agents: root.Agents, VendorAdmin: root.VendorAdmin, CloudAgents: root.CloudAgents, SupplyChain: root.SupplyChain, MCP: root.MCP, Delegation: root.Delegation, Governance: root.Governance, Profiles: map[string]*Profile{}}
+	org.loadLocalArtifacts(dir)
+	skip := artifactDirs(root)
 	if root.APIVersion == APIVersionV1Alpha1 {
 		org.Deprecations = append(org.Deprecations, deprecation(dir, rootPath))
 	}
@@ -114,6 +136,9 @@ func Load(dir string) (*Org, error) {
 			return nil
 		}
 		if rel, err := filepath.Rel(walkRoot, p); err == nil {
+			if underAny(filepath.ToSlash(rel), skip) {
+				return nil // artifact content, not policy
+			}
 			p = filepath.Join(dir, rel)
 		}
 		if p == rootPath {

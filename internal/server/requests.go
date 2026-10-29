@@ -40,6 +40,15 @@ type Request struct {
 	DecidedAt     *time.Time `json:"decidedAt,omitempty"`
 	PRURL         string     `json:"prURL,omitempty"`
 	Note          string     `json:"note,omitempty"`
+	// Ticket is the change ticket reference (Jira, ServiceNow, ...), required
+	// when an approval rule covering the requester asks for one (ADR-0030).
+	Ticket string `json:"ticket,omitempty"`
+	// Target is the requester's ring and unit chain when filed: what the
+	// approval rules are matched against.
+	Target *policy.ChangeTarget `json:"target,omitempty"`
+	// Approvals recorded so far; the request is decided when they meet every
+	// covering rule's quorum (one approval when no rule covers it).
+	Approvals []policy.Approval `json:"approvals,omitempty"`
 }
 
 // PolicyWriter turns an approved request into a reviewable change to the policy repo.
@@ -160,7 +169,19 @@ func (s *Server) postRequest(w http.ResponseWriter, r *http.Request, p Principal
 		apiErr(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
-	req := &Request{ID: randB64(9), User: p.ID, Kind: in.Kind, Item: in.Item, Justification: strings.TrimSpace(in.Justification), Status: StatusPending, CreatedAt: s.cfg.Now().UTC()}
+	target := org.SubjectTarget(p.subject())
+	if in.Ticket = strings.TrimSpace(in.Ticket); in.Ticket != "" {
+		if err := policy.ValidTicket(in.Ticket); err != nil {
+			apiErr(w, http.StatusUnprocessableEntity, err.Error())
+			return
+		}
+	}
+	if err := org.CheckTicket(target, in.Ticket); err != nil {
+		apiErr(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	req := &Request{ID: randB64(9), User: p.ID, Kind: in.Kind, Item: in.Item, Justification: strings.TrimSpace(in.Justification), Status: StatusPending, CreatedAt: s.cfg.Now().UTC(),
+		Ticket: in.Ticket, Target: &target}
 	if ring := org.ResolveRing(p.subject()); ring != nil {
 		req.Ring = ring.Name
 	}
@@ -195,7 +216,7 @@ func (s *Server) postRequest(w http.ResponseWriter, r *http.Request, p Principal
 	}
 	l.byID[req.ID] = req
 	s.cfg.Log.Info("access request", "id", req.ID, "user", p.ID, "kind", req.Kind, "item", req.Item)
-	s.Audit(r.Context(), p.ID, "request.create", req.ID, map[string]string{"kind": req.Kind, "item": req.Item})
+	s.Audit(r.Context(), p.ID, "request.create", req.ID, map[string]string{"kind": req.Kind, "item": req.Item, "ticket": req.Ticket})
 	writeJSON(w, http.StatusCreated, req)
 }
 
@@ -282,25 +303,66 @@ func (s *Server) decide(approve bool) authedHandler {
 			apiErr(w, http.StatusForbidden, "you cannot decide your own request")
 			return
 		}
-		finish := func(status, pr, note string) Request { // caller holds mu
+		var quorum *policy.QuorumResult
+		// persisted is how many approvals the store holds: a failed save drops
+		// the one recordApproval added (its audit entry stays), so a retry
+		// cannot see a quorum the store never recorded.
+		persisted := len(req.Approvals)
+		if approve {
+			var done bool
+			if quorum, done = s.recordApproval(w, r, p, req); done {
+				l.mu.Unlock()
+				return
+			}
+			if quorum != nil && !quorum.Met {
+				if err := l.save(req); err != nil {
+					req.Approvals = req.Approvals[:persisted]
+					l.mu.Unlock()
+					s.cfg.Log.Error("persist approval", "id", req.ID, "err", err)
+					apiErr(w, http.StatusInternalServerError, "store failed")
+					return
+				}
+				out := decisionView{Request: *req, Quorum: quorum}
+				l.mu.Unlock()
+				writeJSON(w, http.StatusAccepted, out)
+				return
+			}
+		}
+		// finish records the decision and answers it (caller holds mu). Nothing
+		// is reported decided unless it was persisted: a failed save puts the
+		// request back to pending (500, the admin retries) and a failed audit
+		// append is a 500 (AuditStrict; the persisted decision stands, as for
+		// session revocation).
+		finish := func(status, pr, note string) { // caller holds mu
+			prev := *req
 			now := s.cfg.Now().UTC()
 			req.Status, req.DecidedBy, req.DecidedAt, req.PRURL, req.Note = status, p.ID, &now, pr, note
+			if err := l.save(req); err != nil {
+				*req = prev
+				req.Status = StatusPending // also out of approving: nothing was recorded
+				req.Approvals = req.Approvals[:persisted]
+				s.cfg.Log.Error("persist decision", "id", req.ID, "pr", pr, "err", err)
+				msg := "store failed: decision not recorded"
+				if pr != "" {
+					msg += "; the policy PR is open: " + pr
+				}
+				apiErr(w, http.StatusInternalServerError, msg)
+				return
+			}
+			s.releasePending(req)
 			action := "request.deny"
 			if approve {
 				action = "request.approve"
 			}
-			s.Audit(r.Context(), p.ID, action, req.ID, map[string]string{"user": req.User, "kind": req.Kind, "item": req.Item, "prUrl": pr})
-			if err := l.save(req); err != nil {
-				s.cfg.Log.Error("persist decision", "id", req.ID, "err", err)
-			} else {
-				s.releasePending(req)
+			if err := s.AuditStrict(r.Context(), p.ID, action, req.ID, map[string]string{"user": req.User, "kind": req.Kind, "item": req.Item, "prUrl": pr, "ticket": req.Ticket}); err != nil {
+				apiErr(w, http.StatusInternalServerError, errAuditFailed)
+				return
 			}
-			return *req
+			writeJSON(w, http.StatusOK, decisionView{Request: *req, Quorum: quorum})
 		}
 		if !approve {
-			out := finish(StatusDenied, "", "")
+			finish(StatusDenied, "", "")
 			l.mu.Unlock()
-			writeJSON(w, http.StatusOK, out)
 			return
 		}
 		req.Status = StatusApproving // blocks double-approval while the PR opens
@@ -326,14 +388,16 @@ func (s *Server) decide(approve bool) authedHandler {
 		defer l.mu.Unlock()
 		switch {
 		case err == nil:
-			out := finish(StatusApproved, pr, "")
 			s.cfg.Log.Info("request approved", "id", req.ID, "by", p.ID, "pr", pr)
-			writeJSON(w, http.StatusOK, out)
+			finish(StatusApproved, pr, "")
 		case errors.Is(err, ErrManual):
-			out := finish(StatusApproved, "", "Approved; no automatic change available, a policy owner must apply it.")
-			writeJSON(w, http.StatusOK, out)
+			finish(StatusApproved, "", "Approved; no automatic change available, a policy owner must apply it.")
 		default:
-			req.Status = StatusPending // nothing lost: admin can retry
+			req.Status = StatusPending          // nothing lost: admin can retry
+			if err := l.save(req); err != nil { // keep the recorded approvals
+				req.Approvals = req.Approvals[:persisted]
+				s.cfg.Log.Error("persist approvals", "id", req.ID, "err", err)
+			}
 			s.cfg.Log.Error("policy writer failed", "id", req.ID, "err", err)
 			apiErr(w, http.StatusBadGateway, "could not open policy PR: "+err.Error())
 		}

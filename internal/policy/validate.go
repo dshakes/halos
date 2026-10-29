@@ -65,6 +65,10 @@ func (o *Org) Validate() []Issue {
 	v.workloads()
 	v.agents()
 	v.vendorAdmin()
+	v.cloudAgents()
+	v.governance()
+	v.supplyChain()
+	v.mcpRegistry()
 	for _, g := range builtinGuardrails {
 		v.issues = append(v.issues, g(o)...)
 	}
@@ -86,8 +90,11 @@ func (o *Org) Validate() []Issue {
 // widen what runs on members' machines: workload federation (tenant pinning,
 // subjects, TTLs), unit overlays and delegation (loosenings, forbidden env
 // keys, hooks, MCP servers), and agents (delegation depth and lifetime caps,
-// unpinned or plain-http remote AgentCards; ADR-0024).
-var securityPaths = []string{"workloads", "units[", "delegation", "agents"}
+// unpinned or plain-http remote AgentCards; ADR-0024), governance (freeze
+// windows and approval quorums: a broken rule must not silently stop
+// gating changes; ADR-0030), and the MCP registry (unpinned packages, auth
+// modes; ADR-0029).
+var securityPaths = []string{"workloads", "units[", "delegation", "agents", "governance", "mcp"}
 
 // SecurityIssues returns o's error-severity Validate issues on security fields
 // (securityPaths). halo-server and the gateways run it on every policy load
@@ -183,6 +190,7 @@ func (v *validator) gateway() {
 		v.route("gateway.models."+alias, g.Models[alias])
 	}
 	v.budgets(g)
+	v.dlp(g)
 }
 
 // upstreamKind checks the per-kind fields: where a provider's credential lives
@@ -334,6 +342,8 @@ func (v *validator) profileSpec(path string, p *Profile) {
 		v.oneOf(path+".login", "login", l, loginModes)
 	}
 	v.extensions(path+".extensions", p.Extensions)
+	v.egress(path+".egress", p.Egress)
+	v.sandbox(path, p)
 }
 
 var (

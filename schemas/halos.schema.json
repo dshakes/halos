@@ -455,6 +455,119 @@
       ],
       "description": "Simple mode: rollout preset (rings and step template; default standard)."
     },
+    "governance": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Change governance (ADR-0030): freeze windows that hold rollout advances and promotions (never rollbacks or the kill switch), and approver quorums with separation of duties. halo-server adds an incident freeze (`halo freeze on|off`).",
+      "properties": {
+        "freezes": {
+          "type": "array",
+          "description": "Change-freeze windows: one-off (start, end) or weekly, in a time zone.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "reason"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9._-]{0,62}$",
+                "description": "Unique window name (not `incident`, halo-server's incident freeze)."
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Shown to whoever the freeze stops."
+              },
+              "scope": {
+                "$ref": "#/$defs/changeScope"
+              },
+              "timezone": {
+                "type": "string",
+                "description": "IANA time zone, e.g. America/New_York (default UTC). Times are wall-clock there: DST moves the instant, not the time."
+              },
+              "start": {
+                "type": "string",
+                "description": "One-off start: 2026-12-18T18:00, 2026-12-18 (midnight) or RFC 3339 with an offset."
+              },
+              "end": {
+                "type": "string",
+                "description": "One-off end (exclusive), same formats as start."
+              },
+              "weekly": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "from",
+                  "to"
+                ],
+                "description": "Recurs every week from `from` to `to`; a `to` at or before `from` ends the next week.",
+                "properties": {
+                  "from": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z]{3} [0-2][0-9]:[0-5][0-9]$",
+                    "description": "Day and 24-hour time, e.g. \"Fri 18:00\"."
+                  },
+                  "to": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z]{3} [0-2][0-9]:[0-5][0-9]$",
+                    "description": "Day and 24-hour time, e.g. \"Mon 06:00\"."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "approvals": {
+          "type": "array",
+          "description": "Approver quorums. Every rule whose scope covers a change (access request, rollout step) must be met; the requester never counts.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "quorum",
+              "groups"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9._-]{0,62}$",
+                "description": "Unique rule name."
+              },
+              "scope": {
+                "$ref": "#/$defs/changeScope"
+              },
+              "quorum": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Approvals needed."
+              },
+              "groups": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "uniqueItems": true,
+                "description": "IdP or SCIM groups an approver must hold one of."
+              },
+              "distinctGroups": {
+                "type": "boolean",
+                "description": "Each counted approval must come from a different group."
+              },
+              "ticket": {
+                "type": "string",
+                "description": "Regular expression (matched whole) a change ticket reference must match, e.g. CHG[0-9]{7}. Recorded in the audit log and PR body."
+              }
+            }
+          }
+        }
+      }
+    },
     "vendorAdmin": {
       "type": "object",
       "description": "Vendor admin sync (ADR-0025): drive the vendors' cloud admin consoles from one ring's profile with `halo admin plan|apply|export`. A vendor is managed when its key is present. Credentials never live here.",
@@ -483,6 +596,65 @@
         "cursor": {
           "$ref": "#/$defs/vendorTarget",
           "description": "Cursor team model allowlist (exported for the dashboard)."
+        }
+      }
+    },
+    "cloudAgents": {
+      "type": "object",
+      "description": "Cloud agent governance (ADR-0034): background coding agents on vendor or CI infrastructure (Claude Code GitHub Action and cloud sessions, Codex cloud, Copilot cloud agent, Cursor cloud agents, Gemini CLI GitHub Action). A vendor is governed when its key is present. Credentials never live here.",
+      "additionalProperties": false,
+      "properties": {
+        "identities": {
+          "type": "array",
+          "description": "Vendor logins mapped to Halos users, so a cloud task resolves to its human's ring, experiments and budgets.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "user"
+            ],
+            "properties": {
+              "user": {
+                "type": "string",
+                "description": "Halos user id."
+              },
+              "github": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9-]{0,38}$",
+                "description": "GitHub login (Claude and Gemini actions, Copilot cloud agent)."
+              }
+            }
+          }
+        },
+        "server": {
+          "type": "string",
+          "pattern": "^https://",
+          "description": "halo-server base URL rendered workflows exchange their OIDC token at (identity: workload)."
+        },
+        "haloVersion": {
+          "type": "string",
+          "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$",
+          "description": "halo release tag rendered workflows install for the exchange (identity: workload)."
+        },
+        "claude": {
+          "$ref": "#/$defs/cloudAgent",
+          "description": "Claude Code GitHub Action (rendered workflow) and Claude Code cloud sessions (console)."
+        },
+        "codex": {
+          "$ref": "#/$defs/cloudAgent",
+          "description": "Codex cloud tasks (console; no public task API)."
+        },
+        "copilot": {
+          "$ref": "#/$defs/cloudAgent",
+          "description": "Copilot cloud agent (rendered copilot-setup-steps.yml; firewall read per repository)."
+        },
+        "cursor": {
+          "$ref": "#/$defs/cloudAgent",
+          "description": "Cursor cloud agents (Cloud Agents API: list, cancel, archive)."
+        },
+        "gemini": {
+          "$ref": "#/$defs/cloudAgent",
+          "description": "Gemini CLI GitHub Action (rendered workflow)."
         }
       }
     },
@@ -639,6 +811,71 @@
         }
       },
       "additionalProperties": false
+    },
+    "supplyChain": {
+      "type": "object",
+      "description": "Agent supply chain (ADR-0028): the skills, plugins, hooks, slash commands and agent definitions releases deliver, each pinned by content digest, statically scanned at `halo validate` and `halo release build`, optionally signature-checked, and listed in the release AI-BOM.",
+      "properties": {
+        "scan": {
+          "enum": [
+            "off",
+            "warn",
+            "enforce"
+          ],
+          "description": "Static scan mode: warn (default) reports findings as warnings, enforce makes them errors (as does `--strict`), off skips the scan."
+        },
+        "requireSignatures": {
+          "type": "boolean",
+          "description": "Refuse a git or oci artifact unless it is signed by a trusted identity."
+        },
+        "artifacts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/artifact"
+          },
+          "description": "Extension artifacts, referenced by name from a profile's extensions.artifacts."
+        },
+        "trustedIdentities": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/trustedIdentity"
+          },
+          "description": "Keys artifact signatures may be made with."
+        },
+        "allowFindings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/allowFinding"
+          },
+          "description": "Scan findings suppressed by content digest; changed content is scanned afresh. An entry that suppresses nothing warns."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "mcp": {
+      "type": "object",
+      "description": "Approved MCP server registry (ADR-0029). Releases render each ring's and unit's servers into every harness's native MCP settings; halod reports other or version-drifted servers in user configs.",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "allowlist",
+            "warn"
+          ],
+          "description": "allowlist (default): the registry is each harness's managed MCP allowlist and profiles, units and toggles may name only registry servers. warn: render the registry, block nothing else, report drift."
+        },
+        "servers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/mcpRegistryServer"
+          }
+        }
+      },
+      "required": [
+        "servers"
+      ],
+      "additionalProperties": false
     }
   },
   "required": [
@@ -671,6 +908,576 @@
             "experimental"
           ],
           "description": "Gemini Code Assist release channel (gemini only); unset leaves it unmanaged."
+        }
+      }
+    },
+    "changeScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "What a window or rule covers: changes to any listed ring, or reaching any listed unit's members (a ring change reaches every unit). Empty = org-wide.",
+      "properties": {
+        "rings": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true,
+          "description": "Ring names."
+        },
+        "units": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true,
+          "description": "Unit names (ADR-0018)."
+        }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "description": "One extension artifact. Set exactly one source: path, git or oci.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,62}$",
+          "description": "Name profiles reference."
+        },
+        "kind": {
+          "enum": [
+            "skill",
+            "plugin",
+            "hook",
+            "command",
+            "agent"
+          ],
+          "description": "skill: a directory holding SKILL.md; plugin: a plugin directory; hook: scripts a hooks.items command runs; command: one Markdown slash command; agent: one Markdown subagent definition."
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._@+-]+(/[A-Za-z0-9._@+-]+)*$",
+          "description": "File or directory in the policy repo, relative to its root."
+        },
+        "git": {
+          "type": "object",
+          "description": "A git repository pinned to a full commit id (branches and tags are refused).",
+          "properties": {
+            "url": {
+              "type": "string",
+              "pattern": "^(https|ssh|file)://",
+              "description": "https://, ssh:// or file:// URL."
+            },
+            "commit": {
+              "type": "string",
+              "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$",
+              "description": "Full commit id."
+            },
+            "path": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._@+-]+(/[A-Za-z0-9._@+-]+)*$",
+              "description": "Path within the repository (default its root)."
+            }
+          },
+          "required": [
+            "url",
+            "commit"
+          ],
+          "additionalProperties": false
+        },
+        "oci": {
+          "type": "string",
+          "pattern": "@sha256:[0-9a-f]{64}$",
+          "description": "Digest-pinned OCI reference host/repo@sha256:<hex>; each layer is one file named by its org.opencontainers.image.title annotation (`oras push`)."
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "description": "Artifact digest (`halo artifact digest <path>`): sha256 of the sorted `sha256sum` listing of its files. Required for git and oci; checked for path when set."
+        },
+        "signature": {
+          "type": "object",
+          "description": "Signature over the artifact digest.",
+          "properties": {
+            "identity": {
+              "type": "string",
+              "description": "A supplyChain.trustedIdentities name."
+            },
+            "file": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._@+-]+(/[A-Za-z0-9._@+-]+)*$",
+              "description": "Signature file in the policy repo: base64 ed25519 (`halo artifact sign`) or cosign sign-blob output."
+            }
+          },
+          "required": [
+            "identity",
+            "file"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "name",
+        "kind"
+      ],
+      "additionalProperties": false
+    },
+    "trustedIdentity": {
+      "type": "object",
+      "description": "A signing identity. Set exactly one of publicKey and cosignKey.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,62}$",
+          "description": "Name signatures reference."
+        },
+        "publicKey": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._@+-]+(/[A-Za-z0-9._@+-]+)*$",
+          "description": "ed25519 public key PEM in the policy repo (`halo keys generate`)."
+        },
+        "cosignKey": {
+          "type": "string",
+          "minLength": 1,
+          "description": "cosign public key reference: a file in the policy repo, an absolute path, or a KMS URI."
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "allowFinding": {
+      "type": "object",
+      "description": "A justified scan-finding suppression.",
+      "properties": {
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "description": "The artifact digest (any of its files) or one file's sha256 (that file only)."
+        },
+        "rule": {
+          "enum": [
+            "hidden-unicode",
+            "html-comment-instruction",
+            "permission-bypass",
+            "remote-exec",
+            "credential-path",
+            "exfil-url",
+            "base64-blob",
+            "executable-binary"
+          ],
+          "description": "Scan rule id."
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._@+-]+(/[A-Za-z0-9._@+-]+)*$",
+          "description": "File inside the artifact (default any)."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Why the finding is acceptable."
+        }
+      },
+      "required": [
+        "digest",
+        "rule",
+        "reason"
+      ],
+      "additionalProperties": false
+    },
+    "mcpRegistryServer": {
+      "type": "object",
+      "description": "One approved MCP server: exactly one transport (url, package, or command with a binary package), pinned.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "description": "Server name rendered into every harness (no '_' or '.': harnesses join it into tool names)."
+        },
+        "registryName": {
+          "type": "string",
+          "description": "Official MCP Registry server.json name it was imported from."
+        },
+        "version": {
+          "type": "string",
+          "description": "server.json version it was imported at."
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://",
+          "description": "Remote (streamable HTTP) server URL; also the audience of Halos-minted tokens."
+        },
+        "command": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "stdio command line; only with a binary package (the executable first)."
+        },
+        "package": {
+          "type": "object",
+          "description": "Pins a stdio server's code.",
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "npm",
+                "pypi",
+                "oci",
+                "binary"
+              ]
+            },
+            "identifier": {
+              "type": "string",
+              "description": "Package name (npm, pypi) or image reference without tag or digest (oci)."
+            },
+            "version": {
+              "type": "string",
+              "description": "Exact version (npm, pypi): no range, tag or latest."
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "description": "Image digest (oci) or executable digest (binary); required for both."
+            },
+            "args": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Appended to the derived command line."
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "HTTP headers; secrets as ${VAR} references resolved on the client."
+        },
+        "tools": {
+          "type": "object",
+          "description": "Narrows the server's tools (ADR-0029). deny wins over allow; empty allow = every tool.",
+          "properties": {
+            "allow": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.-]{1,128}$"
+              },
+              "description": "Only these tools (where the harness supports an allowlist; else a manifest warning)."
+            },
+            "deny": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.-]{1,128}$"
+              },
+              "description": "Never these tools."
+            }
+          },
+          "additionalProperties": false
+        },
+        "auth": {
+          "type": "object",
+          "description": "How clients authorize to a remote server (ADR-0029).",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": [
+                "none",
+                "oauth",
+                "enterprise",
+                "halos"
+              ],
+              "description": "none (default) | oauth (the server's authorization server) | enterprise (Enterprise-Managed Authorization: an ID-JAG from identity.issuer) | halos (halo-server mints audience-bound tokens)."
+            },
+            "issuer": {
+              "type": "string",
+              "format": "uri",
+              "pattern": "^https://",
+              "description": "Authorization server issuer (oauth, enterprise)."
+            },
+            "clientID": {
+              "type": "string",
+              "description": "Pre-registered OAuth client id (oauth, enterprise)."
+            },
+            "clientIDMetadataURL": {
+              "type": "string",
+              "format": "uri",
+              "pattern": "^https://",
+              "description": "https URL of an org-hosted Client ID Metadata Document (oauth); the URL is the client id."
+            },
+            "scopes": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^\\S+$"
+              },
+              "description": "Scopes to request (oauth, enterprise)."
+            }
+          },
+          "additionalProperties": false
+        },
+        "rings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Rings whose members get it."
+        },
+        "units": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Units (and units below them) whose members get it. Rings and units both empty = approved only (a toggle may deliver it)."
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "cloudAgent": {
+      "type": "object",
+      "description": "One vendor's cloud agent policy (ADR-0034).",
+      "additionalProperties": false,
+      "required": [
+        "enabled"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "false: nothing that runs the agent is rendered and every observed task is a violation."
+        },
+        "repos": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9-]{0,38}/([A-Za-z0-9._-]{1,100}|\\*)$"
+          },
+          "uniqueItems": true,
+          "description": "Repositories the agent may work in: owner/repo or owner/* (default every repository)."
+        },
+        "models": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$"
+          },
+          "uniqueItems": true,
+          "description": "Vendor model ids the agent may use; the first is rendered as the default where the vendor takes one."
+        },
+        "maxConcurrent": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Caps on running tasks.",
+          "properties": {
+            "perUser": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Running tasks per Halos user (0 = no cap)."
+            },
+            "perGroup": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Running tasks per listed group (0 = no cap)."
+            },
+            "groups": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true,
+              "description": "Groups that each get a perGroup counter (required with perGroup)."
+            }
+          }
+        },
+        "budgets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "description": "One budget (ADR-0017 fields) over vendor-reported task usage. action is warn only: cloud usage is reported after the fact, so onOverLimit decides whether to pause.",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Unique budget name.",
+                "pattern": "^[a-z0-9][a-z0-9._-]{0,62}$"
+              },
+              "scope": {
+                "type": "string",
+                "description": "Counter key: user (per verified subject), group (per listed group), ring (per ring) or org (one shared counter).",
+                "enum": [
+                  "user",
+                  "group",
+                  "ring",
+                  "org"
+                ]
+              },
+              "groups": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "uniqueItems": true,
+                "description": "Scope group: the groups that each get a counter (required). Other scopes: count only callers in one of these groups."
+              },
+              "rings": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "uniqueItems": true,
+                "description": "Count only callers routed to these rings (default every ring)."
+              },
+              "window": {
+                "type": "string",
+                "description": "day, week (from Monday) or month: calendar windows in UTC. rolling: the last period.",
+                "enum": [
+                  "day",
+                  "week",
+                  "month",
+                  "rolling"
+                ]
+              },
+              "period": {
+                "type": "string",
+                "description": "Rolling window length as a Go duration between 1h and 2160h, e.g. 24h. Rolling only.",
+                "pattern": "^([0-9]+(\\.[0-9]+)?(h|m|s))+$"
+              },
+              "limitUSD": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Spend cap in USD for the window, priced from pricing."
+              },
+              "limitTokens": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Token cap for the window (input + output + cache reads and writes)."
+              },
+              "action": {
+                "type": "string",
+                "description": "warn only (default); over-limit handling is onOverLimit.",
+                "enum": [
+                  "warn"
+                ]
+              },
+              "alertAt": {
+                "type": "array",
+                "items": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "exclusiveMaximum": 1
+                },
+                "description": "Soft thresholds as fractions of the limit (default [0.8]): a header and a metric when crossed."
+              }
+            },
+            "required": [
+              "name",
+              "scope",
+              "window"
+            ],
+            "anyOf": [
+              {
+                "required": [
+                  "limitUSD"
+                ]
+              },
+              {
+                "required": [
+                  "limitTokens"
+                ]
+              }
+            ],
+            "if": {
+              "properties": {
+                "window": {
+                  "const": "rolling"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "period"
+              ]
+            },
+            "else": {
+              "not": {
+                "required": [
+                  "period"
+                ]
+              }
+            },
+            "additionalProperties": false
+          },
+          "description": "Caps on vendor-reported task usage (ADR-0017 budget fields)."
+        },
+        "network": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode"
+          ],
+          "description": "Sandbox egress, where the vendor has a setting.",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": [
+                "none",
+                "allowlist",
+                "full"
+              ],
+              "description": "none: no egress; allowlist: only allow (plus the vendor's dependency list when recommended); full: any host (warned)."
+            },
+            "allow": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^(\\*\\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$"
+              },
+              "uniqueItems": true,
+              "description": "Extra domains; a leading *. matches subdomains."
+            },
+            "recommended": {
+              "type": "boolean",
+              "description": "Keep the vendor's own dependency allowlist (allowlist only)."
+            }
+          }
+        },
+        "identity": {
+          "type": "string",
+          "enum": [
+            "workload"
+          ],
+          "description": "workload: rendered workflows call the model through the Halos gateway with a short-lived workload credential (ADR-0023) instead of a repository secret (claude, gemini)."
+        },
+        "onOverLimit": {
+          "type": "string",
+          "enum": [
+            "alert",
+            "pause"
+          ],
+          "description": "alert (default) reports; pause also pauses the agent where the vendor API can, reversibly, and never resumes it."
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+([-+][0-9A-Za-z.-]+)?$",
+          "description": "Agent CLI version pin where the vendor takes one (gemini)."
+        },
+        "timeoutMinutes": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Job timeout of rendered workflows (copilot at most 59)."
         }
       }
     }

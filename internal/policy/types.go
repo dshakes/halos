@@ -68,6 +68,27 @@ type Org struct {
 	// when unset, like Toggles.
 	VendorAdmin *VendorAdmin `json:",omitempty"`
 
+	// CloudAgents governs vendor-hosted background agents (ADR-0034); omitted
+	// when unset, like Toggles.
+	CloudAgents *CloudAgents `json:",omitempty"`
+
+	// Governance holds change-freeze windows and approval quorums (ADR-0030);
+	// omitted when unset, like Toggles.
+	Governance *Governance `json:",omitempty"`
+
+	// SupplyChain declares the extension artifacts releases deliver
+	// (ADR-0028); omitted when unset, like Toggles.
+	SupplyChain *SupplyChain `json:",omitempty"`
+
+	// ArtifactContent is each artifact's resolved content, keyed by name:
+	// path sources read by Load, remote sources fetched by the release
+	// build. Not part of the snapshot.
+	ArtifactContent map[string]*ArtifactContent `json:"-"`
+
+	// MCP is the approved MCP server registry (ADR-0029); omitted when unset,
+	// like Toggles.
+	MCP *MCPRegistry `json:",omitempty"`
+
 	// Deprecations are load-time warnings (one per file still on a deprecated
 	// apiVersion) that Validate reports. Not part of the snapshot.
 	Deprecations []Issue `json:"-"`
@@ -141,6 +162,8 @@ type Gateway struct {
 	// Budgets cap spend per user, group, ring or org (ADR-0017). halo-proxy
 	// enforces them; halo-server holds the counters.
 	Budgets []Budget `yaml:"budgets,omitempty" json:"budgets,omitempty"`
+	// DLP is data-loss prevention and prompt-injection defense on model calls (ADR-0033).
+	DLP *DLP `yaml:"dlp,omitempty" json:"dlp,omitempty"`
 }
 
 // EngineExternal is a gateway Halos does not run.
@@ -283,6 +306,8 @@ type Profile struct {
 	Hooks       Hooks       `yaml:"hooks" json:"hooks"`
 	Telemetry   Telemetry   `yaml:"telemetry" json:"telemetry"`
 	Egress      Egress      `yaml:"egress" json:"egress"`
+	// Sandbox is the agent sandbox: mode, writable roots, protected paths (ADR-0032).
+	Sandbox Sandbox `yaml:"sandbox,omitempty" json:"sandbox,omitzero"`
 	// Extensions governs agent-extension surfaces: plugins and their marketplaces,
 	// skills, subagents, output style and status line.
 	Extensions Extensions `yaml:"extensions,omitempty" json:"extensions,omitempty"`
@@ -296,6 +321,10 @@ type Profile struct {
 	Instructions string `yaml:"instructions,omitempty" json:"instructions,omitempty"`
 	// Env is extra environment applied to every harness.
 	Env map[string]string `yaml:"env,omitempty" json:"env,omitempty"`
+
+	// Resolved is filled by Org.ResolveProfile from Extensions.Artifacts:
+	// the artifacts this profile delivers, with content (ADR-0028).
+	Resolved []ResolvedArtifact `yaml:"-" json:"-"`
 }
 
 type HarnessSpec struct {
@@ -343,6 +372,10 @@ type MCPServer struct {
 	URL     string            `yaml:"url,omitempty" json:"url,omitempty"`
 	Command []string          `yaml:"command,omitempty" json:"command,omitempty"`
 	Headers map[string]string `yaml:"headers,omitempty" json:"headers,omitempty"`
+	// Tools and Auth (ADR-0029) are usually filled from the halos.yaml mcp
+	// registry; omitzero keeps existing snapshot digests unchanged when unset.
+	Tools MCPTools `yaml:"tools,omitempty" json:"tools,omitzero"`
+	Auth  MCPAuth  `yaml:"auth,omitempty" json:"auth,omitzero"`
 }
 
 type Hooks struct {
@@ -365,9 +398,20 @@ type Telemetry struct {
 	Attributes   map[string]string `yaml:"attributes,omitempty" json:"attributes,omitempty"`
 }
 
+// Egress is the network egress policy for the agent's shell and fetch tools
+// (ADR-0032). See Egress.Rules for how the fields combine.
 type Egress struct {
-	// AllowedDomains is the only egress permitted from managed environments (firewall + harness sandbox).
+	// AllowedDomains is the allowlist: exact hosts or *.domain (subdomains only).
 	AllowedDomains []string `yaml:"allowedDomains,omitempty" json:"allowedDomains,omitempty"`
+	// Default is allow | deny for hosts no rule matches. Unset: deny when
+	// anything is allowed (allowedDomains or presets), allow otherwise.
+	Default string `yaml:"default,omitempty" json:"default,omitempty"`
+	// DeniedDomains always lose: a deny rule wins over any allow rule. Unions
+	// down an extends chain and across units.
+	DeniedDomains []string `yaml:"deniedDomains,omitempty" json:"deniedDomains,omitempty"`
+	// Presets are named domain sets added to the allowlist (EgressPresets):
+	// package-registries | vcs | model-providers.
+	Presets []string `yaml:"presets,omitempty" json:"presets,omitempty"`
 }
 
 // Marketplace source kinds for Extensions.Marketplaces.
@@ -399,6 +443,9 @@ type Extensions struct {
 	OutputStyle string `yaml:"outputStyle,omitempty" json:"outputStyle,omitempty"`
 	// StatusLine runs a managed command to render the status line.
 	StatusLine StatusLine `yaml:"statusLine,omitempty" json:"statusLine,omitempty"`
+	// Artifacts names halos.yaml supplyChain.artifacts this profile delivers
+	// (ADR-0028). Unions down an extends chain.
+	Artifacts []string `yaml:"artifacts,omitempty" json:"artifacts,omitempty"`
 }
 
 // Marketplace is one plugin marketplace source.

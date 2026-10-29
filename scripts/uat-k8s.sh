@@ -110,6 +110,12 @@ POL="$WORK/policy"
 cp -R examples/acme-corp "$POL"
 cp -Rf test/uat/k8s/policy-overlay/. "$POL/"
 sed -i.bak 's#https://acme.okta.com/oauth2/default#http://uatidp.uat-infra.svc.cluster.local:8080#' "$POL/halos.yaml"
+# acme's freeze windows (weekends, year end) would make the rollout scenario's outcome depend on
+# the wall clock; drop them. The approval rule stays and the UAT satisfies it (scenario e).
+sed -i.bak '/^  freezes:$/,/^  approvals:$/{/^  approvals:$/!d;}' "$POL/halos.yaml"
+if ! grep -q '^  approvals:$' "$POL/halos.yaml" || grep -q 'freezes:' "$POL/halos.yaml"; then
+  echo "uat-k8s: examples/acme-corp governance changed; update the freeze prune" >&2; exit 1
+fi
 sed -i.bak 's/upstream: orchestrator$/upstream: mock-b/' "$POL/experiments/opus-5-5-canary.yaml"
 sed -i.bak 's/upstream: anthropic-direct/upstream: mock-b/' "$POL/toggles/sonnet-next-route.yaml"
 find "$POL" -name '*.bak' -delete

@@ -1,12 +1,14 @@
 package server
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/netip"
@@ -245,11 +247,56 @@ const (
 	authFailBurst = 10
 	authFailEvery = 6 * time.Second // sustained: 10 failures/min/IP
 	maxLimiters   = 10000
+	// sharedFailWindow is the window of the cross-replica failure count: an
+	// IP (or IPv6 /64) with authFailBurst failures in it on any replicas is
+	// blocked on the replica that sees the count reach it, for this long.
+	sharedFailWindow = time.Minute
 )
 
+// authLimiter is one endpoint class's failed-auth budget per client address.
+// Addresses are keyed by limiterKey (IPv6 by /64). With a shared Backend
+// (ADR-0021, amended 2026-10-27) every failure is also counted in the
+// Backend, so N replicas grant one budget, not N: the replica whose failure
+// brings the shared count to authFailBurst blocks the address for
+// sharedFailWindow, and every other replica does at its next failure from it.
+// Only failures touch the Backend, and never from an address this replica
+// already blocks, so a flood costs at most authFailBurst+N writes a window.
 type authLimiter struct {
-	mu sync.Mutex
-	m  map[string]*rate.Limiter
+	mu     sync.Mutex
+	m      map[string]*limiterEntry
+	class  string         // endpoint class: the shared counter's key prefix
+	shared failureCounter // nil = this replica's memory only
+	log    *slog.Logger
+}
+
+type limiterEntry struct {
+	l     *rate.Limiter
+	until time.Time // blocked until then by the shared count (zero = not)
+}
+
+// failureCounter counts failed authentications across replicas (Backend).
+type failureCounter interface {
+	// CountAuthFailure adds one failure to key's count in the current window
+	// (judged on the store's clock) and returns the count.
+	CountAuthFailure(ctx context.Context, key string, window time.Duration) (int64, error)
+}
+
+// limiterKey is the address a failure is charged to: an IPv4 address, or
+// the /64 of an IPv6 one. A single IPv6 host usually controls its whole /64,
+// so keying per /128 would hand it 2^64 fresh budgets.
+func limiterKey(ip string) string {
+	a, err := netip.ParseAddr(ip)
+	if err != nil {
+		return ip
+	}
+	if a = a.Unmap(); a.Is4() {
+		return a.String()
+	}
+	p, err := a.WithZone("").Prefix(64)
+	if err != nil {
+		return ip
+	}
+	return p.String()
 }
 
 // clientIP is the rate-limit key. X-Forwarded-For is honoured only when the
@@ -289,50 +336,75 @@ func (s *Server) trustedProxy(a netip.Addr) bool {
 	return false
 }
 
-func (a *authLimiter) get(ip string) *rate.Limiter {
-	a.mu.Lock()
-	defer a.mu.Unlock()
+func (e *limiterEntry) blocking(now time.Time) bool { return e.l.Tokens() < 1 || now.Before(e.until) }
+
+// get returns key's entry, allocating it (caller holds mu).
+func (a *authLimiter) get(key string, now time.Time) *limiterEntry {
 	if a.m == nil {
-		a.m = map[string]*rate.Limiter{}
+		a.m = map[string]*limiterEntry{}
 	}
-	if len(a.m) >= maxLimiters && a.m[ip] == nil {
+	if len(a.m) >= maxLimiters && a.m[key] == nil {
 		// Bound memory without forgiving everyone: drop limiters that have fully
 		// refilled (they hold no penalty), then ones not currently blocking, and
 		// only if every IP is blocked, arbitrary ones.
 		// ponytail: O(n) scans when full; an LRU list if 10k penalised IPs is routine.
-		for k, l := range a.m {
-			if l.Tokens() >= authFailBurst {
+		for k, e := range a.m {
+			if e.l.Tokens() >= authFailBurst && !now.Before(e.until) {
 				delete(a.m, k)
 			}
 		}
 		for _, blockedToo := range []bool{false, true} {
-			for k, l := range a.m {
+			for k, e := range a.m {
 				if len(a.m) < maxLimiters {
 					break
 				}
-				if blockedToo || l.Tokens() >= 1 {
+				if blockedToo || !e.blocking(now) {
 					delete(a.m, k)
 				}
 			}
 		}
 	}
-	l := a.m[ip]
-	if l == nil {
-		l = rate.NewLimiter(rate.Every(authFailEvery), authFailBurst)
-		a.m[ip] = l
+	e := a.m[key]
+	if e == nil {
+		e = &limiterEntry{l: rate.NewLimiter(rate.Every(authFailEvery), authFailBurst)}
+		a.m[key] = e
 	}
-	return l
+	return e
 }
 
 // blocked reports whether ip has exhausted its failure budget.
 // Unknown IPs are not blocked and get no limiter (only failures allocate).
 func (a *authLimiter) blocked(ip string) bool {
 	a.mu.Lock()
-	l := a.m[ip]
-	a.mu.Unlock()
-	return l != nil && l.Tokens() < 1
+	defer a.mu.Unlock()
+	e := a.m[limiterKey(ip)]
+	return e != nil && e.blocking(time.Now())
 }
-func (a *authLimiter) fail(ip string) { a.get(ip).Allow() }
+
+// fail charges one failed authentication to ip, here and, with a shared
+// Backend, across replicas. A shared-store error leaves the local budget in
+// force (logged): the limiter never fails open further than one replica's.
+func (a *authLimiter) fail(ip string) {
+	key, now := limiterKey(ip), time.Now()
+	a.mu.Lock()
+	a.get(key, now).l.Allow()
+	a.mu.Unlock()
+	if a.shared == nil {
+		return
+	}
+	ctx, cancel := storage.Ctx()
+	defer cancel()
+	n, err := a.shared.CountAuthFailure(ctx, a.class+"/"+key, sharedFailWindow)
+	if err != nil {
+		orDefault(a.log).Warn("shared failed-auth count unavailable; this replica's budget still applies", "class", a.class, "err", err)
+		return
+	}
+	if n >= authFailBurst {
+		a.mu.Lock()
+		a.get(key, now).until = now.Add(sharedFailWindow)
+		a.mu.Unlock()
+	}
+}
 
 // ---- handlers ----
 

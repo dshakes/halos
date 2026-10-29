@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "disableBypassPermissionsMode": "disable"
+  },
+  "sandbox": {
+    "allowBypass": false,
+    "enabled": true,
+    "failIfUnavailable": true,
+    "userPolicy": {
+      "filesystem": {
+        "deniedPaths": [
+          "~/.ssh",
+          "~/.aws",
+          "/etc/secrets"
+        ],
+        "readwritePaths": [
+          "/opt/build-cache"
+        ]
+      },
+      "network": {
+        "allowedHosts": [
+          "gw.example.com",
+          "registry.npmjs.org",
+          "pypi.org",
+          "files.pythonhosted.org",
+          "proxy.golang.org",
+          "sum.golang.org",
+          "index.crates.io",
+          "static.crates.io",
+          "repo.maven.apache.org",
+          "rubygems.org"
+        ],
+        "blockedHosts": [
+          "pastebin.com"
+        ]
+      }
+    }
+  }
+}

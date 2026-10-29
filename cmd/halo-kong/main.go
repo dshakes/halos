@@ -32,7 +32,13 @@
 // posture_url (with posture_token) applies the posture gate of rings that set
 // posture warn|enforce; every ring's versionGate is applied from the policy
 // alone. Enforce answers 403; warn-mode failures and unknown posture pass,
-// logged at NOTICE and flagged upstream as x-halo-gate.
+// logged at NOTICE and flagged upstream as x-halo-gate. A posture config that
+// is set but invalid (an unset token env var, plain http) fails closed: enforce
+// rings answer 403, warn rings pass flagged posture=unknown.
+// A request that reaches the 1000-header cap of Kong's header view is a 431:
+// identity and the x-halo-* clear list are never derived from a truncated view.
+// With $HALO_KONG_METRICS_LISTEN set, gate, directory and admission outcomes
+// are counted on GET /metrics (metrics.go).
 // killswitch_url must be https unless it targets loopback or
 // killswitch_allow_insecure_in_cluster is true. An invalid kill-switch config
 // does not block traffic, but is logged at ERROR once a minute and flagged
@@ -47,6 +53,7 @@ import (
 	"os"
 	"regexp"
 	"runtime/debug"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -129,6 +136,18 @@ type Config struct {
 	// (default routing, no experiments; posture gate still applies) and closed
 	// answers 503. A caller is never made anonymous.
 	DirectoryFailMode string `json:"directory_fail_mode"`
+	// DirectoryMode: full (default) resolves callers in SCIM and checks
+	// halo-server credentials against the revocation list (ADR-0026);
+	// revocations checks only the revocation list, for a halo-server without SCIM.
+	DirectoryMode string `json:"directory_mode"`
+
+	// DLP audit: gateway.dlp findings are posted to halo-server's audit log
+	// (ADR-0033). Empty URL: findings are counted and logged only. The scan
+	// itself is policy and runs either way.
+	DLPURL   string `json:"dlp_url"`   // https://halo-server/api/v1/gateway/dlp
+	DLPToken string `json:"dlp_token"` // {vault://env/NAME} or literal (halo-server --gateway-dlp-token-file, else the shared gateway token)
+	// DLPAllowInsecure permits plain http to a non-loopback host.
+	DLPAllowInsecure bool `json:"dlp_allow_insecure_in_cluster"`
 }
 
 var (
@@ -232,25 +251,26 @@ var (
 )
 
 // postureClient returns the process-wide client for this config (its verdict
-// cache is shared by every route); nil when unconfigured or invalid (logged).
-func (c Config) postureClient(kong kongAPI) *gateway.PostureClient {
+// cache is shared by every route); nil when unconfigured. invalid reports a
+// posture_url whose config is invalid (logged): the gate then fails closed.
+func (c Config) postureClient(kong kongAPI) (pc *gateway.PostureClient, invalid bool) {
 	if c.PostureURL == "" {
-		return nil
+		return nil, false
 	}
 	tok := secret(c.PostureToken)
 	key := c.PostureURL + "\x00" + tok + "\x00" + strconv.FormatBool(c.PostureAllowInsecure)
 	postureMu.Lock()
 	defer postureMu.Unlock()
 	if pc, ok := postureClients[key]; ok {
-		return pc
+		return pc, false
 	}
 	pc, err := gateway.NewPostureClient(c.PostureURL, tok, 0, 0, nil, c.PostureAllowInsecure)
 	if err != nil {
-		_ = kong.Err("halo-kong: posture config invalid; posture gate off: ", err.Error())
-		return nil
+		_ = kong.Err("halo-kong: posture config invalid; enforce rings refuse every caller (403), warn rings pass with posture=unknown: ", err.Error())
+		return nil, true
 	}
 	postureClients[key] = pc
-	return pc
+	return pc, false
 }
 
 var (
@@ -266,13 +286,16 @@ func (c Config) directoryClient(kong kongAPI) (dc *gateway.DirectoryClient, inva
 		return nil, false
 	}
 	tok := secret(c.DirectoryToken)
-	key := c.DirectoryURL + "\x00" + tok + "\x00" + strconv.FormatBool(c.DirectoryAllowInsecure) + "\x00" + c.DirectoryFailMode
+	key := c.DirectoryURL + "\x00" + tok + "\x00" + strconv.FormatBool(c.DirectoryAllowInsecure) + "\x00" + c.DirectoryFailMode + "\x00" + c.DirectoryMode
 	directoryMu.Lock()
 	defer directoryMu.Unlock()
 	if dc, ok := directoryClients[key]; ok {
 		return dc, false
 	}
 	err := gateway.CheckDirectoryFailMode(c.DirectoryFailMode)
+	if err == nil {
+		err = gateway.CheckDirectoryMode(c.DirectoryMode)
+	}
 	if err == nil {
 		dc, err = gateway.NewDirectoryClient(c.DirectoryURL, tok, 0, 0, nil, c.DirectoryAllowInsecure)
 	}
@@ -281,8 +304,25 @@ func (c Config) directoryClient(kong kongAPI) (dc *gateway.DirectoryClient, inva
 		return nil, true
 	}
 	dc.FailClosed = c.DirectoryFailMode == gateway.DirectoryFailClosed
+	dc.RevocationsOnly = c.DirectoryMode == gateway.DirectoryModeRevocations
+	dc.Observe = kmetrics.directoryOutcome
 	directoryClients[key] = dc
 	return dc, false
+}
+
+// noRevocationWarned holds the workload_pubkey values already warned about.
+var noRevocationWarned sync.Map
+
+// warnNoRevocation logs gateway.NoRevocationWarning once per process for a
+// config that accepts halo-server credentials without a directory_url (the
+// plugin has no startup hook of its own: the first request is its startup).
+func (c Config) warnNoRevocation(kong kongAPI) {
+	if c.DirectoryURL != "" || c.WorkloadPubkey == "" {
+		return
+	}
+	if _, seen := noRevocationWarned.LoadOrStore(c.WorkloadPubkey, true); !seen {
+		_ = kong.Warn("halo-kong: ", gateway.NoRevocationWarning)
+	}
 }
 
 // directoryDown is the answer for a verified caller when the directory config
@@ -295,13 +335,42 @@ func (c Config) directoryDown(sub *policy.Subject, path string) (*policy.Subject
 	if sub == nil || sub.Kind == policy.SubjectWorkload { // workloads are not in SCIM: unchanged, as Resolve does
 		return sub, nil
 	}
-	return &policy.Subject{ID: sub.ID, Kind: sub.Kind}, nil
+	return gateway.FailOpenSubject(sub), nil // a delegated agent keeps its chain and the agent policy
+}
+
+// posture applies ring's posture gate. A configured but invalid posture
+// client never turns the gate off: the posture is unknown and, under
+// enforce, the request is refused.
+func (c Config) posture(kong kongAPI, org *policy.Org, ring string, sub *policy.Subject) (f *gateway.Finding, unknown bool) {
+	mode := gateway.RingGate(org, ring, gateway.GatePosture)
+	pc, invalid := c.postureClient(kong)
+	switch {
+	case invalid && mode == policy.GateEnforce:
+		f, unknown = &gateway.Finding{Gate: gateway.GatePosture, Mode: mode, Reason: "the gateway's posture config is invalid, so no verdict can be checked"}, true
+	case invalid && mode != policy.GateOff:
+		unknown = true
+	default:
+		f, unknown = gateway.CheckPosture(context.Background(), pc, org, ring, sub)
+	}
+	if mode != policy.GateOff && (pc != nil || invalid) {
+		outcome := "pass"
+		switch {
+		case f != nil && f.Reject("") != nil:
+			outcome = "deny"
+		case f != nil:
+			outcome = "fail"
+		case unknown:
+			outcome = "unknown"
+		}
+		kmetrics.postureOutcome(ring, outcome)
+	}
+	return f, unknown
 }
 
 // gate applies the ring's posture and version gates; outcomes is what failed
 // or was unknown (for the x-halo-gate upstream header), rej the 403 to answer.
 func (c Config) gate(kong kongAPI, org *policy.Org, ring string, sub *policy.Subject, h http.Header, proto string) (outcomes []string, rej *gateway.Rejection) {
-	pf, unknown := gateway.CheckPosture(context.Background(), c.postureClient(kong), org, ring, sub)
+	pf, unknown := c.posture(kong, org, ring, sub)
 	if unknown {
 		outcomes = append(outcomes, "posture=unknown")
 	}
@@ -316,6 +385,68 @@ func (c Config) gate(kong kongAPI, org *policy.Org, ring string, sub *policy.Sub
 		}
 	}
 	return outcomes, rej
+}
+
+var (
+	dlpMu        sync.Mutex
+	dlpReporters = map[string]*gateway.DLPReporter{} // by url, token, insecure; each runs for the process lifetime
+)
+
+// dlpReporter returns the process-wide reporter for this config; nil when
+// unconfigured or invalid (logged).
+func (c Config) dlpReporter(kong kongAPI) *gateway.DLPReporter {
+	if c.DLPURL == "" {
+		return nil
+	}
+	tok := secret(c.DLPToken)
+	key := c.DLPURL + "\x00" + tok + "\x00" + strconv.FormatBool(c.DLPAllowInsecure)
+	dlpMu.Lock()
+	defer dlpMu.Unlock()
+	if r, ok := dlpReporters[key]; ok {
+		return r
+	}
+	r, err := gateway.NewDLPReporter(c.DLPURL, tok, 0, nil, c.DLPAllowInsecure)
+	if err != nil {
+		_ = kong.Err("halo-kong: dlp config invalid; findings are not audited: ", err.Error())
+		dlpReporters[key] = nil // log once per config
+		return nil
+	}
+	dlpReporters[key] = r
+	go r.Run(context.Background()) // ponytail: a rotated token leaves the old reporter idle, not stopped; add cancel as killEntry does if rotations are frequent
+	return r
+}
+
+// dlp records a request's DLP scan: metrics, a log line without the secret,
+// and the audit events.
+func (c Config) dlp(kong kongAPI, org *policy.Org, sub *policy.Subject, h http.Header, res gateway.Result) {
+	if res.DLP != nil && res.DLP.Truncated {
+		outcome := "forwarded"
+		if res.DLP.Blocked == gateway.DLPTruncated {
+			outcome = "blocked"
+			_ = kong.Notice("halo-kong: dlp refused a request it could not scan in full (secret action block, ring ", res.Decision.Ring, ")")
+		}
+		kmetrics.dlpTruncated(outcome)
+	}
+	if res.DLP == nil || len(res.DLP.Findings) == 0 {
+		return
+	}
+	units := gateway.SubjectUnits(org, sub)
+	base := gateway.DLPEvent{At: time.Now().UTC(), Gateway: "halo-kong", Ring: res.Decision.Ring, Protocol: res.Protocol, Harness: gateway.HarnessFromUA(h.Get("User-Agent"))}
+	if sub != nil {
+		base.Subject = sub.ID
+		if sub.Delegation.Depth() > 0 {
+			base.Chain = sub.Delegation.Chain()
+		}
+	}
+	if len(units) > 0 {
+		base.Unit = units[0]
+	}
+	evs := gateway.DLPEvents(res.DLP, base)
+	for _, e := range evs {
+		kmetrics.dlpFinding(e.Kind, e.Detector, e.Action)
+		_ = kong.Notice("halo-kong: dlp ", e.Kind, " ", e.Detector, " ", e.Action, " at ", e.Location, " #", e.Hash, " (ring ", e.Ring, ")")
+	}
+	c.dlpReporter(kong).Report(evs...)
 }
 
 var envVaultRef = regexp.MustCompile(`^\{vault://env/([A-Za-z0-9_-]+)\}$`)
@@ -375,7 +506,11 @@ type kongAPI interface {
 
 type pdkAPI struct{ k *pdk.PDK }
 
-func (a pdkAPI) Headers() (map[string][]string, error) { return a.k.Request.GetHeaders(1000) }
+// maxHeaders is the most header lines Kong hands the plugin (go-pdk's cap).
+// Kong truncates silently, so reaching it is answered 431 (headerCapReached).
+const maxHeaders = 1000
+
+func (a pdkAPI) Headers() (map[string][]string, error) { return a.k.Request.GetHeaders(maxHeaders) }
 func (a pdkAPI) Path() (string, error)                 { return a.k.Request.GetPath() }
 func (a pdkAPI) RawBody() ([]byte, error)              { return a.k.Request.GetRawBody() }
 func (a pdkAPI) PeerIP() (string, error)               { return a.k.Client.GetIp() }
@@ -435,7 +570,29 @@ func exit(kong kongAPI, r *gateway.Rejection) {
 
 func New() interface{} { return &Config{} }
 
-func main() { _ = server.StartServer(New, version, priority) }
+func main() {
+	if addr := os.Getenv(metricsListenEnv); addr != "" && !dumpOnly(os.Args[1:]) {
+		serveMetrics(addr)
+	}
+	_ = server.StartServer(New, version, priority)
+}
+
+// dumpOnly: Kong runs the binary with -dump to read its schema and exit; that
+// run must not take the metrics port from the serving process.
+func dumpOnly(args []string) bool {
+	return slices.ContainsFunc(args, func(a string) bool { return strings.TrimLeft(a, "-") == "dump" })
+}
+
+// headerCapReached reports a header view at Kong's cap: it may be truncated,
+// so a duplicate identity header or an x-halo-* name past the cap would be
+// invisible. Counted per value, as Kong counts header lines.
+func headerCapReached(raw map[string][]string) bool {
+	n := 0
+	for _, vs := range raw {
+		n += max(len(vs), 1)
+	}
+	return n >= maxHeaders
+}
 
 func (c Config) Access(kong *pdk.PDK) { c.access(pdkAPI{kong}) }
 
@@ -455,14 +612,26 @@ func (c Config) access(kong kongAPI) {
 		// Fail open on routing (Kong's default service), never on header hygiene.
 		_ = kong.Err("halo-kong: policy: ", err.Error())
 	}
-	raw, _ := kong.Headers()
+	path, _ := kong.Path()
+	raw, err := kong.Headers()
+	if err != nil {
+		// Without the header view nothing can be stripped or verified: refuse, never forward.
+		_ = kong.Err("halo-kong: request refused: read headers: ", err.Error())
+		exit(kong, &gateway.Rejection{Status: http.StatusInternalServerError, Protocol: gateway.ProtocolForPath(path), Message: "halos: could not read request headers"})
+		return
+	}
+	if headerCapReached(raw) {
+		kmetrics.headerCapRejected()
+		_ = kong.Warn("halo-kong: request refused: header count reached the ", strconv.Itoa(maxHeaders), "-header cap")
+		exit(kong, &gateway.Rejection{Status: http.StatusRequestHeaderFieldsTooLarge, Protocol: gateway.ProtocolForPath(path), Message: "too many request headers"})
+		return
+	}
 	h := http.Header{}
 	for k, vs := range raw {
 		for _, v := range vs {
 			h.Add(k, v)
 		}
 	}
-	path, _ := kong.Path()
 	sub, enforced, err := c.verify(kong, org, h)
 	if err != nil {
 		exit(kong, &gateway.Rejection{Status: http.StatusBadRequest, Protocol: gateway.ProtocolForPath(path), Message: "identity header sent more than once"})
@@ -480,27 +649,31 @@ func (c Config) access(kong kongAPI) {
 		return
 	}
 
+	c.warnNoRevocation(kong)
 	if dc, invalid := c.directoryClient(kong); dc != nil {
 		if sub, err = dc.Resolve(context.Background(), sub); err != nil { // a deprovisioned caller is refused, never anonymous
-			rej := gateway.RejectNotProvisioned(path)
-			if errors.Is(err, gateway.ErrDirectoryUnavailable) {
-				rej = gateway.RejectDirectoryUnavailable(path)
-			}
-			exit(kong, rej)
+			exit(kong, gateway.DirectoryReject(path, err)) // revoked, unavailable or not provisioned
 			return
 		}
 	} else if invalid {
 		var rej *gateway.Rejection
 		if sub, rej = c.directoryDown(sub, path); rej != nil {
+			kmetrics.directoryOutcome("invalid_config_refused")
 			exit(kong, rej)
 			return
 		}
+		kmetrics.directoryOutcome("invalid_config_failopen")
 	}
 	ks, ksBad := c.killPoller(kong)
 	res := gateway.PrepareVerified(ks.Apply(org), sub, h, path, body) // killed experiments: control, no shadow
+	c.dlp(kong, org, sub, h, res)
 	if res.Reject != nil {
 		if res.RewriteErr != nil {
 			_ = kong.Warn("halo-kong: rewrite failed: ", res.RewriteErr.Error())
+		}
+		if res.Reject.Code == gateway.CodeAgentNotPermitted {
+			kmetrics.agentDenied()
+			_ = kong.Notice("halo-kong: delegated agent refused: ", res.Reject.Message)
 		}
 		exit(kong, res.Reject)
 		return
@@ -515,9 +688,9 @@ func (c Config) access(kong kongAPI) {
 		}
 	}
 
-	// x-halo-killswitch is set below; clear any client copy even if Kong's
-	// header list (capped at 1000) was truncated before it.
-	for _, n := range append(append(res.ClearHeaders, "x-halo-killswitch"), c.identityOptions(org).HeaderNames(org)...) {
+	// res.ClearHeaders holds every owned name (x-halo-gate and
+	// x-halo-killswitch included) whether or not the client sent it.
+	for _, n := range append(res.ClearHeaders, c.identityOptions(org).HeaderNames(org)...) {
 		_ = kong.ClearHeader(n)
 	}
 	if !c.ForwardClientCredentials {
@@ -529,10 +702,10 @@ func (c Config) access(kong kongAPI) {
 		_ = kong.SetHeader(k, v)
 	}
 	if ksBad {
-		_ = kong.SetHeader("x-halo-killswitch", "misconfigured") // alertable; client copies were cleared above
+		_ = kong.SetHeader(gateway.HeaderKillswitch, "misconfigured") // alertable; client copies were cleared above
 	}
 	if len(gates) > 0 {
-		_ = kong.SetHeader("x-halo-gate", strings.Join(gates, ",")) // warn-mode and unknown outcomes, for the log pipeline
+		_ = kong.SetHeader(gateway.HeaderGate, strings.Join(gates, ",")) // warn-mode and unknown outcomes, for the log pipeline
 	}
 	prefix := ""
 	if d.Upstream != "" {

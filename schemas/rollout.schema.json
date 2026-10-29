@@ -195,7 +195,8 @@
       "properties": {
         "release": {
           "type": "string",
-          "description": "Client axis: release digest the ring pointers move to."
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "description": "Client axis: release digest (sha256:<64 hex>) the ring pointers move to. Step approvals are keyed on it."
         },
         "version": {
           "type": "string",

@@ -28,11 +28,13 @@ var publicRoutes = []string{
 	"GET /scim/v2/Groups", "POST /scim/v2/Groups", "GET /scim/v2/Groups/{id}", "PUT /scim/v2/Groups/{id}", "PATCH /scim/v2/Groups/{id}", "DELETE /scim/v2/Groups/{id}",
 	"/scim/v2/", "GET /api/v1/gateway/directory",
 	// Gateway token (gatewayAuth): halo-proxy reports usage and asks for verdicts.
-	"POST /api/v1/gateway/budget/check", "POST /api/v1/gateway/budget/usage",
+	"POST /api/v1/gateway/budget/check", "POST /api/v1/gateway/budget/usage", "POST /api/v1/gateway/dlp/events",
 	// Authenticated by the CI provider's OIDC token, verified against policy workloads (ADR-0023).
 	"POST /api/v1/token/exchange",
 	// Bearer: a Halos workload or delegated agent credential signed by this server (ADR-0024).
 	"POST /api/v1/agents/egress",
+	// GitHub's X-Hub-Signature-256 HMAC over the body, against the configured webhook secrets (ADR-0034).
+	"POST /api/v1/cloud-agents/webhooks/github",
 	"/api/", "/",
 }
 

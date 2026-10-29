@@ -32,7 +32,7 @@ func TestGitPolicyWriterProposeStatus(t *testing.T) {
 		!strings.Contains(r.Body, "requested by adm") || !strings.Contains(r.Body, "+status: paused") || r.Edit == nil {
 		t.Fatalf("req = %+v", r)
 	}
-	want := []string{"rev-parse --show-toplevel", "fetch origin trunk", "checkout -f -B trunk origin/trunk", "clean -fd", "checkout -f -B trunk origin/trunk", "clean -fd"}
+	want := []string{"rev-parse --show-toplevel", "fetch origin trunk", "-c core.autocrlf=false -c core.eol=lf checkout -f -B trunk origin/trunk", "clean -fd", "-c core.autocrlf=false -c core.eol=lf checkout -f -B trunk origin/trunk", "clean -fd"}
 	if !slices.Equal(gitCalls, want) {
 		t.Fatalf("git calls: %v", gitCalls)
 	}

@@ -195,6 +195,32 @@ ENGINE = MergeTree
 PARTITION BY toYYYYMM(ts)
 ORDER BY (suite, task, variant, run_id, repeat);
 
+-- Delivery outcomes per pull/merge request (`halo roi ingest`, ADR-0027): the
+-- input to `halo roi report`. No titles, bodies or diffs. author is the SCM
+-- login (lowercased); subject is set only when the export knew the Halos user
+-- id, otherwise the identity roster maps author at report time. Re-ingesting a
+-- window replaces rows (ReplacingMergeTree on ingested_at; read with FINAL), so
+-- late reverts and merges land.
+CREATE TABLE IF NOT EXISTS halo.halo_delivery_prs
+(
+    source         LowCardinality(String),   -- github | file | the export's own label
+    repo           String,
+    number         UInt64,
+    author         String,
+    subject        String,
+    bot            Bool,
+    opened_at      DateTime64(3),
+    merged_at      Nullable(DateTime64(3)),
+    review_rounds  UInt32,                   -- change requests + 1 once reviewed
+    additions      UInt32,
+    deletions      UInt32,
+    change_failure Bool,                     -- reverted, or referenced by a merged hotfix
+    ingested_at    DateTime64(3)
+)
+ENGINE = ReplacingMergeTree(ingested_at)
+PARTITION BY toYYYYMM(opened_at)
+ORDER BY (source, repo, number);
+
 -- Shadow traffic: first-turn request mirrored to a candidate, with judge scores.
 CREATE TABLE IF NOT EXISTS halo.halo_shadow_pairs
 (
@@ -238,3 +264,55 @@ SELECT
 FROM halo.halo_metrics
 WHERE metric = 'halo.eval.judge.score'
 GROUP BY hour, experiment, variant, rubric, judge, source;
+
+-- Agent session ledger (ADR-0031): a query copy of the session records
+-- halo-server stores in its hash-chained audit log (action session.record),
+-- written by `halo sessions import --write-clickhouse`. The audit chain is
+-- the record of truth: record_sha256 is the SHA-256 of the record JSON in that
+-- entry's details.record. One row per stored version; ReplacingMergeTree keeps
+-- the latest per id.
+-- No column can hold prompt text: every string is an identifier, and repos
+-- and files are h:<hmac> hashes or empty (files_touched still counts them).
+CREATE TABLE IF NOT EXISTS halo.halo_session_ledger
+(
+    id               String,
+    session_id       String,
+    user             String,                  -- Halos identity (directory), '' when unresolved
+    vendor_user      String,                  -- identity the source reported
+    unit_id          String,                  -- halo.unit pseudonym (gateway evidence)
+    agents           Array(String),           -- delegated agent chain, root side first
+    harness          LowCardinality(String),
+    harness_version  LowCardinality(String),
+    release          String,
+    ring             LowCardinality(String),
+    experiment       LowCardinality(String),
+    variant          LowCardinality(String),
+    models           Array(LowCardinality(String)),
+    mcp_servers      Array(String),
+    tools            Array(String),
+    repos            Array(String),
+    files            Array(String),
+    files_touched    UInt32,
+    dlp_secrets      UInt32,                  -- gateway DLP findings (ADR-0033): counts only
+    dlp_injections   UInt32,
+    input_tokens     UInt64,
+    output_tokens    UInt64,
+    cost_usd         Float64,
+    started_at       DateTime64(3),
+    ended_at         DateTime64(3),           -- epoch when unknown
+    outcome          LowCardinality(String),  -- completed | error | cancelled | unknown
+    sources          Array(LowCardinality(String)),
+    confidence       LowCardinality(String),  -- high | medium | low
+    redacted         UInt32,
+    stored_at        DateTime64(3),
+    record_sha256    String
+)
+ENGINE = ReplacingMergeTree(stored_at)
+PARTITION BY toYYYYMM(started_at)
+ORDER BY (id)
+TTL toDateTime(started_at) + INTERVAL 400 DAY;
+
+-- Columns added after the table was first created (ADR-0033): existing
+-- deployments pick them up on the next apply.
+ALTER TABLE halo.halo_session_ledger ADD COLUMN IF NOT EXISTS dlp_secrets UInt32 AFTER files_touched;
+ALTER TABLE halo.halo_session_ledger ADD COLUMN IF NOT EXISTS dlp_injections UInt32 AFTER dlp_secrets;

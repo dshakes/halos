@@ -206,7 +206,7 @@ func device(t *testing.T, s *u) {
 	s.r.check(t, sc, "Claude/Codex/Gemini managed config at the linux managed paths", len(missing) == 0, "files %v; missing %v", managed, missing)
 	set := s.settings(t)
 	s.r.check(t, sc, "claude managed-settings from this release, bypass mode disabled", strings.Contains(set, "halo.release="+s.version[s.devRing]) &&
-		strings.Contains(set, `"disableBypassPermissionsMode": "disable"`) && !strings.Contains(set, "bypassPermissions\""), "halo.release=%s present", s.version[s.devRing])
+		strings.Contains(set, "\n    \"disableBypassPermissionsMode\": \"disable\"") && !strings.Contains(set, "bypassPermissions\""), "halo.release=%s present", s.version[s.devRing])
 
 	adminC := s.login(t, admin, "ai-platform")
 	_, fleet := do(t, adminC, "GET", portalURL+"/api/v1/fleet", "", nil)
@@ -295,7 +295,7 @@ func traffic(t *testing.T, s *u) {
 			rp = s.send(t, s.mint(t, user, groups...), "haiku", map[string]string{"x-halo-ring": "ring3-ga", "x-halo-variant": "spoofed"})
 		}
 		s.r.check(t, sc, "valid JWT ("+ring+") reaches the upstream with ring stamped; spoofed x-halo-* stripped",
-			rp.code == 200 && rp.servedBy == "mock-a" && rp.model == "claude-haiku-4-5" && rp.ring == ring && rp.variant != "spoofed" && !strings.Contains(rp.body, "ceo@acme.com"),
+			rp.code == 200 && rp.servedBy == "mock-a" && rp.model == "claude-haiku-5-5" && rp.ring == ring && rp.variant != "spoofed" && !strings.Contains(rp.body, "ceo@acme.com"),
 			"%d served-by=%s model=%s upstream saw x-halo-ring=%s (client sent a spoofed ring/variant/user)", rp.code, rp.servedBy, rp.model, rp.ring)
 	}
 	ga := s.mint(t, s.byRing["ring3-ga"])
@@ -406,7 +406,7 @@ func toggles(t *testing.T, s *u) {
 	rp := s.send(t, adminTok, "sonnet", nil)
 	s.r.check(t, sc, "traffic toggle sonnet-next-route ON for its cohort (ring0) at the gateway", rp.servedBy == "mock-b" && rp.model == "claude-sonnet-5-5", "admin -> %s/%s", rp.servedBy, rp.model)
 	rp = s.send(t, s.mint(t, s.byRing["ring3-ga"]), "sonnet", nil)
-	s.r.check(t, sc, "... and OFF outside it", rp.servedBy == "mock-a" && rp.model == "claude-sonnet-4-5", "ring3 user -> %s/%s", rp.servedBy, rp.model)
+	s.r.check(t, sc, "... and OFF outside it", rp.servedBy == "mock-a" && rp.model == "claude-sonnet-5-5", "ring3 user -> %s/%s", rp.servedBy, rp.model)
 	s.r.check(t, sc, "client toggle format-hook ON on the device (group acme-platform-eng)", strings.Contains(s.settings(t), "acme-format-hook"), "managed-settings.json carries the hook")
 
 	ptrs := map[string]string{}
@@ -421,7 +421,7 @@ func toggles(t *testing.T, s *u) {
 		r := s.sh(t, laptopNS, laptop, "", "HALO_SERVER="+portalURL+" HALO_SESSION="+sess+" halo toggle kill "+tg+" --reason 'uat: kill drill'")
 		s.r.check(t, sc, "halo toggle kill "+tg+" via the halo-server API (admin session)", r.code == 0, "%s", lastLine(r.out+r.err))
 	}
-	gw := waitFor(t, 60*time.Second, "gateway toggle off", func() bool { rp := s.send(t, adminTok, "sonnet", nil); return rp.model == "claude-sonnet-4-5" })
+	gw := waitFor(t, 60*time.Second, "gateway toggle off", func() bool { rp := s.send(t, adminTok, "sonnet", nil); return rp.model == "claude-sonnet-5-5" })
 	s.r.check(t, sc, "killed traffic toggle OFF at the gateway within its poll interval (2s)", gw <= 10*time.Second, "off after %s", gw.Round(100*time.Millisecond))
 	waitFor(t, 3*time.Minute, "device toggle off", func() bool { return !strings.Contains(s.settings(t), "acme-format-hook") })
 	dv := time.Since(t0) // measured from the kill
@@ -468,7 +468,7 @@ func shadowScenario(t *testing.T, s *u) {
 	}
 	dS, rS := lat(shadowed)
 	dP, _ := lat(plain)
-	s.r.check(t, sc, "mirrored request answered by the primary only", rS.code == 200 && rS.servedBy == "mock-a" && rS.model == "claude-sonnet-4-5" && !strings.Contains(rS.body, "mock-b"),
+	s.r.check(t, sc, "mirrored request answered by the primary only", rS.code == 200 && rS.servedBy == "mock-a" && rS.model == "claude-sonnet-5-5" && !strings.Contains(rS.body, "mock-b"),
 		"ring2 (100%% shadow) -> %s/%s", rS.servedBy, rS.model)
 	s.r.check(t, sc, "shadow does not add primary latency", dS <= dP+250*time.Millisecond, "median %s shadowed vs %s unshadowed", dS.Round(time.Millisecond), dP.Round(time.Millisecond))
 
@@ -482,14 +482,14 @@ func shadowScenario(t *testing.T, s *u) {
 	var pair string
 	waitFor(t, 60*time.Second, "a stored shadow pair", func() bool {
 		for _, l := range strings.Split(s.sh(t, s.ns, "pairs-reader", "", "cat /data/pairs.jsonl 2>/dev/null").out, "\n") {
-			if strings.Contains(l, `"sonnet-next-shadow"`) && strings.Contains(l, "served-by=mock-a model=claude-sonnet-4-5") && strings.Contains(l, "served-by=mock-b model=claude-sonnet-next") {
+			if strings.Contains(l, `"sonnet-next-shadow"`) && strings.Contains(l, "served-by=mock-a model=claude-sonnet-5-5") && strings.Contains(l, "served-by=mock-b model=claude-sonnet-next") {
 				pair = l
 				return true
 			}
 		}
 		return false
 	})
-	s.r.check(t, sc, "first-turn request stored as a control/candidate pair on the PVC", pair != "", "pair: control mock-a/claude-sonnet-4-5, candidate mock-b/claude-sonnet-next (%d bytes)", len(pair))
+	s.r.check(t, sc, "first-turn request stored as a control/candidate pair on the PVC", pair != "", "pair: control mock-a/claude-sonnet-5-5, candidate mock-b/claude-sonnet-next (%d bytes)", len(pair))
 }
 
 // ---------------- e. rollout + g. evidence ----------------
@@ -582,6 +582,21 @@ func rollout(t *testing.T, s *u) {
 	s.r.check(t, scg, "halo exp analyze uat-ok: no rollback for equal arms", v != "rollback" && v != "", "%s: %s", v, why)
 	r := s.haloCLI(t, "rollout", "status", "uat-ok", "--policy-dir", s.policy, "--clickhouse", chURL, "--database", "halo", "--user", "halo")
 	s.r.check(t, sce, "halo rollout status uat-ok reads the live gates", r.code == 0 && strings.Contains(r.out, "canary-25"), "%s", firstLine(r.out+r.err))
+
+	// acme's ga-two-person rule (ADR-0030) holds the ring3-ga advance until two
+	// approvers stand for different groups with a change ticket. acme maps
+	// sre-leads to the approver role, so sre@ approves as sre-leads alone.
+	for _, a := range []struct {
+		user   string
+		groups []string
+	}{{admin, []string{"ai-platform"}}, {"sre@acme.com", []string{"sre-leads"}}} {
+		sess := session(s.login(t, a.user, a.groups...))
+		r := s.sh(t, laptopNS, laptop, "", "HALO_SERVER="+portalURL+" HALO_SESSION="+sess+" halo rollout approve uat-ok --ticket CHG0012345")
+		s.r.check(t, sce, "halo rollout approve uat-ok as "+a.user+" (ga-two-person, ticket)", r.code == 0, "%s", strings.ReplaceAll(strings.TrimSpace(r.out+r.err), "\n", " / "))
+		if a.user != admin {
+			s.r.check(t, sce, "two approvers from distinct groups + ticket meet the quorum", strings.Contains(r.out, "approval quorum met"), "%s", lastLine(r.out+r.err))
+		}
+	}
 
 	// The in-cluster controller (halo-server --controller, 1m tick) acts on the same evidence.
 	var branches string
