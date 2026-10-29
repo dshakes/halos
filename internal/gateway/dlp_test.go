@@ -814,3 +814,22 @@ func shape(v any) string {
 		return string(b)
 	}
 }
+
+// TestExfilGate: an anchor reaches the exfil-url regex only when "](" closes
+// the label within the regex's 200-byte limit, so a run of "![" costs no
+// regex work.
+func TestExfilGate(t *testing.T) {
+	for _, c := range []struct {
+		s    string
+		want bool
+	}{
+		{"![x](https://e.example/p?k=" + strings.Repeat("a", 24) + ")", true},
+		{"![" + strings.Repeat("a", 200) + "](https://e.example/)", true},
+		{"![" + strings.Repeat("a", 201) + "](https://e.example/)", false},
+		{strings.Repeat("![", 500), false},
+	} {
+		if got := exfilGate(c.s, 0); got != c.want {
+			t.Errorf("exfilGate(%.30q…) = %v, want %v", c.s, got, c.want)
+		}
+	}
+}
