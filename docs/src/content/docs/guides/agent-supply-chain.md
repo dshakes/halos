@@ -107,6 +107,8 @@ supplyChain:
 
 Sign the artifact's digest with `halo artifact sign <path> --key halo.key -o sigs/vendor-review.sig`, or `cosign sign-blob` over the digest string for a cosign identity. `halo release build` verifies each signature and records the signer in the manifest and AI-BOM.
 
+**Line endings.** Digests are over the committed bytes. On Windows, git's default `core.autocrlf=true` checks files out with CRLF, so a pin computed from that checkout will not match Linux CI or the git fetch. Halos scaffolds `.gitattributes` with `artifacts/** -text` (add the same line for any other artifact directory), and `halo artifact digest` and `halo validate` warn when a local artifact file contains CRLF. The digest itself is unchanged.
+
 ## AI-BOM and provenance
 
 `halo release build -o release.tar` also writes:

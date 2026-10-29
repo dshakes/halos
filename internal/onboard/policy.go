@@ -54,6 +54,11 @@ func InitPolicy(dir string, o intent.InitOptions) (*intent.Change, PolicyResult,
 		return nil, res, fmt.Errorf("read %s: %w", p, err)
 	}
 	ch.Files[policy.RootFile] = want
+	if ga, ok, err := intent.GitAttributes(dir); err != nil {
+		return nil, res, err
+	} else if ok {
+		ch.Files[".gitattributes"] = ga
+	}
 	res.Action, res.Content = PolicyCreate, string(want)
 	res.Notes = append(res.Notes, notes...)
 	return ch, res, nil

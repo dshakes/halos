@@ -323,6 +323,11 @@ func (v *validator) artifact(path string, i int, a Artifact, ids, seen map[strin
 	case a.Digest != "" && c.Files.Digest() != a.Digest:
 		v.errf(path+".digest", "content of %s has digest %s, policy pins %s", a.Source(), c.Files.Digest(), a.Digest)
 	}
+	if c != nil && c.Err == "" && !a.Remote() {
+		if crlf := supplychain.CRLFFiles(c.Files); len(crlf) > 0 {
+			v.warnf(path, "%s", supplychain.CRLFWarning(crlf))
+		}
+	}
 }
 
 // scanArtifacts runs the static scan over every artifact with content.

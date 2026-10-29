@@ -8,6 +8,7 @@
 package supplychain
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -170,4 +171,23 @@ func ReadPath(root string) (Tree, error) {
 		return nil, err
 	}
 	return t, t.Check()
+}
+
+// CRLFFiles lists the files containing "\r\n", sorted. Digests are over the
+// committed bytes: a Windows checkout with core.autocrlf=true hashes CRLF
+// bytes that Linux CI and a remote git fetch never see.
+func CRLFFiles(t Tree) []string {
+	var out []string
+	for p, b := range t {
+		if bytes.Contains(b, []byte("\r\n")) {
+			out = append(out, p)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// CRLFWarning explains files (from CRLFFiles) and the .gitattributes fix.
+func CRLFWarning(files []string) string {
+	return fmt.Sprintf("%s contain CRLF line endings; the digest covers exact bytes, so a pin made from this checkout will not match Linux CI or a git fetch. Add `<artifact dir>/** -text` to .gitattributes and re-checkout", strings.Join(files, ", "))
 }

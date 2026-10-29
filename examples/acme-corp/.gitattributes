@@ -1,0 +1,2 @@
+# Artifact digests are sha256 over the committed bytes: no CRLF conversion.
+artifacts/** -text

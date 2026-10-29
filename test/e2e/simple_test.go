@@ -23,8 +23,8 @@ func TestSimpleMode(t *testing.T) {
 	dir := t.TempDir()
 	pol := filepath.Join(dir, "policy")
 	must(t, nil, "halo", "init", pol, "--org", "acme", "--tools", "claude-code@"+pin)
-	if entries, _ := os.ReadDir(pol); len(entries) != 1 {
-		t.Fatalf("simple init wrote %d entries, want only halos.yaml", len(entries))
+	if entries, _ := os.ReadDir(pol); len(entries) != 2 { // halos.yaml and .gitattributes
+		t.Fatalf("simple init wrote %d entries, want only halos.yaml and .gitattributes", len(entries))
 	}
 	must(t, nil, "halo", "validate", pol)
 
