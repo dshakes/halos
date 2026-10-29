@@ -64,7 +64,8 @@ func TestRunTrial(t *testing.T) {
 		{"agent does nothing", Variant{Name: "b", Model: "noop"}, 0, false, "", 0.05},
 		{"settings mounted", Variant{Name: "c", Model: "settings", Settings: settings, Dir: filepath.Dir(settings)}, 0, true, "", 0.1},
 		{"settings missing", Variant{Name: "d", Model: "settings"}, 0, false, "agent exit", 0},
-		{"agent timeout", Variant{Name: "e", Model: "slow"}, 300 * time.Millisecond, false, "agent:", 0},
+		// The timeout also covers setup (sh via Git Bash on Windows), so it is not tiny; "slow" sleeps 5 s.
+		{"agent timeout", Variant{Name: "e", Model: "slow"}, 2 * time.Second, false, "agent:", 0},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
