@@ -185,6 +185,9 @@ func (a *app) cmdArtifact() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if crlf := supplychain.CRLFFiles(t); len(crlf) > 0 {
+				fmt.Fprintln(a.errw, a.yellow("warning:"), supplychain.CRLFWarning(crlf))
+			}
 			return a.emit(map[string]any{"digest": t.Digest(), "files": t.Sums()}, func() { fmt.Fprintln(a.out, t.Digest()) })
 		},
 	}

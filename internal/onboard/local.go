@@ -299,6 +299,12 @@ func WriteCompany(dir string, o CompanyOptions, apply bool) (*CompanyResult, err
 		sort.Strings(conflicts)
 		return nil, fmt.Errorf("%s already has different %v; refusing to overwrite: pick an empty --policy-dir", dir, conflicts)
 	}
+	if ga, ok, err := intent.GitAttributes(dir); err != nil {
+		return nil, err
+	} else if ok {
+		files[".gitattributes"] = ga
+		res.Files[".gitattributes"] = ActionCreate
+	}
 	ch := &intent.Change{Dir: dir, Files: files}
 	_, issues, err := loadChange(ch)
 	if err != nil {

@@ -158,6 +158,11 @@ func (a *app) cmdInit() *cobra.Command {
 			}
 			ch := &intent.Change{Dir: dir, Files: map[string][]byte{policy.RootFile: intent.InitFile(o)},
 				Notes: []string{"halo explain --policy-dir " + dir + "   (the full policy this expands to)", "halo validate --policy-dir " + dir}}
+			if ga, ok, err := intent.GitAttributes(dir); err != nil {
+				return err
+			} else if ok {
+				ch.Files[".gitattributes"] = ga
+			}
 			return a.applyChange(ch, false)
 		},
 	}
@@ -182,6 +187,11 @@ func (a *app) initFull(dir, org string) error {
 	files, err := scaffold.Files(org)
 	if err != nil {
 		return err
+	}
+	if ga, ok, err := intent.GitAttributes(dir); err != nil {
+		return err
+	} else if ok {
+		files[".gitattributes"] = ga
 	}
 	names := make([]string, 0, len(files))
 	for n, data := range files {

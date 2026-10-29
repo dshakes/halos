@@ -36,6 +36,10 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 - **Current Anthropic model names in examples, docs, scaffolds and fixtures** (`claude-sonnet-5-5`, `claude-opus-5-5`, `claude-haiku-5-5`), including the simple-mode defaults. OpenAI and Google names and the dated Bedrock / Vertex ids are unchanged.
 - README and AGENTS.md list every binary `make build` produces (adds `halo-proxy`, `halo-kong`).
 
+### Fixed
+
+- `halo artifact digest` and `halo validate` hash working-tree bytes, so a Windows checkout with `core.autocrlf=true` gave a pin that differed from Linux CI and the remote git fetch. `halo init` (also `--full`), `halo onboard company` and `local`, and the MCP `init_policy` tool now write (or append to) `.gitattributes` with `artifacts/** -text`; `examples/acme-corp` has one. Both commands warn, naming each local artifact file with CRLF and the fix. The digest definition is unchanged.
+
 ### Security
 
 - Cloud agent workflows: `workloads.audience` was interpolated unquoted into the rendered `run:` script (`halo ci token --audience <aud>`), so a policy audience such as `x; curl ... | sh` or one with a newline ran shell or broke the YAML in every repository's workflow. Policy values now reach scripts only as double-quoted `env:` values read as `"$HALO_AUDIENCE"`; `workloads.audience` and issuer `audience` must match `^[A-Za-z0-9._:/-]{1,128}$`; `workflow.Check` refuses invalid YAML and any `run:` script that is not one Halos renders verbatim. The rendered audience is now the GitHub Actions issuer's `audience` when it overrides `workloads.audience` (it was always `workloads.audience`, so such jobs failed the exchange).
