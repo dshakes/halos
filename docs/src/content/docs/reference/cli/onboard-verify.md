@@ -7,7 +7,8 @@ Run each installed CLI headless (claude -p, codex exec, gemini -p, copilot -p, c
 
 One short model call per CLI, through whatever endpoint its config points at. Skipped when the CLI
 is missing or no credential variable is set; a CLI that is logged in (OAuth, keychain) needs
---assume-auth because halo cannot see that. Output is redacted.
+--assume-auth because halo cannot see that. Output is redacted. Ends with `verified X of N`.
+Exit codes: 0 at least one CLI verified and none failed; 1 a CLI failed; 3 nothing verified (all skipped).
 
 ## Usage
 

@@ -330,7 +330,8 @@ func (a *app) cmdOnboardVerify() *cobra.Command {
 		Short: "Run each installed CLI headless (claude -p, codex exec, gemini -p, copilot -p, cursor-agent -p, opencode run) and check the reply",
 		Long: "One short model call per CLI, through whatever endpoint its config points at. Skipped when the CLI\n" +
 			"is missing or no credential variable is set; a CLI that is logged in (OAuth, keychain) needs\n" +
-			"--assume-auth because halo cannot see that. Output is redacted.",
+			"--assume-auth because halo cannot see that. Output is redacted. Ends with `verified X of N`.\n" +
+				"Exit codes: 0 at least one CLI verified and none failed; 1 a CLI failed; 3 nothing verified (all skipped).",
 		Annotations: policyDirAnno,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			e := onboard.System()
@@ -351,6 +352,7 @@ func (a *app) cmdOnboardVerify() *cobra.Command {
 				failed = failed || r.Status == onboard.VerifyFail
 				rs = append(rs, r)
 			}
+			sum := onboard.Summarize(rs)
 			if err := a.emit(rs, func() {
 				for _, r := range rs {
 					st := map[string]string{onboard.VerifyPass: a.green("pass"), onboard.VerifyFail: a.red("FAIL"),
@@ -360,11 +362,16 @@ func (a *app) cmdOnboardVerify() *cobra.Command {
 						fmt.Fprintf(a.out, "     > %s\n", strings.ReplaceAll(r.Output, "\n", "\n     > "))
 					}
 				}
+				fmt.Fprintln(a.out, sum.Text)
 			}); err != nil {
 				return err
 			}
-			if failed {
+			switch {
+			case failed:
 				return &exitErr{code: exitError}
+			case sum.Verified == 0 && !dry:
+				fmt.Fprintln(a.errw, "nothing was verified: every CLI was skipped (see the reasons above); export its credential or pass --assume-auth")
+				return &exitErr{code: exitUnverified}
 			}
 			return nil
 		},

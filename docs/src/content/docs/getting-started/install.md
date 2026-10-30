@@ -9,7 +9,7 @@ description: Install halo and halod on macOS, Linux and Windows, in CI, in dev c
 **`halo`** is the CLI you run in CI and on your workstation. **`halod`** is the fleet agent; it runs as root on each machine and applies the ring's signed release. Every channel below installs the same checksummed archives from a GitHub release. Always pin a version in automation; `v0.4.1` below is the current release.
 
 :::note[Release status]
-[`v0.4.1`](https://github.com/dshakes/halos/releases/tag/v0.4.1) is the current release (`v0.1.0` was published without its Homebrew formula, Scoop manifest and provenance attestation; see the changelog; `v0.1.1` superseded it). Every channel below installs from it: binaries, deb/rpm/apk packages, `install.sh`/`install.ps1`, Homebrew (`dshakes/homebrew-tap`), Scoop (`dshakes/scoop-bucket`), signed checksums and signed ghcr.io images, all verified by the release workflow after publishing; winget is built but not submitted. The [changelog](https://github.com/dshakes/halos/blob/main/CHANGELOG.md#030---2026-10-23) states what is GA and what is supported but not yet field-verified. Or [build from source](/halos/getting-started/installation/#from-source).
+[`v0.4.1`](https://github.com/dshakes/halos/releases/tag/v0.4.1) is the current release (`v0.1.0` was published without its Homebrew formula, Scoop manifest and provenance attestation; see the changelog; `v0.1.1` superseded it). Every channel below installs from it: binaries, deb/rpm/apk packages, `install.sh`/`install.ps1`, Homebrew (`dshakes/homebrew-tap`), Scoop (`dshakes/scoop-bucket`), signed checksums and signed ghcr.io images, all verified by the release workflow after publishing; winget is built but not submitted. The [changelog](https://github.com/dshakes/halos/blob/main/CHANGELOG.md#030---2026-10-23) states what is GA and what is supported but not yet field-verified. Or [build from source](#from-source).
 :::
 
 ## macOS
@@ -104,6 +104,51 @@ helm install halos deploy/helm/halos --namespace halos --create-namespace
 ```
 
 The chart runs `halo-server`, `halo-proxy` and `halo-shadow`, with an optional OTel collector and a Kong plugin resource. Images default to `ghcr.io/dshakes/halo-*:<chart appVersion>` (currently 0.4.1); to run a different release, set each component's `image.tag` (for example `--set server.image.tag=0.1.1`). See [production deployment](/halos/guides/production-deployment/).
+
+## Components
+
+| Binary | Where it runs | Purpose |
+|---|---|---|
+| `halo` | CI, your workstation | Validate, plan, render, release (publish, promote, refresh), rollback, experiments, evals, exports, gateway artifacts, MCP server |
+| `halod` | Developer machine or dev container (as root) | `run`, `once`, `status`: pull the ring's signed pointer, verify, apply, install pinned CLIs, report drift |
+| `halo-proxy` | Anywhere on the request path | Stack-agnostic traffic plane: verify OIDC JWT, assign cohort, rewrite model, mirror, stamp headers |
+| `halo-kong` | Kong (Go PDK plugin server) | The same behavior as an in-process Kong plugin |
+| `halo-shadow` | Next to the gateway | Async mirror (first turn or every step) and pair store |
+| `halo-server` | Your cluster | Fleet inventory, experiments API, self-service portal, enrollment, device tokens |
+
+## From source
+
+Requires Go 1.25+.
+
+```bash
+git clone https://github.com/dshakes/halos && cd halos
+make build                     # halo halod halo-shadow halo-server halo-proxy halo-kong into bin/
+export PATH="$PWD/bin:$PATH"
+halo --help
+```
+
+`halo version` prints `halo <version> (commit ..., built ...)` and `halo --help` lists `validate`, `release`, `exp`, `eval`, `export`, `gateway`, `mcp` and more. Other checks the repo runs: `make test` (`go test -race ./...`), `make lint`, `make vuln`.
+
+## What you need around them
+
+| Need | Used for | Notes |
+|---|---|---|
+| An OCI registry | Releases and signed ring pointers | Any registry ORAS can push to. A local `registry:2` works with `--plain-http` |
+| An ed25519 signing key | `halo release publish/promote/refresh`, `halo rollback` | `halo keys generate` (written to your per-user config directory; never into a git work tree without `--force`). The primary signer must be ed25519 because `halod` verifies only ed25519. cosign (key, KMS or keyless) can be added as a co-signature with `--cosign-key` / `--cosign-keyless` |
+| An OIDC provider | Portal login, gateway JWT verification, enrollment | Any compliant IdP (Okta, Entra ID, Google, Keycloak, Ping, Auth0). Set in `halos.yaml` under `identity` |
+| A gateway (optional) | Traffic plane | `halo-proxy` runs with or without Kong, LiteLLM, Envoy, nginx or AWS API Gateway. See [stack-agnostic](/halos/concepts/stack-agnostic/) |
+| ClickHouse + OTEL collector (optional) | Experiment analysis | `halo telemetry collector-config` generates the collector config; schema in `deploy/observability/clickhouse/schema.sql` |
+| Docker (optional) | `halo eval run` trials, compose demo | Trials run with no network egress by default |
+
+## Kong requirements
+
+- You do **not** need Kong Enterprise. `halo-kong` runs as an external Go plugin server in Kong OSS; `halo-shadow` supplies the mirroring OSS lacks.
+- Kong must be run with `KONG_NGINX_HTTP_CLIENT_BODY_BUFFER_SIZE=32m`, or larger Claude Code first turns are spooled to disk and answered with 413 (never forwarded un-inspected). Details in [stack-agnostic](/halos/concepts/stack-agnostic/).
+- Kong Enterprise and Konnect are **UNVERIFIED**.
+
+## Signing
+
+See [security model](/halos/concepts/security-model/) and [production deployment](/halos/guides/production-deployment/) for key handling and pointer refresh.
 
 ## Check
 

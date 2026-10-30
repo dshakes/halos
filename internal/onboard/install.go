@@ -343,6 +343,39 @@ type VerifyResult struct {
 	Output  string   `json:"output,omitempty"`
 }
 
+// VerifySummary counts a batch of results: "verified X of N".
+type VerifySummary struct {
+	Verified int    `json:"verified"`
+	Failed   int    `json:"failed"`
+	Skipped  int    `json:"skipped"`
+	Total    int    `json:"total"`
+	Text     string `json:"text"`
+}
+
+// Summarize counts rs. Dry-run results are in Total but are neither verified,
+// failed nor skipped.
+func Summarize(rs []VerifyResult) VerifySummary {
+	s := VerifySummary{Total: len(rs)}
+	for _, r := range rs {
+		switch r.Status {
+		case VerifyPass:
+			s.Verified++
+		case VerifyFail:
+			s.Failed++
+		case VerifySkipped:
+			s.Skipped++
+		}
+	}
+	s.Text = fmt.Sprintf("verified %d of %d", s.Verified, s.Total)
+	if s.Skipped > 0 {
+		s.Text += fmt.Sprintf(" (%d skipped)", s.Skipped)
+	}
+	if s.Failed > 0 {
+		s.Text += fmt.Sprintf(" (%d failed)", s.Failed)
+	}
+	return s
+}
+
 // Verify runs h headless with VerifyPrompt (unless dry) and checks the reply.
 // It is skipped when the CLI is missing or no credential variable is set and
 // assumeAuth is false (a logged-in CLI needs --assume-auth: halo cannot see it).

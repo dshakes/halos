@@ -4,6 +4,18 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Fixed
+
+- `halo onboard local` (and the MCP `init_policy` tool) failed with exit 2 when `cursor-agent` was installed: autodetect copied its date-style version (`2026.04.17-787b533`) into `halos.yaml` and validation rejects anything but an exact semver. A CLI whose version is not a semver is now left out of the autodetected pins with a warning that names it and the `--tools name@x.y.z` flag; any remaining validation failure also prints that hint instead of only the validator errors.
+- `halo keys generate` wrote `halo.key` into the current directory, often the policy repo, where `git add -A` would commit the signing private key, and `halo onboard company` generated no `.gitignore`. The key now goes to `<user config dir>/halos/keys` (directory 0700, key 0600) unless `--out` is given, and a private key is refused inside a git work tree unless `--force`. The company repo gets a `.gitignore` for `*.key`, `*.token`, `.halos/local/` and `dist/`.
+- `halo onboard verify` exited 0 when every CLI was skipped (no credentials), so a run that proved nothing looked green. It now ends with `verified X of N` and exits 3 when X is 0 (1 when a CLI failed, 0 when at least one verified and none failed). The MCP `verify_harness` result carries the same `summary`.
+- The README `halo onboard company` generates told you to "merge this repo's PR" although the directory is not a git repository: it now gives the `git init` / commit / remote / push steps, lists the publish command for every ring (it listed only the GA ring), and says the Helm chart is installed from a Halos checkout because it is not published to an OCI registry.
+
+### Changed
+
+- The install pages are one: `getting-started/installation` (components, build from source, prerequisites) is merged into `getting-started/install`.
+- The quickstart timing claim is now "about a minute with a warm Docker cache, 2 to 3 minutes cold" (a fresh cold-cache run took 2:31), replacing "55 s warm, 86 s cold".
+
 ## [0.4.1] - 2026-10-30
 
 ### Fixed

@@ -127,7 +127,7 @@ export XDG_STATE_HOME="$PWD/.demo-state"         # keep the demo's signer state 
 
 Every signing command records the last pointer it wrote in a signer state file (`$XDG_STATE_HOME/halos/pointers.json`) and refuses a registry that serves an older one. Pointing it at a throwaway directory lets you reset the demo registry later without tripping that check.
 
-Publish a release for `ring0-harness-team`. `--no-artifacts` skips resolving vendor CLI download artifacts so the demo runs offline; `halod` would then refuse to install CLIs from this release (see [installation](/halos/getting-started/installation/)).
+Publish a release for `ring0-harness-team`. `--no-artifacts` skips resolving vendor CLI download artifacts so the demo runs offline; `halod` would then refuse to install CLIs from this release (see [install](/halos/getting-started/install/)).
 
 ```bash
 halo release publish --policy-dir examples/acme-corp --ring ring0-harness-team --release-version 1.0.0 \
