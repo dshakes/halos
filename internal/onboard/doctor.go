@@ -127,6 +127,7 @@ var envWeakens = []struct {
 	why, fix     string
 }{
 	{"gemini-cli", "GEMINI_SANDBOX", func(v string) bool { return v == "false" || v == "0" }, "turns the Gemini CLI sandbox off (it takes precedence over the system settings file)", "unset GEMINI_SANDBOX in your shell profile"},
+	{"gemini-cli", "SANDBOX", func(v string) bool { return v != "" }, "makes Gemini CLI skip its sandbox (it reads SANDBOX as already sandboxed)", "unset SANDBOX in your shell profile"},
 	{"opencode", "OPENCODE_PERMISSION", func(v string) bool { return v != "" }, "replaces the managed permission block, including the webfetch and protected-path rules", "unset OPENCODE_PERMISSION in your shell profile"},
 	{"codex", "CODEX_HOME", func(v string) bool { return v != "" }, "moves Codex's user config, so the per-user posture check reads the wrong file", "unset CODEX_HOME, or check $CODEX_HOME/config.toml by hand"},
 }

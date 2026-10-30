@@ -23,6 +23,8 @@ func TestDoctorPosture(t *testing.T) {
 		{"no managed file", nil, nil, []string{"claude"}, "sandbox: not managed; egress: not managed", nil},
 		{"gemini env turns the sandbox off", map[string]string{"/etc/gemini-cli/settings.json": `{"tools":{"sandbox":true}}`},
 			map[string]string{"GEMINI_SANDBOX": "false"}, []string{"gemini"}, "tools.sandbox=true", []string{"GEMINI_SANDBOX is set"}},
+		{"gemini SANDBOX skips the sandbox", map[string]string{"/etc/gemini-cli/settings.json": `{"tools":{"sandbox":true}}`},
+			map[string]string{"SANDBOX": "1"}, []string{"gemini"}, "tools.sandbox=true", []string{"SANDBOX is set"}},
 		{"codex user escape", map[string]string{
 			"/etc/codex/requirements.toml": "allowed_sandbox_modes = ['read-only']\n",
 			"/home/u/.codex/config.toml":   `sandbox_mode = "danger-full-access"`,
