@@ -4,6 +4,13 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Changed
+
+- MCP server (`halo mcp serve`): one response envelope for every tool. Every result, success or error, carries `next_steps`, an ordered list of `{tool | command, why, args}`: a tool call with an example `args`, or the exact human command at a gate. It is applied centrally by a middleware around `tools/call`, so new tools get it without per-tool code. Handler-written string steps are folded into the same shape, and the `next` key of `init_policy` and `onboard_company` results is replaced by `next_steps`.
+- MCP argument errors are actionable and arrive with `next_steps`: the error names the field, its type, an example and the allowed values (`plan` without `ring` lists the policy's rings), unknown fields list the valid ones, and a string where an array is expected (`delivery: "mdm"`) or `name@version` items where `tools` is a map are accepted. Tool input schemas now carry `examples` and `default`, and output schemas advertise `next_steps`.
+- `onboard_company` over MCP requires only `org`. Every other answer has a documented default (`gateway_kind` halo-proxy, `delivery` halod, CLIs found on PATH, provider anthropic, example.com placeholders for issuer, gateway, registry, policy repo and console URL); the dry run echoes them in `assumed`, lists the placeholders in `placeholders`, and a real write is refused until they are replaced.
+- The `onboard` and `autopilot` MCP prompts spell out the tool call sequence with argument shapes, the human gates and the stop conditions.
+
 ## [0.4.1] - 2026-10-30
 
 ### Fixed
