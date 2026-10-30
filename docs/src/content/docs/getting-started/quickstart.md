@@ -120,7 +120,8 @@ This uses a local OCI registry, so nothing leaves your machine. Run from the rep
 docker run -d --rm --name halo-reg -p 127.0.0.1:5055:5000 registry:2
 REG=localhost:5055/acme/halos
 
-halo keys generate --name demo --out .          # demo.key (private), demo.pub (public)
+KEYS=$(mktemp -d)                                # outside the checkout: halo refuses to write a private key into a git work tree
+halo keys generate --name demo --out "$KEYS"     # $KEYS/demo.key (private), $KEYS/demo.pub (public)
 export XDG_STATE_HOME="$PWD/.demo-state"         # keep the demo's signer state out of ~/.local/state
 ```
 
@@ -130,7 +131,7 @@ Publish a release for `ring0-harness-team`. `--no-artifacts` skips resolving ven
 
 ```bash
 halo release publish --policy-dir examples/acme-corp --ring ring0-harness-team --release-version 1.0.0 \
-  --registry $REG --key demo.key --plain-http --no-artifacts
+  --registry $REG --key "$KEYS/demo.key" --plain-http --no-artifacts
 ```
 
 **Check:** stderr shows `Signing ring ring0-harness-team → version 1.0.0 (digest sha256:..., seq ...)` before the pointer is signed, then stdout `published localhost:5055/acme/halos tags v1.0.0, ring-ring0-harness-team (sha256:...)`.
@@ -139,9 +140,9 @@ Point `ring1-canary` at the same release, then publish a newer release for `ring
 
 ```bash
 halo release promote --from-ring ring0-harness-team --to-ring ring1-canary \
-  --registry $REG --key demo.key --plain-http
+  --registry $REG --key "$KEYS/demo.key" --plain-http
 halo release publish --policy-dir examples/acme-corp --ring ring1-canary --release-version 1.1.0 \
-  --registry $REG --key demo.key --plain-http --no-artifacts
+  --registry $REG --key "$KEYS/demo.key" --plain-http --no-artifacts
 ```
 
 **Check:** `ok promoted ring-ring1-canary: version 1.0.0, seq ..., digest sha256:..., expires ...`. The source is `ring0-harness-team`'s signed pointer, not its `ring-` tag. Each ring is served by a *signed pointer* carrying `seq` and a 7-day expiry; see [rings and releases](/halos/concepts/rings-and-releases/).
@@ -150,7 +151,7 @@ Diff what a ring would get against a published release:
 
 ```bash
 halo plan --policy-dir examples/acme-corp --ring ring1-canary \
-  --against "${REG}:ring-ring0-harness-team" --registry $REG --pubkey demo.pub --plain-http
+  --against "${REG}:ring-ring0-harness-team" --registry $REG --pubkey "$KEYS/demo.pub" --plain-http
 ```
 
 **Check:** the plan lists per-harness changes, for example `harness claude-code: version 2.1.312 -> 2.1.280`.
@@ -158,15 +159,15 @@ halo plan --policy-dir examples/acme-corp --ring ring1-canary \
 Roll `ring1-canary` back to `1.0.0` and re-sign a pointer:
 
 ```bash
-halo rollback --ring ring1-canary --to 1.0.0 --registry $REG --key demo.key --plain-http
-halo release refresh --ring ring1-canary --registry $REG --key demo.key --plain-http
+halo rollback --ring ring1-canary --to 1.0.0 --registry $REG --key "$KEYS/demo.key" --plain-http
+halo release refresh --ring ring1-canary --registry $REG --key "$KEYS/demo.key" --plain-http
 ```
 
 **Check:** both print `ok ...` with a higher `seq` than before. Rollback is a *new* signed pointer with a higher `seq` naming the older digest, so it works for `halod` clients that refuse to go backwards. `--to 1.0.0` only succeeds because the release at tag `v1.0.0` carries version `1.0.0` in its signed manifest.
 
 ```bash
 docker rm -f halo-reg
-rm -rf .demo-state
+rm -rf .demo-state "$KEYS"
 ```
 
 If you reset the registry without removing the state, the next `publish` is refused with `ring ... has no pointer but ... records seq N ... registry reset or tag deleted? refusing`. That is the replay check working; for a throwaway registry, delete the state file.

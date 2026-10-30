@@ -70,6 +70,57 @@ func TestLocalWithAutodetectedCursorVersionValidates(t *testing.T) {
 	}
 }
 
+func TestCompanyGitignoreKeepsSecretsOut(t *testing.T) {
+	files, err := Company(companyOpts())
+	if err != nil {
+		t.Fatal(err)
+	}
+	gi := string(files[".gitignore"])
+	for _, want := range []string{"*.key", "*.token", ".halos/local/"} {
+		if !strings.Contains(gi, want) {
+			t.Errorf(".gitignore lacks %q:\n%s", want, gi)
+		}
+	}
+}
+
+func TestCompanyReadmeSteps(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		mutate func(*CompanyOptions)
+		want   []string
+		not    []string
+	}{
+		{"git steps", func(*CompanyOptions) {}, []string{
+			"git init -b main", "git add -A", "git remote add origin https://github.com/acme/halos-policy.git", "git push -u origin main",
+		}, []string{"Review and merge this repo's PR"}},
+		{"helm chart is not on OCI", func(*CompanyOptions) {}, []string{"from a Halos checkout", "not published to an OCI registry"}, []string{"oci://ghcr.io"}},
+		{"every ring is published (standard)", func(*CompanyOptions) {}, []string{
+			"--ring ring0-team --release-version 0.1.0", "--ring ring1-canary --release-version 0.1.1", "--ring ring2-early --release-version 0.1.2", "--ring ring3-ga --release-version 0.1.3",
+		}, nil},
+		{"every ring is published (fast)", func(c *CompanyOptions) { c.Init.Rollout = "fast" }, []string{"--release-version 0.1.0", "--release-version 0.1.1"}, []string{"--release-version 0.1.2"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			o := companyOpts()
+			tc.mutate(&o)
+			files, err := Company(o)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rd := string(files["README.md"])
+			for _, w := range tc.want {
+				if !strings.Contains(rd, w) {
+					t.Errorf("README lacks %q:\n%s", w, rd)
+				}
+			}
+			for _, w := range tc.not {
+				if strings.Contains(rd, w) {
+					t.Errorf("README contains %q", w)
+				}
+			}
+		})
+	}
+}
+
 func TestLocalInvalidPolicyGivesActionableHint(t *testing.T) {
 	in := initOpts()
 	in.Tools = map[string]string{"claude-code": "latest"}
