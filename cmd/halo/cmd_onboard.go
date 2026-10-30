@@ -131,9 +131,7 @@ func (a *app) cmdOnboardLocal() *cobra.Command {
 				return err
 			}
 			if len(o.Init.Tools) == 0 {
-				if o.Init.Tools = onboard.SuggestTools(onboard.Detect(cmd.Context(), e)); len(o.Init.Tools) == 0 {
-					o.Init.Tools = onboard.FallbackTools
-				}
+				o.Init.Tools, o.Warnings = onboard.AutoTools(onboard.Detect(cmd.Context(), e))
 			}
 			if o.Init.Models, err = splitKV(models, "=", "--model"); err != nil {
 				return err
@@ -180,11 +178,17 @@ func (a *app) printLocal(r *onboard.LocalResult) {
 	for _, n := range r.Policy.Notes {
 		fmt.Fprintln(a.out, a.yellow("note:"), n)
 	}
+	for _, w := range r.Warnings {
+		fmt.Fprintln(a.out, a.yellow("warning:"), w)
+	}
 	for _, i := range r.Issues {
 		fmt.Fprintln(a.out, i)
 	}
 	if !r.Valid {
 		fmt.Fprintln(a.out, a.red("policy does not validate"))
+		for _, n := range r.Next {
+			fmt.Fprintln(a.out, a.bold("next:"), n)
+		}
 		return
 	}
 	fmt.Fprintln(a.out, a.green("OK")+": policy valid")

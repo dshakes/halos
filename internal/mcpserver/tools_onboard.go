@@ -156,9 +156,7 @@ func (s *srv) initPolicy(ctx context.Context, _ *mcp.CallToolRequest, in initPol
 	e := s.env()
 	o := onboard.LocalOptions{Dir: s.dir, Init: in.options(), Ring: in.Ring, GOOS: or(e.GOOS, runtime.GOOS), Apply: w}
 	if len(o.Init.Tools) == 0 {
-		if o.Init.Tools = onboard.SuggestTools(onboard.Detect(ctx, e)); len(o.Init.Tools) == 0 {
-			o.Init.Tools = onboard.FallbackTools
-		}
+		o.Init.Tools, o.Warnings = onboard.AutoTools(onboard.Detect(ctx, e))
 	}
 	if o.Init.Provider == "" {
 		o.Init.Provider = onboard.SuggestProvider(e)
