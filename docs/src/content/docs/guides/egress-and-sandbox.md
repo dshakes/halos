@@ -62,8 +62,8 @@ Rendered from the policy above; `halo release build` lists the rest as warnings,
 | Claude Code | `sandbox.enabled`, no unsandboxed retry, `filesystem.allowWrite` | `sandbox.network.allowedDomains` + `allowManagedDomainsOnly`, `deniedDomains` | `WebFetch(domain:...)` deny rules; unlisted hosts still prompt | `filesystem.denyRead`/`denyWrite` (absolute, `~/`) and `Read`/`Edit` deny rules | `read-only` renders as workspace-write. No sandbox on native Windows. |
 | Codex | `requirements.toml` `allowed_sandbox_modes`; `writable_roots` (default) | `requirements.toml` `[experimental_network]` (documented experimental) | not covered | `[permissions.filesystem] deny_read` (reads only) | `network_access` stays `false` under default deny; a user who turns it on is held to the managed domains. |
 | Copilot CLI | managed `sandbox` with `allowBypass: false`, `readwritePaths` | `userPolicy.network.allowedHosts`/`blockedHosts`, `allowOutbound: false` | not documented | `userPolicy.filesystem.deniedPaths` (absolute) | Needs CLI >= 1.0.93; an older pin renders nothing (it would lock users out). Windows relies on programs honoring the proxy. |
-| Gemini CLI | `tools.sandbox: true` on macOS (Seatbelt) | none | none | none | A default: `--sandbox` and `GEMINI_SANDBOX` override it. Linux and Windows need Docker or Podman; not rendered there. |
-| OpenCode | none | none | `permission.webfetch`: `deny` when nothing is allowed, else `ask` | `read`/`edit`/`external_directory` deny rules | No sandbox; bash is unconfined. `OPENCODE_PERMISSION` overrides the managed file. |
+| Gemini CLI | `tools.sandbox: true` on macOS (Seatbelt) | none | none | none | A default: `--sandbox` and `GEMINI_SANDBOX` override it, and any `SANDBOX` variable skips it. The default Seatbelt profile (`permissive-open`) leaves network open. Linux and Windows need Docker or Podman; not rendered there. Gemini CLI ignores a system settings file that is not root-owned. |
+| OpenCode | none | none | `permission.webfetch`: `deny` when nothing is allowed, else `ask` | `read`/`edit`/`external_directory` deny rules | No sandbox; bash is unconfined. `OPENCODE_PERMISSION`, or an agent's `permission.webfetch` in user config, overrides the managed rule. |
 | Cursor CLI | not rendered | not rendered | not rendered | not rendered | `sandbox.json` and `cli-config.json` are per user or per repo only; set the team sandbox policy in Cursor's admin dashboard. |
 
 Sources and the claims not yet observed with the real CLIs are in the ADR and in `internal/harness/FACTS.md`.
@@ -94,7 +94,7 @@ rule   egress.deniedDomains pastebin.com
 
 Because it is drift, a ring with `posture: enforce` (ADR-0011) refuses such a device at the gateway until it is fixed. halod reads these files as root, so it reads only regular files up to 1 MiB, opens them without blocking, and never logs their content. A project's own `.codex/config.toml` and command-line flags (`-s`, `-c`, `--profile`) are beyond halod's reach: there only `requirements.toml` `allowed_sandbox_modes` (codex >= 0.77.0) holds.
 
-`halo doctor` prints the effective posture of every installed harness, plus environment overrides it can see (`GEMINI_SANDBOX=false`, `OPENCODE_PERMISSION`, `CODEX_HOME`):
+`halo doctor` prints the effective posture of every installed harness, plus environment overrides it can see (`GEMINI_SANDBOX=false`, `SANDBOX`, `OPENCODE_PERMISSION`, `CODEX_HOME`):
 
 ```console
 $ halo doctor
