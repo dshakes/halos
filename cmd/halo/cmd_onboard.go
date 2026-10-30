@@ -331,7 +331,7 @@ func (a *app) cmdOnboardVerify() *cobra.Command {
 		Long: "One short model call per CLI, through whatever endpoint its config points at. Skipped when the CLI\n" +
 			"is missing or no credential variable is set; a CLI that is logged in (OAuth, keychain) needs\n" +
 			"--assume-auth because halo cannot see that. Output is redacted. Ends with `verified X of N`.\n" +
-				"Exit codes: 0 at least one CLI verified and none failed; 1 a CLI failed; 3 nothing verified (all skipped).",
+			"Exit codes: 0 at least one CLI verified and none failed; 1 a CLI failed; 3 nothing verified (all skipped).",
 		Annotations: policyDirAnno,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			e := onboard.System()
