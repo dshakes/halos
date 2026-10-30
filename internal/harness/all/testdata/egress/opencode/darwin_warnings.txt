@@ -5,7 +5,7 @@ opencode: profile field "egress.deniedDomains" is not supported and was not rend
 opencode: profile field "egress.presets" is not supported and was not rendered
 opencode: profile field "sandbox.writableRoots" is not supported and was not rendered
 opencode: sandbox.protectedPaths are rendered as read/edit deny rules for the file tools; bash can still read them (no sandbox)
-opencode: egress is rendered as the webfetch permission (one action for every URL: deny when nothing is allowed, else ask), so fetches cannot be limited to the allowlist [gw.example.com registry.npmjs.org pypi.org files.pythonhosted.org proxy.golang.org sum.golang.org index.crates.io static.crates.io repo.maven.apache.org rubygems.org]; bash network access is not restricted (no sandbox)
+opencode: egress is rendered as the webfetch permission (one action for every URL: deny when nothing is allowed, else ask), so fetches cannot be limited to the allowlist [gw.example.com registry.npmjs.org pypi.org files.pythonhosted.org proxy.golang.org sum.golang.org index.crates.io static.crates.io repo.maven.apache.org rubygems.org]; bash network access is not restricted (no sandbox), and the OPENCODE_PERMISSION environment variable or an agent's permission.webfetch in user config overrides it
 opencode: cannot self-enforce version; halod enforces
 opencode: no gateway configured; traffic is not routed through Halos
 opencode: ring/release request headers need a gateway provider; not rendered

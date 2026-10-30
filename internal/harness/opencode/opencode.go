@@ -216,7 +216,7 @@ func sandboxWarnings(p *policy.Profile) []string {
 		w = append(w, "opencode: sandbox.protectedPaths are rendered as read/edit deny rules for the file tools; bash can still read them (no sandbox)")
 	}
 	if p.Egress.Restricted() {
-		w = append(w, fmt.Sprintf("opencode: egress is rendered as the webfetch permission (one action for every URL: deny when nothing is allowed, else ask), so fetches cannot be limited to the allowlist %v; bash network access is not restricted (no sandbox)", p.Egress.Rules().Allow))
+		w = append(w, fmt.Sprintf("opencode: egress is rendered as the webfetch permission (one action for every URL: deny when nothing is allowed, else ask), so fetches cannot be limited to the allowlist %v; bash network access is not restricted (no sandbox), and the OPENCODE_PERMISSION environment variable or an agent's permission.webfetch in user config overrides it", p.Egress.Rules().Allow))
 	}
 	return w
 }

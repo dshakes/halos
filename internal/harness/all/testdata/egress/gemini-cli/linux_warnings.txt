@@ -4,7 +4,7 @@ gemini-cli: profile field "egress.deniedDomains" is not supported and was not re
 gemini-cli: profile field "egress.presets" is not supported and was not rendered
 gemini-cli: profile field "sandbox.writableRoots" is not supported and was not rendered
 gemini-cli: profile field "sandbox.protectedPaths" is not supported and was not rendered
-gemini: the sandbox (tools.sandbox) is a default, not a lock: the --sandbox flag and GEMINI_SANDBOX take precedence over the system settings file
+gemini: the sandbox (tools.sandbox) is a default, not a lock: the --sandbox flag and GEMINI_SANDBOX take precedence over the system settings file, and any SANDBOX environment variable skips it; the default Seatbelt profile (permissive-open) does not restrict network access
 gemini: the sandbox is not rendered on linux: it needs Docker or Podman there; set GEMINI_SANDBOX=docker|podman on the device
 gemini: cannot self-enforce version; halod enforces
 gemini: ring/release request headers are not supported
