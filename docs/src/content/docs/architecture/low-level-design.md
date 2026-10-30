@@ -77,7 +77,7 @@ Everything below runs inside `Proxy.ServeHTTP` ([`cmd/halo-proxy/proxy.go:187-36
 
    Rollback is `PromoteRing` to an older version: a new pointer with a higher `seq` ([`internal/bundle/channels.go:103-150`](https://github.com/dshakes/halos/blob/main/internal/bundle/channels.go#L103-L150)).
 
-Release binaries and images are signed separately. GoReleaser signs keyless with cosign ([`.goreleaser.yaml:159-171`](https://github.com/dshakes/halos/blob/main/.goreleaser.yaml#L159-L171)) in the tag-triggered release workflow, and its `verify` job checked the v0.4.0 signatures; see [tech stack](/halos/architecture/tech-stack/#packaging-and-deploy).
+Release binaries and images are signed separately. GoReleaser signs keyless with cosign ([`.goreleaser.yaml:159-171`](https://github.com/dshakes/halos/blob/main/.goreleaser.yaml#L159-L171)) in the tag-triggered release workflow, and its `verify` job checked the v0.4.1 signatures; see [tech stack](/halos/architecture/tech-stack/#packaging-and-deploy).
 
 ## halod apply loop
 
