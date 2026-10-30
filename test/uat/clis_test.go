@@ -5,6 +5,7 @@ package uat
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"regexp"
 	"sort"
 	"strings"
@@ -247,6 +248,57 @@ func testCodex(t *testing.T, e *cliEnv) {
 	check(t, h, "requirements.toml mcp_servers allowlist: user server `rogue` not connected", hits["/mcp/rogue"] == 0 && hits["/mcp/docs"] > 0,
 		fmt.Sprintf("mock MCP hits %v", hits), "")
 	e.sh("rm -f /root/.codex/config.toml")
+
+	testCodexEgress(t, e)
+}
+
+// testCodexEgress: the release's egress policy as the real codex enforces it.
+// halod installed requirements.toml [experimental_network] (the acme allowlist
+// as allowed_domains/denied_domains) and left network_access unset in
+// managed_config.toml; the adapter warns that sandboxed commands reach the
+// allowlist once the user sets network_access = true (a managed false would
+// outrank that, as it did here before). With that opt-in, `codex sandbox linux` (which
+// starts the managed network proxy for the child, credential-free) must reach an
+// allowlisted host and nothing else. A direct curl first proves both hosts are
+// reachable from the container, so a block is codex's doing.
+func testCodexEgress(t *testing.T, e *cliEnv) {
+	const h = "codex"
+	const allowed, other = "https://registry.npmjs.org/", "https://example.com/" // package-registries preset; in no preset
+	gap := func(out string) string {
+		if os.Getenv("UAT_REQUIRE_LANDLOCK") == "1" || !strings.Contains(out, "LandlockRestrict") {
+			return ""
+		}
+		return "no Landlock on this Docker kernel; `codex sandbox linux` cannot start"
+	}
+	code := regexp.MustCompile(`http=(\d{3})`)
+	reached := func(out string) bool { // a 2xx/3xx answer, not curl's 000 or a proxy 403
+		m := code.FindStringSubmatch(out)
+		return m != nil && m[1] >= "200" && m[1] < "400"
+	}
+	direct := map[string]string{}
+	for _, u := range []string{allowed, other} {
+		direct[u], _ = e.sh(`curl -sS -m 15 -o /dev/null -w 'http=%{http_code}' ` + u + ` 2>&1`)
+		if !reached(direct[u]) {
+			for _, a := range []string{"egress: allowlisted host reachable in `codex sandbox`", "egress: non-allowlisted host blocked in `codex sandbox`"} {
+				unverified(t, h, a, fmt.Sprintf("the container itself cannot reach %s (%q), so codex's egress filter cannot be told apart", u, strings.TrimSpace(direct[u])))
+			}
+			return
+		}
+	}
+	e.sh(`mkdir -p /root/.codex && printf '[sandbox_workspace_write]\nnetwork_access = true\n' >/root/.codex/config.toml`)
+	defer e.sh("rm -f /root/.codex/config.toml")
+	sandboxed := func(u string) string {
+		out, rc := e.sh(`cd /proj && timeout 90 codex sandbox linux --full-auto -- sh -c 'echo UAT-SANDBOX-RAN; env | grep -i "^https_proxy="; curl -sS -m 15 -o /dev/null -w "http=%{http_code}" ` + u + `' </dev/null 2>&1`)
+		return fmt.Sprintf("rc=%d %s", rc, strings.TrimSpace(out))
+	}
+	ev := func(u, out string) string {
+		return fmt.Sprintf("direct curl %s: %s; `codex sandbox linux --full-auto` (user network_access = true): %q; kernel %s",
+			u, strings.TrimSpace(direct[u]), tail(out, 4), strings.TrimSpace(kernel()))
+	}
+	out := sandboxed(allowed)
+	check(t, h, "egress: allowlisted host reachable in `codex sandbox`", strings.Contains(out, "UAT-SANDBOX-RAN") && reached(out), ev(allowed, out), gap(out))
+	out = sandboxed(other)
+	check(t, h, "egress: non-allowlisted host blocked in `codex sandbox`", strings.Contains(out, "UAT-SANDBOX-RAN") && !reached(out), ev(other, out), gap(out))
 }
 
 func testGemini(t *testing.T, e *cliEnv) {
