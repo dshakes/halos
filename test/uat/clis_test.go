@@ -253,10 +253,11 @@ func testCodex(t *testing.T, e *cliEnv) {
 }
 
 // testCodexEgress: the release's egress policy as the real codex enforces it.
-// halod installed requirements.toml [experimental_network] (the acme allowlist,
-// managed_allowed_domains_only) and managed_config.toml network_access = false;
-// the adapter warns that sandboxed commands reach the allowlist once the user
-// sets network_access = true. With that opt-in, `codex sandbox linux` (which
+// halod installed requirements.toml [experimental_network] (the acme allowlist
+// as allowed_domains/denied_domains) and left network_access unset in
+// managed_config.toml; the adapter warns that sandboxed commands reach the
+// allowlist once the user sets network_access = true (a managed false would
+// outrank that, as it did here before). With that opt-in, `codex sandbox linux` (which
 // starts the managed network proxy for the child, credential-free) must reach an
 // allowlisted host and nothing else. A direct curl first proves both hosts are
 // reachable from the container, so a block is codex's doing.

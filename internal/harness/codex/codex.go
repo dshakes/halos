@@ -58,9 +58,13 @@ const (
 // default the user's config.toml can change, which requirements.toml then
 // limits (allowed_sandbox_modes, [experimental_network], deny_read).
 // writable_roots are absolute paths (AbsolutePathBuf in the schema).
-// network_access stays false under a default-deny egress policy: the release
-// check refuses true, and commands then reach only what the managed proxy allows
-// once a user turns it on.
+// network_access under a default-deny egress policy: with an allowlist it is
+// not rendered. managed_config.toml outranks the user's config.toml and even
+// `-c`, so a managed false would hold sandboxed commands off the network for
+// good (codex 0.99.0, test/uat) and the allowlist could never apply. Codex's
+// own default is off; a user who turns it on is held to the allowlist by the
+// managed network proxy (requirements.toml [experimental_network]). With an
+// empty allowlist it stays false. The release check refuses true.
 func workspaceWrite(p *policy.Profile, mode string) (map[string]any, []string) {
 	var warns []string
 	out := map[string]any{}
@@ -73,9 +77,13 @@ func workspaceWrite(p *policy.Profile, mode string) (map[string]any, []string) {
 	}
 	if p.Egress.Restricted() {
 		er := p.Egress.Rules()
-		out["network_access"] = er.Default == policy.EgressAllow
-		if er.Default == policy.EgressDeny && len(er.Allow) > 0 {
-			warns = append(warns, "codex: egress default deny renders network_access = false, so sandboxed commands reach the allowlisted hosts only after the user sets network_access = true; [experimental_network] in requirements.toml then limits them")
+		switch {
+		case er.Default == policy.EgressAllow:
+			out["network_access"] = true
+		case len(er.Allow) == 0:
+			out["network_access"] = false
+		default:
+			warns = append(warns, "codex: egress default deny leaves network_access unset (Codex's default is off): a sandboxed command reaches the network only after the user sets [sandbox_workspace_write] network_access = true, and the managed network proxy (requirements.toml [experimental_network]) then holds it to the allowlisted hosts")
 		}
 	}
 	if len(out) == 0 || mode != "workspace-write" {
@@ -85,41 +93,59 @@ func workspaceWrite(p *policy.Profile, mode string) (map[string]any, []string) {
 }
 
 // requirementsSandbox adds the enforced sandbox and egress requirements to req:
-// [permissions.filesystem] deny_read (absolute, ~ or /**/ globs; "./" is
-// refused) and [experimental_network] (domain -> allow|deny, deny wins,
+// [permissions.filesystem] deny_read (absolute or ~ paths; relative ones warn)
+// and [experimental_network] (allowed_domains / denied_domains, deny wins,
 // *.x = subdomains only, managed_allowed_domains_only for default deny).
 // https://learn.chatgpt.com/docs/enterprise/managed-configuration
 func requirementsSandbox(p *policy.Profile, req map[string]any, os harness.OS) []string {
 	var warns []string
 	if pp := p.Sandbox.ProtectedPaths; len(pp) > 0 {
-		var deny []string
+		// Absolute and ~ paths only. A relative pattern has no form that covers
+		// the workspace: codex 0.166.0 resolves it against the requirements file's
+		// directory (`**/.env*` guarded /etc/codex/.env, not the project; test/uat),
+		// and its bubblewrap sandbox refuses a glob with no non-root prefix
+		// (`/**/.env*`: "cannot be safely expanded"), failing every sandboxed command.
+		var deny, rel []string
 		for _, x := range pp {
-			if !strings.HasPrefix(x, "/") && !strings.HasPrefix(x, "~/") {
-				x = "/**/" + strings.TrimPrefix(strings.TrimPrefix(x, "./"), "**/")
+			if strings.HasPrefix(x, "/") || strings.HasPrefix(x, "~/") || x == "~" {
+				deny = append(deny, x)
+			} else {
+				rel = append(rel, x)
 			}
-			deny = append(deny, x)
 		}
-		req["permissions"] = map[string]any{"filesystem": map[string]any{"deny_read": deny}}
-		warns = append(warns, "codex: sandbox.protectedPaths are rendered as deny_read (reads); Codex has no managed deny-write list, so writes are held only by the sandbox mode")
-		if os == harness.Windows {
-			warns = append(warns, "codex: on native Windows deny_read applies to direct file tools only, not shell subprocess reads")
+		if len(rel) > 0 {
+			warns = append(warns, fmt.Sprintf("codex: sandbox.protectedPaths %v are relative; deny_read has no workspace-relative form (Codex resolves relative patterns against /etc/codex, and refuses /**/ globs), so they are not rendered; use absolute or ~ paths", rel))
+		}
+		if len(deny) > 0 {
+			req["permissions"] = map[string]any{"filesystem": map[string]any{"deny_read": deny}}
+			warns = append(warns, "codex: sandbox.protectedPaths are rendered as deny_read (reads); Codex has no managed deny-write list, so writes are held only by the sandbox mode")
+			if v := p.Harnesses[name].Version; v != "" && hutil.VersionBefore(v, 0, 122) {
+				warns = append(warns, fmt.Sprintf("codex: %s ignores requirements.toml [permissions.filesystem] deny_read (first read by codex 0.122.0), so sandbox.protectedPaths are not enforced", v))
+			}
+			if os == harness.Windows {
+				warns = append(warns, "codex: on native Windows deny_read applies to direct file tools only, not shell subprocess reads")
+			}
 		}
 	}
 	if p.Egress.Restricted() {
+		// The allowed_domains / denied_domains lists, not the newer `domains`
+		// table: codex 0.99.0 reads only the lists (NetworkRequirementsToml) and
+		// ignores `domains`, leaving an empty allowlist that refuses every host
+		// (403, test/uat). 0.166.0 still accepts the lists and maps them to
+		// `domains` (legacy_domain_permissions_from_lists; it rejects both
+		// together, and an empty list counts as unset, so empty ones are
+		// omitted). managed_allowed_domains_only stays: 0.166.0 accepts it next
+		// to the lists, and 0.99.0 ignores it (no deny_unknown_fields).
 		er := p.Egress.Rules()
-		domains := map[string]any{}
-		for _, d := range er.Allow {
-			domains[d] = "allow"
-		}
-		for _, d := range er.Deny {
-			domains[d] = "deny"
-		}
 		net := map[string]any{"enabled": true, "managed_allowed_domains_only": er.Default == policy.EgressDeny}
-		if len(domains) > 0 {
-			net["domains"] = domains
+		if len(er.Allow) > 0 {
+			net["allowed_domains"] = er.Allow
+		}
+		if len(er.Deny) > 0 {
+			net["denied_domains"] = er.Deny
 		}
 		req["experimental_network"] = net
-		warns = append(warns, "codex: egress is rendered as requirements.toml [experimental_network], which OpenAI documents as experimental; the minimum codex version honoring it is not documented (UNVERIFIED), and it does not filter web search, MCP servers or Codex's own service requests")
+		warns = append(warns, "codex: egress is rendered as requirements.toml [experimental_network] allowed_domains/denied_domains (checked against codex 0.99.0 and 0.166.0 in test/uat), which OpenAI documents as experimental; it filters sandboxed commands through Codex's managed proxy, not web search, MCP servers or Codex's own service requests")
 	}
 	return warns
 }

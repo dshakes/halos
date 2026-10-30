@@ -3,12 +3,9 @@ allowed_login_methods = ['api']
 allowed_sandbox_modes = ['read-only', 'workspace-write']
 
 [experimental_network]
+allowed_domains = ['example.com', 'github.com']
 enabled = true
 managed_allowed_domains_only = true
-
-[experimental_network.domains]
-'example.com' = 'allow'
-'github.com' = 'allow'
 
 [marketplaces]
 restrict_to_allowed_sources = true

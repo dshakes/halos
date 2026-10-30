@@ -45,6 +45,3 @@ enabled = true
 
 [plugins.'risky@acme-plugins']
 enabled = false
-
-[sandbox_workspace_write]
-network_access = false

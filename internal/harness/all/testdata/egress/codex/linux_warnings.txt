@@ -1,5 +1,7 @@
 codex cannot self-enforce version; halod enforces
 codex: no gateway configured; traffic is not routed through Halos
-codex: egress default deny renders network_access = false, so sandboxed commands reach the allowlisted hosts only after the user sets network_access = true; [experimental_network] in requirements.toml then limits them
+codex: egress default deny leaves network_access unset (Codex's default is off): a sandboxed command reaches the network only after the user sets [sandbox_workspace_write] network_access = true, and the managed network proxy (requirements.toml [experimental_network]) then holds it to the allowlisted hosts
+codex: sandbox.protectedPaths [.env*] are relative; deny_read has no workspace-relative form (Codex resolves relative patterns against /etc/codex, and refuses /**/ globs), so they are not rendered; use absolute or ~ paths
 codex: sandbox.protectedPaths are rendered as deny_read (reads); Codex has no managed deny-write list, so writes are held only by the sandbox mode
-codex: egress is rendered as requirements.toml [experimental_network], which OpenAI documents as experimental; the minimum codex version honoring it is not documented (UNVERIFIED), and it does not filter web search, MCP servers or Codex's own service requests
+codex: 0.99.0 ignores requirements.toml [permissions.filesystem] deny_read (first read by codex 0.122.0), so sandbox.protectedPaths are not enforced
+codex: egress is rendered as requirements.toml [experimental_network] allowed_domains/denied_domains (checked against codex 0.99.0 and 0.166.0 in test/uat), which OpenAI documents as experimental; it filters sandboxed commands through Codex's managed proxy, not web search, MCP servers or Codex's own service requests
