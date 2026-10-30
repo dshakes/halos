@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 592" width="880" height="592" role="img" aria-labelledby="t d" font-family="ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif">
 <title id="t">Halos architecture</title>
-<desc id="d">Policy compiles to a signed release and ring pointers. The client plane (halod, MDM, Dev Container Feature, Coder, CI action) applies it; the traffic plane (halo-proxy or the Kong plugin) routes to Anthropic, Bedrock, Vertex or OpenAI, meters budgets and carries delegated agent credentials; the evidence plane (OTEL, ClickHouse, halo eval, controller, MCP, and halo-server with RBAC, SCIM and SIEM audit export on Postgres) proposes promotion PRs and fires the kill switch. Six harnesses run on the client plane.</desc>
+<desc id="d">Policy compiles to a signed release and ring pointers. The client plane (halod, MDM, Dev Container Feature, Coder, CI action) applies it; the traffic plane (halo-proxy or the Kong plugin) routes to Anthropic, Bedrock, Vertex or OpenAI, scans for secrets and prompt injection, meters budgets and carries revocable delegated agent credentials; the client plane also enforces the sandbox, egress, MCP registry and digest-pinned agent artifacts; the evidence plane (OTEL with the session ledger, ClickHouse, halo eval, controller with randomized ROI, MCP and halo copilot, and halo-server with RBAC, SCIM and SIEM audit export on Postgres) proposes promotion PRs and fires the kill switch. Six harnesses run on the client plane.</desc>
 <style>
 .cv{fill:#f7f2e9;stroke:#e6ddcd;stroke-width:1.5}
 .card{fill:#fffdf9;stroke:#e3d9c8;stroke-width:1.5}
@@ -88,10 +88,13 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <rect class="card" x="36" y="358" width="216" height="44" rx="12" filter="url(#sh)"/>
 <text class="t" x="52" y="376.5">CI action</text>
 <text class="s" x="52" y="394.5">runners · workload identity</text>
-<rect class="card" x="36" y="408" width="216" height="60" rx="12" filter="url(#sh)"/>
-<text class="t" x="52" y="426.5">Six harnesses</text>
-<text class="s" x="52" y="444.5">Claude Code · Codex · Gemini</text>
-<text class="s" x="52" y="460.5">Copilot · Cursor · OpenCode</text>
+<rect class="card" x="36" y="408" width="216" height="44" rx="12" filter="url(#sh)"/>
+<text class="t" x="52" y="426.5">Sandbox · supply chain</text>
+<text class="s" x="52" y="444.5">egress · MCP list · AI-BOM</text>
+<rect class="card" x="36" y="458" width="216" height="60" rx="12" filter="url(#sh)"/>
+<text class="t" x="52" y="476.5">Six harnesses</text>
+<text class="s" x="52" y="494.5">Claude Code · Codex · Gemini</text>
+<text class="s" x="52" y="510.5">Copilot · Cursor · OpenCode</text>
 <rect class="zone" x="320" y="168" width="240" height="400" rx="16"/>
 <text class="k ka" x="336" y="192">TRAFFIC PLANE</text>
 <text class="xs" x="544" y="192" text-anchor="end">in the request path</text>
@@ -107,14 +110,14 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <text class="t" x="348" y="326.5">halo-shadow</text>
 <text class="s" x="348" y="344.5">async multi-turn mirror</text>
 <rect class="card" x="332" y="358" width="216" height="44" rx="12" filter="url(#sh)"/>
-<text class="t" x="348" y="376.5">Budgets · agent identity</text>
-<text class="s" x="348" y="394.5">cost caps · delegated tokens</text>
+<text class="t" x="348" y="376.5">DLP · budgets · identity</text>
+<text class="s" x="348" y="394.5">secret scan · caps · revocation</text>
 <rect class="zone" x="616" y="168" width="240" height="400" rx="16"/>
 <text class="k ka" x="632" y="192">EVIDENCE PLANE</text>
 <text class="xs" x="840" y="192" text-anchor="end">decides</text>
 <rect class="card" x="628" y="208" width="216" height="44" rx="12" filter="url(#sh)"/>
 <text class="t" x="644" y="226.5">OTEL collector</text>
-<text class="s" x="644" y="244.5">normalize to halo.*</text>
+<text class="s" x="644" y="244.5">halo.* · session ledger</text>
 <rect class="card" x="628" y="258" width="216" height="44" rx="12" filter="url(#sh)"/>
 <text class="t" x="644" y="276.5">ClickHouse</text>
 <text class="s" x="644" y="294.5">halo.* tables</text>
@@ -125,7 +128,7 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <rect class="soft" x="628" y="358" width="216" height="44" rx="12"/>
 <rect class="ring" x="628.75" y="358.75" width="214.5" height="42.5" rx="11.25"/>
 <text class="t" x="644" y="376.5">controller</text>
-<text class="s" x="644" y="394.5">mSPRT verdicts · rollback</text>
+<text class="s" x="644" y="394.5">mSPRT · ROI · rollback</text>
 <rect class="card" x="628" y="408" width="216" height="44" rx="12" filter="url(#sh)"/>
 <text class="t" x="644" y="426.5">halo-server</text>
 <text class="s" x="644" y="444.5">console · RBAC · SCIM · SIEM</text>
@@ -133,8 +136,8 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <text class="t" x="644" y="476.5">Postgres (HA)</text>
 <text class="s" x="644" y="494.5">replicas · leader lease</text>
 <rect class="card" x="628" y="508" width="216" height="44" rx="12" filter="url(#sh)"/>
-<text class="t" x="644" y="526.5">MCP</text>
-<text class="s" x="644" y="544.5">halo mcp serve · agents</text>
+<text class="t" x="644" y="526.5">MCP · copilot</text>
+<text class="s" x="644" y="544.5">halo mcp serve · halo copilot</text>
 <rect class="card" x="332" y="408" width="216" height="154" rx="12" filter="url(#sh)"/>
 <text class="t" x="348" y="435">Providers</text>
 <text class="xs" x="532" y="435" text-anchor="end">any, with failover</text>
