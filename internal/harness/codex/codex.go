@@ -145,6 +145,11 @@ func requirementsSandbox(p *policy.Profile, req map[string]any, os harness.OS) [
 			net["denied_domains"] = er.Deny
 		}
 		req["experimental_network"] = net
+		if len(er.Allow) == 0 && er.Default == policy.EgressAllow {
+			// 0.99.0's proxy refuses every host when allowed_domains is empty
+			// (test/uat), so a deny-only list blocks all network.
+			warns = append(warns, "codex: egress default allow with only denied domains renders no allowed_domains; codex 0.99.0's proxy then refuses every host, so sandboxed commands get no network")
+		}
 		warns = append(warns, "codex: egress is rendered as requirements.toml [experimental_network] allowed_domains/denied_domains (checked against codex 0.99.0 and 0.166.0 in test/uat), which OpenAI documents as experimental; it filters sandboxed commands through Codex's managed proxy, not web search, MCP servers or Codex's own service requests")
 	}
 	return warns

@@ -40,6 +40,7 @@ func TestEgressNetworkShape(t *testing.T) {
 			egress:    policy.Egress{Default: policy.EgressAllow, DeniedDomains: []string{"transfer.sh"}},
 			wantNet:   map[string]any{"enabled": true, "managed_allowed_domains_only": false, "denied_domains": []any{"transfer.sh"}},
 			wantNA:    true,
+			wantWarn:  "refuses every host",
 			forbidden: "leaves network_access unset",
 		},
 	} {

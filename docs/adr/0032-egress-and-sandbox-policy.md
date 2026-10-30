@@ -10,6 +10,8 @@ date: 2026-10-27
 - Status: accepted
 - Date: 2026-10-27
 
+> **Amended 2026-10-30 (real-CLI UAT).** Codex egress now renders `[experimental_network]` `allowed_domains` / `denied_domains` lists, not the `domains` table: codex 0.99.0 reads only the lists and silently ignored the table, leaving an empty allowlist that refused every host; 0.166.0 accepts both. Under default deny with an allowlist, `network_access` is no longer rendered: a managed `false` outranks the user's opt-in, so no allowlisted host was ever reachable. Codex's default is off, and a user who turns it on is held to the managed lists. Relative `protectedPaths` no longer render as `/**/` globs, which codex 0.166.0 refuses for every sandboxed command; Codex has no workspace-relative `deny_read` form, so they warn. `test/uat` (`uat-clis`) checks an allowlisted host is reachable and another is blocked through `codex sandbox linux`.
+
 ## Context and problem statement
 
 A coding agent runs shell commands and fetches URLs on the developer's machine with the developer's credentials. Two controls bound what it can do there: a sandbox (what the shell may write and read) and an egress policy (which hosts it may reach). Halos had one sandbox mode (`permissions.sandbox`) and an allowlist (`egress.allowedDomains`) that only Claude Code rendered. Every vendor now ships its own native mechanism, each with different shapes, wildcard rules, scopes and gaps, and none of them is the same file. A security team that writes "no shell egress except our registries, never read `~/.ssh`" had to learn six formats and could not tell which machines held it.
