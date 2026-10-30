@@ -4,6 +4,8 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-30
+
 ### Fixed
 
 - Codex: egress allowlists now work. Halos rendered `[experimental_network.domains]`, which codex 0.99.0 ignores (its proxy then refused every host), plus a managed `network_access = false` that outranked the user's opt-in, so no allowlisted host was reachable from a sandboxed command. Releases now render the `allowed_domains` / `denied_domains` lists (read by 0.99.0 and 0.166.0) and leave `network_access` to the user under an allowlist. Relative `sandbox.protectedPaths` are no longer rendered as `/**/` globs, which codex 0.166.0 refuses for every sandboxed command; they warn instead (Codex has no workspace-relative `deny_read`), and pins before 0.122.0 warn that `deny_read` is ignored. A new `uat-clis` check runs the rendered files through the real `codex sandbox linux`. Re-publish releases with Codex egress or protected paths.
