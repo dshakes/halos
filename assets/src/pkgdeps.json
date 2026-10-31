@@ -360,6 +360,10 @@
       ]
     },
     {
+      "path": "internal/obsassets",
+      "imports": []
+    },
+    {
       "path": "internal/onboard",
       "imports": [
         "internal/fsutil",
@@ -498,6 +502,12 @@
       "path": "internal/tools/gendocs",
       "imports": [
         "internal/docgen"
+      ]
+    },
+    {
+      "path": "internal/tools/obsassets",
+      "imports": [
+        "internal/obsassets"
       ]
     },
     {
