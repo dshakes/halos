@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dshakes/halos/internal/hmackey"
+	"github.com/dshakes/halos/internal/hmackey/hmackeytest"
 )
 
 // ADR-0038: a unit salt Go's FIPS module would panic on (on every request)
@@ -27,7 +27,7 @@ func TestUnitSaltFIPS(t *testing.T) {
 			if !tc.fips && fips140.Enabled() {
 				t.Skip("real FIPS run: a short salt cannot be used at all")
 			}
-			defer hmackey.SetFIPSForTesting(tc.fips)()
+			defer hmackeytest.SetFIPS(tc.fips)()
 			e, err := New(Config{OTLPEndpoint: "http://c", UnitSalt: tc.salt})
 			if (err == nil) != tc.ok {
 				t.Fatalf("err %v, want ok=%v", err, tc.ok)

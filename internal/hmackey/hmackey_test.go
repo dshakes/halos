@@ -2,11 +2,15 @@ package hmackey
 
 import (
 	"bytes"
+	"crypto/fips140"
 	"crypto/hmac"
 	"crypto/sha256"
 	"log/slog"
+	"os"
 	"strings"
 	"testing"
+
+	"github.com/dshakes/halos/internal/hmackey/hmackeytest"
 )
 
 func TestCheck(t *testing.T) {
@@ -25,9 +29,7 @@ func TestCheck(t *testing.T) {
 		{"no fips ok silent", false, ok, false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			old := fipsEnabled
-			fipsEnabled = func() bool { return tc.fips }
-			defer func() { fipsEnabled = old }()
+			defer hmackeytest.SetFIPS(tc.fips)()
 			var buf bytes.Buffer
 			err := Check(slog.New(slog.NewTextHandler(&buf, nil)), "--some-secret-file", tc.key)
 			if (err != nil) != tc.wantErr {
@@ -59,7 +61,7 @@ func TestMinFIPSAcceptedByModule(t *testing.T) {
 // Under a real fips140=only run, one byte less than MinFIPS panics: the
 // constant is the module's limit, not a guess.
 func TestMinFIPSIsTheModuleLimit(t *testing.T) {
-	if !fipsEnabled() {
+	if !fips140.Enabled() || !strings.Contains(os.Getenv("GODEBUG"), "fips140=only") { // under fips140=on the module accepts short keys (non-approved)
 		t.Skip("needs GODEBUG=fips140=only (make test-fips)")
 	}
 	defer func() {

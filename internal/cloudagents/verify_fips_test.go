@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dshakes/halos/internal/hmackey"
+	"github.com/dshakes/halos/internal/hmackey/hmackeytest"
 )
 
 // ADR-0038: a GitHub delivery against a secret Go's FIPS module would panic
@@ -18,7 +18,7 @@ func TestVerifySignatureShortSecretFIPS(t *testing.T) {
 	}
 	body := []byte(`{"action":"completed"}`)
 	good := sign("short", body)
-	defer hmackey.SetFIPSForTesting(true)()
+	defer hmackeytest.SetFIPS(true)()
 	if err := VerifySignature([]string{"short"}, body, good); err == nil {
 		t.Fatal("short secret used in FIPS mode")
 	}

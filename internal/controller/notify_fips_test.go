@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dshakes/halos/internal/hmackey"
+	"github.com/dshakes/halos/internal/hmackey/hmackeytest"
 )
 
 // ADR-0038: a notify webhook secret Go's FIPS module would panic on refuses
@@ -32,7 +32,7 @@ func TestNotifyWebhookSecretFIPS(t *testing.T) {
 		{"no fips short warns only", false, short, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			defer hmackey.SetFIPSForTesting(tc.fips)()
+			defer hmackeytest.SetFIPS(tc.fips)()
 			_, err := NotifiersFromFiles("", hook, tc.secret)
 			if (err == nil) != tc.ok {
 				t.Fatalf("err %v, want ok=%v", err, tc.ok)
