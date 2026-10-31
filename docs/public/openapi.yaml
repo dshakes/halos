@@ -2503,7 +2503,7 @@ paths:
                   expiresAt: "2026-02-01T03:04:05Z"
                   id: 0123456789abcdef
                   owner: platform
-                  principal: svc:ci-reporter:0123456789abcdef
+                  principal: service-account:ci-reporter:0123456789abcdef
                   revoked: false
                   role: viewer
                   scope:
@@ -2582,7 +2582,7 @@ paths:
                 expired: false
                 expiresAt: "2026-02-01T03:04:05Z"
                 id: 0123456789abcdef
-                principal: svc:ci-reporter:0123456789abcdef
+                principal: service-account:ci-reporter:0123456789abcdef
                 revoked: true
                 role: viewer
                 scope: {}
