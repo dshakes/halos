@@ -114,6 +114,7 @@ export default defineConfig({
                 'guides/cli-upgrade-ab',
                 'guides/model-upgrade-canary',
                 'guides/delivery-roi',
+                'guides/testing-policy',
                 'guides/writing-evals',
                 'guides/agentic-operations',
                 'guides/policy-copilot',

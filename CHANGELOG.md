@@ -4,6 +4,10 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added
+
+- `halo test`, the offline tier of testing a policy change: in seconds, with no network or credentials, it validates the policy, renders every ring x harness x OS through the adapters (surfacing adapter warnings; `--strict` fails on them), builds each ring's release and checks its manifest and reproducibility, asserts no permission-bypass token in any rendered file, with `--against REF` previews who changes ring, variant or settings and fails above `--max-impact` percent (default 25), runs `PolicyTest` cases from `tests/` (identity -> expected ring, variants and rendered setting values; `schemas/policytest.schema.json`) and simulates every rollout. Output `text`, `json` (with `next_steps`) or `junit`; exit 0 pass, 1 could not run, 2 a check failed. The MCP server gains the read-only `policy_test` tool. `examples/acme-corp/tests/` has passing cases. Guide: Testing a policy change.
+
 ## [0.4.1] - 2026-10-30
 
 ### Fixed

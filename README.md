@@ -206,6 +206,7 @@ Traffic goes through `halo-proxy` to Anthropic, Bedrock (SigV4), Vertex, OpenAI,
 | Session ledger | One record per agent session: who (and the delegated chain), release, ring, variant, models, MCP tools, repos, tokens, cost and outcome, from gateway, OTel and vendor audit APIs | [session ledger](https://dshakes.github.io/halos/guides/session-ledger/) |
 | Delivery ROI | `halo roi` joins PR outcomes to randomized experiment arms, so the effect is the change's, not self-selection's; informational, never gates promotion | [delivery ROI](https://dshakes.github.io/halos/guides/delivery-roi/) |
 | Policy copilot | `halo copilot` drafts a policy change from an intent, runs validate, plan, impact and stats on it, and commits only to a local branch; a human opens and merges the PR | [policy copilot](https://dshakes.github.io/halos/guides/policy-copilot/) |
+| Test a change | `halo test` validates, renders every ring x harness x OS, checks invariants and releases, runs your `tests/` cases and simulates rollouts in seconds, offline, before any eval | [testing a policy change](https://dshakes.github.io/halos/guides/testing-policy/) |
 
 ## Runs everywhere
 
