@@ -63,8 +63,9 @@ type options struct {
 	gatewayCapTokenFiles                                           [5]string // killswitch, posture, budget, directory, dlp (gatewayCapFlags order)
 	gatewayDLPTokensDir                                            string    // one file per gateway: name = gateway, content = its DLP token
 	workloadKeyFile                                                string
-	slackURLFile, webhookURLFile, webhookSecretFile                string
+	notify                                                         controller.NotifyConfig
 	policyRepoDir, policyRepoSubdir, policyRepoBase, metricsListen string
+	forge, forgeBaseURL                                            string // --forge, --forge-base-url
 
 	// SCIM provisioning (ADR-0022)
 	scimTokenHashFile string
@@ -123,12 +124,12 @@ func parseFlags(args []string) (options, error) {
 	fs.StringVar(&o.gatewayDLPTokensDir, "gateway-dlp-tokens-dir", "", "directory of per-gateway DLP tokens: each file is named for one gateway and holds the token that gateway posts /api/v1/gateway/dlp/events with; its events are attributed to it (recommended over --gateway-dlp-token-file, whose events are recorded as gateway:unverified)")
 	fs.StringVar(&o.workloadKeyFile, "workload-key-file", "", "ed25519 PKCS#8 PEM private key signing CI/cloud workload credentials from POST /api/v1/token/exchange (halo keys generate --name workload); empty disables the endpoint")
 	fs.DurationVar(&o.postureMaxAge, "posture-max-age", server.DefaultPostureMaxAge, "a device whose last halod report is older is non-compliant for the gateway posture gate")
-	fs.StringVar(&o.slackURLFile, "notify-slack-url-file", "", "file holding a Slack incoming-webhook URL")
-	fs.StringVar(&o.webhookURLFile, "notify-webhook-url-file", "", "file holding a generic webhook URL (JSON event, signed with X-Halo-Signature)")
-	fs.StringVar(&o.webhookSecretFile, "notify-webhook-secret-file", "", "file holding the webhook HMAC-SHA256 secret")
+	controller.NotifyFlags(fs, &o.notify)
 	fs.StringVar(&o.policyRepoDir, "policy-repo-dir", "", "dedicated policy-repo clone the controller opens PRs from (hard-reset to origin before each PR; must not be --policy-dir or the portal clone)")
 	fs.StringVar(&o.policyRepoSubdir, "policy-repo-subdir", "", "policy root inside --policy-repo-dir")
 	fs.StringVar(&o.policyRepoBase, "policy-repo-base", "main", "PR base branch for controller PRs")
+	fs.StringVar(&o.forge, "forge", "", "where PRs/MRs are opened: "+promote.ForgeKinds+"; github/gitlab use the REST API with GITHUB_TOKEN/GH_TOKEN or GITLAB_TOKEN from the environment; also the default for the portal writer (portal policyForge overrides)")
+	fs.StringVar(&o.forgeBaseURL, "forge-base-url", "", "REST API root for GitHub Enterprise Server (https://ghe.example.com/api/v3) or self-managed GitLab (https://gitlab.example.com/api/v4); default derived from the clone's origin remote")
 	fs.StringVar(&o.metricsListen, "metrics-listen", "", "address serving /metrics: audit export, controller with --controller, leader lease and database with --database-url-file (unauthenticated; keep it internal; empty disables)")
 	fs.StringVar(&o.scimTokenHashFile, "scim-token-sha256-file", "", "file holding the hex SHA-256 of each accepted SCIM bearer token, one per line (two while rotating); enables /scim/v2")
 	fs.BoolVar(&o.scimAuthoritative, "scim-authoritative", false, "the SCIM directory decides who is active and their groups (console, devices); unprovisioned users are refused")
@@ -237,7 +238,11 @@ func policyWriter(portal server.Portal, policyDir string) (server.PolicyWriter, 
 	if err := server.CheckSeparateClone(portal.PolicyRepoDir, policyDir); err != nil {
 		return nil, fmt.Errorf("portal policyRepoDir: %w", err)
 	}
-	return &server.GitPolicyWriter{RepoDir: portal.PolicyRepoDir, ServedDir: policyDir, Subdir: portal.PolicySubdir, Base: portal.PolicyBase, Opener: promote.GHOpener{}}, nil
+	op, err := promote.NewForge(promote.ForgeConfig{Kind: portal.PolicyForge, BaseURL: portal.PolicyForgeBaseURL})
+	if err != nil {
+		return nil, fmt.Errorf("portal policyForge: %w", err)
+	}
+	return &server.GitPolicyWriter{RepoDir: portal.PolicyRepoDir, ServedDir: policyDir, Subdir: portal.PolicySubdir, Base: portal.PolicyBase, Opener: op}, nil
 }
 
 // gatewayCapFlags names the per-capability --gateway-<name>-token-file flags,
@@ -553,6 +558,9 @@ func run(ctx context.Context, args []string) error {
 			return fmt.Errorf("--audit-config %s: %w", o.auditCfg, err)
 		}
 	}
+	if portal.PolicyForge == "" && portal.PolicyForgeBaseURL == "" {
+		portal.PolicyForge, portal.PolicyForgeBaseURL = o.forge, o.forgeBaseURL
+	}
 	writer, err := policyWriter(portal, o.policyDir)
 	if err != nil {
 		return err
@@ -772,7 +780,11 @@ func controllerWriter(o options, portal server.Portal, portalWriter server.Polic
 			return nil, fmt.Errorf("--policy-repo-dir: %w", err)
 		}
 	}
-	return &server.GitPolicyWriter{RepoDir: o.policyRepoDir, ServedDir: o.policyDir, Subdir: o.policyRepoSubdir, Base: o.policyRepoBase, Opener: promote.GHOpener{}}, nil
+	op, err := promote.NewForge(promote.ForgeConfig{Kind: o.forge, BaseURL: o.forgeBaseURL})
+	if err != nil {
+		return nil, fmt.Errorf("--forge: %w", err)
+	}
+	return &server.GitPolicyWriter{RepoDir: o.policyRepoDir, ServedDir: o.policyDir, Subdir: o.policyRepoSubdir, Base: o.policyRepoBase, Opener: op}, nil
 }
 
 // newController wires the experiment loop into this server: the served
@@ -792,7 +804,8 @@ func newController(o options, portal server.Portal, portalWriter server.PolicyWr
 		}
 		pw = strings.TrimSpace(string(b))
 	}
-	notifiers, err := controller.NotifiersFromFiles(o.slackURLFile, o.webhookURLFile, o.webhookSecretFile)
+	o.notify.Retry = controller.DefaultRetry
+	notifiers, err := o.notify.Build()
 	if err != nil {
 		return nil, err
 	}

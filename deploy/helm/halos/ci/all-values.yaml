@@ -30,8 +30,10 @@ server:
     enabled: true
     clickhouse: {url: "http://clickhouse.data.svc:8123", database: halo, existingSecret: clickhouse-pw}
     notify:
-      slack: {existingSecret: halos-slack}
-      webhook: {existingSecret: halos-webhook}
+      slack: {existingSecret: halos-slack, events: "experiment.rollback,rollout.rollback"}
+      teams: {existingSecret: halos-teams}
+      webhook: {existingSecret: halos-webhook, events: "all,resolved"}
+      pagerduty: {existingSecret: halos-pagerduty, key: routingKey, url: "https://events.eu.pagerduty.com/v2/enqueue"}
     policyRepo:
       enabled: true
       image: {repository: dshakes/halo-server-git}

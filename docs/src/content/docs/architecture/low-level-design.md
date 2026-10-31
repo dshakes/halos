@@ -131,7 +131,7 @@ Between pulls, `PollKill` reacts to kill-list changes without a registry round t
     `rollback` and `pause` halt the rollout. A traffic-axis rollback on gateway evidence also trips the kill switch. Both then open a PR ([`internal/controller/rollouts.go:138-181`](https://github.com/dshakes/halos/blob/main/internal/controller/rollouts.go#L138-L181)). `advance` and `complete` only open a PR ([`internal/controller/rollouts.go:183-195`](https://github.com/dshakes/halos/blob/main/internal/controller/rollouts.go#L183-L195)).
 
 :::note[UNVERIFIED: GitHub PRs]
-`GHOpener` is marked UNVERIFIED against a real GitHub in its own source. Its tests use real git and a recording `gh` ([`internal/promote/pr.go:285-291`](https://github.com/dshakes/halos/blob/main/internal/promote/pr.go#L285-L291)).
+`GHOpener` is marked UNVERIFIED against a real GitHub in its own source. Its tests use real git and a recording `gh` ([`internal/promote/pr.go:285-291`](https://github.com/dshakes/halos/blob/main/internal/promote/pr.go#L285-L291)). `ForgeOpener` (`internal/promote/forge.go`) wraps it: `--forge gh` (default) delegates to `GHOpener`, `github` and `gitlab` push the branch with git and then call the REST API; with no flag it autodetects from the origin host. The REST paths are tested against `httptest` fakes only (**UNVERIFIED** against real GitLab or GitHub Enterprise Server); see [GitLab and GitHub Enterprise Server](/halos/guides/gitlab-and-ghes/).
 :::
 
 ## Data model

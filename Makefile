@@ -53,6 +53,13 @@ feature-test:
 .PHONY: docs-gen
 docs-gen:
 	go run ./internal/tools/gendocs --out docs/src/content/docs/reference
+	$(MAKE) openapi
+
+# Regenerate the OpenAPI description of halo-server (api/openapi.yaml, also published on the docs site).
+# go test ./internal/server -run OpenAPI fails when either copy drifts from the routes, RBAC table or Go types.
+.PHONY: openapi
+openapi:
+	go run ./internal/tools/genopenapi --out api/openapi.yaml --out docs/public/openapi.yaml
 
 # Regenerate the Grafana alert provisioning from the chart's Prometheus rules and copy the dashboards into the chart
 # (go test ./internal/obsassets fails when they drift).

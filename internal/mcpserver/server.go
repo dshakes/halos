@@ -47,7 +47,7 @@ type Options struct {
 	// read from HALO_SESSION, never a flag or a tool argument.
 	Server string
 	// PROpener opens review PRs (propose_promotion, open_pr on the rollout
-	// tools); nil = gh via promote.GHOpener. Tests inject a fake.
+	// tools); nil = gh via promote.GHOpener; halo mcp serve sets a promote.ForgeOpener (--forge). Tests inject a fake.
 	PROpener promote.PROpener
 	// AdminRead lets admin_plan read the live vendor consoles, with
 	// credentials from HALO_MCP_ADMIN_<VENDOR>_TOKEN (`halo mcp serve

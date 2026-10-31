@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -130,6 +131,19 @@ func (l *StateLog) Reset(exp string, at time.Time) error {
 		return nil
 	}
 	return l.write(stateRec{Experiment: exp, Reset: true, At: at.UTC()})
+}
+
+// Names lists the experiments (and "rollout:<name>" trackers) with entries
+// since their last reset, sorted.
+func (l *StateLog) Names() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	out := make([]string, 0, len(l.exps))
+	for n := range l.exps {
+		out = append(out, n)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // Close closes the log.

@@ -59,7 +59,7 @@ Generates a collector with two OTLP receivers so experiment evidence can be trus
 
 ### `halo controller run`
 
-Evaluates every running experiment from ClickHouse evidence on a timer (or once) and acts. `rollback` trips the kill switch in `<data-dir>/killswitch.jsonl`, opens a PR pausing the experiment and notifies. `promote` and `expired` open a PR concluding it and notify. Each action happens once per experiment run, recorded in `<data-dir>/controller-state.jsonl`. PRs are opened with `gh` from the git checkout containing `--policy-dir`. **Run a single controller per data dir.** Concepts: [experiments](/halos/concepts/experiments/#the-controller-loop).
+Evaluates every running experiment from ClickHouse evidence on a timer (or once) and acts. `rollback` trips the kill switch in `<data-dir>/killswitch.jsonl`, opens a PR pausing the experiment and notifies. `promote` and `expired` open a PR concluding it and notify. Each action happens once per experiment run, recorded in `<data-dir>/controller-state.jsonl`. PRs are opened from the git checkout containing `--policy-dir` with `gh`, or as GitLab merge requests / through the GitHub API with `--forge` ([GitLab and GitHub Enterprise Server](/halos/guides/gitlab-and-ghes/)). **Run a single controller per data dir.** Concepts: [experiments](/halos/concepts/experiments/#the-controller-loop).
 
 | Flag | Default | Purpose |
 |---|---|---|
@@ -74,15 +74,19 @@ Evaluates every running experiment from ClickHouse evidence on a timer (or once)
 | `--base` | | PR base branch |
 | `--verdicts-file F` | | Upsert each verdict into this JSON array file read by `halo-server`. The old name `--verdicts` is deprecated |
 | `--notify-slack-url-file F` | | File holding a Slack incoming-webhook URL |
+| `--notify-teams-url-file F` | | File holding a Microsoft Teams Workflows (Power Automate) webhook URL; posts an Adaptive Card. The retired Office 365 connector URLs are refused |
 | `--notify-webhook-url-file F` | | File holding a generic webhook URL (receives the JSON event) |
 | `--notify-webhook-secret-file F` | | File holding the HMAC-SHA256 secret; adds `X-Halo-Timestamp: <unix s>` and `X-Halo-Signature: sha256=<hex HMAC(secret, timestamp + "." + body)>`; receivers must verify and reject timestamps more than 5 minutes off ([snippets](#verifying-the-webhook-signature)) |
+| `--notify-pagerduty-routing-key-file F` | | File holding a PagerDuty Events API v2 routing (integration) key |
+| `--notify-pagerduty-url URL` | `https://events.pagerduty.com/v2/enqueue` | Events API URL; EU service region: `https://events.eu.pagerduty.com/v2/enqueue` |
+| `--notify-{slack,teams,webhook,pagerduty}-events LIST` | per sink | Comma-separated event kinds that sink delivers; `all` = every kind; `resolved` (webhook, PagerDuty) opts into all-clears. Kinds and defaults: [notifications guide](/halos/guides/notifications/#events-and-routing) |
 
 `--interval` replaces the deprecated `--controller-interval`. Behavior that matters:
 
 - **Kills are audited.** Each kill is appended to `<data-dir>/audit.jsonl` (the hash chain `halo-server` uses, fsynced). If the audit append fails, the kill stays applied and the command reports the error. Because `audit.jsonl` has a single writer, **do not run this against a data dir a live `halo-server` is appending to**; use the server's in-process controller there.
 - **Only gateway-sourced evidence kills.** A rollback decided on CLI telemetry or on eval (`halo eval online` judge) evidence opens the pause PR and notifies with `killOutcome: not_gateway_evidence`.
 - **Killed experiments are held.** A running experiment that is already killed is not evaluated; notifications say to unkill before resuming.
-- **Notifications retry per channel** on later ticks; a channel that succeeded is not re-posted.
+- **Notifications retry per channel** on later ticks; a channel that succeeded is not re-posted. Within one delivery a sink retries 429 and 5xx up to 3 times, honouring `Retry-After`. Setup for Slack, Teams, PagerDuty and the webhook: [notifications guide](/halos/guides/notifications/).
 
 #### Verifying the webhook signature
 
@@ -239,6 +243,7 @@ Flags (Go style, single or double dash):
 | `-clickhouse-url`, `-clickhouse-database`, `-clickhouse-user`, `-clickhouse-password-file` | | Evidence source |
 | `-policy-repo-dir` | | **Dedicated** clone the controller opens PRs from (hard-reset to `origin/<base>` before each PR). Must not be or overlap `-policy-dir`. May be the portal's `policyRepoDir` (then console and controller share that clone and its lock; subdir/base must match the portal's). Without it, no PRs are opened |
 | `-policy-repo-subdir`, `-policy-repo-base` | (root), `main` | Policy root inside that clone; PR base branch |
+| `-forge`, `-forge-base-url` | autodetect | Where PRs/MRs are opened: `gh`, `github` (REST, `GITHUB_TOKEN`/`GH_TOKEN`) or `gitlab` (REST v4, `GITLAB_TOKEN`); default `gitlab` if the clone's origin host names it, else `gh`. `-forge-base-url` sets the GitHub Enterprise Server or self-managed GitLab API root. Also the default for the portal writer (portal `policyForge` / `policyForgeBaseURL` override). [Guide](/halos/guides/gitlab-and-ghes/) |
 | `-notify-slack-url-file`, `-notify-webhook-url-file`, `-notify-webhook-secret-file` | | Controller notifications; the secret signs generic webhook bodies (`X-Halo-Timestamp` plus `X-Halo-Signature`, [verification](#verifying-the-webhook-signature)) |
 | `-metrics-listen` | off | Address serving the controller's `/metrics`. **Unauthenticated**: keep it internal |
 | `-scim-token-sha256-file` | | Enables [SCIM 2.0 provisioning](/halos/guides/scim-provisioning/) at `/scim/v2`. File with the hex SHA-256 of each accepted SCIM bearer token, one per line (two while rotating; `#` comments allowed). Requires `-data-dir` |

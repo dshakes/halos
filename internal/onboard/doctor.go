@@ -12,6 +12,7 @@ import (
 
 	"github.com/dshakes/halos/internal/harness"
 	"github.com/dshakes/halos/internal/policy"
+	"github.com/dshakes/halos/internal/promote"
 )
 
 // Check statuses.
@@ -45,7 +46,7 @@ type Report struct {
 // tools are the non-harness programs the onboarding paths use.
 var tools = []struct{ bin, why, fix string }{
 	{"git", "policy repo and PRs", "install git: https://git-scm.com/downloads"},
-	{"gh", "opening the policy PR (company path)", "install the GitHub CLI: https://cli.github.com, then gh auth login"},
+	{"gh", "opening the policy PR (company path)", "install the GitHub CLI: https://cli.github.com, then gh auth login (or --forge github with GITHUB_TOKEN)"},
 	{"docker", "halo quickstart and halo eval run", "install Docker Desktop or Docker Engine with Compose v2: https://docs.docker.com/get-docker/"},
 	{"npm", "installing codex, gemini-cli, copilot-cli and opencode", "install Node.js 22+: https://nodejs.org"},
 	{"halo-proxy", "a local gateway (halo onboard proxy)", "go install github.com/dshakes/halos/cmd/halo-proxy@latest, or the halo-proxy archive from https://github.com/dshakes/halos/releases"},
@@ -97,7 +98,19 @@ func Doctor(ctx context.Context, e Env, dir string) Report {
 
 	checkPosture(e, &r, add)
 
+	forge := policyForge(ctx, e, dir)
 	for _, t := range tools {
+		if t.bin == "gh" && forge == promote.ForgeGitLab {
+			// The policy repo lives on GitLab: merge requests go through the REST
+			// API, so the gh CLI is irrelevant and the token is what matters.
+			if e.Getenv != nil && e.Getenv("GITLAB_TOKEN") != "" {
+				add(Check{"forge/gitlab", StatusOK, "origin is a GitLab host; GITLAB_TOKEN is set (merge requests via the GitLab API)", ""})
+			} else {
+				add(Check{"forge/gitlab", StatusWarn, "origin is a GitLab host; GITLAB_TOKEN is not set (needed for opening the policy merge request, company path)",
+					"export GITLAB_TOKEN=<token with the api scope> and pass --forge gitlab (GitLab API; self-managed: also --forge-base-url https://HOST/api/v4)"})
+			}
+			continue
+		}
 		if p, err := e.LookPath(t.bin); err == nil {
 			add(Check{"tool/" + t.bin, StatusOK, t.bin + " at " + p, ""})
 		} else {
@@ -117,6 +130,23 @@ func Doctor(ctx context.Context, e Env, dir string) Report {
 		}
 	}
 	return r
+}
+
+// policyForge reports which forge the policy repo in dir uses, from its origin
+// remote. Anything unreadable or not GitLab is the gh default.
+func policyForge(ctx context.Context, e Env, dir string) string {
+	if dir == "" || e.Run == nil {
+		return promote.ForgeGH
+	}
+	out, err := e.Run(ctx, "git", "-C", dir, "remote", "get-url", "origin")
+	if err != nil {
+		return promote.ForgeGH
+	}
+	rem, err := promote.ParseRemote(string(out))
+	if err != nil {
+		return promote.ForgeGH
+	}
+	return promote.DetectForge(rem.Hostname)
 }
 
 // envWeakens are environment variables, read by the harness at start, that

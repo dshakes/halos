@@ -19,6 +19,8 @@ halo exp promote <name> [flags]
 | `--clickhouse` |  | string |  | ClickHouse HTTP URL, e.g. http://localhost:8123 (required) |
 | `--database` |  | string |  | ClickHouse database |
 | `--dry-run` |  | bool | false | print the patch instead of opening a PR |
+| `--forge` |  | string |  | where to open the change request: gh\|github\|gitlab (default: autodetect from the origin remote; gh unless the host names gitlab); github/gitlab use the REST API with GITHUB_TOKEN/GH_TOKEN or GITLAB_TOKEN |
+| `--forge-base-url` |  | string |  | REST API root for GitHub Enterprise Server (https://ghe.example.com/api/v3) or self-managed GitLab (https://gitlab.example.com/api/v4); default derived from the origin remote |
 | `--policy-dir` |  | string |  | policy repo directory (default ".") |
 | `--release` |  | string |  | release digest to pin (required) |
 | `--ring` |  | string |  | ring to re-point (required) |

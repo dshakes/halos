@@ -234,10 +234,31 @@ spec:
             {{- end }}
             {{- if $c.notify.slack.existingSecret }}
             - --notify-slack-url-file=/secrets/notify-slack-url
+            {{- with $c.notify.slack.events }}
+            - --notify-slack-events={{ . }}
+            {{- end }}
+            {{- end }}
+            {{- if $c.notify.teams.existingSecret }}
+            - --notify-teams-url-file=/secrets/notify-teams-url
+            {{- with $c.notify.teams.events }}
+            - --notify-teams-events={{ . }}
+            {{- end }}
             {{- end }}
             {{- if $c.notify.webhook.existingSecret }}
             - --notify-webhook-url-file=/secrets/notify-webhook-url
             - --notify-webhook-secret-file=/secrets/notify-webhook-secret
+            {{- with $c.notify.webhook.events }}
+            - --notify-webhook-events={{ . }}
+            {{- end }}
+            {{- end }}
+            {{- if $c.notify.pagerduty.existingSecret }}
+            - --notify-pagerduty-routing-key-file=/secrets/notify-pagerduty-routing-key
+            {{- with $c.notify.pagerduty.url }}
+            - --notify-pagerduty-url={{ . }}
+            {{- end }}
+            {{- with $c.notify.pagerduty.events }}
+            - --notify-pagerduty-events={{ . }}
+            {{- end }}
             {{- end }}
             {{- if $pr }}
             - --policy-repo-dir=/policy-writer/repo
@@ -245,6 +266,12 @@ spec:
             - --policy-repo-subdir={{ . }}
             {{- end }}
             - --policy-repo-base={{ $wbase }}
+            {{- with $c.policyRepo.forge }}
+            - --forge={{ . }}
+            {{- end }}
+            {{- with $c.policyRepo.forgeBaseURL }}
+            - --forge-base-url={{ . }}
+            {{- end }}
             {{- end }}
             {{- end }}
             {{- with $s.verdictsPath }}
@@ -253,7 +280,7 @@ spec:
             {{- range $s.args }}
             - {{ . | quote }}
             {{- end }}
-          {{- if or $s.extraEnv (and $c.enabled $c.clickhouse.existingSecret) (and $pr $c.policyRepo.ghToken.existingSecret) $wr }}
+          {{- if or $s.extraEnv (and $c.enabled $c.clickhouse.existingSecret) (and $pr $c.policyRepo.ghToken.existingSecret) (and $pr $c.policyRepo.gitlabToken.existingSecret) $wr }}
           env:
             {{- if $wr }}
             {{- include "halo.writerGitEnv" . | nindent 12 }}
@@ -265,6 +292,10 @@ spec:
             {{- if and $pr $c.policyRepo.ghToken.existingSecret }}
             - name: GH_TOKEN
               valueFrom: {secretKeyRef: {name: {{ $c.policyRepo.ghToken.existingSecret }}, key: {{ $c.policyRepo.ghToken.key }}}}
+            {{- end }}
+            {{- if and $pr $c.policyRepo.gitlabToken.existingSecret }}
+            - name: GITLAB_TOKEN
+              valueFrom: {secretKeyRef: {name: {{ $c.policyRepo.gitlabToken.existingSecret }}, key: {{ $c.policyRepo.gitlabToken.key }}}}
             {{- end }}
             {{- with $s.extraEnv }}{{ toYaml . | nindent 12 }}{{ end }}
           {{- end }}
@@ -366,10 +397,20 @@ spec:
                   name: {{ $c.notify.slack.existingSecret }}
                   items: [{key: {{ $c.notify.slack.key }}, path: notify-slack-url}]
               {{- end }}
+              {{- if and $c.enabled $c.notify.teams.existingSecret }}
+              - secret:
+                  name: {{ $c.notify.teams.existingSecret }}
+                  items: [{key: {{ $c.notify.teams.key }}, path: notify-teams-url}]
+              {{- end }}
               {{- if and $c.enabled $c.notify.webhook.existingSecret }}
               - secret:
                   name: {{ $c.notify.webhook.existingSecret }}
                   items: [{key: {{ $c.notify.webhook.urlKey }}, path: notify-webhook-url}, {key: {{ $c.notify.webhook.secretKey }}, path: notify-webhook-secret}]
+              {{- end }}
+              {{- if and $c.enabled $c.notify.pagerduty.existingSecret }}
+              - secret:
+                  name: {{ $c.notify.pagerduty.existingSecret }}
+                  items: [{key: {{ $c.notify.pagerduty.key }}, path: notify-pagerduty-routing-key}]
               {{- end }}
         {{- if $s.persistence.enabled }}
         - name: data

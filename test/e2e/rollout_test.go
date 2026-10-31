@@ -139,7 +139,10 @@ func gitRepo(t *testing.T, dir, pol string) rolloutRepo {
 
 	bin := filepath.Join(dir, "fakebin")
 	ghLog := filepath.Join(dir, "gh.log")
-	writeFile(t, filepath.Join(bin, "gh"), "#!/bin/sh\n# one line per call: the PR body is multi-line\necho \"$*\" | tr '\\n' ' ' >> \""+ghLog+"\"\necho >> \""+ghLog+"\"\necho https://github.example/acme/policy/pull/1\n")
+	// `gh pr list` is the duplicate check before opening a proposal: answer
+	// with no open PRs, as real gh does, and leave it out of the log so the
+	// log holds only the calls that change something.
+	writeFile(t, filepath.Join(bin, "gh"), "#!/bin/sh\nif [ \"$1 $2\" = \"pr list\" ]; then echo '[]'; exit 0; fi\n# one line per call: the PR body is multi-line\necho \"$*\" | tr '\\n' ' ' >> \""+ghLog+"\"\necho >> \""+ghLog+"\"\necho https://github.example/acme/policy/pull/1\n")
 	if err := os.Chmod(filepath.Join(bin, "gh"), 0o755); err != nil {
 		t.Fatal(err)
 	}

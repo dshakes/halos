@@ -25,7 +25,7 @@ Before finishing: `gofmt -l .` empty, `go build ./... && go vet ./... && go test
 - `internal/release` build/diff of release bundles; `internal/bundle` OCI push/pull + signing.
 - `internal/assign` deterministic hashing. `internal/gateway`, `internal/identity`, `internal/server`, `internal/shadow`.
 - `internal/a2a` A2A AgentCard fetch, canonical digest and signature checks.
-- `internal/eval` replay evals + scorecards. `internal/stats` mSPRT/bootstrap. `internal/promote` verdicts, promotion/rollback plans, PRs.
+- `internal/eval` replay evals + scorecards. `internal/stats` mSPRT/bootstrap. `internal/promote` verdicts, promotion/rollback plans, PRs/MRs (`forge.go`: gh CLI, GitHub REST, GitLab REST v4; never merges).
 - `internal/roi` delivery ROI (ADR-0027): PR outcome ingest (GitHub, CSV/JSONL), identity roster, per-arm effects; `halo roi`.
 - `internal/vendoradmin` vendor admin console sync (ADR-0025): render, read, diff, apply; `halo admin`.
 - `internal/ledger` agent session ledger (ADR-0031): normalized per-session records from gateway, OTel, Anthropic Compliance API, GitHub audit log and JSONL; redaction and identity join; `halo sessions`.

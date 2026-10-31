@@ -5,6 +5,7 @@
     "secretRef": {"type": "object", "additionalProperties": false, "properties": {"env": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"}, "file": {"type": "string", "minLength": 1}}, "oneOf": [{"required": ["env"]}, {"required": ["file"]}]},
     "autoscaling": {"type": "object", "properties": {"enabled": {"type": "boolean"}, "minReplicas": {"type": "integer", "minimum": 1}, "maxReplicas": {"type": "integer", "minimum": 1}, "targetCPUUtilizationPercentage": {"type": ["integer", "null"], "minimum": 1, "maximum": 100}, "targetMemoryUtilizationPercentage": {"type": ["integer", "null"], "minimum": 1, "maximum": 100}, "scaleDownStabilizationSeconds": {"type": "integer", "minimum": 0}}},
     "image": {"type": "object", "properties": {"registry": {"type": "string"}, "repository": {"type": "string", "minLength": 1}, "tag": {"type": "string"}, "digest": {"type": "string", "pattern": "^(sha256:[a-f0-9]{64})?$"}}},
+    "notifyEvents": {"type": "string", "pattern": "^([a-z_]+(\\.[a-z_]+)?(,[a-z_]+(\\.[a-z_]+)?)*)?$", "description": "comma-separated controller event kinds, or all (see the notifications guide)"},
     "secretRef": {"type": "object", "properties": {"existingSecret": {"type": "string"}, "key": {"type": "string"}}},
     "port": {"type": "integer", "minimum": 1, "maximum": 65535},
     "pvc": {"type": "object", "properties": {"enabled": {"type": "boolean"}, "existingClaim": {"type": "string"}, "size": {"type": "string"}, "storageClass": {"type": "string"}, "accessModes": {"type": "array", "items": {"type": "string"}}}},
@@ -49,7 +50,11 @@
         "enabled": {"type": "boolean"},
         "interval": {"type": "string", "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h))+$"},
         "clickhouse": {"type": "object", "properties": {"url": {"type": "string", "pattern": "^(https?://.+)?$"}, "database": {"type": "string"}, "existingSecret": {"type": "string"}, "userKey": {"type": "string", "minLength": 1}, "passwordKey": {"type": "string", "minLength": 1}}},
-        "notify": {"type": "object", "properties": {"slack": {"$ref": "#/definitions/secretRef"}, "webhook": {"type": "object", "properties": {"existingSecret": {"type": "string"}, "urlKey": {"type": "string"}, "secretKey": {"type": "string"}}}}},
+        "notify": {"type": "object", "additionalProperties": false, "properties": {
+          "slack": {"type": "object", "additionalProperties": false, "properties": {"existingSecret": {"type": "string"}, "key": {"type": "string", "minLength": 1}, "events": {"$ref": "#/definitions/notifyEvents"}}},
+          "teams": {"type": "object", "additionalProperties": false, "properties": {"existingSecret": {"type": "string"}, "key": {"type": "string", "minLength": 1}, "events": {"$ref": "#/definitions/notifyEvents"}}},
+          "webhook": {"type": "object", "additionalProperties": false, "properties": {"existingSecret": {"type": "string"}, "urlKey": {"type": "string", "minLength": 1}, "secretKey": {"type": "string", "minLength": 1}, "events": {"$ref": "#/definitions/notifyEvents"}}},
+          "pagerduty": {"type": "object", "additionalProperties": false, "properties": {"existingSecret": {"type": "string"}, "key": {"type": "string", "minLength": 1}, "url": {"type": "string", "pattern": "^(https://.+)?$"}, "events": {"$ref": "#/definitions/notifyEvents"}}}}},
         "policyRepo": {"type": "object", "properties": {"enabled": {"type": "boolean"}, "image": {"type": "object", "properties": {"repository": {"type": "string"}, "tag": {"type": "string"}, "digest": {"type": "string", "pattern": "^(sha256:[a-f0-9]{64})?$"}}}, "subdir": {"type": "string"}, "base": {"type": "string", "minLength": 1}, "ghToken": {"$ref": "#/definitions/secretRef"}}}}},
       "portal": {"type": "object"}, "persistence": {"$ref": "#/definitions/pvc"}, "ingress": {"$ref": "#/definitions/ingress"}}},
     "proxy": {"type": "object", "properties": {
