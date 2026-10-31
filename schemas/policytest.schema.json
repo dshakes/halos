@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://halos.dev/schemas/policytest.schema.json",
+  "title": "PolicyTest",
+  "description": "A suite of policy test cases for `halo test`: given an identity, the ring, experiment variants and rendered setting values the policy must produce. Lives under tests/ in the policy repo; the loader does not read it as policy.",
+  "type": "object",
+  "properties": {
+    "apiVersion": {
+      "type": "string",
+      "description": "Document version.",
+      "const": "halos.dev/v1"
+    },
+    "kind": {
+      "type": "string",
+      "description": "Document kind.",
+      "const": "PolicyTest"
+    },
+    "name": {
+      "type": "string",
+      "description": "Suite name; reported as <suite>/<case>.",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string",
+      "description": "What the suite pins."
+    },
+    "cases": {
+      "type": "array",
+      "description": "The cases, each independent. Case names are unique within the suite.",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "description": "Resolves identity with the policy's own ring and variant assignment and compares the result with expect.",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "type": "string"
+          },
+          "identity": {
+            "type": "object",
+            "description": "The subject, as the IdP presents it.",
+            "properties": {
+              "user": {
+                "type": "string",
+                "description": "User id.",
+                "minLength": 1
+              },
+              "groups": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "IdP groups."
+              }
+            },
+            "required": [
+              "user"
+            ],
+            "additionalProperties": false
+          },
+          "os": {
+            "type": "string",
+            "description": "The OS whose rendered files expect.settings reads (default linux).",
+            "enum": [
+              "darwin",
+              "linux",
+              "windows"
+            ]
+          },
+          "expect": {
+            "type": "object",
+            "description": "What the identity must get; at least one of ring, variants and settings.",
+            "properties": {
+              "ring": {
+                "type": "string",
+                "description": "The ring the identity lands in. The empty string asserts that no ring matches."
+              },
+              "variants": {
+                "type": "object",
+                "description": "Running experiment name -> variant the identity gets. The empty string asserts the identity is not enrolled in it.",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "settings": {
+                "type": "object",
+                "description": "Harness name -> dotted key path in its rendered config (JSON or TOML; array elements by index, e.g. hooks.PreToolUse.0.matcher) -> the exact value it must have. null asserts the key is absent. Read from the identity's ring release, or from its variant release for a client-axis experiment; unit overlays and toggles are not applied.",
+                "additionalProperties": {
+                  "type": "object",
+                  "minProperties": 1
+                }
+              }
+            },
+            "minProperties": 1,
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "name",
+          "identity",
+          "expect"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "apiVersion",
+    "kind",
+    "name",
+    "cases"
+  ],
+  "additionalProperties": false
+}

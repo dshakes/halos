@@ -1,0 +1,30 @@
+# yaml-language-server: $schema=../../../schemas/policytest.schema.json
+# Who lands in which ring and experiment variant. Run with `halo test`.
+apiVersion: halos.dev/v1
+kind: PolicyTest
+name: ring-placement
+description: Explicit group membership, the default ring, and the hashed ring and variant splits.
+cases:
+  - name: ai-platform group is ring0
+    identity: {user: pat@acme.example, groups: [ai-platform]}
+    expect:
+      ring: ring0-harness-team
+      variants: {opus-5-5-canary: ""} # ring0 is not enrolled in the canary
+
+  - name: anyone else defaults to ring3-ga
+    identity: {user: dev0@acme.example}
+    expect:
+      ring: ring3-ga
+      variants: {opus-5-5-canary: "", claude-cli-2.1.3xx-ab: ""}
+
+  - name: ring1 control arm
+    identity: {user: dev5@acme.example}
+    expect:
+      ring: ring1-canary
+      variants: {opus-5-5-canary: control, claude-cli-2.1.3xx-ab: control}
+
+  - name: ring1 treatment arms
+    identity: {user: dev380@acme.example}
+    expect:
+      ring: ring1-canary
+      variants: {opus-5-5-canary: opus-5-5, claude-cli-2.1.3xx-ab: cli-next}
