@@ -123,7 +123,7 @@ func TestExecSignerBinaryPermissions(t *testing.T) {
 			t.Errorf("%s: %v, want %q", filepath.Base(tc.path), err, tc.want)
 		}
 	}
-	if err := checkSignerBinary("/bin/sh"); err != nil { // root-owned system binary
+	if err := checkSignerBinary("/bin/sh", ""); err != nil { // root-owned system binary
 		t.Errorf("/bin/sh: %v", err)
 	}
 }
