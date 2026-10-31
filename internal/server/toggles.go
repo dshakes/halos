@@ -125,7 +125,7 @@ func (s *Server) toggleKills() (map[string]ToggleKill, error) {
 }
 
 // listToggles (admin): GET /api/v1/toggles.
-func (s *Server) listToggles(w http.ResponseWriter, _ *http.Request, _ Principal) {
+func (s *Server) listToggles(w http.ResponseWriter, _ *http.Request, p Principal) {
 	org, _, err := s.pol.Get()
 	if org == nil {
 		s.policyUnavailable(w, err)
@@ -139,8 +139,11 @@ func (s *Server) listToggles(w http.ResponseWriter, _ *http.Request, _ Principal
 	}
 	now := s.cfg.Now()
 	out := make([]ToggleView, 0, len(org.Toggles))
+	f := newReadFilter(p, permRead)
 	for _, t := range org.Toggles {
-		out = append(out, toggleView(t, kills, now))
+		if f.ok(toggleResource(org, t.Name)) { // scoped readers (ADR-0037): toggles wholly in scope
+			out = append(out, toggleView(t, kills, now))
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"toggles": out, "killEnabled": s.cfg.KillKey != nil})
 }

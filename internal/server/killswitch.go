@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/dshakes/halos/internal/controller"
 	"github.com/dshakes/halos/internal/gateway"
 	"github.com/dshakes/halos/internal/policy"
 )
@@ -121,12 +122,26 @@ func (s *Server) killHandler(kill bool, kind string) authedHandler {
 }
 
 // getKills (admin): active kills with who/when/why.
-func (s *Server) getKills(w http.ResponseWriter, _ *http.Request, _ Principal) {
+func (s *Server) getKills(w http.ResponseWriter, _ *http.Request, p Principal) {
 	recs, version, err := s.kills.Killed()
 	if err != nil {
 		s.cfg.Log.Error("read killswitch", "err", err)
 		apiErr(w, http.StatusInternalServerError, "killswitch unreadable")
 		return
+	}
+	if f := newReadFilter(p, permRead); !f.all {
+		// Scoped readers (ADR-0037) see kills of the experiments and toggles in
+		// their scope; a kill of a name no longer in policy has no scope.
+		org, oerr := s.org()
+		recs = slices.DeleteFunc(slices.Clone(recs), func(k controller.KillRecord) bool {
+			if oerr != nil {
+				return true
+			}
+			if n, ok := strings.CutPrefix(k.Experiment, toggleKillPrefix); ok {
+				return !f.ok(toggleResource(org, n))
+			}
+			return !f.ok(experimentResource(org, k.Experiment))
+		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"version": version, "killed": recs})
 }

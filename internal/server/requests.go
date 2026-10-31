@@ -257,9 +257,20 @@ func (s *Server) releasePending(req *Request) {
 	}
 }
 
-// listRequests: developers see their own; admins see everyone's.
+// listRequests: developers see their own; approvers see everyone's, or with
+// scoped approve grants (ADR-0037) the ones they could decide.
 func (s *Server) listRequests(w http.ResponseWriter, _ *http.Request, p Principal) {
-	writeJSON(w, http.StatusOK, s.reqs.list(func(r *Request) bool { return p.can(permApprove) || sameUser(r.User, p.ID) }))
+	f := newReadFilter(p, permApprove)
+	org, _, _ := s.pol.Get()
+	writeJSON(w, http.StatusOK, s.reqs.list(func(r *Request) bool {
+		if sameUser(r.User, p.ID) || f.all {
+			return true
+		}
+		if org == nil || !p.can(permApprove) {
+			return false
+		}
+		return f.ok(requestResource(org, r))
+	}))
 }
 
 func (s *Server) decide(approve bool) authedHandler {

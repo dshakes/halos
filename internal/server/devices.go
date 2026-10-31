@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -472,8 +473,44 @@ func (s *Server) getFleetRing(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ring": ring.Name, "subject": dev.UserID, "groups": dev.Groups})
 }
 
-func (s *Server) listDevices(w http.ResponseWriter, _ *http.Request, _ Principal) {
-	writeJSON(w, http.StatusOK, s.devices.list())
+func (s *Server) listDevices(w http.ResponseWriter, _ *http.Request, p Principal) {
+	all := s.devices.list()
+	if f := newReadFilter(p, permRead); !f.all {
+		org, err := s.org()
+		all = slices.DeleteFunc(all, func(d Device) bool {
+			if err != nil {
+				return true
+			}
+			return !f.ok(s.deviceResource(org, d))
+		})
+	}
+	writeJSON(w, http.StatusOK, all)
+}
+
+// visibleHosts is the fleet reports p may read (ADR-0037): all of them with a
+// global read grant; else the hosts reporting with a device token whose
+// owner's ring and unit a read grant covers. A fleet-token report has no
+// owner the server can place, so only global readers see it.
+func (s *Server) visibleHosts(p Principal, hosts []Host) []Host {
+	f := newReadFilter(p, permRead)
+	if f.all {
+		return hosts
+	}
+	org, err := s.org()
+	if err != nil {
+		return []Host{}
+	}
+	out := []Host{}
+	for _, h := range hosts {
+		if h.Device == "" {
+			continue
+		}
+		d, ok := s.devices.get(h.Device)
+		if ok && f.ok(s.deviceResource(org, d)) {
+			out = append(out, h)
+		}
+	}
+	return out
 }
 
 func (s *Server) revokeDevice(w http.ResponseWriter, r *http.Request, p Principal) {

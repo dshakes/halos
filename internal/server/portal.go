@@ -236,7 +236,7 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request, p Principal) {
 	if org.SelfService.Enabled {
 		var setup []LauncherSetup
 		m.Launchers, setup = s.launchers(org, r)
-		if p.can(permAdmin) {
+		if p.canGlobal(permAdmin) { // server setup details: global admins only (ADR-0037)
 			m.LauncherSetup = setup
 		}
 		m.Requestable = append(m.Requestable, org.SelfService.Requestable...)

@@ -727,8 +727,8 @@ func Aggregate(hosts []Host, order []string) []RingStats {
 	return out
 }
 
-func (s *Server) getFleet(w http.ResponseWriter, _ *http.Request, _ Principal) {
-	hosts := s.cfg.Store.All()
+func (s *Server) getFleet(w http.ResponseWriter, _ *http.Request, p Principal) {
+	hosts := s.visibleHosts(p, s.cfg.Store.All())
 	var order []string
 	if org, _, _ := s.pol.Get(); org != nil {
 		for _, r := range org.Rings {
@@ -786,10 +786,21 @@ func (s *Server) experiments(w http.ResponseWriter) ([]ExperimentDetail, bool) {
 	return out, true
 }
 
-func (s *Server) listExperiments(w http.ResponseWriter, _ *http.Request, _ Principal) {
-	if out, ok := s.experiments(w); ok {
-		writeJSON(w, http.StatusOK, out)
+func (s *Server) listExperiments(w http.ResponseWriter, _ *http.Request, p Principal) {
+	out, ok := s.experiments(w)
+	if !ok {
+		return
 	}
+	if f := newReadFilter(p, permRead); !f.all {
+		org, err := s.org()
+		out = slices.DeleteFunc(out, func(e ExperimentDetail) bool {
+			if err != nil {
+				return true
+			}
+			return !f.ok(experimentResource(org, e.Name))
+		})
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) getExperiment(w http.ResponseWriter, r *http.Request, _ Principal) {
@@ -834,7 +845,7 @@ func (s *Server) whoami(w http.ResponseWriter, r *http.Request, p Principal) {
 		apiErr(w, http.StatusBadRequest, "user required (<=256 chars)")
 		return
 	}
-	if !p.can(permRead) && !sameUser(user, p.ID) { // developers may only debug themselves
+	if !p.canGlobal(permRead) && !sameUser(user, p.ID) { // developers (and scoped readers, ADR-0037) may only debug themselves
 		s.deny(w, r, p, "GET /api/v1/whoami?user=<other>", permRead)
 		return
 	}
@@ -844,7 +855,7 @@ func (s *Server) whoami(w http.ResponseWriter, r *http.Request, p Principal) {
 			groups = append(groups, g)
 		}
 	}
-	if !p.can(permRead) { // a developer cannot claim groups they do not hold
+	if !p.canGlobal(permRead) { // a developer cannot claim groups they do not hold
 		groups = p.Groups
 	}
 	org, _, err := s.pol.Get()

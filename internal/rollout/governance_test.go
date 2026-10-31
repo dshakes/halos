@@ -122,6 +122,19 @@ func TestGovernanceApply(t *testing.T) {
 	if ev.Quorum != nil || ev.Freeze != nil || !ev.Approved {
 		t.Fatalf("canary step: %+v", ev)
 	}
+	// A scoped approval (ADR-0037) is a plain approval only when its scope
+	// covers the step's rings.
+	for _, c := range []struct {
+		scope policy.RoleScope
+		want  bool
+	}{{policy.RoleScope{Rings: []string{"canary"}}, true}, {policy.RoleScope{Rings: []string{"ga"}}, false}, {policy.RoleScope{Units: []string{"bu"}}, false}} {
+		ev = Evidence{}
+		a := policy.ScopedApproval("sc@x", nil, t0, "", []policy.RoleScope{c.scope})
+		Governance{Approvals: []policy.Approval{a}}.Apply(org, r, at(0, t0), &ev, sat)
+		if ev.Approved != c.want {
+			t.Errorf("scoped approval over %s: approved=%v, want %v", c.scope, ev.Approved, c.want)
+		}
+	}
 }
 
 // TestApprovalKeyChangesWithStepAndChange: approvals never carry over to

@@ -19,7 +19,8 @@ const (
 	RoleAdmin    = "admin"
 )
 
-// Roles lists every role in display order.
+// Roles lists every role in display order (policy.ConsoleRoles, which
+// validates identity.roleBindings; TestRolesMatchPolicy keeps them equal).
 var Roles = []string{RoleViewer, RoleOperator, RoleApprover, RoleAuditor, RoleAdmin}
 
 // perm is what a route needs. Roles grant permissions; routes never name roles,
@@ -111,30 +112,39 @@ var routePerms = map[string]perm{
 	"POST /api/v1/breakglass/unlock":          permAdmin, // a person only (requireHuman)
 }
 
-// rolesFor returns the roles groups hold under id, in Roles order.
+// rolesFor returns the roles groups hold under id, in Roles order: every
+// role any of their grants (global or scoped, ADR-0037) carries.
 func rolesFor(id policy.Identity, groups []string) []string {
-	has := func(gs []string) bool {
-		return slices.ContainsFunc(gs, func(g string) bool { return slices.Contains(groups, g) })
-	}
+	return grantRoles(id.Grants(policy.Subject{Groups: groups}))
+}
+
+// grantRoles is the distinct roles of gs, in Roles order (nil when none).
+func grantRoles(gs []policy.Grant) []string {
 	var out []string
-	for _, r := range []struct {
-		name   string
-		groups []string
-	}{
-		{RoleViewer, id.Roles.Viewer}, {RoleOperator, id.Roles.Operator}, {RoleApprover, id.Roles.Approver},
-		{RoleAuditor, id.Roles.Auditor}, {RoleAdmin, append(slices.Clip(id.AdminGroups), id.Roles.Admin...)},
-	} {
-		if has(r.groups) {
-			out = append(out, r.name)
+	for _, r := range Roles {
+		if slices.ContainsFunc(gs, func(g policy.Grant) bool { return g.Role == r }) {
+			out = append(out, r)
 		}
 	}
 	return out
 }
 
-// roleGroups is every group any role maps to (policyGroups keeps these in the session).
+// globalGrants is one global grant per role: what a role meant before
+// ADR-0037, and still means for identity.roles, adminGroups, the
+// --dev-insecure-roles flag and break-glass.
+func globalGrants(roles []string, source string) []policy.Grant {
+	out := make([]policy.Grant, 0, len(roles))
+	for _, r := range roles {
+		out = append(out, policy.Grant{Role: r, Source: source})
+	}
+	return out
+}
+
+// roleGroups is every group any role or role binding maps to (policyGroups
+// keeps these in the session).
 func roleGroups(id policy.Identity) []string {
 	r := id.Roles
-	return slices.Concat(id.AdminGroups, r.Viewer, r.Operator, r.Approver, r.Auditor, r.Admin)
+	return slices.Concat(id.AdminGroups, r.Viewer, r.Operator, r.Approver, r.Auditor, r.Admin, id.RoleBindingGroups())
 }
 
 // validRoles rejects unknown role names (the --dev-insecure-roles flag).
@@ -147,11 +157,13 @@ func validRoles(roles []string) error {
 	return nil
 }
 
+// can reports whether p holds x over any scope: the route gate. Whether the
+// resource is inside that scope is the second check (authorizeScope).
 func (p Principal) can(x perm) bool {
 	if x == permSession {
 		return true
 	}
-	return slices.ContainsFunc(p.Roles, func(r string) bool { return slices.Contains(rolePerms[r], x) })
+	return slices.ContainsFunc(p.Bindings, func(g policy.Grant) bool { return slices.Contains(rolePerms[g.Role], x) })
 }
 
 // permissions lists what p may do, for the console to hide what it cannot.
@@ -180,6 +192,10 @@ func (s *Server) route(m *routeMux, pattern string, next authedHandler) {
 			s.deny(w, r, p, pattern, need)
 			return
 		}
+		r, ok := s.authorizeScope(w, r, p, pattern, need)
+		if !ok {
+			return
+		}
 		next(w, r, p)
 	}))
 }
@@ -192,6 +208,31 @@ func (s *Server) deny(w http.ResponseWriter, r *http.Request, p Principal, route
 		"route": route, "method": r.Method, "need": string(need), "roles": strings.Join(p.Roles, ","),
 	})
 	apiErr(w, http.StatusForbidden, string(need)+" permission required")
+}
+
+// denyScope answers 403 when p holds need but not over the resource
+// (ADR-0037), and audits it as authz.deny with why ("global", "unknown",
+// "out of scope"), the resource's scope when known and p's bindings. The
+// answer is the same whether the resource is out of scope or does not
+// exist, so a scoped caller cannot probe for names outside their scope.
+func (s *Server) denyScope(w http.ResponseWriter, r *http.Request, p Principal, route string, need perm, why string, res *policy.Resource) {
+	s.metrics.deny(route)
+	d := map[string]string{
+		"route": route, "method": r.Method, "need": string(need), "roles": strings.Join(p.Roles, ","),
+		"scope": why, "bindings": grantSummary(p.Bindings),
+	}
+	if res != nil {
+		d["resource"] = resourceString(*res)
+	}
+	if p.OnBehalfOf != "" {
+		d["onBehalfOf"] = p.OnBehalfOf
+	}
+	s.Audit(r.Context(), p.ID, "authz.deny", r.URL.Path, d)
+	msg := string(need) + " permission required for this resource: your role bindings do not cover it"
+	if why == scopeWhyGlobal {
+		msg = string(need) + " permission required with a global role binding: this route is not scoped to rings or units"
+	}
+	apiErr(w, http.StatusForbidden, msg)
 }
 
 // requireHuman refuses (403, audited as authz.deny with need "human") a

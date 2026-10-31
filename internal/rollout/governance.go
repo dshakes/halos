@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -85,10 +86,19 @@ func (g Governance) Apply(org *policy.Org, r *policy.Rollout, st State, ev *Evid
 			break
 		}
 	}
-	ev.Quorum = org.Quorum(t, g.Requester, ticket, g.Approvals)
-	if ev.Quorum == nil && len(g.Approvals) > 0 {
+	res := TargetResource(org, r, st.Step)
+	ev.Quorum = org.QuorumFor(&res, t, g.Requester, ticket, g.Approvals)
+	// A scoped approval (ADR-0037) whose scope does not cover the step's
+	// rings satisfies no plain approval gate either.
+	if ev.Quorum == nil && slices.ContainsFunc(g.Approvals, func(a policy.Approval) bool { return a.ScopeCovers(&res) }) {
 		ev.Approved = true
 	}
+}
+
+// TargetResource is what advancing r from live step from touches, for
+// scoped authorization (ADR-0037): the rings of Target, every unit's members.
+func TargetResource(org *policy.Org, r *policy.Rollout, from int) policy.Resource {
+	return policy.RingResource(Target(org, r, from).Rings...)
 }
 
 // GovernanceBody is the PR-body section recording a decision's approvals and

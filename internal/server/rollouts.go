@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"path/filepath"
+	"slices"
 
 	"github.com/dshakes/halos/internal/policy"
 	"github.com/dshakes/halos/internal/rollout"
@@ -53,10 +54,22 @@ func (s *Server) rollouts(ctx context.Context, w http.ResponseWriter) ([]Rollout
 	return out, true
 }
 
-func (s *Server) listRollouts(w http.ResponseWriter, r *http.Request, _ Principal) {
-	if out, ok := s.rollouts(r.Context(), w); ok {
-		writeJSON(w, http.StatusOK, out)
+func (s *Server) listRollouts(w http.ResponseWriter, r *http.Request, p Principal) {
+	out, ok := s.rollouts(r.Context(), w)
+	if !ok {
+		return
 	}
+	if f := newReadFilter(p, permRead); !f.all { // scoped readers (ADR-0037): rollouts wholly in scope
+		org, err := s.org()
+		out = slices.DeleteFunc(out, func(v RolloutView) bool {
+			if err != nil {
+				return true
+			}
+			ro := findRolloutIn(org, v.Rollout.Name)
+			return ro == nil || !f.ok(rolloutResource(org, ro), nil)
+		})
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) getRollout(w http.ResponseWriter, r *http.Request, _ Principal) {

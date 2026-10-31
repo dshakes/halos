@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -182,43 +183,53 @@ func (l *serviceTokenLog) ServiceTokens(context.Context) ([]pgstore.ServiceToken
 
 // serviceTokenRecord is pgstore.ServiceToken.Record.
 type serviceTokenRecord struct {
-	Name         string     `json:"name"`
-	Role         string     `json:"role"`
-	Description  string     `json:"description,omitempty"`
-	Owner        string     `json:"owner,omitempty"`
-	CreatedBy    string     `json:"createdBy"`
-	CreatedAt    time.Time  `json:"createdAt"`
-	RevokedBy    string     `json:"revokedBy,omitempty"`
-	RevokedAt    *time.Time `json:"revokedAt,omitempty"`
-	RevokeReason string     `json:"revokeReason,omitempty"`
+	Name string `json:"name"`
+	// Role is a global token's role. A scoped token (ADR-0037) leaves it
+	// empty and holds ScopedRole over Scope instead: a binary from before
+	// ADR-0037 ignores Scope, so it must find no role it knows and refuse
+	// the token rather than treat it as global (mixed-version rollout).
+	Role         string           `json:"role"`
+	ScopedRole   string           `json:"scopedRole,omitempty"`
+	Scope        policy.RoleScope `json:"scope,omitzero"`
+	Description  string           `json:"description,omitempty"`
+	Owner        string           `json:"owner,omitempty"`
+	CreatedBy    string           `json:"createdBy"`
+	CreatedAt    time.Time        `json:"createdAt"`
+	RevokedBy    string           `json:"revokedBy,omitempty"`
+	RevokedAt    *time.Time       `json:"revokedAt,omitempty"`
+	RevokeReason string           `json:"revokeReason,omitempty"`
 }
 
 // CreateServiceTokenRequest is POST /api/v1/service-tokens. TTL is a Go
-// duration (e.g. 720h); empty = the server's maximum.
+// duration (e.g. 720h); empty = the server's maximum. Scope (ADR-0037),
+// {"rings": [...], "units": [...]}, bounds the role; absent is global. It is
+// decoded strictly: a misspelt key is a 400, never a silently global token.
 type CreateServiceTokenRequest struct {
-	Name        string `json:"name"`
-	Role        string `json:"role"`
-	Description string `json:"description,omitempty"`
-	Owner       string `json:"owner,omitempty"`
-	TTL         string `json:"ttl,omitempty"`
+	Name        string          `json:"name"`
+	Role        string          `json:"role"`
+	Scope       json.RawMessage `json:"scope,omitempty"`
+	Description string          `json:"description,omitempty"`
+	Owner       string          `json:"owner,omitempty"`
+	TTL         string          `json:"ttl,omitempty"`
 }
 
 // ServiceTokenInfo is one token as the API shows it (never the secret or its hash).
 type ServiceTokenInfo struct {
-	ID           string     `json:"id"`
-	Principal    string     `json:"principal"` // the audit actor its requests carry
-	Name         string     `json:"name"`
-	Role         string     `json:"role"`
-	Description  string     `json:"description,omitempty"`
-	Owner        string     `json:"owner,omitempty"`
-	CreatedBy    string     `json:"createdBy"`
-	CreatedAt    time.Time  `json:"createdAt"`
-	ExpiresAt    time.Time  `json:"expiresAt"`
-	Expired      bool       `json:"expired"`
-	Revoked      bool       `json:"revoked"`
-	RevokedBy    string     `json:"revokedBy,omitempty"`
-	RevokedAt    *time.Time `json:"revokedAt,omitempty"`
-	RevokeReason string     `json:"revokeReason,omitempty"`
+	ID           string           `json:"id"`
+	Principal    string           `json:"principal"` // the audit actor its requests carry
+	Name         string           `json:"name"`
+	Role         string           `json:"role"`
+	Scope        policy.RoleScope `json:"scope"` // {} = global (ADR-0037)
+	Description  string           `json:"description,omitempty"`
+	Owner        string           `json:"owner,omitempty"`
+	CreatedBy    string           `json:"createdBy"`
+	CreatedAt    time.Time        `json:"createdAt"`
+	ExpiresAt    time.Time        `json:"expiresAt"`
+	Expired      bool             `json:"expired"`
+	Revoked      bool             `json:"revoked"`
+	RevokedBy    string           `json:"revokedBy,omitempty"`
+	RevokedAt    *time.Time       `json:"revokedAt,omitempty"`
+	RevokeReason string           `json:"revokeReason,omitempty"`
 }
 
 // CreateServiceTokenResponse carries the token: shown once, never again.
@@ -239,11 +250,32 @@ type RevokeServiceTokenRequest struct {
 
 func serviceAccountID(name, id string) string { return ServiceAccountPrefix + name + ":" + id }
 
+// role is the record's role, and ok when the record is well formed: a known
+// role, either global (Role) or scoped (ScopedRole with a non-empty Scope),
+// never both. A malformed record grants nothing.
+func (rec serviceTokenRecord) role() (string, bool) {
+	switch {
+	case rec.Role != "" && rec.ScopedRole == "" && rec.Scope.Global():
+		return rec.Role, validRoles([]string{rec.Role}) == nil
+	case rec.Role == "" && rec.ScopedRole != "" && !rec.Scope.Global():
+		return rec.ScopedRole, validRoles([]string{rec.ScopedRole}) == nil
+	}
+	return "", false
+}
+
+// newTokenRecord sets role over scope the way role() reads it back.
+func newTokenRecord(role string, scope policy.RoleScope) serviceTokenRecord {
+	if scope.Global() {
+		return serviceTokenRecord{Role: role}
+	}
+	return serviceTokenRecord{ScopedRole: role, Scope: scope}
+}
+
 func serviceTokenInfo(t pgstore.ServiceToken, now time.Time) ServiceTokenInfo {
 	var rec serviceTokenRecord
 	_ = json.Unmarshal(t.Record, &rec) // written by this package; garbage shows as empty fields
 	return ServiceTokenInfo{
-		ID: t.ID, Principal: serviceAccountID(rec.Name, t.ID), Name: rec.Name, Role: rec.Role, Description: rec.Description, Owner: rec.Owner,
+		ID: t.ID, Principal: serviceAccountID(rec.Name, t.ID), Name: rec.Name, Role: cmp.Or(rec.Role, rec.ScopedRole), Scope: rec.Scope, Description: rec.Description, Owner: rec.Owner,
 		CreatedBy: rec.CreatedBy, CreatedAt: rec.CreatedAt.UTC(), ExpiresAt: t.Expires.UTC(), Expired: !now.Before(t.Expires), Revoked: t.Revoked,
 		RevokedBy: rec.RevokedBy, RevokedAt: rec.RevokedAt, RevokeReason: rec.RevokeReason,
 	}
@@ -299,8 +331,11 @@ func (s *Server) lookupServiceToken(ctx context.Context, tok string) (pgstore.Se
 		return t, serviceTokenRecord{}, errNoServiceToken
 	}
 	var rec serviceTokenRecord
-	if json.Unmarshal(t.Record, &rec) != nil || validRoles([]string{rec.Role}) != nil || rec.Name == "" {
+	if json.Unmarshal(t.Record, &rec) != nil || rec.Name == "" {
 		return t, rec, errNoServiceToken // unreadable record: grant nothing
+	}
+	if _, ok := rec.role(); !ok {
+		return t, rec, errNoServiceToken
 	}
 	if !s.cfg.Now().Before(t.Expires) {
 		return t, rec, errServiceTokenExpired
@@ -348,30 +383,69 @@ func (s *Server) serviceTokenAuth(w http.ResponseWriter, r *http.Request, tok st
 		apiErr(w, http.StatusUnauthorized, "invalid service token")
 		return Principal{}, false
 	}
-	p := newPrincipal(serviceAccountID(rec.Name, t.ID), nil, []string{rec.Role})
+	role, _ := rec.role() // checked by lookupServiceToken
+	p := grantPrincipal(serviceAccountID(rec.Name, t.ID), nil, []policy.Grant{{Role: role, Scope: rec.Scope, Source: "service-token"}})
 	p.OnBehalfOf = rec.CreatedBy
 	p.Kind = KindServiceAccount
 	now := s.cfg.Now()
 	if last, ok := s.tokenUsed.Load(t.ID); !ok || now.Sub(last.(time.Time)) >= serviceTokenUseEvery {
 		s.tokenUsed.Store(t.ID, now)
-		s.Audit(r.Context(), p.ID, "service-token.use", t.ID, map[string]string{"method": r.Method, "path": r.URL.Path, "role": rec.Role})
+		s.Audit(r.Context(), p.ID, "service-token.use", t.ID, map[string]string{"method": r.Method, "path": r.URL.Path, "role": role})
 	}
 	return p, true
 }
 
-// roleWithin reports whether every permission role grants, p holds: nobody
-// mints a token stronger than themselves.
-func roleWithin(role string, p Principal) bool {
+// roleWithin reports whether every permission role grants, p holds
+// globally: nobody mints a token stronger than themselves.
+func roleWithin(role string, p Principal) bool { return grantWithin(nil, role, policy.RoleScope{}, p) }
+
+// grantWithin extends roleWithin to scopes (ADR-0037): for every permission
+// role grants, p holds it under a grant whose scope holds scope, so a token
+// can do nothing, anywhere, that its creator could not.
+func grantWithin(org *policy.Org, role string, scope policy.RoleScope, p Principal) bool {
 	perms, ok := rolePerms[role]
 	if !ok {
 		return false
 	}
 	for _, x := range perms {
-		if !p.can(x) {
+		if !slices.ContainsFunc(p.grantsFor(x), func(g policy.Grant) bool { return org.ScopeWithin(scope, g.Scope) }) {
 			return false
 		}
 	}
 	return true
+}
+
+// tokenScope decodes a create request's scope strictly (an unknown key is an
+// error: a typo must not mint a global token) and checks every ring and unit
+// against current policy. Absent or {} is global.
+func (s *Server) tokenScope(raw json.RawMessage) (policy.RoleScope, error) {
+	var sc policy.RoleScope
+	if len(raw) == 0 || string(raw) == "null" {
+		return sc, nil
+	}
+	dec := json.NewDecoder(strings.NewReader(string(raw)))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&sc); err != nil {
+		return sc, fmt.Errorf(`scope must be {"rings": [...], "units": [...]}: %w`, err)
+	}
+	org, _, _ := s.pol.Get()
+	if org == nil && !sc.Global() {
+		return sc, errors.New("policy not loaded: a scope cannot be checked")
+	}
+	seen := map[string]bool{}
+	for _, rg := range sc.Rings {
+		if ringByName(org, rg) == nil || seen["r:"+rg] {
+			return sc, fmt.Errorf("scope.rings: %q is not a ring in policy, or is listed twice", rg)
+		}
+		seen["r:"+rg] = true
+	}
+	for _, u := range sc.Units {
+		if org.Unit(u) == nil || seen["u:"+u] {
+			return sc, fmt.Errorf("scope.units: %q is not a unit in policy, or is listed twice", u)
+		}
+		seen["u:"+u] = true
+	}
+	return sc, nil
 }
 
 // validTokenText reports whether s fits a description or owner field.
@@ -405,6 +479,13 @@ func (s *Server) createServiceToken(w http.ResponseWriter, r *http.Request, p Pr
 		}
 		ttl = d
 	}
+	scope, err := s.tokenScope(in.Scope)
+	if err != nil {
+		apiErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	org, _, _ := s.pol.Get()
+	adminGrant, adminOver := s.adminGrantOver(p, scope)
 	switch {
 	case !policy.ValidName(in.Name):
 		apiErr(w, http.StatusBadRequest, "name must be a lowercase name (a-z, 0-9, '.', '_', '-'; at most 63 characters)")
@@ -412,9 +493,16 @@ func (s *Server) createServiceToken(w http.ResponseWriter, r *http.Request, p Pr
 	case !slices.Contains(Roles, in.Role):
 		apiErr(w, http.StatusBadRequest, fmt.Sprintf("role must be one of %s", strings.Join(Roles, ", ")))
 		return
-	case !roleWithin(in.Role, p):
-		s.Audit(r.Context(), p.ID, "authz.deny", r.URL.Path, map[string]string{"route": "POST /api/v1/service-tokens", "need": "role " + in.Role, "roles": strings.Join(p.Roles, ",")})
-		apiErr(w, http.StatusForbidden, "a token's role may not exceed your own permissions")
+	case !adminOver || !grantWithin(org, in.Role, scope, p):
+		// The ceiling (ADR-0036, extended by ADR-0037): the token's scope is
+		// within one of the creator's admin grants, and each permission of its
+		// role is the creator's over that scope.
+		d := map[string]string{"route": "POST /api/v1/service-tokens", "need": "role " + in.Role, "roles": strings.Join(p.Roles, ",")}
+		if !scope.Global() || !p.canGlobal(permAdmin) {
+			d["scope"], d["bindings"] = scope.String(), grantSummary(p.Bindings)
+		}
+		s.Audit(r.Context(), p.ID, "authz.deny", r.URL.Path, d)
+		apiErr(w, http.StatusForbidden, "a token's role and scope may not exceed your own permissions")
 		return
 	case !validTokenText(in.Description) || !validTokenText(in.Owner):
 		apiErr(w, http.StatusBadRequest, fmt.Sprintf("description and owner must be at most %d characters, no control characters", maxServiceTokenText))
@@ -432,8 +520,10 @@ func (s *Server) createServiceToken(w http.ResponseWriter, r *http.Request, p Pr
 		apiErr(w, http.StatusInternalServerError, "token generation failed")
 		return
 	}
-	rec := serviceTokenRecord{Name: in.Name, Role: in.Role, Description: in.Description, Owner: in.Owner, CreatedBy: p.ID, CreatedAt: now.UTC()}
+	rec := newTokenRecord(in.Role, scope)
+	rec.Name, rec.Description, rec.Owner, rec.CreatedBy, rec.CreatedAt = in.Name, in.Description, in.Owner, p.ID, now.UTC()
 	recb, _ := json.Marshal(rec) // plain struct: cannot fail
+	r = withAuthz(r, p, adminGrant)
 	row := pgstore.ServiceToken{ID: id, Hash: hashServiceToken(tok), Expires: now.Add(ttl).UTC().Truncate(time.Microsecond), Record: recb}
 	if err := s.tokens.PutServiceToken(ctx, row, maxActiveServiceTokens, now); errors.Is(err, pgstore.ErrServiceTokenLimit) {
 		apiErr(w, http.StatusConflict, fmt.Sprintf("%d service tokens are active (the limit): revoke unused ones first", maxActiveServiceTokens))
@@ -447,6 +537,9 @@ func (s *Server) createServiceToken(w http.ResponseWriter, r *http.Request, p Pr
 	d := map[string]string{"name": in.Name, "role": in.Role, "expires": info.ExpiresAt.Format(time.RFC3339), "principal": info.Principal}
 	if in.Owner != "" {
 		d["owner"] = in.Owner
+	}
+	if !scope.Global() {
+		d["scope"] = scope.String()
 	}
 	if err := s.AuditStrict(r.Context(), p.ID, "service-token.create", id, d); err != nil {
 		at := now.UTC()
@@ -463,7 +556,9 @@ func (s *Server) createServiceToken(w http.ResponseWriter, r *http.Request, p Pr
 }
 
 // listServiceTokens (admin): GET /api/v1/service-tokens.
-func (s *Server) listServiceTokens(w http.ResponseWriter, r *http.Request, _ Principal) {
+// A scoped admin (ADR-0037) sees the tokens whose scope is within one of
+// their admin grants.
+func (s *Server) listServiceTokens(w http.ResponseWriter, r *http.Request, p Principal) {
 	ctx, cancel := context.WithTimeout(r.Context(), storage.OpTimeout)
 	defer cancel()
 	all, err := s.tokens.ServiceTokens(ctx)
@@ -473,11 +568,32 @@ func (s *Server) listServiceTokens(w http.ResponseWriter, r *http.Request, _ Pri
 		return
 	}
 	now := s.cfg.Now()
+	everything := p.canGlobal(permAdmin)
 	out := ServiceTokensResponse{Tokens: make([]ServiceTokenInfo, 0, len(all))}
 	for _, t := range all {
-		out.Tokens = append(out.Tokens, serviceTokenInfo(t, now))
+		info := serviceTokenInfo(t, now)
+		if _, ok := s.adminGrantOver(p, info.Scope); everything || ok {
+			out.Tokens = append(out.Tokens, info)
+		}
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// adminGrantOver is p's admin grant whose scope holds scope (a global one first).
+func (s *Server) adminGrantOver(p Principal, scope policy.RoleScope) (policy.Grant, bool) {
+	org, _, _ := s.pol.Get()
+	if g, ok := p.globalGrant(permAdmin); ok {
+		return g, true
+	}
+	if org == nil {
+		return policy.Grant{}, false
+	}
+	for _, g := range p.grantsFor(permAdmin) {
+		if org.ScopeWithin(scope, g.Scope) {
+			return g, true
+		}
+	}
+	return policy.Grant{}, false
 }
 
 // revokeServiceToken (admin): POST /api/v1/service-tokens/{id}/revoke. Any
@@ -501,6 +617,23 @@ func (s *Server) revokeServiceToken(w http.ResponseWriter, r *http.Request, p Pr
 	ctx, cancel := context.WithTimeout(r.Context(), storage.OpTimeout)
 	defer cancel()
 	cur, ok, err := s.tokens.ServiceToken(ctx, id)
+	if err == nil && !p.canGlobal(permAdmin) {
+		// A scoped admin (ADR-0037) revokes tokens whose scope is within one of
+		// their admin grants; an unknown id answers as out of scope.
+		const route = "POST /api/v1/service-tokens/{id}/revoke"
+		if !ok {
+			s.denyScope(w, r, p, route, permAdmin, scopeWhyUnknown, nil)
+			return
+		}
+		var rec serviceTokenRecord
+		_ = json.Unmarshal(cur.Record, &rec) // garbage: a global scope, which no scoped grant holds
+		g, within := s.adminGrantOver(p, rec.Scope)
+		if !within {
+			s.denyScope(w, r, p, route, permAdmin, scopeWhyOutside, nil)
+			return
+		}
+		r = withAuthz(r, p, g)
+	}
 	if err == nil && !ok {
 		apiErr(w, http.StatusNotFound, "service token not found")
 		return

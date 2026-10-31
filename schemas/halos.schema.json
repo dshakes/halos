@@ -99,6 +99,82 @@
           },
           "additionalProperties": false
         },
+        "roleBindings": {
+          "type": "array",
+          "description": "Scoped halo-server roles (ADR-0037): each binding grants a role to groups and users over a scope of rings and units. An empty scope is global, the same as identity.roles.",
+          "items": {
+            "type": "object",
+            "required": [
+              "role"
+            ],
+            "properties": {
+              "role": {
+                "enum": [
+                  "viewer",
+                  "operator",
+                  "approver",
+                  "auditor",
+                  "admin"
+                ],
+                "description": "The role granted. Audit routes are global only: a scoped auditor grants nothing."
+              },
+              "groups": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "description": "IdP (or SCIM) groups that hold the binding."
+              },
+              "users": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "description": "User ids that hold the binding (compared case-insensitively)."
+              },
+              "scope": {
+                "type": "object",
+                "description": "What the role covers: resources wholly inside any listed ring and, when units are listed too, belonging to a listed unit or a descendant. Empty is global.",
+                "properties": {
+                  "rings": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "uniqueItems": true,
+                    "description": "Ring names defined in policy."
+                  },
+                  "units": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "uniqueItems": true,
+                    "description": "Unit names defined in policy (ADR-0018); each covers its descendants."
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "anyOf": [
+              {
+                "required": [
+                  "groups"
+                ]
+              },
+              {
+                "required": [
+                  "users"
+                ]
+              }
+            ],
+            "additionalProperties": false
+          }
+        },
         "groupsOverage": {
           "enum": [
             "deny",
