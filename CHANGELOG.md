@@ -4,6 +4,17 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-31
+
+### Upgrade notes
+
+- Rollout-step approvals recorded before the upgrade stop counting (the approval key now includes the step's and the experiment's rings): give them again.
+- Upgrade every `halo-server` replica, the `halo` CLI, `halo mcp serve` and `halo controller run` before adding the first `identity.roleBindings` entry.
+- `halo-server` takes an exclusive lock on `--data-dir`: a second process on the same directory refuses to start.
+- FIPS builds refuse webhook, audit-export, cloud-webhook and telemetry-salt secrets under 14 bytes at startup; standard builds warn.
+- When shadow pair keys are configured, unencrypted pair rows are refused; pass `--allow-plaintext-pairs` (MCP `allow_plaintext_pairs`) once to migrate a store sealed part way through.
+- `POST /api/v1/service-tokens` rejects unknown, repeated or case-variant keys with 400.
+
 ### Added
 
 - Fleet-scale load test for `halo-server` (`make load-fleet`, `test/load/fleet`, `.github/workflows/load-fleet.yml`): simulated `halod` devices enroll, poll the signed kill list, fetch rings and post reports against file and Postgres modes, with latency percentiles, error rates and server CPU and memory; a manual or monthly 10,000-device workflow with a Postgres service container. Sizing guidance with the measured numbers is in the Operations guide ("Sizing halo-server"): up to 10,000 devices per replica, one replica more than needed, memory and Postgres storage per device.
