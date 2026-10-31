@@ -27,7 +27,7 @@ Halos ships six binaries from `cmd/`. Two more surfaces run inside one of them o
   - ClickHouse, for `exp analyze` and `mcp serve --clickhouse`
 - **Outputs:**
   - release tarballs (`release build`)
-  - OCI artifacts and signed pointers (`release publish`, [`cmd/halo/cmd_release.go:181-236`](https://github.com/dshakes/halos/blob/main/cmd/halo/cmd_release.go#L181-L236))
+  - OCI artifacts and signed pointers (`release publish`, [`cmd/halo/cmd_release.go:203-258`](https://github.com/dshakes/halos/blob/main/cmd/halo/cmd_release.go#L203-L258))
   - git branches and pull requests
   - JSON (`--output json`)
 - **Key internal packages:**
@@ -41,7 +41,7 @@ Halos ships six binaries from `cmd/`. Two more surfaces run inside one of them o
 - **State and storage:** the signer's pointer state file, `$XDG_STATE_HOME/halos/pointers.json` (`~/.local/state/halos/pointers.json` when unset) ([`internal/bundle/state.go:36-48`](https://github.com/dshakes/halos/blob/main/internal/bundle/state.go#L36-L48)). It refuses replayed or forked pointers on later writes.
 - **Trust boundary:**
   - `halo` holds the release private key.
-  - Publishing refuses any primary signer that is not ed25519 ([`internal/bundle/pointer.go:82-92`](https://github.com/dshakes/halos/blob/main/internal/bundle/pointer.go#L82-L92)).
+  - Publishing refuses any primary signer that is not ed25519 ([`internal/bundle/pointer.go:86-138`](https://github.com/dshakes/halos/blob/main/internal/bundle/pointer.go#L86-L138)).
   - A policy with validation errors is refused before any build ([`cmd/halo/root.go:184-198`](https://github.com/dshakes/halos/blob/main/cmd/halo/root.go#L184-L198)).
 - **Config:** flags only. See the [CLI reference](/halos/reference/cli/).
 - **Ports:** none. `halo mcp serve` speaks MCP over stdio ([`cmd/halo/mcp.go:35`](https://github.com/dshakes/halos/blob/main/cmd/halo/mcp.go#L35)).
@@ -75,7 +75,7 @@ Halos ships six binaries from `cmd/`. Two more surfaces run inside one of them o
   - Fixed root-owned layout per OS ([`cmd/halod/paths.go:25-38`](https://github.com/dshakes/halos/blob/main/cmd/halod/paths.go#L25-L38)). On Linux that is `/etc/halos/halod.yaml`, `/var/lib/halos/state.json`, `/usr/local/lib/halos/{bin,npm}` and shims in `/usr/local/bin`.
   - `state.json` holds the applied digest, the files it owns, the last pointer `seq` and digest per ring and channel (anti-rollback), installed artifacts, and the last accepted kill list ([`cmd/halod/agent.go:74-91`](https://github.com/dshakes/halos/blob/main/cmd/halod/agent.go#L74-L91)).
 - **Trust boundary:**
-  - Trusts only releases signed by a configured ed25519 key that has not been revoked ([`cmd/halod/keys.go:40-65`](https://github.com/dshakes/halos/blob/main/cmd/halod/keys.go#L40-L65)).
+  - Trusts only releases signed by a configured ed25519 key that has not been revoked ([`cmd/halod/keys.go:25-50`](https://github.com/dshakes/halos/blob/main/cmd/halod/keys.go#L25-L50)).
   - Refuses to start if its own binary, its config or a parent directory could be modified by a non-root user ([`cmd/halod/main.go:110-122`](https://github.com/dshakes/halos/blob/main/cmd/halod/main.go#L110-L122)).
   - Writes only inside the per-harness allowlist, with mode at most `0644`, under root-owned and symlink-safe parent directories ([`cmd/halod/agent.go:537-547`](https://github.com/dshakes/halos/blob/main/cmd/halod/agent.go#L537-L547)).
   - Authenticates to `halo-server` with a device token ([`cmd/halod/agent.go:695-699`](https://github.com/dshakes/halos/blob/main/cmd/halod/agent.go#L695-L699)).
@@ -192,12 +192,12 @@ Halos ships six binaries from `cmd/`. Two more surfaces run inside one of them o
 **Purpose:** the control plane. It serves the console and the API, enrollment, the fleet ring and report endpoints, and the signed kill list. With `--controller` it also runs the automated experiment and rollout loop.
 
 - **Inputs:**
-  - the served policy directory, reloaded on `SIGHUP` ([`cmd/halo-server/main.go:244-256`](https://github.com/dshakes/halos/blob/main/cmd/halo-server/main.go#L244-L256))
+  - the served policy directory, reloaded on `SIGHUP` ([`cmd/halo-server/main.go:249-261`](https://github.com/dshakes/halos/blob/main/cmd/halo-server/main.go#L249-L261))
   - OIDC logins
   - halod reports
   - ClickHouse evidence, when `--controller` is set
 - **Outputs:**
-  - JSON API (routes in [`internal/server/server.go:166-218`](https://github.com/dshakes/halos/blob/main/internal/server/server.go#L166-L218))
+  - JSON API (routes in [`internal/server/server.go:170-222`](https://github.com/dshakes/halos/blob/main/internal/server/server.go#L170-L222))
   - signed kill lists
   - policy PRs, from the portal writer and the controller
   - Slack and webhook notifications
@@ -218,14 +218,14 @@ Halos ships six binaries from `cmd/`. Two more surfaces run inside one of them o
   - `killswitch.jsonl`, append-only and fsynced ([`internal/controller/killstore.go:112-149`](https://github.com/dshakes/halos/blob/main/internal/controller/killstore.go#L112-L149))
   - `controller-state.jsonl`
   - `rollouts/<name>.json`, hash-chained ([`internal/rollout/state.go:154-186`](https://github.com/dshakes/halos/blob/main/internal/rollout/state.go#L154-L186))
-  - Without `--data-dir`, reports are kept in memory only. Neither the kill switch nor the controller can run without it ([`cmd/halo-server/main.go:116-135`](https://github.com/dshakes/halos/blob/main/cmd/halo-server/main.go#L116-L135)).
+  - Without `--data-dir`, reports are kept in memory only. Neither the kill switch nor the controller can run without it ([`cmd/halo-server/main.go:117-137`](https://github.com/dshakes/halos/blob/main/cmd/halo-server/main.go#L117-L137)).
 - **Trust boundary:**
   - Console users: OIDC login with state and nonce checks ([`internal/server/auth.go:322-400`](https://github.com/dshakes/halos/blob/main/internal/server/auth.go#L322-L400)).
-  - Devices: per-device tokens minted at enrollment and stored hashed ([`internal/server/devices.go:110-139`](https://github.com/dshakes/halos/blob/main/internal/server/devices.go#L110-L139)), or the shared fleet token for MDM and devcontainer fleets ([`internal/server/server.go:296-300`](https://github.com/dshakes/halos/blob/main/internal/server/server.go#L296-L300)).
-  - Gateways: the gateway token, compared in constant time ([`internal/server/killswitch.go:130-148`](https://github.com/dshakes/halos/blob/main/internal/server/killswitch.go#L130-L148)).
+  - Devices: per-device tokens minted at enrollment and stored hashed ([`internal/server/devices.go:110-139`](https://github.com/dshakes/halos/blob/main/internal/server/devices.go#L110-L139)), or the shared fleet token for MDM and devcontainer fleets ([`internal/server/server.go:300-304`](https://github.com/dshakes/halos/blob/main/internal/server/server.go#L300-L304)).
+  - Gateways: the gateway token, compared in constant time ([`internal/server/killswitch.go:131-149`](https://github.com/dshakes/halos/blob/main/internal/server/killswitch.go#L131-L149)).
   - Failed attempts are rate limited per IP.
   - halo-server holds the kill-list private key and never the release key.
-- **Config:** flags ([`cmd/halo-server/main.go:59-135`](https://github.com/dshakes/halos/blob/main/cmd/halo-server/main.go#L59-L135)):
+- **Config:** flags ([`cmd/halo-server/main.go:60-137`](https://github.com/dshakes/halos/blob/main/cmd/halo-server/main.go#L60-L137)):
   - `--policy-dir`, `--token-file`, `--data-dir`
   - `--portal-config`
   - `--killswitch-key-file` together with `--gateway-token-file` (or `--gateway-killswitch-token-file`); optional per-capability `--gateway-{killswitch,posture,budget,directory}-token-file`
@@ -249,7 +249,7 @@ This is the same loop as `halo controller run`. Every `--interval` it evaluates 
 
 ### Console
 
-`web/` is a React, Vite and TypeScript SPA ([tech stack](/halos/architecture/tech-stack/#web-console)), served by `halo-server` at `/` ([`internal/server/server.go:218`](https://github.com/dshakes/halos/blob/main/internal/server/server.go#L218)). Admin routes are wrapped in `s.admin(...)` and developer routes in `s.user(...)`.
+`web/` is a React, Vite and TypeScript SPA ([tech stack](/halos/architecture/tech-stack/#web-console)), served by `halo-server` at `/` ([`internal/server/server.go:222`](https://github.com/dshakes/halos/blob/main/internal/server/server.go#L222)). Admin routes are wrapped in `s.admin(...)` and developer routes in `s.user(...)`.
 
 ## MCP server
 

@@ -32,7 +32,7 @@ Edit a dependency and forget this page, and `go test ./internal/docgen` fails.
 Most of the core is the Go standard library:
 
 - **Reverse proxy:** `net/http` and `net/http/httputil.ReverseProxy` ([`cmd/halo-proxy/proxy.go:95-107`](https://github.com/dshakes/halos/blob/main/cmd/halo-proxy/proxy.go#L95-L107)).
-- **Signatures:** `crypto/ed25519` for release, pointer and kill-list signatures ([`internal/bundle/sign.go`](https://github.com/dshakes/halos/blob/main/internal/bundle/sign.go), [`internal/gateway/killswitch.go:44-75`](https://github.com/dshakes/halos/blob/main/internal/gateway/killswitch.go#L44-L75)).
+- **Signatures:** `crypto/ed25519` for release, pointer and kill-list signatures ([`internal/bundle/sign.go`](https://github.com/dshakes/halos/blob/main/internal/bundle/sign.go), [`internal/gateway/killswitch.go:53-93`](https://github.com/dshakes/halos/blob/main/internal/gateway/killswitch.go#L53-L93)).
 - **Hashing:** `crypto/sha256` for content addressing and assignment hashing ([`internal/assign/assign.go:16-19`](https://github.com/dshakes/halos/blob/main/internal/assign/assign.go#L16-L19)).
 - **Bundles:** `archive/tar` for the release bundle ([`internal/release/release.go:191-223`](https://github.com/dshakes/halos/blob/main/internal/release/release.go#L191-L223)).
 - **Logs:** `log/slog` for structured logs.
@@ -64,12 +64,12 @@ Most of the core is the Go standard library:
 <!-- check: go.mod -->
 | Module | Version | Used for | Used by |
 | --- | --- | --- | --- |
-| `oras.land/oras-go/v2` | `v2.6.2` | Pushing and pulling release bundles and signed ring pointers as OCI artifacts, and fetching digest-pinned supply-chain artifacts ([`internal/bundle/bundle.go:50-125`](https://github.com/dshakes/halos/blob/main/internal/bundle/bundle.go#L50-L125)). | `cmd/halo`, `cmd/halod`, `internal/bundle`, `internal/server`, `internal/supplychain` |
+| `oras.land/oras-go/v2` | `v2.6.2` | Pushing and pulling release bundles and signed ring pointers as OCI artifacts, and fetching digest-pinned supply-chain artifacts ([`internal/bundle/bundle.go:49-165`](https://github.com/dshakes/halos/blob/main/internal/bundle/bundle.go#L49-L165)). | `cmd/halo`, `cmd/halod`, `internal/bundle`, `internal/server`, `internal/supplychain`; tests: `internal/signer` |
 | `github.com/opencontainers/image-spec` | `v1.1.1` | OCI manifest and descriptor types. | `internal/bundle`, `internal/supplychain`; tests: `cmd/halo`, `cmd/halod` |
 | `github.com/opencontainers/go-digest` | `v1.0.0` | Content digests for blobs and pointer statements. | `internal/bundle`, `internal/supplychain` |
 <!-- /check -->
 
-Signing itself uses the standard library: ed25519 or ECDSA P-256 primary signatures in [`internal/bundle/sign.go`](https://github.com/dshakes/halos/blob/main/internal/bundle/sign.go) and [`keys.go`](https://github.com/dshakes/halos/blob/main/internal/bundle/keys.go); AWS KMS through its JSON API with the AWS SDK core already used for Bedrock, and external signers as a subprocess ([`internal/signer`](https://github.com/dshakes/halos/tree/main/internal/signer)). cosign is an optional co-signer, called as an external `cosign sign-blob` process ([`internal/bundle/sign.go:103-190`](https://github.com/dshakes/halos/blob/main/internal/bundle/sign.go#L103-L190)); it is not a Go dependency.
+Signing itself uses the standard library: ed25519 or ECDSA P-256 primary signatures in [`internal/bundle/sign.go`](https://github.com/dshakes/halos/blob/main/internal/bundle/sign.go) and [`keys.go`](https://github.com/dshakes/halos/blob/main/internal/bundle/keys.go); AWS KMS through its JSON API with the AWS SDK core already used for Bedrock, and external signers as a subprocess ([`internal/signer`](https://github.com/dshakes/halos/tree/main/internal/signer)). cosign is an optional co-signer, called as an external `cosign sign-blob` process ([`internal/bundle/sign.go:124-211`](https://github.com/dshakes/halos/blob/main/internal/bundle/sign.go#L124-L211)); it is not a Go dependency.
 
 ### Identity
 
@@ -88,9 +88,9 @@ Signing itself uses the standard library: ed25519 or ECDSA P-256 primary signatu
 | Module | Version | Used for | Used by |
 | --- | --- | --- | --- |
 | `github.com/Kong/go-pdk` | `v0.11.2` | The Kong Go plugin server and PDK that `halo-kong` runs on ([`cmd/halo-kong/main.go:376`](https://github.com/dshakes/halos/blob/main/cmd/halo-kong/main.go#L376)). | `cmd/halo-kong` |
-| `github.com/aws/aws-sdk-go-v2` | `v1.47.0` | SigV4 signing of direct Bedrock requests (`aws/signer/v4`) ([`internal/gateway/upstreamauth/bedrock.go:139-194`](https://github.com/dshakes/halos/blob/main/internal/gateway/upstreamauth/bedrock.go#L139-L194)). | `internal/gateway/upstreamauth`; tests: `cmd/halo-proxy` |
-| `github.com/aws/aws-sdk-go-v2/config` | `v1.33.4` | The default AWS credential chain for that signer. | `internal/gateway/upstreamauth` |
-| `github.com/aws/aws-sdk-go-v2/credentials` | `v1.20.4` | Static credentials in the SigV4 tests. | tests: `cmd/halo-proxy`, `internal/gateway/upstreamauth` |
+| `github.com/aws/aws-sdk-go-v2` | `v1.47.0` | SigV4 signing of direct Bedrock requests and of AWS KMS `GetPublicKey` / `Sign` calls (`aws/signer/v4`) ([`internal/gateway/upstreamauth/bedrock.go:139-194`](https://github.com/dshakes/halos/blob/main/internal/gateway/upstreamauth/bedrock.go#L139-L194), [`internal/signer/awskms.go`](https://github.com/dshakes/halos/blob/main/internal/signer/awskms.go)). | `internal/gateway/upstreamauth`, `internal/signer`; tests: `cmd/halo-proxy` |
+| `github.com/aws/aws-sdk-go-v2/config` | `v1.33.4` | The default AWS credential chain for those signers. | `internal/gateway/upstreamauth`, `internal/signer` |
+| `github.com/aws/aws-sdk-go-v2/credentials` | `v1.20.4` | Static credentials in the SigV4 and fake-KMS tests. | tests: `cmd/halo-proxy`, `internal/gateway/upstreamauth`, `internal/signer` |
 | `github.com/aws/smithy-go` | `v1.28.1` | Used by the SigV4 tests. | tests: `internal/gateway/upstreamauth` |
 <!-- /check -->
 
