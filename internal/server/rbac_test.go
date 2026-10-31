@@ -17,6 +17,8 @@ import (
 // route here is a security review decision, not a way to make a test pass.
 var publicRoutes = []string{
 	"GET /healthz", "GET /readyz",
+	// The API description: the same file the repository publishes, routes and no data (openapi.go).
+	"GET /api/v1/openapi.yaml",
 	"POST /api/v1/fleet/report", "GET /api/v1/fleet/ring", "GET /api/v1/fleet/killswitch",
 	"GET /api/v1/gateway/killswitch", "GET /api/v1/gateway/posture",
 	"GET /enroll.sh", "GET /enroll.ps1", "GET /enroll/release.pub", "GET /enroll/killswitch.pub", "POST /api/v1/enroll",

@@ -435,6 +435,8 @@ func (s *Server) mux() *routeMux {
 		}
 		_, _ = io.WriteString(w, "ok\n")
 	})
+	// The OpenAPI description of this API: public, read-only, identical to api/openapi.yaml.
+	m.HandleFunc("GET /api/v1/openapi.yaml", s.getOpenAPI)
 	m.HandleFunc("POST /api/v1/fleet/report", s.postReport)
 	m.HandleFunc("GET /api/v1/fleet/ring", s.getFleetRing)
 	m.HandleFunc("GET /api/v1/fleet/killswitch", s.getFleetKillswitch)
