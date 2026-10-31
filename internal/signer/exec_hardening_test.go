@@ -77,7 +77,7 @@ func TestExecSignerTimeoutKillsProcessGroup(t *testing.T) {
 	if d := time.Since(start); d > 4*time.Second {
 		t.Fatalf("timeout took %s: the hung signer was not killed", d)
 	}
-	time.Sleep(1500 * time.Millisecond) // the helper would touch the marker after 1s
+	time.Sleep(3500 * time.Millisecond) // the helper would touch the marker after 3s; ponytail: timing margin, the signer must exit and be reaped within 3s of starting its helper (a slow CI runner took most of 1s)
 	if _, err := os.Stat(marker); err == nil {
 		t.Fatal("helper process outlived the signer's timeout")
 	}

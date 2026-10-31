@@ -74,11 +74,11 @@ func fakeExecSigner() int {
 		wd, _ := os.Getwd()
 		out["error"] = "cwd=" + wd + " path=" + os.Getenv("PATH")
 	case mode == "bgexit" && req.Op == "public": // background a helper, answer, exit 0
-		_ = exec.Command("/bin/sh", "-c", "sleep 1; touch "+os.Getenv("HALOS_SIGNER_FAKE_MARKER")).Start()
+		_ = exec.Command("/bin/sh", "-c", "sleep 3; touch "+os.Getenv("HALOS_SIGNER_FAKE_MARKER")).Start()
 		pub, _ := bundle.MarshalPublicKeyPEM(s.Verifier().(bundle.PublicKeyVerifier))
 		out["algorithm"], out["publicKey"] = s.Type(), string(pub)
 	case mode == "spawn": // a helper in the signer's process group outlives a hung signer unless the group is killed
-		_ = exec.Command("/bin/sh", "-c", "sleep 1; touch "+os.Getenv("HALOS_SIGNER_FAKE_MARKER")).Start()
+		_ = exec.Command("/bin/sh", "-c", "sleep 3; touch "+os.Getenv("HALOS_SIGNER_FAKE_MARKER")).Start()
 		time.Sleep(5 * time.Second)
 		return 0
 	case mode == "garbage":

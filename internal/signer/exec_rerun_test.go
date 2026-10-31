@@ -53,7 +53,7 @@ func TestExecSignerNormalExitKillsHelpers(t *testing.T) {
 	if _, err := Open(context.Background(), execURI(t, fakeKey(t), "bgexit", ""), Options{}); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(1500 * time.Millisecond) // the helper would touch the marker after 1s
+	time.Sleep(3500 * time.Millisecond) // the helper would touch the marker after 3s; ponytail: timing margin, the signer must exit and be reaped within 3s of starting its helper (a slow CI runner took most of 1s)
 	if _, err := os.Stat(marker); err == nil {
 		t.Fatal("a helper backgrounded by the signer outlived its normal exit")
 	}
