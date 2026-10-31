@@ -220,6 +220,9 @@ type companyOut struct {
 	// Placeholders lists assumed answers that are example.com stand-ins: a
 	// real write (dry_run false) is refused until they are given.
 	Placeholders []string `json:"placeholders"`
+	// Warnings names installed CLIs left out of the defaulted tools (a version
+	// a policy pin cannot hold, such as cursor-agent's date-style one).
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // slug turns an org name into a DNS/registry-safe label.
@@ -260,10 +263,9 @@ func (s *srv) onboardCompany(ctx context.Context, _ *mcp.CallToolRequest, in com
 		}
 	}
 	sl := slug(ini.Org)
+	var warns []string
 	if len(ini.Tools) == 0 {
-		if ini.Tools = onboard.SuggestTools(onboard.Detect(ctx, s.env())); len(ini.Tools) == 0 {
-			ini.Tools = onboard.FallbackTools
-		}
+		ini.Tools, warns = onboard.AutoTools(onboard.Detect(ctx, s.env()))
 		assumed["tools"] = ini.Tools
 	}
 	def("provider", &ini.Provider, "anthropic", false)
@@ -296,5 +298,5 @@ func (s *srv) onboardCompany(ctx context.Context, _ *mcp.CallToolRequest, in com
 	if err != nil || r == nil {
 		return nil, nil, err
 	}
-	return nil, &companyOut{CompanyResult: *r, Assumed: assumed, Placeholders: placeholders}, nil
+	return nil, &companyOut{CompanyResult: *r, Assumed: assumed, Placeholders: placeholders, Warnings: warns}, nil
 }
