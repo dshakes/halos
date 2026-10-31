@@ -257,7 +257,7 @@ Deep dive, traced to the code: [tech stack](https://dshakes.github.io/halos/arch
 - **Guardrails twice.** `bypassPermissions` and `danger-full-access` are rejected at validate time and again on the rendered output.
 - **Humans own the irreversible step.** There is no auto-merge, no auto-promote and no agent (MCP) tool that publishes. Privileged actions land in a hash-chained audit log.
 
-[Threat model](https://dshakes.github.io/halos/reference/threat-model/) · [SECURITY.md](SECURITY.md)
+[Threat model](https://dshakes.github.io/halos/reference/threat-model/) · [SECURITY.md](SECURITY.md) · Compliance: [control mapping](https://dshakes.github.io/halos/compliance/control-mapping/), [data flow and PII](https://dshakes.github.io/halos/compliance/data-flow-and-pii/), [security overview](https://dshakes.github.io/halos/compliance/security-overview/)
 
 ## Status
 

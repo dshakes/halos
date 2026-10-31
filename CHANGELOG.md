@@ -4,6 +4,10 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added
+
+- Compliance docs: a control mapping (SOC 2, ISO/IEC 27001:2022, NIST SSDF and SLSA, EU AI Act) to the code and evidence Halos produces, a data-flow and PII inventory with retention defaults, and a security overview with known gaps. No certification is claimed.
+
 ## [0.4.1] - 2026-10-30
 
 ### Fixed
