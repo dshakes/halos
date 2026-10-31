@@ -260,7 +260,7 @@ var sessionOps = []apiOp{
 	{route: "GET /api/v1/me/devices", id: "getMyDevices", tag: "Portal", summary: "The caller's enrolled devices and posture",
 		ok: jsonOK(MyDevices{}, `{"devices":[],"posture":{"compliant":true}}`)},
 	{route: "GET /api/v1/catalog", id: "getCatalog", tag: "Portal", summary: "What the caller may request",
-		ok: jsonOK(Catalog{}, `{"harnesses":[],"launchers":[],"items":[]}`), errs: errMap(403, "Self-service is disabled.", 503, msgPolicy)},
+		ok: jsonOK(Catalog{}, `{"harnesses":[],"launchers":["laptop"],"items":[{"kind":"mcp-server","item":"jira","desc":"https://mcp.acme.example/jira","ticket":["CHG[0-9]{7}"]}]}`), errs: errMap(403, "Self-service is disabled.", 503, msgPolicy)},
 	{route: "POST /api/v1/launch/{launcher}", id: "postLaunch", tag: "Portal", summary: "Launcher output",
 		desc: "devcontainer: a snippet; codespaces and coder: a URL; laptop: a single-use enrollment token with bash and PowerShell one-liners.",
 		ok:   jsonOK(Launch{}, `{"launcher":"codespaces","url":"https://github.com/codespaces/new?ref=ring1-ga"}`),

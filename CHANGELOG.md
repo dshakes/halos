@@ -45,6 +45,7 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 - Rollout-step approvals are keyed by the rings they approve (the next step's and the backing experiment's, kept apart): retargeting either invalidates them. The key changed shape, so every rollout-step approval recorded before the upgrade stops counting and must be given again.
 - An access request's approval rules and freeze windows (ADR-0030) now cover what approving it changes: an opt-in also matches the requested ring; an MCP server request matches every ring its profile reaches (rings on profiles extending it, experiment variants on them) and every unit.
 - The rollout gate without an approval rule no longer counts the requester's own approval.
+- The console's request form has a "Change ticket" field. `GET /api/v1/catalog` gives each item the ticket patterns the caller's request needs (`ticket`), the form shows them up front, and a refused ticket is shown next to the field with what was typed kept. Filing an MCP server request that reaches GA needs a ticket again from the console.
 
 ### Security
 

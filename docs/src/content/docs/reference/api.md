@@ -125,7 +125,7 @@ State-changing Session and Admin requests (anything but `GET`) are rejected with
 | `GET /api/v1/me`, `/catalog`, `/harnesses` | Session | Identity and ring, requestable catalog, harness matrix |
 | `GET /api/v1/whoami` | Session | Ring and variants for a user. Developers: self only; admins: any user |
 | `POST /api/v1/launch/{launcher}` | Session | Launcher output (`devcontainer`, `codespaces`, `coder`, `laptop`) |
-| `POST /api/v1/requests`, `GET /api/v1/requests` | Session | Submit and list access requests (submitting needs a person: a service token or break-glass gets 403). Rollout step approvals (`POST /api/v1/rollouts/{name}/approve`) are person-only too |
+| `POST /api/v1/requests`, `GET /api/v1/requests` | Session | Submit and list access requests (submitting needs a person: a service token or break-glass gets 403). `{"kind","item","justification","ticket"}`: `ticket` is required, and must match, when an approval rule ([ADR-0030](/halos/adr/0030-change-governance/)) covers what approving the request changes (an MCP server reaches every ring its profile does); otherwise 422 naming the rule and the pattern. `GET /api/v1/catalog` lists each item's required patterns as `ticket`, judged the same way for the caller. Rollout step approvals (`POST /api/v1/rollouts/{name}/approve`) are person-only too |
 | `POST /api/v1/requests/{id}/approve`, `/deny` | Admin | Decide a request (a person only: a service token or break-glass gets 403, audited as `authz.deny` with `need: human`); approval opens a PR. 500 if the decision cannot be stored (the request stays pending; the message names a PR already opened) or audited (the decision stands) |
 
 ### Enrollment (public)

@@ -349,9 +349,15 @@ paths:
               schema:
                 $ref: '#/components/schemas/Catalog'
               example:
-                items: []
+                items:
+                  - desc: https://mcp.acme.example/jira
+                    item: jira
+                    kind: mcp-server
+                    ticket:
+                      - CHG[0-9]{7}
                 harnesses: []
-                launchers: []
+                launchers:
+                  - laptop
         "401":
           $ref: '#/components/responses/Unauthorized'
         "403":
@@ -4591,6 +4597,10 @@ components:
           type: string
         kind:
           type: string
+        ticket:
+          type: array
+          items:
+            type: string
     ChannelRelease:
       required:
         - channel

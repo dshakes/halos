@@ -230,6 +230,40 @@ func TestReviewTokenCreateOneLoad(t *testing.T) {
 	}
 }
 
+// TestCatalogTicketHint: the catalog tells the caller which ticket pattern
+// filing each item needs, judged as filing is (requestTarget), and filing
+// honours it: 422 without a matching ticket, 201 with one.
+func TestCatalogTicketHint(t *testing.T) {
+	e := newEnv(t, func(c *Config) {
+		f := filepath.Join(c.PolicyDir, "halos.yaml")
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		gov := "governance:\n  approvals:\n    - name: ga-two-person\n      scope: {rings: [ring3-ga]}\n      quorum: 2\n      groups: [sre-leads]\n      ticket: CHG[0-9]{7}\n"
+		if err := os.WriteFile(f, []byte(strings.Replace(string(b), "selfService:\n", gov+"selfService:\n", 1)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	})
+	cat := decode[Catalog](t, e.as(dev, "GET", "/api/v1/catalog", ""))
+	i := slices.IndexFunc(cat.Items, func(c CatalogItem) bool { return c.Kind == "mcp-server" && c.Item == "jira" })
+	if i < 0 || !slices.Equal(cat.Items[i].Ticket, []string{"CHG[0-9]{7}"}) {
+		t.Fatalf("jira hint: %+v", cat.Items)
+	}
+	file := func(ticket string) *httptest.ResponseRecorder {
+		return e.as(dev, "POST", "/api/v1/requests", `{"kind":"mcp-server","item":"jira","justification":"please","ticket":"`+ticket+`"}`)
+	}
+	if w := file(""); w.Code != http.StatusUnprocessableEntity || !strings.Contains(w.Body.String(), "ga-two-person") {
+		t.Fatalf("no ticket: %d %s", w.Code, w.Body)
+	}
+	if w := file("OPS-1"); w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("wrong ticket: %d %s", w.Code, w.Body)
+	}
+	if w := file("CHG0000001"); w.Code != http.StatusCreated {
+		t.Fatalf("matching ticket: %d %s", w.Code, w.Body)
+	}
+}
+
 // TestReviewTokenScopeDrift (L2): a token's scope is re-checked against its
 // creator's grant scope under current policy on every use.
 func TestReviewTokenScopeDrift(t *testing.T) {
