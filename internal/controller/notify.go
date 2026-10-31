@@ -120,11 +120,6 @@ func defaultClient() *http.Client {
 	return &http.Client{Timeout: notifyTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 }
 
-// post sends body once and never lets the (secret-bearing) URL into an error.
-func post(ctx context.Context, hc *http.Client, kind, u string, body []byte, hdr http.Header) error {
-	return deliver(ctx, RetryPolicy{}, hc, kind, u, body, hdr)
-}
-
 // Slack posts to a Slack(-compatible) incoming webhook.
 type Slack struct {
 	URL    string
