@@ -35,7 +35,7 @@ func TestRequestMetricsExported(t *testing.T) {
 	}
 	up, _ := recordingServer(t)
 	e := testEnv(t, up, func(c *Config, _ *policy.Org) {
-		c.Telemetry = gwmetrics.Config{OTLPEndpoint: col.URL, Protocol: gwmetrics.ProtoJSON, UnitSalt: "t", TokenFile: tokFile}
+		c.Telemetry = gwmetrics.Config{OTLPEndpoint: col.URL, Protocol: gwmetrics.ProtoJSON, UnitSalt: "t-salt-0123456789", TokenFile: tokFile}
 	})
 	wait := e.awaitHandlers(t, 3) // flush only after all three handlers recorded
 	tok := e.token(t, "alice@acme.com", "ai-platform")
@@ -103,7 +103,7 @@ func TestRouteAttributesExported(t *testing.T) {
 	sSrv, _ := upstream(t, respond(200, `{"ok":true}`))
 	ups, targets := primarySecondary(pSrv, sSrv)
 	e := routeEnv(t, ups, targets, func(c *Config) {
-		c.Telemetry = gwmetrics.Config{OTLPEndpoint: col.URL, Protocol: gwmetrics.ProtoJSON, UnitSalt: "t"}
+		c.Telemetry = gwmetrics.Config{OTLPEndpoint: col.URL, Protocol: gwmetrics.ProtoJSON, UnitSalt: "t-salt-0123456789"}
 	})
 	org, _ := e.p.snap.Get()
 	org.Gateway.Upstreams["direct"] = policy.Upstream{URL: sSrv.URL, Kind: "anthropic"}

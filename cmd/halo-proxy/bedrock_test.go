@@ -25,7 +25,7 @@ func bedrockEnv(t *testing.T, up *httptest.Server, akid string) *env {
 		o.Gateway.Upstreams["up"] = policy.Upstream{URL: up.URL, Kind: "bedrock", Region: "us-west-2"}
 		o.Gateway.Models["sonnet"] = policy.ModelRoute{Upstream: "up", Model: arnModel}
 	})
-	e.p.sigv4.Credentials = credentials.NewStaticCredentialsProvider(akid, "SECRET", "")
+	e.p.sigv4.Credentials = credentials.NewStaticCredentialsProvider(akid, "SECRET-wJalrXUtnFEMI-K7MDENG-EXAMPLE", "")
 	e.p.cfg.SignHosts = []string{"127.0.0.1"} // httptest listener
 	return e
 }

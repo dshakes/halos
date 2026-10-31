@@ -63,7 +63,7 @@ func TestSlackNotify(t *testing.T) {
 
 func TestWebhookSignature(t *testing.T) {
 	srv, ch := capture(t, http.StatusAccepted)
-	secret := []byte("s3cret")
+	secret := []byte("s3cret-0123456789")
 	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	if err := (Webhook{URL: srv.URL, Secret: secret, Now: func() time.Time { return now }}).Notify(context.Background(), testEvent()); err != nil {
 		t.Fatal(err)
@@ -105,7 +105,7 @@ func TestWebhookEventID(t *testing.T) {
 }
 
 func TestWebhookVerify(t *testing.T) {
-	secret, body := []byte("s3cret"), []byte(`{"a":1}`)
+	secret, body := []byte("s3cret-0123456789"), []byte(`{"a":1}`)
 	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	hdr := func(ts int64, sig string) http.Header {
 		h := http.Header{}
@@ -124,7 +124,7 @@ func TestWebhookVerify(t *testing.T) {
 		{"replayed (old)", hdr(now.Add(-6*time.Minute).Unix(), Sign(secret, now.Add(-6*time.Minute).Unix(), body)), body, "tolerance"},
 		{"future", hdr(now.Add(6*time.Minute).Unix(), Sign(secret, now.Add(6*time.Minute).Unix(), body)), body, "tolerance"},
 		{"timestamp swapped after signing", hdr(now.Unix(), Sign(secret, now.Add(-time.Second).Unix(), body)), body, "mismatch"},
-		{"wrong secret", hdr(now.Unix(), Sign([]byte("x"), now.Unix(), body)), body, "mismatch"},
+		{"wrong secret", hdr(now.Unix(), Sign([]byte("x-other-secret-0123"), now.Unix(), body)), body, "mismatch"},
 		{"tampered body", hdr(now.Unix(), Sign(secret, now.Unix(), body)), []byte(`{"a":2}`), "mismatch"},
 		{"missing timestamp", http.Header{SignatureHeader: {Sign(secret, now.Unix(), body)}}, body, "Timestamp"},
 	}
@@ -188,7 +188,7 @@ func TestNotifiersFromFiles(t *testing.T) {
 		}
 		return p
 	}
-	slack, hook, secret := write("slack", "https://hooks.slack.test/x"), write("hook", "https://hooks.test/y"), write("secret", "k")
+	slack, hook, secret := write("slack", "https://hooks.slack.test/x"), write("hook", "https://hooks.test/y"), write("secret", "k-0123456789abcdef")
 	bad, empty := write("bad", "ftp://nope/SECRET"), write("empty", "  ")
 	for _, tc := range []struct {
 		name                string
@@ -214,7 +214,7 @@ func TestNotifiersFromFiles(t *testing.T) {
 		})
 	}
 	ns, _ := NotifiersFromFiles("", hook, secret)
-	if w := ns[0].(*Sink).Notifier.(Webhook); string(w.Secret) != "k" || w.URL != "https://hooks.test/y" {
+	if w := ns[0].(*Sink).Notifier.(Webhook); string(w.Secret) != "k-0123456789abcdef" || w.URL != "https://hooks.test/y" {
 		t.Fatalf("webhook = %+v", w)
 	}
 }

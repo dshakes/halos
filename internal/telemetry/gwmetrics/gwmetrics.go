@@ -45,6 +45,8 @@ import (
 	"time"
 
 	"google.golang.org/protobuf/encoding/protowire"
+
+	"github.com/dshakes/halos/internal/hmackey"
 )
 
 // Protocols accepted by Config.Protocol.
@@ -174,6 +176,11 @@ func New(c Config) (*Emitter, error) {
 	}
 	if c.OTLPEndpoint == "" {
 		return nil, nil
+	}
+	// The salt keys an HMAC on every request: refuse at startup what Go's FIPS
+	// module would panic on per request (ADR-0038).
+	if err := hmackey.Check(nil, "telemetry.unitSalt (--telemetry-unit-salt-file)", []byte(c.UnitSalt)); err != nil {
+		return nil, fmt.Errorf("gwmetrics: %w", err)
 	}
 	e := &Emitter{
 		url: strings.TrimRight(c.OTLPEndpoint, "/") + "/v1/metrics", proto: c.Protocol, interval: c.Interval,

@@ -23,7 +23,7 @@ func genaiReq(status int, in, out int64, ttft time.Duration) Request {
 
 func TestGenAIProtobuf(t *testing.T) {
 	srv, _, bodies := collector(t, 200)
-	e, _ := New(Config{OTLPEndpoint: srv.URL, UnitSalt: "x"})
+	e, _ := New(Config{OTLPEndpoint: srv.URL, UnitSalt: "x-salt-0123456789"})
 	e.Record(genaiReq(200, 100, 5, 300*time.Millisecond))
 	e.Record(genaiReq(200, 100, 5, 300*time.Millisecond))
 	e.Record(genaiReq(503, -1, -1, -1))
@@ -170,7 +170,7 @@ func TestSpanExportAndErrors(t *testing.T) {
 		}
 	}))
 	t.Cleanup(srv.Close)
-	e, _ := New(Config{OTLPEndpoint: srv.URL, Protocol: ProtoJSON, UnitSalt: "x", GenAI: GenAIConfig{Traces: true}})
+	e, _ := New(Config{OTLPEndpoint: srv.URL, Protocol: ProtoJSON, UnitSalt: "x-salt-0123456789", GenAI: GenAIConfig{Traces: true}})
 	e.Record(genaiReq(200, 10, 20, 0))
 	e.Record(genaiReq(500, -1, -1, -1))
 	if err := e.Flush(context.Background()); err != nil {
@@ -215,7 +215,7 @@ func TestSpanExportAndErrors(t *testing.T) {
 
 // DLP counts ride on the span only, for the session ledger (ADR-0033).
 func TestSpanCarriesDLPCounts(t *testing.T) {
-	e, _ := New(Config{OTLPEndpoint: "http://127.0.0.1:1", UnitSalt: "x"})
+	e, _ := New(Config{OTLPEndpoint: "http://127.0.0.1:1", UnitSalt: "x-salt-0123456789"})
 	r := genaiReq(200, 1, 1, time.Millisecond)
 	r.DLPSecrets, r.DLPInjections = 2, 1
 	got := map[string]int64{}

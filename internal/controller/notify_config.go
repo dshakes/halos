@@ -8,6 +8,8 @@ import (
 	"os"
 	"strings"
 	"unicode"
+
+	"github.com/dshakes/halos/internal/hmackey"
 )
 
 // NotifyConfig is the notification setup shared by `halo controller run` and
@@ -80,6 +82,11 @@ func (c NotifyConfig) Build() (Notifiers, error) {
 	}
 	secret, err := readSecretFile("--notify-webhook-secret-file", c.WebhookSecretFile)
 	if err != nil {
+		return nil, err
+	}
+	// Every webhook notification HMACs with it: a key Go's FIPS module refuses
+	// must stop startup, not panic the notifier later (ADR-0038).
+	if err := hmackey.Check(nil, "--notify-webhook-secret-file", []byte(secret)); err != nil {
 		return nil, err
 	}
 	switch {

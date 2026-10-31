@@ -25,6 +25,7 @@ import (
 	"github.com/dshakes/halos/internal/controller"
 	"github.com/dshakes/halos/internal/harness"
 	_ "github.com/dshakes/halos/internal/harness/all" // register adapters for the capability matrix
+	"github.com/dshakes/halos/internal/hmackey"
 	"github.com/dshakes/halos/internal/policy"
 	"github.com/dshakes/halos/internal/storage"
 	"github.com/dshakes/halos/web"
@@ -201,6 +202,11 @@ func New(cfg Config) (*Server, error) {
 	}
 	if err := cfg.Portal.Validate(cfg.DevUser != ""); err != nil {
 		return nil, err
+	}
+	for _, sec := range cfg.CloudWebhookSecrets { // GitHub HMACs with the raw secret: refuse what FIPS mode would panic on (ADR-0038)
+		if err := hmackey.Check(cfg.Log, "--cloud-webhook-secret-file", []byte(sec)); err != nil {
+			return nil, err
+		}
 	}
 	session, err := cfg.Session.normalize()
 	if err != nil {

@@ -15,7 +15,8 @@ test:
 FIPS_MODULE ?= v1.0.0
 FIPS_PKGS := ./internal/bundle/... ./internal/signer/... ./internal/gateway/ ./internal/gateway/upstreamauth/ \
 	./internal/server/... ./internal/identity/... ./internal/a2a/... ./internal/supplychain/... ./internal/release/... \
-	./internal/shadow/... ./cmd/halo/ ./cmd/halod/ ./cmd/halo-server/ ./cmd/halo-kong/ ./cmd/halo-shadow/
+	./internal/shadow/... ./internal/hmackey/... ./internal/telemetry/... ./internal/controller/... ./internal/cloudagents/... ./internal/ledger/... \
+	./cmd/halo/ ./cmd/halod/ ./cmd/halo-server/ ./cmd/halo-kong/ ./cmd/halo-shadow/ ./cmd/halo-proxy/
 .PHONY: build-fips test-fips
 build-fips:
 	mkdir -p bin/fips

@@ -11,7 +11,7 @@ import (
 func TestTelemetryFlagsAndEnv(t *testing.T) {
 	dir := t.TempDir()
 	salt := filepath.Join(dir, "salt")
-	if err := os.WriteFile(salt, []byte("s3cret\n"), 0o600); err != nil {
+	if err := os.WriteFile(salt, []byte("s3cret-0123456789\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	empty := filepath.Join(dir, "empty")
@@ -30,8 +30,8 @@ func TestTelemetryFlagsAndEnv(t *testing.T) {
 		iv      time.Duration
 		salt    string
 	}{
-		{name: "flags", args: append([]string{"--telemetry-protocol", "http/json", "--telemetry-interval", "30s", "--telemetry-unit-salt-file", salt}, base...), proto: "http/json", iv: 30 * time.Second, salt: "s3cret"},
-		{name: "env", args: base, env: map[string]string{"HALO_PROXY_TELEMETRY_PROTOCOL": "http/json", "HALO_PROXY_TELEMETRY_INTERVAL": "5s", "HALO_PROXY_TELEMETRY_UNIT_SALT_FILE": salt}, proto: "http/json", iv: 5 * time.Second, salt: "s3cret"},
+		{name: "flags", args: append([]string{"--telemetry-protocol", "http/json", "--telemetry-interval", "30s", "--telemetry-unit-salt-file", salt}, base...), proto: "http/json", iv: 30 * time.Second, salt: "s3cret-0123456789"},
+		{name: "env", args: base, env: map[string]string{"HALO_PROXY_TELEMETRY_PROTOCOL": "http/json", "HALO_PROXY_TELEMETRY_INTERVAL": "5s", "HALO_PROXY_TELEMETRY_UNIT_SALT_FILE": salt}, proto: "http/json", iv: 5 * time.Second, salt: "s3cret-0123456789"},
 		{name: "flag beats env", args: append([]string{"--telemetry-interval", "20s"}, base...), env: map[string]string{"HALO_PROXY_TELEMETRY_INTERVAL": "5s"}, iv: 20 * time.Second},
 		{name: "defaults", args: base},
 		{name: "bad protocol", args: append([]string{"--telemetry-protocol", "grpc"}, base...), wantErr: true},

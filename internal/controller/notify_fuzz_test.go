@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/dshakes/halos/internal/hmackey"
 )
 
 // hmacKeyEquiv reports whether two keys give the same HMAC-SHA256: keys over
@@ -34,6 +36,9 @@ func FuzzWebhookVerify(f *testing.F) {
 	f.Add([]byte("s3cret"), []byte(`{"a":1}`), now, int64(-6*time.Minute), []byte(`{"a":2}`), now-1, []byte("x"), "sha256=00")
 	f.Add([]byte(""), []byte(""), int64(-1), int64(1), []byte(""), int64(-1), []byte("\x00"), "+0")
 	f.Fuzz(func(t *testing.T, secret, body []byte, ts, skew int64, body2 []byte, ts2 int64, secret2 []byte, tsHdr string) {
+		if !hmackey.Usable(secret) || !hmackey.Usable(secret2) {
+			t.Skip("FIPS 140-only mode refuses HMAC keys under 112 bits; halo-server rejects them at startup")
+		}
 		sig := Sign(secret, ts, body)
 		hdr := func(tsv string, s string) http.Header {
 			h := http.Header{}

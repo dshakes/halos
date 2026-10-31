@@ -25,6 +25,10 @@ func sign(secret string, body []byte) string {
 	return "sha256=" + hex.EncodeToString(m.Sum(nil))
 }
 
+// emptyKeyHMAC is HMAC-SHA256 with an empty key over {"action":"completed"},
+// precomputed: FIPS 140-only mode refuses to compute it.
+const emptyKeyHMAC = "sha256=34507afaec94c554378d4b72291cb80e820ef45641647d034d4d62fea859ba27"
+
 func TestVerifySignature(t *testing.T) {
 	body := []byte(`{"action":"completed"}`)
 	// GitHub's documented test vector: secret "It's a Secret to Everybody",
@@ -38,16 +42,16 @@ func TestVerifySignature(t *testing.T) {
 		ok      bool
 	}{
 		{"github vector", []string{"It's a Secret to Everybody"}, []byte("Hello, World!"), vector, true},
-		{"valid", []string{"s3cret"}, body, sign("s3cret", body), true},
-		{"rotation: second secret", []string{"new", "s3cret"}, body, sign("s3cret", body), true},
-		{"wrong secret", []string{"other"}, body, sign("s3cret", body), false},
-		{"tampered body", []string{"s3cret"}, []byte(`{"action":"requested"}`), sign("s3cret", body), false},
-		{"missing header", []string{"s3cret"}, body, "", false},
-		{"sha1 header", []string{"s3cret"}, body, "sha1=" + strings.Repeat("0", 40), false},
-		{"not hex", []string{"s3cret"}, body, "sha256=zz", false},
-		{"truncated", []string{"s3cret"}, body, sign("s3cret", body)[:20], false},
-		{"no secret configured", nil, body, sign("", body), false},
-		{"empty secret never matches", []string{""}, body, sign("", body), false},
+		{"valid", []string{"s3cret-0123456789"}, body, sign("s3cret-0123456789", body), true},
+		{"rotation: second secret", []string{"new-secret-0123456789", "s3cret-0123456789"}, body, sign("s3cret-0123456789", body), true},
+		{"wrong secret", []string{"other-secret-0123456789"}, body, sign("s3cret-0123456789", body), false},
+		{"tampered body", []string{"s3cret-0123456789"}, []byte(`{"action":"requested"}`), sign("s3cret-0123456789", body), false},
+		{"missing header", []string{"s3cret-0123456789"}, body, "", false},
+		{"sha1 header", []string{"s3cret-0123456789"}, body, "sha1=" + strings.Repeat("0", 40), false},
+		{"not hex", []string{"s3cret-0123456789"}, body, "sha256=zz", false},
+		{"truncated", []string{"s3cret-0123456789"}, body, sign("s3cret-0123456789", body)[:20], false},
+		{"no secret configured", nil, body, emptyKeyHMAC, false},
+		{"empty secret never matches", []string{""}, body, emptyKeyHMAC, false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

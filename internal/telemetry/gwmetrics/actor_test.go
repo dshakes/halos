@@ -11,7 +11,7 @@ import (
 // metrics, and gen_ai.agent.name plus the chain on the span; the unit stays
 // the root's hash, never the agent's.
 func TestActorAttributes(t *testing.T) {
-	e, _ := New(Config{OTLPEndpoint: "http://c", UnitSalt: "x", GenAI: GenAIConfig{Traces: true}})
+	e, _ := New(Config{OTLPEndpoint: "http://c", UnitSalt: "x-salt-0123456789", GenAI: GenAIConfig{Traces: true}})
 	root := genaiReq(200, 10, 5, 0)
 	root.Subject = "alice"
 	agent := root

@@ -26,6 +26,7 @@ import (
 
 	"github.com/dshakes/halos/internal/controller"
 	"github.com/dshakes/halos/internal/fsutil"
+	"github.com/dshakes/halos/internal/hmackey"
 	"github.com/dshakes/halos/internal/rollout"
 	"github.com/dshakes/halos/internal/storage"
 )
@@ -288,6 +289,11 @@ func newAuditSender(s AuditSink, host string) (auditSender, error) {
 	if s.HMACSecret != nil {
 		v, err := s.HMACSecret.resolve("hmacSecret")
 		if err != nil {
+			return nil, err
+		}
+		// The forwarder goroutine HMACs every batch: a key Go's FIPS module
+		// refuses must stop startup, not crash halo-server later (ADR-0038).
+		if err := hmackey.Check(nil, "--audit-config sinks["+s.Name+"].hmacSecret", []byte(v)); err != nil {
 			return nil, err
 		}
 		h.secret = []byte(v)

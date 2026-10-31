@@ -408,7 +408,7 @@ func TestAnthropicClientToBedrockStreamsSSE(t *testing.T) {
 	e := routeEnv(t, map[string]policy.Upstream{"b": {URL: srv.URL, Kind: "bedrock", Region: "us-west-2"}},
 		[]policy.RouteTarget{{Upstream: "b", Model: "us.anthropic.claude-opus-5-5:0"}}, func(c *Config) { c.SignHosts = []string{"127.0.0.1"} })
 	e.p.sigv4.Credentials = aws.CredentialsProviderFunc(func(context.Context) (aws.Credentials, error) {
-		return aws.Credentials{AccessKeyID: "AKID", SecretAccessKey: "SECRET"}, nil
+		return aws.Credentials{AccessKeyID: "AKID", SecretAccessKey: "SECRET-wJalrXUtnFEMI-K7MDENG-EXAMPLE"}, nil
 	})
 	resp := e.post(t, "/v1/messages?beta=true", e.token(t, "alice@acme.com"), strings.Replace(opusBody, `"max_tokens"`, `"stream":true,"max_tokens"`, 1), nil)
 	b, _ := io.ReadAll(resp.Body)
@@ -473,7 +473,7 @@ func TestClientCredentialHeadersStrippedOnEveryKind(t *testing.T) {
 			e.p.vertexTS = fakeTokens{"gw-token"}
 			e.p.getenv = func(string) string { return "gw-secret" }
 			e.p.sigv4.Credentials = aws.CredentialsProviderFunc(func(context.Context) (aws.Credentials, error) {
-				return aws.Credentials{AccessKeyID: "AKID", SecretAccessKey: "SECRET"}, nil
+				return aws.Credentials{AccessKeyID: "AKID", SecretAccessKey: "SECRET-wJalrXUtnFEMI-K7MDENG-EXAMPLE"}, nil
 			})
 			hdr := map[string]string{}
 			for k, v := range creds {
