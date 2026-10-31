@@ -27,6 +27,7 @@
         "internal/onboard",
         "internal/pgstore",
         "internal/policy",
+        "internal/policytest",
         "internal/promote",
         "internal/release",
         "internal/roi",
@@ -348,6 +349,7 @@
         "internal/intent",
         "internal/onboard",
         "internal/policy",
+        "internal/policytest",
         "internal/promote",
         "internal/release",
         "internal/roi",
@@ -387,6 +389,17 @@
       "imports": [
         "internal/assign",
         "internal/supplychain"
+      ]
+    },
+    {
+      "path": "internal/policytest",
+      "imports": [
+        "internal/harness",
+        "internal/harness/all",
+        "internal/impact",
+        "internal/policy",
+        "internal/release",
+        "internal/rollout"
       ]
     },
     {
