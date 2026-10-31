@@ -59,8 +59,8 @@ func TestNilEmitterIsNoop(t *testing.T) {
 }
 
 func TestUnitHashing(t *testing.T) {
-	e, _ := New(Config{OTLPEndpoint: "http://c", UnitSalt: "s1"})
-	e2, _ := New(Config{OTLPEndpoint: "http://c", UnitSalt: "s2"})
+	e, _ := New(Config{OTLPEndpoint: "http://c", UnitSalt: "s1-salt-0123456789"})
+	e2, _ := New(Config{OTLPEndpoint: "http://c", UnitSalt: "s2-salt-0123456789"})
 	if u := e.Unit(""); u != "" {
 		t.Fatalf("anonymous request must not be an experiment unit, got %q", u)
 	}
@@ -76,7 +76,7 @@ func TestUnitHashing(t *testing.T) {
 // One verified user rotating client-controlled session ids stays one unit:
 // sessions must not multiply a user's weight in per-unit statistics.
 func TestUnitIgnoresSessions(t *testing.T) {
-	e, _ := New(Config{OTLPEndpoint: "http://c", UnitSalt: "s"})
+	e, _ := New(Config{OTLPEndpoint: "http://c", UnitSalt: "s-salt-0123456789"})
 	for i := 0; i < 100; i++ {
 		e.Record(Request{Experiment: "x", Variant: "treatment", Subject: "alice", Status: 200})
 		e.Record(Request{Experiment: "x", Variant: "treatment", Status: 200}) // anonymous
@@ -108,7 +108,7 @@ func collector(t *testing.T, status int) (*httptest.Server, *[]*http.Request, *[
 
 func TestFlushJSON(t *testing.T) {
 	srv, reqs, bodies := collector(t, 200)
-	e, err := New(Config{OTLPEndpoint: srv.URL + "/", Protocol: ProtoJSON, UnitSalt: "x"})
+	e, err := New(Config{OTLPEndpoint: srv.URL + "/", Protocol: ProtoJSON, UnitSalt: "x-salt-0123456789"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +242,7 @@ func isMsg(v []byte) bool {
 
 func TestFlushProtobuf(t *testing.T) {
 	srv, reqs, bodies := collector(t, 200)
-	e, _ := New(Config{OTLPEndpoint: srv.URL, UnitSalt: "x"}) // default protocol
+	e, _ := New(Config{OTLPEndpoint: srv.URL, UnitSalt: "x-salt-0123456789"}) // default protocol
 	e.Record(Request{Ring: "ring1", Experiment: "exp", Variant: "control", Subject: "subject-raw", Status: 200, Latency: 42 * time.Millisecond})
 	if err := e.Flush(context.Background()); err != nil {
 		t.Fatal(err)
@@ -323,7 +323,7 @@ func TestTokenFile(t *testing.T) {
 // The hand-rolled protobuf encoder must decode with the real OTLP schema.
 func TestProtobufWireCompat(t *testing.T) {
 	srv, _, bodies := collector(t, 200)
-	e, _ := New(Config{OTLPEndpoint: srv.URL, UnitSalt: "x"})
+	e, _ := New(Config{OTLPEndpoint: srv.URL, UnitSalt: "x-salt-0123456789"})
 	base := Request{Ring: "ring1", Experiment: "exp", Variant: "treatment", Harness: "claude-code", Subject: "alice"}
 	ok, fail := base, base
 	ok.Status, ok.Latency = 200, 42*time.Millisecond
@@ -425,7 +425,7 @@ func TestRunExportsAndStops(t *testing.T) {
 
 func TestRouteAttributes(t *testing.T) {
 	srv, _, bodies := collector(t, 200)
-	e, err := New(Config{OTLPEndpoint: srv.URL, Protocol: ProtoJSON, UnitSalt: "x"})
+	e, err := New(Config{OTLPEndpoint: srv.URL, Protocol: ProtoJSON, UnitSalt: "x-salt-0123456789"})
 	if err != nil {
 		t.Fatal(err)
 	}

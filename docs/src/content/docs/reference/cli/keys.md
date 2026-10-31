@@ -26,6 +26,7 @@ None.
 | Command | Description |
 |---|---|
 | [`halo keys generate`](/halos/reference/cli/keys-generate/) | Generate an ed25519 signing key pair (PEM) |
+| [`halo keys public`](/halos/reference/cli/keys-public/) | Export the public key (PEM) and key id of a signing key: file://, awskms:// or exec:// |
 
 ## Parent
 

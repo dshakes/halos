@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -27,7 +28,7 @@ func TestAccessKillSwitch(t *testing.T) {
 	var authOK atomic.Bool
 	ks := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authOK.Store(r.Header.Get("Authorization") == "Bearer gw-tok")
-		env, _ := gateway.SignKillList(signer.Key, gateway.KillList{Version: 1, Experiments: []string{"shadow"}, IssuedAt: time.Now()})
+		env, _ := gateway.SignKillList(context.Background(), signer, gateway.KillList{Version: 1, Experiments: []string{"shadow"}, IssuedAt: time.Now()})
 		_ = json.NewEncoder(w).Encode(env)
 	}))
 	defer ks.Close()

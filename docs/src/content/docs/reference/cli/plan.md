@@ -28,7 +28,7 @@ halo plan [flags]
 | `--diff` |  | string |  | git ref of the policy to compare with (e.g. main): release diffs from it, plus the impact preview |
 | `--plain-http` |  | bool | false | use HTTP instead of HTTPS (local registries) |
 | `--policy-dir` |  | string |  | policy repo directory (default ".") |
-| `--pubkey` |  | string |  | ed25519 public key PEM to verify with |
+| `--pubkey` |  | string |  | ed25519 or ECDSA P-256 public key PEM to verify with |
 | `--registry` |  | string |  | registry repo, e.g. ghcr.io/acme/halos |
 | `--release-version` |  | string | 0.0.0-dev | release version label |
 | `--ring` |  | string |  | ring to plan (default: every ring) |

@@ -629,7 +629,7 @@ func rollout(t *testing.T, s *u) {
 	_ = json.Unmarshal([]byte(body), &envl)
 	kpub, _ := os.ReadFile(filepath.Join(s.work, "keys/killswitch.pub"))
 	kv, _ := bundle.ParseEd25519Verifier(kpub)
-	list, err := gateway.VerifyKillList(kv.Key, envl, time.Now(), 5*time.Minute)
+	list, err := gateway.VerifyKillList(context.Background(), kv, envl, time.Now(), 5*time.Minute)
 	s.r.check(t, sce, "auto-rollback trips the signed kill switch (verified with the kill-switch key)", err == nil && contains(list.Experiments, "uat-bad"), "experiments=%v err=%v", list.Experiments, err)
 	tok := s.mint(t, badUser)
 	after := waitFor(t, 30*time.Second, "gateway honouring the kill", func() bool {

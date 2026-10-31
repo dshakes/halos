@@ -2,7 +2,6 @@ package bundle
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 
@@ -35,20 +34,11 @@ func pushAttestations(ctx context.Context, dst oras.Target, subject ocispec.Desc
 	bom := content.NewDescriptorFromBytes(release.BOMMediaType, a.BOM)
 	prov := content.NewDescriptorFromBytes(release.ProvenanceMediaType, a.Provenance)
 	stmt := attestationStatement(rel.Digest, bom.Digest.String(), prov.Digest.String())
-	sig, err := s.Sign(ctx, stmt)
+	ann, err := signAnnotations(ctx, s, stmt, false)
 	if err != nil {
 		return fmt.Errorf("bundle: sign attestations: %w", err)
 	}
-	ann := map[string]string{AnnSignature: base64.StdEncoding.EncodeToString(sig), AnnSigType: s.Type(), ocispec.AnnotationCreated: "1970-01-01T00:00:00Z"}
-	if ms, ok := s.(MultiSigner); ok {
-		for _, co := range ms[1:] {
-			cs, err := co.Sign(ctx, stmt)
-			if err != nil {
-				return fmt.Errorf("bundle: %s co-sign attestations: %w", co.Type(), err)
-			}
-			ann[AnnSignature+"."+co.Type()] = base64.StdEncoding.EncodeToString(cs)
-		}
-	}
+	ann[ocispec.AnnotationCreated] = "1970-01-01T00:00:00Z"
 	for _, d := range []struct {
 		desc ocispec.Descriptor
 		data []byte
@@ -110,11 +100,7 @@ func fetchAttestation(ctx context.Context, src oras.ReadOnlyTarget, d ocispec.De
 		m.Layers[0].MediaType != release.BOMMediaType || m.Layers[1].MediaType != release.ProvenanceMediaType {
 		return nil, errors.New("not a halos attestation manifest")
 	}
-	sig, err := signatureFor(m, v)
-	if err != nil {
-		return nil, err
-	}
-	if err := v.Verify(ctx, attestationStatement(rel.Digest, m.Layers[0].Digest.String(), m.Layers[1].Digest.String()), sig); err != nil {
+	if err := verifyManifest(ctx, m, v, attestationStatement(rel.Digest, m.Layers[0].Digest.String(), m.Layers[1].Digest.String())); err != nil {
 		return nil, fmt.Errorf("verify: %w", err)
 	}
 	var blobs [2][]byte

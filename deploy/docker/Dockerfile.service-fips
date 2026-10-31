@@ -1,0 +1,17 @@
+# FIPS 140-3 runtime image (the -fips tags, ADR-0038). Same layout as
+# Dockerfile.service; the binaries are built with GOFIPS140=v1.0.0 (Go's
+# frozen FIPS module), so the module runs its self-tests at start and
+# fips140=on is the default. Set GODEBUG=fips140=only on the container to
+# also refuse every non-approved algorithm (docs: guides/fips).
+#   BINARY: halo-server | halo-proxy | halo-shadow
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
+ARG TARGETPLATFORM
+ARG BINARY
+COPY ${TARGETPLATFORM}/${BINARY} /app
+USER nonroot:nonroot
+WORKDIR /data
+ENV HALO_SHADOW_OUT=/data/pairs.jsonl
+ENV GODEBUG=fips140=on
+LABEL dev.halos.fips140="go-fips140-v1.0.0"
+VOLUME /data
+ENTRYPOINT ["/app"]

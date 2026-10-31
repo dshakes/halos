@@ -34,6 +34,7 @@
         "internal/rollout",
         "internal/server",
         "internal/shadow",
+        "internal/signer",
         "internal/supplychain",
         "internal/telemetry",
         "internal/toggle",
@@ -76,6 +77,7 @@
         "internal/promote",
         "internal/rollout",
         "internal/server",
+        "internal/signer",
         "internal/vendoradmin"
       ]
     },
@@ -132,6 +134,7 @@
       "imports": [
         "internal/budget",
         "internal/cloudagents/workflow",
+        "internal/hmackey",
         "internal/ledger",
         "internal/policy",
         "internal/vendoradmin"
@@ -147,6 +150,7 @@
       "path": "internal/controller",
       "imports": [
         "internal/fsutil",
+        "internal/hmackey",
         "internal/policy",
         "internal/promote",
         "internal/rollout",
@@ -179,6 +183,7 @@
     {
       "path": "internal/delivery/mdm",
       "imports": [
+        "internal/bundle",
         "internal/release"
       ]
     },
@@ -204,6 +209,7 @@
       "imports": [
         "internal/assign",
         "internal/budget",
+        "internal/bundle",
         "internal/harness",
         "internal/harness/all",
         "internal/policy",
@@ -304,6 +310,22 @@
         "internal/harness/hutil",
         "internal/policy"
       ]
+    },
+    {
+      "path": "internal/hmackey",
+      "imports": [
+        "internal/hmackey/internal/fipsmode"
+      ]
+    },
+    {
+      "path": "internal/hmackey/hmackeytest",
+      "imports": [
+        "internal/hmackey/internal/fipsmode"
+      ]
+    },
+    {
+      "path": "internal/hmackey/internal/fipsmode",
+      "imports": []
     },
     {
       "path": "internal/identity",
@@ -459,6 +481,7 @@
         "internal/gateway",
         "internal/harness",
         "internal/harness/all",
+        "internal/hmackey",
         "internal/identity",
         "internal/ledger",
         "internal/pgstore",
@@ -477,6 +500,12 @@
         "internal/fsutil",
         "internal/gateway",
         "internal/policy"
+      ]
+    },
+    {
+      "path": "internal/signer",
+      "imports": [
+        "internal/bundle"
       ]
     },
     {
@@ -499,7 +528,9 @@
     },
     {
       "path": "internal/telemetry/gwmetrics",
-      "imports": []
+      "imports": [
+        "internal/hmackey"
+      ]
     },
     {
       "path": "internal/telemetry/synth",

@@ -19,6 +19,8 @@ import (
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	"gopkg.in/yaml.v3"
+
+	"github.com/dshakes/halos/internal/bundle"
 )
 
 // These tests keep api/openapi.yaml honest. The file is generated from this
@@ -480,7 +482,7 @@ func liveWalk(t *testing.T, doc map[string]any, sc *jsonschema.Compiler, ops map
 	const gw = "gateway-token-0123456789-0123456789-0123456789"
 	caller := admin
 	e := newEnv(t, func(c *Config) {
-		c.KillKey, c.GatewayToken, c.SCIMTokenSHA256 = killKey, gw, []string{sha256Hex(scimTok)}
+		c.KillKey, c.GatewayToken, c.SCIMTokenSHA256 = bundle.Ed25519Signer{Key: killKey}, gw, []string{sha256Hex(scimTok)}
 		if scoped {
 			f := filepath.Join(c.PolicyDir, "halos.yaml")
 			b, err := os.ReadFile(f)

@@ -41,11 +41,11 @@ func (c KillSwitchConfig) build(log *slog.Logger) (*gateway.KillSwitch, error) {
 	if err != nil {
 		return nil, fmt.Errorf("halo-proxy: killSwitch.pubkeyFile: %w", err)
 	}
-	v, err := bundle.ParseEd25519Verifier(pem)
+	v, err := bundle.ParseVerifier(pem)
 	if err != nil {
 		return nil, fmt.Errorf("halo-proxy: killSwitch.pubkeyFile: %w", err)
 	}
-	ks, err := gateway.NewKillSwitch(c.URL, strings.TrimSpace(string(tok)), v.Key, c.Interval, log, c.AllowInsecureInCluster)
+	ks, err := gateway.NewKillSwitch(c.URL, strings.TrimSpace(string(tok)), v, c.Interval, log, c.AllowInsecureInCluster)
 	if err != nil {
 		return nil, fmt.Errorf("halo-proxy: %w", err)
 	}

@@ -22,7 +22,7 @@ halo release bom <release.tar | host/org/name:tag> [flags]
 | `--cosign-key` |  | string |  | cosign public key reference to verify with |
 | `--plain-http` |  | bool | false | use HTTP instead of HTTPS (local registries) |
 | `--provenance` |  | bool | false | print the provenance instead of the BOM |
-| `--pubkey` |  | string |  | ed25519 public key PEM to verify with |
+| `--pubkey` |  | string |  | ed25519 or ECDSA P-256 public key PEM to verify with |
 | `--registry` |  | string |  | registry repo, e.g. ghcr.io/acme/halos |
 
 ## Global flags

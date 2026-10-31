@@ -2,7 +2,6 @@ package gateway
 
 import (
 	"context"
-	"crypto/ed25519"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dshakes/halos/internal/bundle"
 	"github.com/dshakes/halos/internal/policy"
 )
 
@@ -31,19 +31,25 @@ type KillList struct {
 }
 
 // KillEnvelope is GET /api/v1/gateway/killswitch: Payload is the JSON
-// KillList, Signature is ed25519 over killDomain+Payload.
+// KillList, Signature is over killDomain+Payload with algorithm Alg.
 type KillEnvelope struct {
 	Payload   []byte `json:"payload"`   // base64 in JSON
 	Signature []byte `json:"signature"` // base64 in JSON
+	// Alg is the signature algorithm (bundle.AlgEd25519 or bundle.AlgECDSAP256,
+	// ADR-0038); absent means ed25519, as every envelope before it. It only
+	// selects how to verify: a verifier accepts it from its own keys only.
+	Alg string `json:"alg,omitempty"`
+	// KeyID is bundle.KeyID of the signing key: informational (rotation).
+	KeyID string `json:"keyId,omitempty"`
 }
 
 // killDomain separates kill-list signatures from anything else the key could sign.
 const killDomain = "halo-killswitch-v1\n"
 
-// SignKillList seals l for gateways.
-func SignKillList(key ed25519.PrivateKey, l KillList) (KillEnvelope, error) {
-	if len(key) != ed25519.PrivateKeySize {
-		return KillEnvelope{}, errors.New("gateway: killswitch signing key is not an ed25519 private key")
+// SignKillList seals l for gateways with s (a file, KMS or external signer).
+func SignKillList(ctx context.Context, s bundle.Signer, l KillList) (KillEnvelope, error) {
+	if s == nil {
+		return KillEnvelope{}, errors.New("gateway: no killswitch signing key")
 	}
 	if l.Experiments == nil {
 		l.Experiments = []string{}
@@ -52,17 +58,29 @@ func SignKillList(key ed25519.PrivateKey, l KillList) (KillEnvelope, error) {
 	if err != nil {
 		return KillEnvelope{}, fmt.Errorf("gateway: encode kill list: %w", err)
 	}
-	return KillEnvelope{Payload: p, Signature: ed25519.Sign(key, append([]byte(killDomain), p...))}, nil
+	sig, err := s.Sign(ctx, killDomain+string(p))
+	if err != nil {
+		return KillEnvelope{}, fmt.Errorf("gateway: sign kill list: %w", err)
+	}
+	env := KillEnvelope{Payload: p, Signature: sig, Alg: s.Type()}
+	if ks, ok := s.(bundle.KeySigner); ok {
+		env.KeyID = bundle.KeyID(ks.Verifier())
+	}
+	return env, nil
 }
 
 // VerifyKillList checks the signature and freshness (IssuedAt within maxAge
 // of now, at most a minute in the future) and returns the list.
-func VerifyKillList(pub ed25519.PublicKey, env KillEnvelope, now time.Time, maxAge time.Duration) (KillList, error) {
-	if len(pub) != ed25519.PublicKeySize {
-		return KillList{}, errors.New("gateway: killswitch public key is not ed25519")
+func VerifyKillList(ctx context.Context, v bundle.Verifier, env KillEnvelope, now time.Time, maxAge time.Duration) (KillList, error) {
+	if v == nil {
+		return KillList{}, errors.New("gateway: no killswitch public key")
 	}
-	if !ed25519.Verify(pub, append([]byte(killDomain), env.Payload...), env.Signature) {
-		return KillList{}, errors.New("gateway: kill list signature invalid")
+	alg := env.Alg
+	if alg == "" {
+		alg = bundle.AlgEd25519 // envelopes from a halo-server before ADR-0038
+	}
+	if err := bundle.VerifyAs(ctx, v, alg, killDomain+string(env.Payload), env.Signature); err != nil {
+		return KillList{}, fmt.Errorf("gateway: kill list signature invalid: %w", err)
 	}
 	var l KillList
 	if err := json.Unmarshal(env.Payload, &l); err != nil {
@@ -90,9 +108,11 @@ const (
 // (IssuedAt) than the current one, so a replayed older envelope cannot undo
 // a kill. A nil *KillSwitch is valid and kills nothing.
 type KillSwitch struct {
-	URL      string
-	Token    string
-	PubKey   ed25519.PublicKey
+	URL   string
+	Token string
+	// PubKey verifies the envelopes: a bundle.Ed25519Verifier, an
+	// ECDSAVerifier, or a bundle.Keyring while rotating the kill key.
+	PubKey   bundle.Verifier
 	Interval time.Duration // default DefaultKillInterval
 	MaxAge   time.Duration // default DefaultKillMaxAge
 	Client   *http.Client  // default: 10s timeout, no redirects
@@ -129,11 +149,11 @@ func checkKillURL(raw string, allowInsecureInCluster bool) error {
 	return fmt.Errorf("plain http to %q would send the gateway token in clear; use https (or allowInsecureInCluster for a trusted in-cluster URL)", host)
 }
 
-// NewKillSwitch validates the config (see bundle.ParseEd25519Verifier for PEM
+// NewKillSwitch validates the config (see bundle.ParseVerifier for PEM
 // keys). allowInsecureInCluster permits plain http to a non-loopback host.
-func NewKillSwitch(url, token string, pub ed25519.PublicKey, interval time.Duration, log *slog.Logger, allowInsecureInCluster bool) (*KillSwitch, error) {
-	if url == "" || token == "" || len(pub) != ed25519.PublicKeySize {
-		return nil, errors.New("gateway: killswitch needs url, token and an ed25519 public key")
+func NewKillSwitch(url, token string, pub bundle.Verifier, interval time.Duration, log *slog.Logger, allowInsecureInCluster bool) (*KillSwitch, error) {
+	if url == "" || token == "" || pub == nil {
+		return nil, errors.New("gateway: killswitch needs url, token and a public key")
 	}
 	if err := checkKillURL(url, allowInsecureInCluster); err != nil {
 		return nil, fmt.Errorf("gateway: killswitch url: %w", err)
@@ -197,12 +217,19 @@ func (k *KillSwitch) refresh(ctx context.Context) error {
 	if maxAge <= 0 {
 		maxAge = DefaultKillMaxAge
 	}
-	l, err := VerifyKillList(k.PubKey, env, k.now(), maxAge)
+	l, err := VerifyKillList(ctx, k.PubKey, env, k.now(), maxAge)
 	if err != nil {
 		return err
 	}
 	k.mu.Lock()
 	defer k.mu.Unlock()
+	if sameKills(l, k.list) && !l.IssuedAt.After(k.list.IssuedAt) {
+		// The kills we already hold, signed at the same or an earlier instant:
+		// a cached envelope, or another halo-server replica a little behind.
+		// Accepting it changes nothing, so it is not a replay; an older list
+		// with different kills still is (below).
+		return nil
+	}
 	if !l.IssuedAt.After(k.list.IssuedAt) {
 		return fmt.Errorf("gateway: kill list issued at %s is not newer than the current one (%s); replay?", l.IssuedAt.Format(time.RFC3339Nano), k.list.IssuedAt.Format(time.RFC3339Nano))
 	}
@@ -211,6 +238,19 @@ func (k *KillSwitch) refresh(ctx context.Context) error {
 	}
 	k.set(l)
 	return nil
+}
+
+// sameKills reports whether a and b kill exactly the same experiments and
+// toggles (Version is informational and differs between replicas). b must
+// be a list actually held (non-zero IssuedAt).
+func sameKills(a, b KillList) bool {
+	return !b.IssuedAt.IsZero() && sameSet(a.Experiments, b.Experiments) && sameSet(a.Toggles, b.Toggles)
+}
+
+// sameSet compares names as sets: order and repeats do not matter (replicas
+// need not list them in the same order).
+func sameSet(a, b []string) bool {
+	return slices.Equal(slices.Compact(slices.Sorted(slices.Values(a))), slices.Compact(slices.Sorted(slices.Values(b))))
 }
 
 // set installs l as the current list; callers hold k.mu.

@@ -175,6 +175,20 @@ func TestDecryptPairs(t *testing.T) {
 	if !strings.Contains(out.String(), "prompt") || !strings.Contains(out.String(), `"id":"a"`) {
 		t.Fatalf("out %s", out.String())
 	}
+	// An injected plaintext row in the sealed store is refused, unless the
+	// operator migrates with -allow-plaintext-pairs.
+	mixed := filepath.Join(dir, "mixed.jsonl")
+	sealedRows, _ := os.ReadFile(path)
+	if err := os.WriteFile(mixed, append(sealedRows, []byte(`{"id":"injected","experiment":"x"}`+"\n")...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := decryptPairs([]string{"-pair-key-file", keyFile, mixed}, io.Discard); err == nil || !strings.Contains(err.Error(), "plaintext") || !strings.Contains(err.Error(), "-allow-plaintext-pairs") {
+		t.Fatalf("plaintext row in a sealed store: %v", err)
+	}
+	out.Reset()
+	if err := decryptPairs([]string{"-pair-key-file", keyFile, "-allow-plaintext-pairs", mixed}, &out); err != nil || !strings.Contains(out.String(), "injected") {
+		t.Fatalf("migration flag: %v %s", err, out.String())
+	}
 	// Via run's subcommand dispatch, without the key: the sealed row can't be opened.
 	if err := run(context.Background(), []string{"decrypt-pairs", path}, os.Getenv); err == nil || !strings.Contains(err.Error(), "line 1") {
 		t.Fatalf("no key: %v", err)

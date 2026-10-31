@@ -262,13 +262,14 @@ func promptInit(in io.Reader, out io.Writer, o *intent.InitOptions, tools, model
 	return ask, nil
 }
 
-// regFromEnv fills --registry and --key from HALO_REGISTRY / HALO_KEY.
+// regFromEnv fills --registry and --key / --key-uri from HALO_REGISTRY /
+// HALO_KEY / HALO_KEY_URI (a key given by flag in either form wins).
 func regFromEnv(rf *regFlags) {
 	if rf.registry == "" {
 		rf.registry = os.Getenv("HALO_REGISTRY")
 	}
-	if rf.key == "" {
-		rf.key = os.Getenv("HALO_KEY")
+	if rf.key == "" && rf.keyURI == "" {
+		rf.key, rf.keyURI = os.Getenv("HALO_KEY"), os.Getenv("HALO_KEY_URI")
 	}
 }
 
@@ -313,7 +314,7 @@ func (a *app) buildCandidate(ctx context.Context, dir string, org *policy.Org, c
 // pushCandidate pushes and signs rel (tag v<label>) with no pointer, and the
 // variant on its experiment channel. No ring pointer moves.
 func (a *app) pushCandidate(ctx context.Context, rf *regFlags, pf *ptrFlags, rel, variant *release.Release) ([]string, error) {
-	s, err := rf.signer()
+	s, err := rf.signer(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -432,10 +433,10 @@ func (a *app) servedBaseline(ctx context.Context, org *policy.Org, ga string, rf
 	if ring.Release != "" {
 		return ring.Release, nil
 	}
-	if rf.registry == "" || rf.key == "" {
-		return "", fmt.Errorf("need the release ring %s serves as the rollback baseline: pass --baseline, or --registry and --key (or HALO_REGISTRY / HALO_KEY) to read its signed pointer", ga)
+	if rf.registry == "" || (rf.key == "" && rf.keyURI == "") {
+		return "", fmt.Errorf("need the release ring %s serves as the rollback baseline: pass --baseline, or --registry and --key or --key-uri (or HALO_REGISTRY / HALO_KEY / HALO_KEY_URI) to read its signed pointer", ga)
 	}
-	s, err := rf.signer()
+	s, err := rf.signer(ctx)
 	if err != nil {
 		return "", err
 	}

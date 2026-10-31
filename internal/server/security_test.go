@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dshakes/halos/internal/bundle"
 	"github.com/dshakes/halos/internal/gateway"
 	"github.com/dshakes/halos/internal/policy"
 )
@@ -40,7 +41,7 @@ func killEnv(t *testing.T) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return newEnv(t, func(c *Config) { c.KillKey, c.GatewayToken = priv, gwTok })
+	return newEnv(t, func(c *Config) { c.KillKey, c.GatewayToken = bundle.Ed25519Signer{Key: priv}, gwTok })
 }
 
 // Cookie-authenticated state changes are refused when the browser says the
@@ -593,7 +594,9 @@ func TestPrivilegedActionsFailClosedOnAudit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e := newEnv(t, func(c *Config) { c.DataDir, c.KillKey, c.GatewayToken = t.TempDir(), priv, gwTok })
+	e := newEnv(t, func(c *Config) {
+		c.DataDir, c.KillKey, c.GatewayToken = t.TempDir(), bundle.Ed25519Signer{Key: priv}, gwTok
+	})
 	dt := enrollDevice(t, e, dev)
 	if w := e.as(admin, "POST", "/api/v1/toggles/github-mcp/kill", `{"reason":"r"}`); w.Code != 200 {
 		t.Fatalf("setup kill: %d", w.Code)
@@ -644,18 +647,18 @@ func TestGatewayKillswitchConfigAndDomain(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, c := range []struct {
-		key ed25519.PrivateKey
+		key bundle.Signer
 		tok string
-	}{{priv, ""}, {nil, gwTok}, {nil, ""}} {
+	}{{bundle.Ed25519Signer{Key: priv}, ""}, {nil, gwTok}, {nil, ""}} {
 		e := newEnv(t, func(cfg *Config) { cfg.KillKey, cfg.GatewayToken = c.key, c.tok })
 		if w := do(e.h, "GET", "/api/v1/gateway/killswitch", "Bearer "+gwTok, ""); w.Code != 404 {
 			t.Fatalf("key=%v token=%q: %d, want 404", c.key != nil, c.tok, w.Code)
 		}
 	}
-	e := newEnv(t, func(cfg *Config) { cfg.KillKey, cfg.GatewayToken = priv, gwTok })
+	e := newEnv(t, func(cfg *Config) { cfg.KillKey, cfg.GatewayToken = bundle.Ed25519Signer{Key: priv}, gwTok })
 	w := do(e.h, "GET", "/api/v1/gateway/killswitch", "Bearer "+gwTok, "")
 	env := decode[gateway.KillEnvelope](t, w)
-	if _, err := gateway.VerifyKillList(pub, env, *e.now, time.Minute); err != nil {
+	if _, err := gateway.VerifyKillList(context.Background(), bundle.Ed25519Verifier{Key: pub}, env, *e.now, time.Minute); err != nil {
 		t.Fatal(err)
 	}
 	if ed25519.Verify(pub, env.Payload, env.Signature) {

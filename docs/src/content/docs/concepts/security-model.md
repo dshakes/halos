@@ -30,7 +30,7 @@ The full asset list, attacker models and per-control mapping are in the [threat 
 
 ## Signing
 
-Releases are OCI artifacts signed with ed25519. The primary signer must be ed25519 because `halod` verifies only ed25519 and never shells out to cosign as root. cosign (key, KMS URI or keyless) can be added as a co-signature (`--cosign-key`, `--cosign-keyless`); keyless uploads the release digest to the public Rekor transparency log.
+Releases are OCI artifacts signed with ed25519 or ECDSA P-256; the key can be a file, an AWS KMS key or an HSM behind an external signer ([key management](/halos/guides/key-management/), ADR-0038). Each signature records its algorithm and `halod` checks it only under that algorithm, with its configured keys. The primary signer must be one of those two because `halod` verifies only them and never shells out to cosign as root. cosign (key, KMS URI or keyless) can be added as a co-signature (`--cosign-key`, `--cosign-keyless`); keyless uploads the release digest to the public Rekor transparency log.
 
 Protect the signing key: anyone who can sign can ship hooks to every developer. Use a CI-only or KMS-backed key, and require PR review on ring changes. See [production deployment](/halos/guides/production-deployment/) for rotation.
 
@@ -63,7 +63,7 @@ Experiments decide rollouts, so telemetry is an attack surface. Developer machin
 
 The kill switch lets `halo-server` (the controller on a rollback verdict, or an operator) switch an experiment off at the gateways in seconds. Because it can change live routing without a merge, it has its own trust chain:
 
-- **Separate key.** The kill list is signed with its own ed25519 key (`halo keys generate --name killswitch`, private half in `halo-server --killswitch-key-file`). It is **not** the release key. A stolen kill key can kill experiments (routing everyone to control) but cannot sign a release or a ring pointer; a stolen release key cannot forge a kill list. The signature covers a domain prefix (`halo-killswitch-v1\n`) plus the payload, so it cannot be confused with any other signature.
+- **Separate key.** The kill list is signed with its own key (`halo keys generate --name killswitch` in `halo-server --killswitch-key-file`, or an ed25519 or ECDSA P-256 key in a KMS or HSM via `--killswitch-key-uri`). It is **not** the release key. A stolen kill key can kill experiments (routing everyone to control) but cannot sign a release or a ring pointer; a stolen release key cannot forge a kill list. The signature covers a domain prefix (`halo-killswitch-v1\n`) plus the payload, so it cannot be confused with any other signature.
 - **Gateway token.** Gateways fetch the list with a bearer token (`--gateway-token-file`, or a dedicated `--gateway-killswitch-token-file`), compared in constant time, with failed attempts rate-limited per client IP. The endpoint returns 404 unless both the key and the token are configured. The token gates who can read the list, the signature gates what a gateway believes. `halo-server` refuses to start with any gateway token (shared or per capability) shorter than 32 characters or under 128 bits of estimated entropy (length times log2 of its distinct characters); generate one with `openssl rand -hex 32`.
 - **Freshness.** A list is rejected if its `issuedAt` is more than 10 minutes old or more than 1 minute in the future.
 - **Replay.** A list is accepted only if its `issuedAt` is strictly newer than the list the gateway already holds, so replaying an older envelope cannot undo a kill.

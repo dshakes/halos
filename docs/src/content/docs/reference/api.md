@@ -159,7 +159,9 @@ The console itself is served from `/` (any path that is not `/api/` or `/scim/v2
 ```json
 {
   "payload":   "<base64 of the JSON below>",
-  "signature": "<base64 ed25519 signature>"
+  "signature": "<base64 signature>",
+  "alg":       "ed25519",
+  "keyId":     "sha256:<hex>"
 }
 ```
 
@@ -167,7 +169,7 @@ The console itself is served from `/` (any path that is not `/api/` or `/scim/v2
 {"version": 7, "experiments": ["opus-5-5-canary"], "issuedAt": "2026-09-30T17:21:04.512Z"}
 ```
 
-The signature is ed25519 over the bytes `halo-killswitch-v1\n` followed by the raw payload. `version` grows with every kill or unkill (informational); `issuedAt` is the server clock at response time. Gateways accept a list only if the signature verifies, `issuedAt` is at most 10 minutes old and at most 1 minute in the future, and `issuedAt` is strictly newer than the list they hold. The endpoint is enabled only when both `--killswitch-key-file` and `--gateway-token-file` are set.
+The signature is over the bytes `halo-killswitch-v1\n` followed by the raw payload, with the algorithm in `alg`: `ed25519`, or `ecdsa-p256-sha256` (ASN.1 DER over SHA-256) for a KMS or HSM key ([ADR-0038](/halos/adr/0038-external-key-management-and-fips-builds/)). An envelope without `alg` is ed25519. `keyId` names the signing key (informational). Gateways verify only with their configured key and only under that key's algorithm. `version` grows with every kill or unkill (informational); `issuedAt` is the server clock at response time. Gateways accept a list only if the signature verifies, `issuedAt` is at most 10 minutes old and at most 1 minute in the future, and `issuedAt` is strictly newer than the list they hold (the identical envelope they already hold is a no-op). With a remote key, the server serves the same signed list for up to 30 seconds while it is unchanged. The endpoint is enabled only when a kill key (`--killswitch-key-file` or `--killswitch-key-uri`) and `--gateway-token-file` are set.
 
 ### Admin actions
 

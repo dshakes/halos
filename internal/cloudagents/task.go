@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/dshakes/halos/internal/cloudagents/workflow"
+	"github.com/dshakes/halos/internal/hmackey"
 	"github.com/dshakes/halos/internal/policy"
 )
 
@@ -218,7 +219,7 @@ func VerifySignature(secrets []string, body []byte, header string) error {
 	}
 	match := false
 	for _, s := range secrets {
-		if s == "" {
+		if s == "" || !hmackey.Usable([]byte(s)) { // FIPS mode would panic: halo-server refuses such a secret at startup
 			continue
 		}
 		m := hmac.New(sha256.New, []byte(s))

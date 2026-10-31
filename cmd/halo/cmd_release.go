@@ -21,6 +21,7 @@ import (
 	"github.com/dshakes/halos/internal/impact"
 	"github.com/dshakes/halos/internal/policy"
 	"github.com/dshakes/halos/internal/release"
+	"github.com/dshakes/halos/internal/signer"
 )
 
 // dialRegistry opens a registry repo ("host/org/name"); tests replace it.
@@ -29,22 +30,26 @@ var dialRegistry = func(repo string, plainHTTP bool) (oras.Target, error) {
 }
 
 type regFlags struct {
-	registry            string
-	plainHTTP           bool
-	key, cosign, pubkey string
-	keyless             bool
+	registry       string
+	plainHTTP      bool
+	key, keyURI    string
+	coKeyURI       string
+	cosign, pubkey string
+	keyless        bool
 }
 
 func (r *regFlags) add(c *cobra.Command, sign, verify bool) {
 	c.Flags().StringVar(&r.registry, "registry", "", "registry repo, e.g. ghcr.io/acme/halos")
 	c.Flags().BoolVar(&r.plainHTTP, "plain-http", false, "use HTTP instead of HTTPS (local registries)")
 	if sign {
-		c.Flags().StringVar(&r.key, "key", "", "ed25519 private key PEM (create one with: halo keys generate)")
+		c.Flags().StringVar(&r.key, "key", "", "ed25519 or ECDSA P-256 private key PEM (create one with: halo keys generate)")
+		c.Flags().StringVar(&r.keyURI, "key-uri", "", "signing key by URI instead of --key: file://PATH, awskms://KEY?region=R, exec:///SIGNER (see halo keys public)")
+		c.Flags().StringVar(&r.coKeyURI, "co-key-uri", "", "second key (other algorithm) that co-signs releases and pointers while rotating, so halods that trust only it keep verifying")
 		c.Flags().StringVar(&r.cosign, "cosign-key", "", "cosign key reference (file or KMS URI); co-signs alongside --key")
 		c.Flags().BoolVar(&r.keyless, "cosign-keyless", false, "cosign keyless (Fulcio+Rekor): uploads the release digest to the public transparency log")
 	}
 	if verify {
-		c.Flags().StringVar(&r.pubkey, "pubkey", "", "ed25519 public key PEM to verify with")
+		c.Flags().StringVar(&r.pubkey, "pubkey", "", "ed25519 or ECDSA P-256 public key PEM to verify with")
 		if !sign {
 			c.Flags().StringVar(&r.cosign, "cosign-key", "", "cosign public key reference to verify with")
 		}
@@ -103,25 +108,42 @@ func (a *app) pointerOptions(rf *regFlags, pf *ptrFlags) (*bundle.PointerOptions
 	}}, vers, nil
 }
 
-func (r *regFlags) signer() (bundle.Signer, error) {
-	if r.key == "" {
-		if r.cosign != "" || r.keyless {
-			return nil, errors.New("halod verifies ed25519; add --key (cosign can only co-sign)")
+func (r *regFlags) signer(ctx context.Context) (bundle.Signer, error) {
+	var uri string
+	switch {
+	case r.key != "" && r.keyURI != "":
+		return nil, errors.New("use only one of --key and --key-uri")
+	case r.key != "":
+		uri = "file://" + r.key
+	case r.keyURI != "":
+		uri = r.keyURI
+	case r.cosign != "" || r.keyless:
+		return nil, errors.New("halod verifies ed25519 or ECDSA P-256; add --key or --key-uri (cosign can only co-sign)")
+	default:
+		return nil, errors.New("a signing key is required: --key or --key-uri")
+	}
+	ks, err := signer.Open(ctx, uri, signer.Options{})
+	if err != nil {
+		return nil, fmt.Errorf("signing key: %w", err)
+	}
+	ms := bundle.MultiSigner{ks}
+	if r.coKeyURI != "" {
+		co, err := signer.Open(ctx, r.coKeyURI, signer.Options{})
+		if err != nil {
+			return nil, fmt.Errorf("--co-key-uri: %w", err)
 		}
-		return nil, errors.New("a signing key is required: --key")
+		if co.Type() == ks.Type() {
+			return nil, fmt.Errorf("--co-key-uri is %s like the signing key: a co-signing key must use the other algorithm (halods read one signature per algorithm)", co.Type())
+		}
+		ms = append(ms, co)
 	}
-	pem, err := os.ReadFile(r.key)
-	if err != nil {
-		return nil, fmt.Errorf("read signing key: %w", err)
+	if r.cosign != "" || r.keyless {
+		ms = append(ms, bundle.Cosign{Key: r.cosign, Keyless: r.keyless})
 	}
-	ed, err := bundle.ParseEd25519Signer(pem)
-	if err != nil {
-		return nil, err
+	if len(ms) == 1 {
+		return ks, nil
 	}
-	if r.cosign == "" && !r.keyless {
-		return ed, nil
-	}
-	return bundle.MultiSigner{ed, bundle.Cosign{Key: r.cosign, Keyless: r.keyless}}, nil
+	return ms, nil
 }
 
 func (r *regFlags) verifier() (bundle.Verifier, error) {
@@ -135,7 +157,7 @@ func (r *regFlags) verifier() (bundle.Verifier, error) {
 		if err != nil {
 			return nil, fmt.Errorf("read public key: %w", err)
 		}
-		return bundle.ParseEd25519Verifier(pem)
+		return bundle.ParseVerifier(pem)
 	}
 	return nil, errors.New("a verification key is required: --pubkey or --cosign-key")
 }
@@ -195,7 +217,7 @@ func (a *app) cmdRelease() *cobra.Command {
 		Short:       "Build, sign and push a ring release (and its client-axis experiment channels); tags v<version> and ring-<ring>",
 		Args:        cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			s, err := pf.signer()
+			s, err := pf.signer(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -328,7 +350,7 @@ func (a *app) emitPointers(verb, ring string, ps []bundle.Pointer, vers signed) 
 // retag points ring (and, when the release was built for ring, each of its
 // client-axis experiment channels) at the release src names.
 func (a *app) retag(ctx context.Context, rf *regFlags, pf *ptrFlags, src bundle.Source, ring, verb string) error {
-	s, err := rf.signer()
+	s, err := rf.signer(ctx)
 	if err != nil {
 		return err
 	}
@@ -369,7 +391,7 @@ func (a *app) cmdRefresh() *cobra.Command {
 			if ring == "" {
 				return a.needRing(cmd, "ring")
 			}
-			s, err := rf.signer()
+			s, err := rf.signer(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -474,8 +496,62 @@ func (a *app) cmdKeys() *cobra.Command {
 	gen.Flags().StringVar(&dir, "out", "", "output directory (default: <user config dir>/halos/keys)")
 	gen.Flags().StringVar(&name, "name", "halo", "file base name")
 	gen.Flags().BoolVar(&force, "force", false, "write the key even inside a git work tree (git-ignore it yourself)")
-	keys.AddCommand(gen)
+	keys.AddCommand(gen, a.cmdKeysPublic())
 	return keys
+}
+
+// cmdKeysPublic exports a signing key's public half (PKIX PEM) for halod's
+// pubKeys, killSwitch.pubkey, the portal and --pubkey: the only way to get it
+// for a KMS or HSM key, whose private half never leaves the device.
+func (a *app) cmdKeysPublic() *cobra.Command {
+	var uri, out string
+	c := &cobra.Command{
+		Use:   "public",
+		Short: "Export the public key (PEM) and key id of a signing key: file://, awskms:// or exec://",
+		Long: "Opens the key the URI names and prints its public key as PKIX PEM, plus its algorithm and key id\n" +
+			"(the fingerprint halod logs and revokedKeys takes). Key URIs:\n" +
+			"  file://PATH (or PATH)                 PKCS#8 PEM ed25519 or ECDSA P-256 private key\n" +
+			"  awskms://KEY[?region=R&fips=true]     AWS KMS SIGN_VERIFY key, ECC_NIST_P256 or ECC_NIST_EDWARDS25519;\n" +
+			"                                        KEY is a key id, key ARN, alias/<name> or alias ARN; needs kms:GetPublicKey\n" +
+			"  exec:///ABS/PATH[?arg=A&key=ID]       external signer (halos.signer.v1 JSON protocol over stdin/stdout);\n" +
+			"                                        on Windows exec:///C:/path/to/signer.exe",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if uri == "" {
+				return errors.New("--key-uri is required")
+			}
+			ks, err := signer.Open(cmd.Context(), uri, signer.Options{})
+			if err != nil {
+				return err
+			}
+			pv, ok := ks.Verifier().(bundle.PublicKeyVerifier)
+			if !ok {
+				return fmt.Errorf("%s has no exportable public key", signer.Scheme(uri))
+			}
+			pemOut, err := bundle.MarshalPublicKeyPEM(pv)
+			if err != nil {
+				return err
+			}
+			if out != "" {
+				if err := createExcl(out, pemOut, 0o644); err != nil {
+					return err
+				}
+			}
+			res := map[string]string{"algorithm": ks.Type(), "keyId": bundle.KeyID(pv), "backend": signer.Scheme(uri), "publicKey": string(pemOut)}
+			if out != "" {
+				res["file"] = out
+			}
+			return a.emit(res, func() {
+				if out == "" {
+					fmt.Fprint(a.out, string(pemOut))
+				}
+				fmt.Fprintf(a.errw, "algorithm %s, key id %s\n", ks.Type(), bundle.KeyID(pv))
+			})
+		},
+	}
+	c.Flags().StringVar(&uri, "key-uri", "", "signing key URI (file://, awskms://, exec://)")
+	c.Flags().StringVar(&out, "out", "", "also write the PEM to this file (refuses to overwrite)")
+	return c
 }
 
 // gitWorkTree reports the nearest enclosing directory of dir (which need not
@@ -804,7 +880,7 @@ func (a *app) cmdExport() *cobra.Command {
 		case org == "":
 			return nil, nil, errors.New("--org is required: the ring's signed pointer must be for this org")
 		}
-		v, err := bundle.ParseEd25519Verifier(pem)
+		v, err := bundle.ParseVerifier(pem)
 		if err != nil {
 			return nil, nil, fmt.Errorf("parse --pubkey: %w", err)
 		}

@@ -52,7 +52,7 @@ func newKillServerClock(t *testing.T, admin bool, clock *testClock) (*Server, ht
 		Log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Now:     clock.Now,
 		DevUser: "alice@test", DevAdmin: admin,
-		KillKey: priv, GatewayToken: gwTok,
+		KillKey: bundle.Ed25519Signer{Key: priv}, GatewayToken: gwTok,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -194,7 +194,7 @@ func TestGatewayKillswitchEndpoint(t *testing.T) {
 		if err := json.Unmarshal(w.Body.Bytes(), &env); err != nil {
 			t.Fatal(err)
 		}
-		l, err := gateway.VerifyKillList(pub, env, ksNow, time.Minute)
+		l, err := gateway.VerifyKillList(context.Background(), bundle.Ed25519Verifier{Key: pub}, env, ksNow, time.Minute)
 		if err != nil || !slices.Equal(l.Experiments, []string{"opus-5-5-canary"}) || l.Version != 1 {
 			t.Fatalf("list %+v err %v", l, err)
 		}
@@ -236,7 +236,7 @@ func TestKillSwitchEndToEnd(t *testing.T) {
 	if sub == nil {
 		t.Fatal("no user in the opus-5-5 treatment")
 	}
-	ks, err := gateway.NewKillSwitch(srv.URL+"/api/v1/gateway/killswitch", gwTok, pub, time.Hour, slog.New(slog.NewTextHandler(io.Discard, nil)), false)
+	ks, err := gateway.NewKillSwitch(srv.URL+"/api/v1/gateway/killswitch", gwTok, bundle.Ed25519Verifier{Key: pub}, time.Hour, slog.New(slog.NewTextHandler(io.Discard, nil)), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -292,7 +292,7 @@ func TestFleetKillswitchEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e := newEnv(t, func(c *Config) { c.KillKey, c.GatewayToken = priv, gwTok })
+	e := newEnv(t, func(c *Config) { c.KillKey, c.GatewayToken = bundle.Ed25519Signer{Key: priv}, gwTok })
 	dt := enrollDevice(t, e, dev)
 	if _, err := e.s.KillExperiment(context.Background(), "cli-ab", "halo-controller", "r"); err != nil {
 		t.Fatal(err)
@@ -317,7 +317,7 @@ func TestFleetKillswitchEndpoint(t *testing.T) {
 		if err := json.Unmarshal(w.Body.Bytes(), &env); err != nil {
 			t.Fatal(err)
 		}
-		if l, err := gateway.VerifyKillList(pub, env, *e.now, time.Minute); err != nil || !slices.Equal(l.Experiments, []string{"cli-ab"}) {
+		if l, err := gateway.VerifyKillList(context.Background(), bundle.Ed25519Verifier{Key: pub}, env, *e.now, time.Minute); err != nil || !slices.Equal(l.Experiments, []string{"cli-ab"}) {
 			t.Fatalf("list %+v err %v", l, err)
 		}
 		gw := do(e.h, "GET", "/api/v1/gateway/killswitch", "Bearer "+gwTok, "")
@@ -402,7 +402,7 @@ func TestToggleKillEndpoints(t *testing.T) {
 		if err := json.Unmarshal(w.Body.Bytes(), &env); err != nil {
 			t.Fatal(err)
 		}
-		l, err := gateway.VerifyKillList(pub, env, ksNow, time.Minute)
+		l, err := gateway.VerifyKillList(context.Background(), bundle.Ed25519Verifier{Key: pub}, env, ksNow, time.Minute)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -441,7 +441,7 @@ func TestKillRejectsInvalidNames(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &env); err != nil {
 		t.Fatal(err)
 	}
-	if l, err := gateway.VerifyKillList(pub, env, ksNow, time.Minute); err != nil || !slices.Equal(l.Toggles, []string{"github-mcp"}) {
+	if l, err := gateway.VerifyKillList(context.Background(), bundle.Ed25519Verifier{Key: pub}, env, ksNow, time.Minute); err != nil || !slices.Equal(l.Toggles, []string{"github-mcp"}) {
 		t.Fatalf("toggle kill was removed: %+v %v", l, err)
 	}
 }
@@ -456,7 +456,7 @@ func TestKillAuditFailure(t *testing.T) {
 	s, err := New(Config{
 		PolicyDir: "../../examples/acme-corp", Token: tok, DataDir: t.TempDir(),
 		Log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
-		DevUser: "alice@test", DevAdmin: true, KillKey: priv, GatewayToken: gwTok,
+		DevUser: "alice@test", DevAdmin: true, KillKey: bundle.Ed25519Signer{Key: priv}, GatewayToken: gwTok,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -497,7 +497,7 @@ func TestGatewayCapabilityTokens(t *testing.T) {
 	}
 	const budgetTok, dirTok = "budget-token-0123456789", "directory-token-0123456789"
 	e := scimEnv(t, false, func(c *Config) {
-		c.KillKey, c.GatewayBudgetToken, c.GatewayDirectoryToken = priv, budgetTok, dirTok
+		c.KillKey, c.GatewayBudgetToken, c.GatewayDirectoryToken = bundle.Ed25519Signer{Key: priv}, budgetTok, dirTok
 	})
 	endpoints := map[string][2]string{ // capability -> method, path
 		"killswitch": {"GET", "/api/v1/gateway/killswitch"},

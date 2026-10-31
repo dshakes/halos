@@ -78,7 +78,7 @@ func scopedEnv(t *testing.T) *env {
 		t.Fatal(err)
 	}
 	return newEnv(t, func(c *Config) {
-		c.KillKey = priv
+		c.KillKey = bundle.Ed25519Signer{Key: priv}
 		edit := func(name, old, new string) {
 			f := filepath.Join(c.PolicyDir, name)
 			b, err := os.ReadFile(f)

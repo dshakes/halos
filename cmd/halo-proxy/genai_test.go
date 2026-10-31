@@ -164,7 +164,7 @@ func genaiHists(t *testing.T, body string) map[string][]otlpHist {
 func genaiEnv(t *testing.T, upstreamHandler http.HandlerFunc, tel gwmetrics.Config) (*env, *otlpSink) {
 	t.Helper()
 	col, sink := newSink(t)
-	tel.OTLPEndpoint, tel.Protocol, tel.UnitSalt = col.URL, gwmetrics.ProtoJSON, "salt"
+	tel.OTLPEndpoint, tel.Protocol, tel.UnitSalt = col.URL, gwmetrics.ProtoJSON, "salt-0123456789abcdef"
 	up, _ := upstream(t, upstreamHandler)
 	e := routeEnv(t, map[string]policy.Upstream{"d": anthropic(up.URL)}, []policy.RouteTarget{{Upstream: "d", Model: "m-direct"}},
 		func(c *Config) { c.Telemetry = tel })

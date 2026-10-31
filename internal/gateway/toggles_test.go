@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dshakes/halos/internal/bundle"
 	"github.com/dshakes/halos/internal/policy"
 )
 
@@ -89,20 +90,20 @@ func TestKilledTrafficToggleIsOff(t *testing.T) {
 func TestKillListTogglesSignedFreshMonotonic(t *testing.T) {
 	pub, priv := killKeys(t)
 	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
-	good, err := SignKillList(priv, KillList{Version: 1, Toggles: []string{"a"}, IssuedAt: now})
+	good, err := SignKillList(context.Background(), bundle.Ed25519Signer{Key: priv}, KillList{Version: 1, Toggles: []string{"a"}, IssuedAt: now})
 	if err != nil {
 		t.Fatal(err)
 	}
-	l, err := VerifyKillList(pub, good, now, 10*time.Minute)
+	l, err := VerifyKillList(context.Background(), bundle.Ed25519Verifier{Key: pub}, good, now, 10*time.Minute)
 	if err != nil || !slices.Equal(l.Toggles, []string{"a"}) {
 		t.Fatalf("verify: %+v %v", l, err)
 	}
 	tampered := KillEnvelope{Payload: []byte(`{"version":1,"experiments":[],"issuedAt":"2026-09-01T12:00:00Z"}`), Signature: good.Signature}
-	if _, err := VerifyKillList(pub, tampered, now, 10*time.Minute); err == nil {
+	if _, err := VerifyKillList(context.Background(), bundle.Ed25519Verifier{Key: pub}, tampered, now, 10*time.Minute); err == nil {
 		t.Fatal("dropping a killed toggle must break the signature")
 	}
-	stale, _ := SignKillList(priv, KillList{Toggles: []string{"a"}, IssuedAt: now.Add(-time.Hour)})
-	if _, err := VerifyKillList(pub, stale, now, 10*time.Minute); err == nil {
+	stale, _ := SignKillList(context.Background(), bundle.Ed25519Signer{Key: priv}, KillList{Toggles: []string{"a"}, IssuedAt: now.Add(-time.Hour)})
+	if _, err := VerifyKillList(context.Background(), bundle.Ed25519Verifier{Key: pub}, stale, now, 10*time.Minute); err == nil {
 		t.Fatal("stale list accepted")
 	}
 
@@ -110,13 +111,13 @@ func TestKillListTogglesSignedFreshMonotonic(t *testing.T) {
 	ks := &killServer{}
 	srv := httptest.NewServer(ks)
 	defer srv.Close()
-	k, err := NewKillSwitch(srv.URL, "tok", pub, 0, slog.New(slog.NewTextHandler(io.Discard, nil)), false)
+	k, err := NewKillSwitch(srv.URL, "tok", bundle.Ed25519Verifier{Key: pub}, 0, slog.New(slog.NewTextHandler(io.Discard, nil)), false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	k.Now = func() time.Time { return now }
 	sign := func(at time.Time, toggles ...string) KillEnvelope {
-		env, err := SignKillList(priv, KillList{Toggles: toggles, IssuedAt: at})
+		env, err := SignKillList(context.Background(), bundle.Ed25519Signer{Key: priv}, KillList{Toggles: toggles, IssuedAt: at})
 		if err != nil {
 			t.Fatal(err)
 		}

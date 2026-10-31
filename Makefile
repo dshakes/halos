@@ -9,6 +9,22 @@ build:
 test:
 	go test -race ./...
 
+# FIPS 140-3 (ADR-0038). build-fips: every binary against Go's frozen FIPS module v1.0.0 (fips140=on by
+# default) into bin/fips. test-fips: the signing, verification, TLS, session and encryption packages
+# with GODEBUG=fips140=only, which refuses every non-approved algorithm and key size.
+FIPS_MODULE ?= v1.0.0
+FIPS_PKGS := ./internal/bundle/... ./internal/signer/... ./internal/gateway/ ./internal/gateway/upstreamauth/ \
+	./internal/server/... ./internal/identity/... ./internal/a2a/... ./internal/supplychain/... ./internal/release/... \
+	./internal/shadow/... ./internal/hmackey/... ./internal/telemetry/... ./internal/controller/... ./internal/cloudagents/... ./internal/ledger/... \
+	./cmd/halo/ ./cmd/halod/ ./cmd/halo-server/ ./cmd/halo-kong/ ./cmd/halo-shadow/ ./cmd/halo-proxy/
+.PHONY: build-fips test-fips
+build-fips:
+	mkdir -p bin/fips
+	for c in halo halod halo-shadow halo-server halo-proxy halo-kong; do GOFIPS140=$(FIPS_MODULE) go build -trimpath -ldflags '$(LDFLAGS)' -o bin/fips/$$c ./cmd/$$c; done
+
+test-fips:
+	HALO_EXPECT_FIPS=1 GOFIPS140=$(FIPS_MODULE) GODEBUG=fips140=only go test -count=1 $(FIPS_PKGS)
+
 lint:
 	golangci-lint run ./...
 

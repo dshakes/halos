@@ -111,7 +111,11 @@ func TestDBStoreRowsMatchFileStore(t *testing.T) {
 			if tc.key != nil && strings.Contains(string(row), "secret") {
 				t.Fatal("sealed row holds plaintext")
 			}
-			got, err := DecodePair(row, key) // the FileStore reader opens it
+			var keys [][]byte
+			if tc.key != nil {
+				keys = append(keys, tc.key)
+			}
+			got, err := DecodePair(row, keys...) // the FileStore reader opens it
 			if err != nil || got.Experiment != "exp" || string(got.Request) != `{"secret":"x"}` {
 				t.Fatalf("decode %+v %v", got, err)
 			}

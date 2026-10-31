@@ -20,10 +20,12 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/dshakes/halos/internal/bundle"
 	"github.com/dshakes/halos/internal/cloudagents"
 	"github.com/dshakes/halos/internal/controller"
 	"github.com/dshakes/halos/internal/harness"
 	_ "github.com/dshakes/halos/internal/harness/all" // register adapters for the capability matrix
+	"github.com/dshakes/halos/internal/hmackey"
 	"github.com/dshakes/halos/internal/policy"
 	"github.com/dshakes/halos/internal/storage"
 	"github.com/dshakes/halos/web"
@@ -60,8 +62,10 @@ type Config struct {
 	// /api/v1/gateway/killswitch is served only when both KillKey (signs the
 	// list) and GatewayToken (gateways' bearer token) are set; GET
 	// /api/v1/fleet/killswitch (device token) whenever KillKey is set.
-	KillStore    *controller.KillStore
-	KillKey      ed25519.PrivateKey
+	KillStore *controller.KillStore
+	// KillKey signs the kill list: a file key, or a KMS / external signer
+	// (internal/signer, ADR-0038), whose signatures are cached briefly.
+	KillKey      bundle.Signer
 	GatewayToken string
 	// Optional per-capability gateway tokens. When one is set it is the only
 	// token that capability accepts (the shared GatewayToken no longer does);
@@ -151,6 +155,7 @@ type Server struct {
 	relFetch      pointerFetch  // ring pointer reader; swapped in tests
 	relChannels   channelsFetch // ring release -> experiment channels; swapped in tests
 	kills         *controller.KillStore
+	killSig       killSigCache
 	gwSums        map[gatewayCap][32]byte // sha256 of the token each enabled gateway capability accepts
 	dlpGateways   []namedSum              // per-gateway DLP tokens (GatewayDLPTokens), hashed
 	scim          *scimService            // nil = SCIM off
@@ -197,6 +202,11 @@ func New(cfg Config) (*Server, error) {
 	}
 	if err := cfg.Portal.Validate(cfg.DevUser != ""); err != nil {
 		return nil, err
+	}
+	for _, sec := range cfg.CloudWebhookSecrets { // GitHub HMACs with the raw secret: refuse what FIPS mode would panic on (ADR-0038)
+		if err := hmackey.Check(cfg.Log, "--cloud-webhook-secret-file", []byte(sec)); err != nil {
+			return nil, err
+		}
 	}
 	session, err := cfg.Session.normalize()
 	if err != nil {

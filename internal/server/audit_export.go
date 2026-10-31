@@ -26,6 +26,7 @@ import (
 
 	"github.com/dshakes/halos/internal/controller"
 	"github.com/dshakes/halos/internal/fsutil"
+	"github.com/dshakes/halos/internal/hmackey"
 	"github.com/dshakes/halos/internal/rollout"
 	"github.com/dshakes/halos/internal/storage"
 )
@@ -290,6 +291,11 @@ func newAuditSender(s AuditSink, host string) (auditSender, error) {
 		if err != nil {
 			return nil, err
 		}
+		// The forwarder goroutine HMACs every batch: a key Go's FIPS module
+		// refuses must stop startup, not crash halo-server later (ADR-0038).
+		if err := hmackey.Check(nil, "--audit-config sinks["+s.Name+"].hmacSecret", []byte(v)); err != nil {
+			return nil, err
+		}
 		h.secret = []byte(v)
 	}
 	if s.Token != nil {
@@ -356,8 +362,12 @@ func (h *httpSink) send(ctx context.Context, evs []auditEvent) error {
 			now = h.now
 		}
 		ts := now().Unix()
+		sig, err := controller.SignChecked(h.secret, ts, body) // an error, never a panic in the forwarder goroutine
+		if err != nil {
+			return fmt.Errorf("%s: %w", h.kind, err)
+		}
 		req.Header.Set(controller.TimestampHeader, strconv.FormatInt(ts, 10))
-		req.Header.Set(controller.SignatureHeader, controller.Sign(h.secret, ts, body))
+		req.Header.Set(controller.SignatureHeader, sig)
 	}
 	resp, err := h.client.Do(req)
 	if err != nil {
@@ -689,6 +699,8 @@ func (s *Server) WriteMetrics(w io.Writer) {
 	fmt.Fprintf(w, "# HELP halo_server_policy_refused_total Policy loads refused for security validation errors (the last good policy keeps serving).\n# TYPE halo_server_policy_refused_total counter\nhalo_server_policy_refused_total %d\n", s.pol.refused.Load())
 	fmt.Fprintf(w, "# HELP halo_server_policy_tightened_total Refused policy loads whose workload rule removals were applied over the last good policy.\n# TYPE halo_server_policy_tightened_total counter\nhalo_server_policy_tightened_total %d\n", s.pol.tightened.Load())
 	fmt.Fprintf(w, "# HELP halo_server_workload_rules_skipped Workload rules in the policy in effect that pin no tenant, so token exchange never matches them.\n# TYPE halo_server_workload_rules_skipped gauge\nhalo_server_workload_rules_skipped %d\n", s.pol.skipped.Load())
+	fmt.Fprintf(w, "# HELP halo_server_killswitch_sign_failures_total Remote (KMS, external signer) kill-list signatures that failed.\n# TYPE halo_server_killswitch_sign_failures_total counter\nhalo_server_killswitch_sign_failures_total %d\n", s.killSig.failures.Load())
+	fmt.Fprintf(w, "# HELP halo_server_killswitch_stale_served_total Kill-list polls answered with the cached signed list because the remote signer failed (content unchanged).\n# TYPE halo_server_killswitch_stale_served_total counter\nhalo_server_killswitch_stale_served_total %d\n", s.killSig.staleHit.Load())
 	s.metrics.write(w)
 	fmt.Fprintf(w, "# HELP halo_server_workload_denied_audit_suppressed_total Denied workload token exchanges not audited because one issuer+IP already wrote a denial audit entry this minute (logged instead).\n# TYPE halo_server_workload_denied_audit_suppressed_total counter\nhalo_server_workload_denied_audit_suppressed_total %d\n", s.wl.deniedSuppressed.Load())
 	if len(s.forwarders) == 0 {

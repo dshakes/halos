@@ -40,6 +40,31 @@ builds:
     main: ./cmd/halo-kong
     binary: halo-kong
     goos: [linux] # Kong plugin server; runs in the Kong container
+  # FIPS 140-3 variants (ADR-0038): the same binaries built against Go's frozen
+  # FIPS module v1.0.0 (GOFIPS140), which also makes GODEBUG=fips140=on the
+  # default. Shipped as *_fips_* archives and -fips image tags alongside the
+  # standard artifacts, never instead of them.
+  - &fips
+    <<: *build
+    id: halo-fips
+    env: [CGO_ENABLED=0, GOFIPS140=v1.0.0]
+  - <<: *fips
+    id: halod-fips
+    main: ./cmd/halod
+    binary: halod
+  - <<: *fips
+    id: halo-shadow-fips
+    main: ./cmd/halo-shadow
+    binary: halo-shadow
+  - <<: *fips
+    id: halo-server-fips
+    main: ./cmd/halo-server
+    binary: halo-server
+    flags: [-trimpath, -tags=webdist]
+  - <<: *fips
+    id: halo-proxy-fips
+    main: ./cmd/halo-proxy
+    binary: halo-proxy
 dockers_v2:
   - &img
     id: halo-server
@@ -71,6 +96,25 @@ dockers_v2:
     images: [ghcr.io/dshakes/kong-halo]
     dockerfile: deploy/docker/Dockerfile.kong
     build_args: {}
+  # -fips tags of the same repos: FIPS builds on the same distroless base.
+  - &fipsimg
+    <<: *img
+    id: halo-server-fips
+    ids: [halo-server-fips]
+    images: [ghcr.io/dshakes/halo-server]
+    tags: ["{{ .Version }}-fips", "{{ if not .Prerelease }}latest-fips{{ end }}"]
+    dockerfile: deploy/docker/Dockerfile.service-fips
+    build_args: {BINARY: halo-server}
+  - <<: *fipsimg
+    id: halo-proxy-fips
+    ids: [halo-proxy-fips]
+    images: [ghcr.io/dshakes/halo-proxy]
+    build_args: {BINARY: halo-proxy}
+  - <<: *fipsimg
+    id: halo-shadow-fips
+    ids: [halo-shadow-fips]
+    images: [ghcr.io/dshakes/halo-shadow]
+    build_args: {BINARY: halo-shadow}
 archives:
   - &arc
     id: halo
@@ -94,6 +138,23 @@ archives:
   - <<: *arc
     id: halo-kong
     ids: [halo-kong]
+  - &fipsarc
+    <<: *arc
+    id: halo-fips
+    ids: [halo-fips]
+    name_template: "{{ .Binary }}_fips_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+  - <<: *fipsarc
+    id: halod-fips
+    ids: [halod-fips]
+  - <<: *fipsarc
+    id: halo-shadow-fips
+    ids: [halo-shadow-fips]
+  - <<: *fipsarc
+    id: halo-server-fips
+    ids: [halo-server-fips]
+  - <<: *fipsarc
+    id: halo-proxy-fips
+    ids: [halo-proxy-fips]
 nfpms:
   # deb/rpm/apk. halod is installed but never enabled or enrolled: the operator
   # writes /etc/halos/halod.yaml and runs `systemctl enable --now halod`.

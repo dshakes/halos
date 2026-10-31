@@ -115,7 +115,7 @@ func verifyArtifactSig(ctx context.Context, dir string, sc *policy.SupplyChain, 
 		if err != nil {
 			return fmt.Errorf("identity %s: read public key: %w", id.Name, err)
 		}
-		if v, err = bundle.ParseEd25519Verifier(pem); err != nil {
+		if v, err = bundle.ParseVerifier(pem); err != nil {
 			return fmt.Errorf("identity %s: %w", id.Name, err)
 		}
 		if sig, err = base64.StdEncoding.DecodeString(strings.TrimSpace(string(raw))); err != nil {
@@ -231,7 +231,7 @@ func (a *app) cmdArtifact() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("read signing key: %w", err)
 			}
-			s, err := bundle.ParseEd25519Signer(pem)
+			s, err := bundle.ParseSigner(pem)
 			if err != nil {
 				return err
 			}

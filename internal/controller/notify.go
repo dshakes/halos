@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dshakes/halos/internal/hmackey"
 	"github.com/dshakes/halos/internal/promote"
 )
 
@@ -166,12 +167,30 @@ type Webhook struct {
 	Retry  RetryPolicy      // zero: one attempt
 }
 
-// Sign returns the SignatureHeader value for body sent at unix time ts.
-func Sign(secret []byte, ts int64, body []byte) string {
+// ErrUnusableKey is a webhook secret Go's FIPS module would refuse (under 14
+// bytes in FIPS mode). Config load already refuses it (hmackey.Check); this
+// is the last-resort guard for a Webhook built directly, so it is an error,
+// never a panic inside hmac.New.
+var ErrUnusableKey = errors.New("webhook: HMAC secret shorter than 112 bits cannot be used in FIPS mode")
+
+// SignChecked returns the SignatureHeader value for body sent at unix time
+// ts, or ErrUnusableKey.
+func SignChecked(secret []byte, ts int64, body []byte) (string, error) {
+	if !hmackey.Usable(secret) {
+		return "", ErrUnusableKey
+	}
 	m := hmac.New(sha256.New, secret)
 	m.Write([]byte(strconv.FormatInt(ts, 10) + "."))
 	m.Write(body)
-	return "sha256=" + hex.EncodeToString(m.Sum(nil))
+	return "sha256=" + hex.EncodeToString(m.Sum(nil)), nil
+}
+
+// Sign is SignChecked for callers that cannot handle an error: it returns ""
+// (never a valid signature) for an unusable key instead of panicking. Code
+// that can return an error uses SignChecked.
+func Sign(secret []byte, ts int64, body []byte) string {
+	s, _ := SignChecked(secret, ts, body) // "" on ErrUnusableKey
+	return s
 }
 
 // Verify is the receiver side: it checks the timestamp header is within
@@ -184,7 +203,11 @@ func Verify(secret []byte, h http.Header, body []byte, now time.Time, tolerance 
 	if d := now.Sub(time.Unix(ts, 0)); d > tolerance || d < -tolerance {
 		return fmt.Errorf("webhook: timestamp %d outside %s tolerance (replay?)", ts, tolerance)
 	}
-	if !hmac.Equal([]byte(h.Get(SignatureHeader)), []byte(Sign(secret, ts, body))) {
+	want, err := SignChecked(secret, ts, body) // not Sign: its "" must never match an empty header
+	if err != nil {
+		return err
+	}
+	if !hmac.Equal([]byte(h.Get(SignatureHeader)), []byte(want)) {
 		return errors.New("webhook: signature mismatch")
 	}
 	return nil
@@ -208,8 +231,12 @@ func (w Webhook) Notify(ctx context.Context, e Event) error {
 			now = w.Now
 		}
 		ts := now().Unix()
+		sig, err := SignChecked(w.Secret, ts, body)
+		if err != nil {
+			return fmt.Errorf("webhook notify: %w", err)
+		}
 		h.Set(TimestampHeader, strconv.FormatInt(ts, 10))
-		h.Set(SignatureHeader, Sign(w.Secret, ts, body))
+		h.Set(SignatureHeader, sig)
 	}
 	return deliver(ctx, w.Retry, w.Client, "webhook", w.URL, body, h)
 }

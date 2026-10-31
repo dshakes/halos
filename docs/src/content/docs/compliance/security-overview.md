@@ -13,10 +13,10 @@ Halos is Apache-2.0 open-source software that you run. There is no Halos-operate
 |---|---|
 | Hosted by the vendor? | No. Self-hosted: you run `halo-server`, the gateway, the collector and the registry |
 | Independent assurance? | **None.** No third-party penetration test, code audit, SOC 2 report or ISO certificate. [SECURITY.md](https://github.com/dshakes/halos/blob/main/SECURITY.md) states it |
-| Release integrity | ed25519-signed releases and ring pointers; cosign-signed checksums and images; build-provenance attestations; SBOMs |
+| Release integrity | ed25519- or ECDSA P-256-signed releases and ring pointers (key in a file, AWS KMS or an HSM via an external signer); cosign-signed checksums and images; build-provenance attestations; SBOMs |
 | Authentication | OIDC (console and gateway), SCIM 2.0, short-lived workload and agent credentials. **No SAML** |
 | Encryption in transit | Not terminated by Halos services. Put TLS in front of them. Outbound calls use Go's TLS defaults |
-| FIPS-validated cryptography | **No** |
+| FIPS 140-3 cryptography | **FIPS builds, no Halos certificate.** `_fips` archives and `-fips` images are built against the Go Cryptographic Module v1.0.0; every algorithm on the signing path is inside it. See [FIPS 140-3 builds](/halos/guides/fips/) |
 | Audit | Hash-chained, tamper-evident audit log with SIEM export |
 | Customer data in prompts | Passes through the gateway to the model provider you chose; not stored by Halos unless you enable shadow or prompt telemetry |
 | Vulnerability reporting | GitHub private vulnerability reporting; 3-business-day acknowledgment |
@@ -62,10 +62,11 @@ Every algorithm Halos uses, from the source:
 
 | Purpose | Algorithm | Where |
 |---|---|---|
-| Release and ring-pointer signatures | ed25519 over the digest; verified by `halod`, which never shells out to cosign | `internal/bundle/sign.go`, `pointer.go` |
+| Release and ring-pointer signatures | ed25519 over the digest, or ECDSA P-256 over its SHA-256 (ADR-0038); the manifest records the algorithm and key id; `halod` verifies either against its configured keys, each under its own algorithm only, and never shells out to cosign | `internal/bundle/sign.go`, `keys.go`, `pointer.go` |
+| Signing key custody | `file://` PEM (default), `awskms://` (AWS KMS asymmetric key, private half never leaves KMS) or `exec://` (external signer: PKCS#11 HSM, GCP/Azure KMS, Vault). Every remote signature is verified against the key before use | `internal/signer/`, [key management](/halos/guides/key-management/) |
 | Optional co-signature on releases and pointers | cosign: key file, KMS URI or keyless (Fulcio and Rekor) | `cmd/halo/cmd_release.go` (`--cosign-key`, `--cosign-keyless`) |
 | Artifact (skill, hook, plugin) signatures | ed25519 (`halo artifact sign`) or a cosign key | [agent supply chain](/halos/guides/agent-supply-chain/) |
-| Kill list | ed25519 over `halo-killswitch-v1\n` plus the payload, with a key separate from the release key | `internal/gateway/killswitch.go` |
+| Kill list | ed25519 or ECDSA P-256 over `halo-killswitch-v1\n` plus the payload, with a key separate from the release key (file or key URI) | `internal/gateway/killswitch.go` |
 | Workload and delegated-agent credentials | EdDSA JWTs (`halo-workload+jwt`, `halo-agent+jwt`) signed with a third, dedicated key | `internal/identity/workload.go`, `delegation.go` |
 | Inbound IdP and CI token verification | RS256, ES256, EdDSA | `internal/identity/oidc.go` (`AllowedAlgs`) |
 | Remote AgentCard signature verification | ed25519, ECDSA, RSA (PKCS#1 v1.5 and PSS, SHA-256) | `internal/a2a/card.go` |
@@ -75,7 +76,7 @@ Every algorithm Halos uses, from the source:
 | Audit chain | SHA-256 over every other field of each entry | `internal/server/audit.go` (`sum`) |
 | Token storage | SHA-256 (device, enrollment, SCIM) | `internal/server/devices.go`, `portal.go` |
 | Pseudonyms | HMAC-SHA256 under a salt: `halo.unit`, ledger path and repository hashes | `internal/telemetry/gwmetrics/gwmetrics.go`, `internal/ledger/ledger.go` |
-| Shadow pairs at rest (optional) | AES-256-GCM, 32-byte key from a file | `internal/shadow/shadow.go` |
+| Shadow pairs at rest (optional) | AES-256-GCM with a module-generated random 96-bit nonce, 32-byte key from a file | `internal/shadow/shadow.go` |
 | Binary integrity | sha256 or sha512 pinned in the signed manifest | `cmd/halod/install.go` |
 | Upstream auth | AWS SigV4 for Bedrock (gateway's own identity); service-account JWT signed RSA-SHA256 for Vertex | `internal/gateway/upstreamauth/` |
 
@@ -88,9 +89,9 @@ TLS:
 
 Key management:
 
-- **The release signing key is the root of trust.** Hold it in CI secrets or a KMS. Rotation, revocation (`revokedKeys`) and compromise handling are in [production deployment](/halos/guides/production-deployment/#signing-key-management). There is no threshold signing and no key revocation list in the protocol beyond `revokedKeys` in each `halod` config.
-- Three keys are kept apart on purpose: release, kill switch, workload credential. A stolen kill key cannot sign a release.
-- **FIPS: no.** Halos ships no FIPS 140-3 build and makes no claim about validated modules. ed25519 is not an approved algorithm in older FIPS 186 revisions.
+- **The release signing key is the root of trust.** Keep it in AWS KMS (`--key-uri awskms://...`), in an HSM behind an external signer (`--key-uri exec://...`), or as a file in CI secrets ([key management](/halos/guides/key-management/), ADR-0038). Rotation, revocation (`revokedKeys`) and compromise handling are in [key management](/halos/guides/key-management/#rotation) and [production deployment](/halos/guides/production-deployment/#signing-key-management). There is no threshold signing and no key revocation list in the protocol beyond `revokedKeys` in each `halod` config.
+- Three keys are kept apart on purpose: release, kill switch, workload credential. A stolen kill key cannot sign a release. The release and kill-switch keys can live in a KMS or HSM; the workload-credential key is still a file.
+- **FIPS 140-3: builds, not a certificate.** The `_fips` archives and `-fips` images are built with `GOFIPS140=v1.0.0`, Go's frozen FIPS 140-3 module (the version the Go team submitted for CMVP validation; check the CMVP listing for its current status), so the module runs its self-tests and `fips140=on` is the default. Every algorithm on the signing, verification, TLS, session and encryption paths (ed25519, ECDSA P-256, SHA-256, HMAC-SHA256, AES-256-GCM) is inside the module, and those packages pass their tests under `GODEBUG=fips140=only` in CI. Halos itself holds no FIPS certificate, and the standard (non-`_fips`) artifacts make no FIPS claim. Details and the operator requirements (HMAC secrets of at least 112 bits) are in [FIPS 140-3 builds](/halos/guides/fips/).
 
 ## Logging and monitoring
 
@@ -150,7 +151,8 @@ Stated so you do not have to find them.
 | Gap | Detail |
 |---|---|
 | No third-party assurance | No penetration test, code audit, SOC 2 or ISO certification. The [threat model](/halos/reference/threat-model/) is the maintainers' own |
-| No FIPS build | No FIPS 140-3 configuration; ed25519 is central to the design |
+| No Halos FIPS certificate | `_fips` builds use the Go Cryptographic Module v1.0.0, but Halos is not itself validated; `fips140=only` is tested on the crypto packages, not the whole tree (a FIPS build refuses to start with an HMAC salt or webhook secret under 14 bytes). The workload-credential key has no KMS backend ([FIPS 140-3 builds](/halos/guides/fips/)) |
+| One built-in KMS | `awskms://` is built in; GCP, Azure, Vault and PKCS#11 need an `exec://` adapter you supply ([key management](/halos/guides/key-management/#external-signers)) |
 | No SAML | OIDC and SCIM only |
 | No TLS in the services | Terminate TLS in front of `halo-server`, `halo-proxy` and `halo-shadow`. No mTLS, no per-user rate limiting |
 | Single signing key | No threshold signing; compromise is fleet-wide ([residual risk](/halos/reference/threat-model/#residual-risk-and-non-goals)) |
@@ -172,7 +174,7 @@ Short answers for a SIG or CAIQ response, by domain. "N/A" means Halos is not th
 | Application and interface security | Secure SDLC, code review, SAST, dependency scanning? | Yes, with the caveats in [SDLC](#sdlc): CI lint, race tests, fuzzing, `govulncheck`; agent plus human review; no automated dependency updates |
 | Application and interface security | Input validation on untrusted data? | Yes. Parsers of untrusted input have fuzz targets; request bodies are size-limited; gateway fails closed. [Tests](/halos/concepts/security-model/#tests-binding-each-claim) |
 | Change control | Formal change management, approvals, rollback? | Yes for the managed fleet: PR, plan, eval, rings, human merge, quorums, freezes, rollback by re-pointing ([change governance](/halos/guides/change-governance/)). For the Halos project: PR and release gates above |
-| Cryptography, encryption and key management | Algorithms, key custody, rotation? | [Cryptography](#cryptography). Customer holds the keys. Rotation procedure documented; no FIPS |
+| Cryptography, encryption and key management | Algorithms, key custody, rotation? | [Cryptography](#cryptography). Customer holds the keys (file, AWS KMS or HSM via an external signer). Rotation procedure documented. FIPS 140-3 builds on the Go Cryptographic Module; no Halos certificate |
 | Identity and access management | SSO, MFA, RBAC, least privilege, deprovisioning? | OIDC SSO; MFA at the IdP; five-role RBAC, deny by default; SCIM deprovisioning revokes immediately. [Authentication](#authentication-and-authorization) |
 | Logging and monitoring | Tamper-evident logs, SIEM integration, retention? | Hash-chained, SIEM export native or OCSF; retention is yours ([inventory](/halos/compliance/data-flow-and-pii/#retention-defaults)) |
 | Threat and vulnerability management | Scanning, patch SLAs, pen test? | `govulncheck` per PR, weekly Scorecard, fuzzing; disclosure SLAs in SECURITY.md; no pen test |

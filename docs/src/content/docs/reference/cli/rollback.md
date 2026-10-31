@@ -19,10 +19,12 @@ halo rollback [flags]
 | Flag | Shorthand | Type | Default | Description |
 |---|---|---|---|---|
 | `--adopt-existing` |  | bool | false | trust pointers the registry already serves that the state file has no record of (first run, or an evicted CI cache); without it such a pointer is refused unless --expect-digest names it |
+| `--co-key-uri` |  | string |  | second key (other algorithm) that co-signs releases and pointers while rotating, so halods that trust only it keep verifying |
 | `--cosign-key` |  | string |  | cosign key reference (file or KMS URI); co-signs alongside --key |
 | `--cosign-keyless` |  | bool | false | cosign keyless (Fulcio+Rekor): uploads the release digest to the public transparency log |
 | `--expect-digest` |  | string |  | refuse unless --to names this release digest (sha256:...) |
-| `--key` |  | string |  | ed25519 private key PEM (create one with: halo keys generate) |
+| `--key` |  | string |  | ed25519 or ECDSA P-256 private key PEM (create one with: halo keys generate) |
+| `--key-uri` |  | string |  | signing key by URI instead of --key: file://PATH, awskms://KEY?region=R, exec:///SIGNER (see halo keys public) |
 | `--plain-http` |  | bool | false | use HTTP instead of HTTPS (local registries) |
 | `--policy-dir` |  | string |  | policy repo directory (default ".") |
 | `--registry` |  | string |  | registry repo, e.g. ghcr.io/acme/halos |

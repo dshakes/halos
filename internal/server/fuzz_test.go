@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
@@ -17,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dshakes/halos/internal/bundle"
 	"github.com/dshakes/halos/internal/gateway"
 	"github.com/dshakes/halos/internal/policy"
 )
@@ -88,7 +90,7 @@ func FuzzAPIJSONDecoders(f *testing.F) {
 	if err != nil {
 		f.Fatal(err)
 	}
-	e := newEnv(f, func(c *Config) { c.KillKey, c.GatewayToken = priv, gwTok })
+	e := newEnv(f, func(c *Config) { c.KillKey, c.GatewayToken = bundle.Ed25519Signer{Key: priv}, gwTok })
 	dt := enrollDevice(f, e, dev)
 	seeds := map[int][]string{
 		0: {report("h1", "ring1-canary", "2.1.0", false), `{"hostname":""}`, `{"hostname":"h","harnesses":{"":{}}}`},
@@ -211,7 +213,7 @@ func FuzzKillListSigned(f *testing.F) {
 			t.Fatal(err)
 		}
 		s, err := New(Config{PolicyDir: "../../examples/acme-corp", Token: tok, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
-			Now: clock.Now, DevUser: "alice@test", DevAdmin: true, KillKey: priv, GatewayToken: gwTok})
+			Now: clock.Now, DevUser: "alice@test", DevAdmin: true, KillKey: bundle.Ed25519Signer{Key: priv}, GatewayToken: gwTok})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -268,7 +270,7 @@ func FuzzKillListSigned(f *testing.F) {
 			t.Fatalf("gateway list: %d %s", w.Code, w.Body)
 		}
 		now := clock.Now()
-		l, err := gateway.VerifyKillList(pub, env, now, gateway.DefaultKillMaxAge)
+		l, err := gateway.VerifyKillList(context.Background(), bundle.Ed25519Verifier{Key: pub}, env, now, gateway.DefaultKillMaxAge)
 		if err != nil {
 			t.Fatalf("server-signed list does not verify: %v", err)
 		}
@@ -293,16 +295,16 @@ func FuzzKillListSigned(f *testing.F) {
 			}
 			old := part[i]
 			part[i] = tamperByte
-			if _, err := gateway.VerifyKillList(pub, env, now, gateway.DefaultKillMaxAge); err == nil {
+			if _, err := gateway.VerifyKillList(context.Background(), bundle.Ed25519Verifier{Key: pub}, env, now, gateway.DefaultKillMaxAge); err == nil {
 				t.Fatalf("tampered envelope verified (byte %d %q->%q)", i, old, tamperByte)
 			}
 			part[i] = old
 		}
 		other, _, _ := ed25519.GenerateKey(rand.Reader)
-		if _, err := gateway.VerifyKillList(other, env, now, gateway.DefaultKillMaxAge); err == nil {
+		if _, err := gateway.VerifyKillList(context.Background(), bundle.Ed25519Verifier{Key: other}, env, now, gateway.DefaultKillMaxAge); err == nil {
 			t.Fatal("verified under another key")
 		}
-		if _, err := gateway.VerifyKillList(pub, env, now.Add(gateway.DefaultKillMaxAge+time.Second), gateway.DefaultKillMaxAge); err == nil {
+		if _, err := gateway.VerifyKillList(context.Background(), bundle.Ed25519Verifier{Key: pub}, env, now.Add(gateway.DefaultKillMaxAge+time.Second), gateway.DefaultKillMaxAge); err == nil {
 			t.Fatal("stale list verified")
 		}
 	})

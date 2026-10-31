@@ -184,7 +184,8 @@ func readKey(path string) ([]byte, error) {
 
 // decryptPairs prints each stored pair as plaintext JSONL, for offline
 // analysis: `halo-shadow decrypt-pairs -pair-key-file k [-old-key-file k2] pairs.jsonl`.
-// Plaintext rows pass through decoded; a row no key opens is an error.
+// A row no key opens is an error, and so is a plaintext row when keys are
+// given, unless -allow-plaintext-pairs (a store sealed part way through).
 func decryptPairs(args []string, w io.Writer) error {
 	fs := flag.NewFlagSet("decrypt-pairs", flag.ContinueOnError)
 	var keyFiles []string
@@ -192,6 +193,7 @@ func decryptPairs(args []string, w io.Writer) error {
 		keyFiles = append(keyFiles, s)
 		return nil
 	})
+	allowPlain := fs.Bool("allow-plaintext-pairs", false, "with -pair-key-file, also print unsealed rows (written before sealing was turned on); off: they are refused")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -218,7 +220,14 @@ func decryptPairs(args []string, w io.Writer) error {
 		if len(bytes.TrimSpace(sc.Bytes())) == 0 {
 			continue
 		}
-		p, err := shadow.DecodePair(sc.Bytes(), keys...)
+		decode := shadow.DecodePair
+		if *allowPlain {
+			decode = shadow.DecodePairAllowPlaintext
+		}
+		p, err := decode(sc.Bytes(), keys...)
+		if errors.Is(err, shadow.ErrPlaintextRow) {
+			return fmt.Errorf("halo-shadow: decrypt-pairs line %d: %w: pass -allow-plaintext-pairs to read rows written before pair keys were configured (migration)", n, err)
+		}
 		if err != nil {
 			return fmt.Errorf("halo-shadow: decrypt-pairs line %d: %w", n, err)
 		}

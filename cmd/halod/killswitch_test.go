@@ -15,6 +15,7 @@ import (
 
 	"oras.land/oras-go/v2"
 
+	"github.com/dshakes/halos/internal/bundle"
 	"github.com/dshakes/halos/internal/gateway"
 )
 
@@ -55,7 +56,7 @@ func newKillServer(t *testing.T) *killServer {
 			if at.IsZero() {
 				at = time.Now()
 			}
-			env, err := gateway.SignKillList(k.key, gateway.KillList{Experiments: k.list, Toggles: k.toggles, IssuedAt: at})
+			env, err := gateway.SignKillList(context.Background(), bundle.Ed25519Signer{Key: k.key}, gateway.KillList{Experiments: k.list, Toggles: k.toggles, IssuedAt: at})
 			if err != nil {
 				t.Error(err)
 			}
@@ -77,7 +78,7 @@ func (k *killServer) set(f func(k *killServer)) {
 // switchFor is the kill-list poller a fresh halod process would build.
 func (k *killServer) switchFor(t *testing.T) *gateway.KillSwitch {
 	t.Helper()
-	ks, err := gateway.NewKillSwitch(k.srv.URL, "dev-tok", k.pub, 0, quietLog(), false)
+	ks, err := gateway.NewKillSwitch(k.srv.URL, "dev-tok", bundle.Ed25519Verifier{Key: k.pub}, 0, quietLog(), false)
 	if err != nil {
 		t.Fatal(err)
 	}

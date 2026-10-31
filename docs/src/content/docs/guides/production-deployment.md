@@ -238,9 +238,9 @@ halo rollback --ring ring3-ga --to 1.4.2 --registry ghcr.io/acme/halos --key "$R
 
 ## Signing key management
 
-- **One trust root at a time.** Every `halod`, Dev Container Feature and MDM export verifies with an ed25519 public key (several only during rotation, see below). Whoever holds the private key can ship a hook to every developer, subject to `halod`'s path allowlist.
-- **Generate:** `halo keys generate --name prod` writes `prod.key` (private, keep secret) and `prod.pub` to your per-user config directory (`<user config dir>/halos/keys`, mode 0700). Pass `--out DIR` to put them elsewhere; `halo keys generate` refuses to write a private key inside a git work tree unless `--force`.
-- **Store the private key in CI secrets or a KMS-backed signer**, never on laptops. The primary signer must be ed25519 file key; KMS-backed **cosign** signatures (`--cosign-key awskms://...` or a file) and keyless (`--cosign-keyless`, which uploads the digest to the public Rekor log) are co-signatures that `halod` does not check.
+- **One trust root at a time.** Every `halod`, Dev Container Feature and MDM export verifies with an ed25519 or ECDSA P-256 public key (several only during rotation, see below). Whoever holds the private key can ship a hook to every developer, subject to `halod`'s path allowlist.
+- **Generate:** in AWS KMS (an asymmetric `SIGN_VERIFY` key, `ECC_NIST_P256` or `ECC_NIST_EDWARDS25519`) or an HSM, then export the public half with `halo keys public --key-uri ...` ([key management](/halos/guides/key-management/)). For a file key, `halo keys generate --name prod` writes `prod.key` (private, keep secret) and `prod.pub` to your per-user config directory (`<user config dir>/halos/keys`, mode 0700). Pass `--out DIR` to put them elsewhere; `halo keys generate` refuses to write a private key inside a git work tree unless `--force`.
+- **Keep the private key in a KMS or HSM** (`--key-uri awskms://...`, `--key-uri exec://...`), or in CI secrets (`--key`), never on laptops. The primary signer is what `halod` verifies. **cosign** signatures (`--cosign-key`, `--cosign-keyless`, which uploads the digest to the public Rekor log) are co-signatures that `halod` does not check.
 - **Protect the branch.** Require review on ring pointers and profile changes, and restrict who can run the publish and refresh workflows.
 - **Distribute the public key** by embedding it inline (Feature option `pubkeyPem`, Coder `pubkey_pem`, `halo export ... --pubkey`) or as a root-owned file that `halod.yaml` points at. The portal serves it at `/enroll/release.pub` for enrollment.
 
@@ -250,13 +250,13 @@ halo rollback --ring ring3-ga --to 1.4.2 --registry ghcr.io/acme/halos --key "$R
 
 1. Generate the new key pair.
 2. Add the new public key to `pubkeys` in `halod.yaml` (MDM, dev container rebuild; portal enrollment for new machines) while keeping the old one. Devices now trust both.
-3. Once the fleet has the new key, publish every ring with it: `halo release publish ... --key new.key` per ring (re-signing a pointer alone is not enough: the release signature must also verify).
+3. Once the fleet has the new key, publish every ring with it: `halo release publish ... --key new.key` (or `--key-uri awskms://...`) per ring (re-signing a pointer alone is not enough: the release signature must also verify). Moving from a file key to a KMS key, and between algorithms, is the same procedure; [key management](/halos/guides/key-management/#rotation) has the KMS specifics.
 4. Drop the old key from `pubkey`/`pubkeys` and destroy the old private key. Watch `halod status` and the fleet view for stragglers.
 
 ```yaml
 pubkey: /etc/halos/release-new.pub
 pubkeys: [/etc/halos/release-old.pub]        # remove after the cutover
-revokedKeys: ["sha256:<hex of raw ed25519 public key>"]   # never trusted, even if listed above
+revokedKeys: ["sha256:<key id>"]   # never trusted, even if listed above (halo keys public prints it)
 ```
 
 If the private key is **compromised**, add its fingerprint to `revokedKeys` (`halod` prints fingerprints at startup) on every device, which overrides any listing in `pubkey`/`pubkeys`, then publish with the new key. Also audit registry history for releases you did not publish, revoke device tokens for suspect devices (`POST /api/v1/devices/{id}/revoke`) and user sessions (`POST /api/v1/users/{id}/revoke-sessions`), and rotate the fleet token and session key. A machine that never receives the updated `halod.yaml` keeps trusting the old key, which is why config distribution should not depend on the registry.
