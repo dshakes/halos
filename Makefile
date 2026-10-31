@@ -108,3 +108,10 @@ bench:
 load:
 	go build -o bin/halo-proxy ./cmd/halo-proxy
 	go run ./test/load -bin bin/halo-proxy $(LOAD_ARGS)
+
+# halo-server fleet-scale load: simulated halod devices enroll, poll rings, report and fetch the kill list
+# (test/load/fleet; file and Postgres modes, Postgres via Docker). Tune with LOAD_FLEET_SCENARIOS="1000x1 5000x1",
+# LOAD_FLEET_MODES=file, LOAD_FLEET_ARGS="-operators 2"; see scripts/load-fleet.sh.
+.PHONY: load-fleet
+load-fleet:
+	./scripts/load-fleet.sh

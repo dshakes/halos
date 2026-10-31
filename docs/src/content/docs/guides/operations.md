@@ -16,6 +16,8 @@ Everything here is checked against the code it describes; `file:line` references
 | `halo-shadow`, Postgres backend | **N** (`halo-shadow.database.existingSecret`) | Stateless workers; pairs and one global budget in Postgres | `RollingUpdate`, PDB when `replicas > 1`, `/readyz` checks Postgres |
 | OTel collector | 1 by default (`otel.replicas`) | Stateless, can be raised | |
 
+`halo-server` takes an exclusive lock on `<data-dir>/.lock` at start (flock on Linux and macOS, LockFileEx on Windows) and refuses to start with "directory is in use by another process" if another holds it: two processes on one data dir would skip each other's appends and lose them when one compacts the logs on open. The OS drops the lock when the process exits or dies, so a crash leaves nothing to clean up. Do not put `--data-dir` on a filesystem where advisory locks are not enforced (some network mounts); use Postgres for more than one replica.
+
 On the file backend, the honest consequence: a `halo-server` upgrade or reschedule is a short outage of the console, enrollment, fleet reports and the kill-list endpoint. That outage does not reach developers' CLIs: gateways keep serving with their last accepted kill list (`internal/gateway/killswitch.go:86`), `halod` keeps its last-good release and logs failed reports at WARN (`cmd/halod/agent.go:239`, `:685`). A pinned single replica is the right default for a small install: the state is a handful of local files and the blast radius of a 30-second restart is nil for end users. When the console, enrollment and kill-list endpoints must survive a node loss or an upgrade, run the Postgres backend below.
 
 ### HA on Postgres
@@ -58,6 +60,71 @@ Set these on the gateway: it is the only component in the developer's request pa
 | Audit export freshness | Every audit entry in the SIEM within 15 minutes | `halo_server_audit_forward_lag_entries`, `halo_server_audit_forward_last_success_timestamp_seconds` (`server.metrics.enabled`, `server.audit.export`) |
 
 `halo-server` exposes request counts and latency by route and status class on its metrics port (`halo_server_requests_total`, `halo_server_request_duration_seconds`; `server.metrics.enabled`), which the `HaloServerErrorRateHigh` alert uses. Availability from the developer's side is still best measured from your ingress controller or a blackbox probe of `GET /readyz` (returns 503 until policy is loaded and during drain).
+
+## Sizing halo-server
+
+How many developers one `halo-server` replica serves, and what it needs. The numbers come from `make load-fleet` (`test/load/fleet`): simulated `halod` devices that enroll, poll the signed kill list every minute and, every 15 minutes, fetch their ring and post a status report, which is the real device protocol and halod's default intervals. Rerun it on your hardware before you commit to a size; `.github/workflows/load-fleet.yml` runs the 10,000-device scenario on a GitHub runner with a Postgres service container.
+
+**Request rate of a fleet.** Per device and per hour: 60 kill-list reads, 4 ring lookups, 4 reports (plus 4 registry pulls, which go to the registry, not `halo-server`). At 10,000 devices that is about 167 kill-list, 11 ring and 11 report requests per second, steady. The enrollment rush is the peak: every device does 2 requests once.
+
+### What was measured
+
+| | |
+|---|---|
+| Machine | Apple silicon, 16 cores, 128 GB, macOS (Darwin 25.6). Not a dedicated host: unrelated processes kept the load average at 14 to 31 (printed per run below), and the load generator ran on the same machine. Treat the numbers as conservative for CPU and indicative for latency. |
+| `halo-server` | This repository at the commit that added `test/load/fleet`, Go 1.26.6, 1 replica, no CPU limit |
+| File mode | `--data-dir` on local APFS. An `fsync` of a small append took 4.2 ms (p50, same machine) |
+| Postgres mode | `postgres:16-alpine` in Docker Desktop on the same machine, default settings, `--database-max-conns` 16 |
+| Devices | Simulated; one user (`--dev-insecure-user`), distinct hosts and device ids; 60 s enrollment ramp, then 120 s steady state; 2 console operators polling `/api/v1/fleet` and `/api/v1/devices` every 10 s |
+| Not covered | The OCI registry pull a real cycle does; per-device TLS handshakes (devices shared a keep-alive pool); Linux; a real network |
+
+Steady state, default intervals, every run with 0 errors. Latencies are client-side p50 / p99 in milliseconds.
+
+| Mode | Devices | Load avg | Kill list p50 / p99 | Ring p99, during the ramp | Server CPU, steady (peak) | Server RSS |
+|---|---|---|---|---|---|---|
+| file | 1,000 | 15 | 0.3 / 4 | 6 | 1% (2%) of one core | 39 MB |
+| file | 5,000 | 31 | 0.3 / 2 | 13 | 3% (6%) | 82 MB |
+| file | 10,000 | 31 | 0.3 / 14 | 14 | 11% (37%) | 141 MB |
+| file | 5,000 at 10x rate | 19 | 0.2 / 4 | 437 | 19% (28%) | 105 MB |
+| Postgres | 1,000 | 18 | 2.7 / 7 | 3 | 1% (2%) | 38 MB |
+| Postgres | 5,000 | 14 | 2.1 / 8 | 46 | 4% (11%) | 61 MB |
+| Postgres | 10,000 | 20 | 1.9 / 6 | 954 | 9% (17%) | 121 MB |
+| Postgres | 5,000 at 10x rate | 20 | 1.3 / 8 | 6,715 | 31% (64%) | 172 MB |
+
+"At 10x rate" divides halod's intervals by 10 (kill poll every 6 s, cycle every 90 s): 5,000 devices then offer the request rate of 50,000 at default intervals. The ring lookup is shown for the ramp, where each device makes its first cycle, because a device cycles only every 15 minutes (the 120 s steady window holds almost none); the kill-list column is the steady load. The 10x rows show the enrollment rush colliding with 833 kill-list requests per second, which is the worst case measured.
+
+**Enrollment rush** (10,000 devices enrolling over 60 s, the first morning):
+
+- File mode completes about 105 enrollments per second. Each enrollment makes two `fsync`s (device log, audit log) and they serialize: 2 x 4.2 ms matches the 9.5 ms per enrollment observed. On this disk 10,000 enrollments take 95 s, and the later ones wait (enroll mean 2.3 s while the ramp offered 167 per second). Spread enrollments over several minutes, or expect `enroll` latency in seconds. Linux with a faster disk was not measured.
+- Postgres mode enrolled all 10,000 in the 60 s window: enroll mean 133 ms, p99 1.8 s; ring lookups during the rush p99 0.95 s. At 5,000 devices: enroll mean 12 ms, p99 173 ms.
+
+### Devices per replica
+
+- **Plan for at most 10,000 devices per replica.** That is the largest size measured, in both modes, with zero errors at default intervals; steady CPU was about a tenth of one core and the stress runs (5,000 devices at 10x, equal to 50,000 at default intervals) used 19% to 31% of one core with kill-list p99 under 10 ms. The request rate itself leaves headroom above 10,000, but memory (below) and the enrollment rush are what grow with devices, and nothing above 10,000 per replica was measured.
+- **Replicas: `ceil(devices / 10,000) + 1`**, never fewer than 2. The extra replica is the headroom: losing one replica leaves the rest at or under 10,000 each. For 25,000 devices that is 4 replicas; for 100,000, 11. Replicas share state only in Postgres mode (see above); file mode is one replica.
+- **CPU:** request 500m, limit 2 (a replica's enrollment rush on Postgres reached 73% of one core; steady state is a tenth of that).
+- **Memory (file mode):** the fleet table keeps the last 50 reports per device in memory, 16.9 KB per device (45.7 KB before values were shared between a device's reports). At 10,000 devices that is about 165 MB on top of the 141 MB measured after one report each: expect about 320 MB at full history, so request 512 MiB and limit 1 GiB per 10,000 devices. **Extrapolated**: the run used 1 to 2 reports per device, and the 16.9 KB figure is measured separately (`TestLogStoreHistoryMemory`).
+- **Memory (Postgres mode):** 121 MB RSS at 10,000 devices; the history is in the database. Request 256 MiB, limit 512 MiB.
+- **Console operators:** `/api/v1/fleet` took a mean 22 ms and `/api/v1/devices` 13 ms at 10,000 devices (2 operators polling every 10 s). Both build the full list per request, so many dashboards polling a large fleet cost more than the devices do.
+
+### Postgres
+
+Sizes after each run, one enrollment and one report per device:
+
+| Devices | Database | Largest tables |
+|---|---|---|
+| 1,000 | 11 MB | audit 0.8 MB, report history 0.7 MB, journal 0.7 MB, reports 0.6 MB |
+| 5,000 | 22 MB | audit 3.8 MB, report history 3.5 MB, reports 3.3 MB, journal 3.2 MB |
+| 10,000 | 37 MB | audit 8.3 MB, report history 7.3 MB, reports 6.9 MB, journal 6.6 MB |
+
+- **Storage, extrapolated:** a report is about 0.7 KB in `halo_report_history`, and 50 are kept per device, so a fleet at steady state holds about 37 KB per device in history plus 2 KB for the device, its latest report and its enrollment audit record: about 0.4 GB at 10,000 devices and 4 GB at 100,000, before the rest of the audit log (kept per the retention you configure). Start with 20 GB and alert at 70% full.
+- **Connections:** `--database-max-conns` defaults to 16 per replica. The 10,000-device run stayed within it; keep `replicas x max-conns` under the server's `max_connections`.
+- **Write rate at steady state:** about 11 reports per second per 10,000 devices (each an insert and a trim of the history) and 17 journal appends per second for `lastSeen`. The Postgres process's own CPU was not recorded: **UNVERIFIED**. A 2 vCPU, 4 GB instance is a reasonable start for 10,000 devices; measure with the workflow above against the instance class you run.
+- Enrollments serialize on one journal lock per stream across all replicas, so adding replicas does not raise the enrollment rate.
+
+### What is measured and what is extrapolated
+
+Measured: everything in the two tables above, the enrollment rates, the per-device history memory and the Postgres row sizes. Extrapolated: memory at full history, Postgres size beyond 10,000 devices, replica counts above 1 (the load was one replica), and any number on Linux or on a dedicated host.
 
 ## Alerts
 

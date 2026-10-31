@@ -148,21 +148,32 @@ func (s *Server) deprovision(userName string) (devices int, err error) {
 
 // revokeUser revokes every live device bound to user (userName is case-insensitive).
 func (d *deviceStore) revokeUser(user string) (int, error) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
+	d.wmu.Lock()
+	defer d.wmu.Unlock()
 	if err := d.catchup(); err != nil { // devices enrolled on other replicas too
 		return 0, err
 	}
-	n := 0
-	for _, v := range d.byID {
-		if v.Revoked || !sameUser(v.UserID, user) {
-			continue
+	// Every device of the user is revoked in memory first, then logged one by
+	// one. A write that fails leaves them all revoked (fail closed) and pending,
+	// so the retry logs the rest.
+	d.mu.Lock()
+	var todo []Device
+	for id, v := range d.byID {
+		if sameUser(v.UserID, user) && (!v.Revoked || d.revPending[id]) {
+			v.Revoked = true
+			d.revPending[id] = true
+			todo = append(todo, *v)
 		}
-		v.Revoked = true
-		if err := d.persist(v); err != nil {
-			v.Revoked = false
+	}
+	d.mu.Unlock()
+	n := 0
+	for i := range todo {
+		if err := d.persist(&todo[i]); err != nil {
 			return n, err
 		}
+		d.mu.Lock()
+		delete(d.revPending, todo[i].ID)
+		d.mu.Unlock()
 		n++
 	}
 	return n, nil
