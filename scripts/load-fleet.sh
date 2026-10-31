@@ -142,6 +142,22 @@ for mode in $MODES; do
       rc=1
     fi
     cat "$OUT/$name/report.md" >>"$OUT/summary.md" 2>/dev/null || true
+    if [ "$mode" = pg ]; then # what the run left in the database, for Postgres sizing
+      if [ -n "${LOAD_FLEET_DATABASE_URL:-}" ]; then
+        pgq() { psql "$LOAD_FLEET_DATABASE_URL" -Atc "$1"; }
+      else
+        pgq() { docker exec "$PGC" psql -U halos -d halos -Atc "$1"; }
+      fi
+      {
+        echo "### Postgres size after $name"
+        echo
+        echo '```'
+        echo "database: $(pgq 'SELECT pg_size_pretty(pg_database_size(current_database()))')"
+        pgq "SELECT relname || ': ' || n_live_tup || ' rows, ' || pg_size_pretty(pg_total_relation_size(relid)) FROM pg_stat_user_tables ORDER BY pg_total_relation_size(relid) DESC LIMIT 6"
+        echo '```'
+        echo
+      } >>"$OUT/summary.md" 2>&1 || true
+    fi
     stop_server
   done
 done

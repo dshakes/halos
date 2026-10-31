@@ -141,7 +141,7 @@ func (rc *recorder) RoundTrip(r *http.Request) (*http.Response, error) {
 func errKind(err error) string {
 	var ne net.Error
 	switch {
-	case errors.Is(err, context.DeadlineExceeded):
+	case errors.Is(err, context.DeadlineExceeded), strings.Contains(err.Error(), "Client.Timeout"):
 		return "timeout"
 	case errors.As(err, &ne) && ne.Timeout():
 		return "timeout"
