@@ -43,6 +43,15 @@ var PagerDutyPagingKinds = []string{
 	KindResolved,
 }
 
+// pagerDutyDefaultFilter is PagerDutyPagingKinds as an EventFilter.
+func pagerDutyDefaultFilter() EventFilter {
+	f := EventFilter{}
+	for _, k := range PagerDutyPagingKinds {
+		f[k] = true
+	}
+	return f
+}
+
 // DedupKey is the stable PagerDuty dedup_key of the condition e reports: one
 // per rollout (or, for a standalone experiment, per experiment) and verdict.
 func (e Event) DedupKey() string {

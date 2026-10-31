@@ -107,11 +107,7 @@ func (c NotifyConfig) Build() (Notifiers, error) {
 		if err := checkPagerDutyURL(c.PagerDutyURL); err != nil {
 			return nil, err
 		}
-		def := EventFilter{}
-		for _, k := range PagerDutyPagingKinds {
-			def[k] = true
-		}
-		if err := add("pagerduty", PagerDuty{RoutingKey: key, URL: c.PagerDutyURL, Retry: c.Retry}, "--notify-pagerduty-events", c.PagerDutyEvents, true, def); err != nil {
+		if err := add("pagerduty", PagerDuty{RoutingKey: key, URL: c.PagerDutyURL, Retry: c.Retry}, "--notify-pagerduty-events", c.PagerDutyEvents, true, pagerDutyDefaultFilter()); err != nil {
 			return nil, err
 		}
 	} else if strings.TrimSpace(c.PagerDutyEvents) != "" || c.PagerDutyURL != "" {
