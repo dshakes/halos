@@ -64,7 +64,7 @@ Most of the core is the Go standard library:
 <!-- check: go.mod -->
 | Module | Version | Used for | Used by |
 | --- | --- | --- | --- |
-| `oras.land/oras-go/v2` | `v2.6.2` | Pushing and pulling release bundles and signed ring pointers as OCI artifacts, and fetching digest-pinned supply-chain artifacts ([`internal/bundle/bundle.go:49-165`](https://github.com/dshakes/halos/blob/main/internal/bundle/bundle.go#L49-L165)). | `cmd/halo`, `cmd/halod`, `internal/bundle`, `internal/server`, `internal/supplychain`; tests: `internal/signer` |
+| `oras.land/oras-go/v2` | `v2.6.2` | Pushing and pulling release bundles and signed ring pointers as OCI artifacts, and fetching digest-pinned supply-chain artifacts ([`internal/bundle/bundle.go:50-228`](https://github.com/dshakes/halos/blob/main/internal/bundle/bundle.go#L50-L228)). | `cmd/halo`, `cmd/halod`, `internal/bundle`, `internal/server`, `internal/supplychain`; tests: `internal/signer` |
 | `github.com/opencontainers/image-spec` | `v1.1.1` | OCI manifest and descriptor types. | `internal/bundle`, `internal/supplychain`; tests: `cmd/halo`, `cmd/halod` |
 | `github.com/opencontainers/go-digest` | `v1.0.0` | Content digests for blobs and pointer statements. | `internal/bundle`, `internal/supplychain` |
 <!-- /check -->

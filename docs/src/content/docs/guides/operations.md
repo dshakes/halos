@@ -239,7 +239,7 @@ Take the data backup at least daily and immediately before an upgrade. Keep the 
 2. Put the files back in `--data-dir` (restore the PVC snapshot, or `kubectl cp` into a helper pod mounting the claim). Ownership must be uid 65532 (`values.yaml:27`).
 3. Recreate the Secrets if they were lost: `server.killSwitch.existingSecret` with the same private key, `proxy.killSwitch.pubkey.existingSecret` with the matching public key. A different kill key is a rotation; follow [rotate the kill-switch keys](#rotate-the-kill-switch-keys).
 4. Scale back to 1 and check: `GET /readyz` returns 200 (policy loaded), `GET /api/v1/killswitch` lists the kills you expect, `GET /api/v1/audit?limit=1` returns `verified: true`, and the console shows the device count you had.
-5. Gateways need nothing: on their next poll (10 s) they fetch the restored list and compare its `version` (`internal/gateway/killswitch.go:232`).
+5. Gateways need nothing: on their next poll (10 s) they fetch the restored list and compare its `version` (`internal/gateway/killswitch.go:236`).
 
 With SIEM export on, restore the `audit-forward/` cursors **with** the audit log from the same snapshot. If the restored log is older than what a sink already received, that sink halts (`halo_server_audit_forward_failed_total` rises, the server log says the cursor is ahead of the log): the SIEM holds entries the restored log does not. Keep the SIEM copy as the record of those, then delete `<data-dir>/audit-forward/<sink>.json` while the server is stopped; the sink re-sends what is on disk and continues.
 

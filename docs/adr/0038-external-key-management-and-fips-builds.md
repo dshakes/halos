@@ -81,17 +81,23 @@ CLI: `--key-uri` on every signing command (`HALO_KEY_URI`), `--co-key-uri` for a
 
 ### Randomized signatures
 
-ECDSA signatures are randomized, so re-signing the same release would produce a new manifest and trip tag immutability. `publish` reuses a version tag that already names exactly this release (same config and layer) with a signature the publisher's key verifies; anything else still fails as immutable.
+ECDSA signatures are randomized, so re-signing the same release would produce a new manifest and trip tag immutability. `publish` (and `Stage`) reuse a version tag only when its manifest is exactly what this publish would write apart from the signature bytes: same config and layer, the same annotation keys (a pre-ADR-0038 manifest without the key id also counts), a primary signature of the publisher's algorithm that its key verifies, and a verifying co-signature from every native co-signer the publish carries (a cosign co-signature must be present). Anything else, including a co-signer added or removed since, fails as immutable: a co-signature is never silently dropped.
 
 ### Kill-list signing cost
 
-Gateways and devices poll the kill list every few seconds and the server signs per response. With a remote signer (`Remote()`), the signed envelope is reused for up to 30 seconds while the list is unchanged; a change is signed at once with `issuedAt` strictly after the cached one. Pollers accept an envelope identical to the one they hold (same instant, version and contents) as a no-op; a different list at the same instant is still refused.
+Gateways and devices poll the kill list every few seconds and the server signs per response. With a remote signer (`Remote()`), the signed envelope is reused for up to 30 seconds while the list is unchanged; a change is signed at once with `issuedAt` strictly after the cached one.
+
+The remote signature runs detached from the poll (`context.WithoutCancel` plus its own 30-second timeout), is shared by concurrent polls for the same list, and the cache mutex is never held across it. If it fails, or the poll stops waiting, an unchanged list is answered from the cache while it is younger than 3 minutes (well under the pollers' 10-minute max age), counted in `halo_server_killswitch_stale_served_total` and logged; failures are counted in `halo_server_killswitch_sign_failures_total`. A changed list is never served from the cache: the poll gets an error.
+
+Pollers accept a list with exactly the kills they hold and the same or an older `issuedAt` as a no-op (a cached envelope, or another replica a little behind; `version` is per replica and ignored here). An older list with different kills is still refused as a replay.
 
 ### FIPS builds
 
 - `make build-fips` and goreleaser build every binary but `halo-kong` with `GOFIPS140=v1.0.0` into `*_fips_*` archives and `-fips` image tags (`deploy/docker/Dockerfile.service-fips`), alongside, never instead of, the standard artifacts.
 - `make test-fips` (CI job `fips`) runs the signing, verification, TLS, session and encryption packages with `GODEBUG=fips140=only`, and a test fails the run if FIPS mode is not actually on.
-- Shadow-pair sealing moved to `cipher.NewGCMWithRandomNonce`: `fips140=only` refuses a GCM nonce chosen outside the module. The row layout is unchanged.
+- Shadow-pair sealing moved to `cipher.NewGCMWithRandomNonce`: `fips140=only` refuses a GCM nonce chosen outside the module. The row layout is unchanged. With pair keys configured, an unsealed row is refused when reading; `--allow-plaintext-pairs` (`halo eval`, `halo-shadow decrypt-pairs`) migrates a store sealed part way through.
+- HMAC keys: Go's module panics in `hmac.New` on a key under 112 bits. `internal/hmackey` checks every operator-supplied HMAC key at config load: the `halo-proxy` unit salt, the controller notification webhook secret, the SIEM webhook `hmacSecret` and the GitHub cloud-agent webhook secrets. In FIPS mode a short key refuses to start, naming the setting; otherwise it logs a warning (existing deployments keep running). Keys are never stretched. The GitHub webhook verifier skips such a key instead of panicking.
+- KMS from a FIPS build defaults to the `kms-fips` endpoint unless `fips=false` is explicit. cosign co-signatures run in the external `cosign` program, outside Go's module.
 
 ## Threat model
 
@@ -102,18 +108,27 @@ Gateways and devices poll the kill list every few seconds and the server signs p
 | Unknown or downgraded algorithm label | Refused before any verification |
 | KMS alias re-pointed to an attacker key mid-run | Signing pins the resolved key ARN; each signature is verified against the public key fetched at open |
 | Buggy or malicious external signer returns a wrong signature | Halos verifies it against the signer's public key and fails the publish |
-| SigV4-signed KMS request sent to a third party via `endpoint=` | Only AWS domains or loopback are allowed |
-| Secrets in an `exec://` URI leaked via `ps` | Documented: pass them in the environment |
-| Kill-list cache serves a stale kill state | Any change is signed at once; the cached envelope is at most 30 s old, far below pollers' 10-minute max age |
-| Replay of an older kill list | Unchanged: strictly-newer `issuedAt` required for any change |
+| SigV4-signed KMS request sent to a third party via `endpoint=` | Only KMS hosts (`kms[-fips].<region>.amazonaws.com[.cn]`, `kms[-fips].<region>.api.aws`, `vpce-*.kms.<region>.vpce.amazonaws.com`) of the SigV4 signing region, or loopback; no other AWS host (API Gateway, S3) |
+| Secrets in an `exec://` URI leaked via `ps` | Documented: pass them in the environment, named with `env=` |
+| Halos' own credentials (cloud keys, tokens) read by an external signer | The signer gets only `PATH`, `HOME`, `HALOS_SIGNER_*` and `env=` names |
+| A PIN or key handle in a signer's stderr reaching logs, CI output or error reports | stderr is never put in an error; it is logged at debug level, truncated |
+| A hung signer's helper keeping an HSM session open | On timeout its process group is killed (Unix) |
+| A replaced signer binary signing releases | Refused unless owned by root or the current user and not group- or world-writable (path and symlink target) |
+| `halo keys public` exporting a key the attacker controls (trust on first use) | Documented: compare the key id with the one recorded at key creation; the fleet pins installed public keys and never fetches them |
+| Kill-list cache serves a stale kill state | Any change is signed at once; the cached envelope is at most 30 s old while the signer is healthy, far below pollers' 10-minute max age |
+| **KMS outage delays propagation of new kills** | Accepted risk with a remote kill key: an unchanged list keeps being served for up to 3 minutes, but a new kill or unkill cannot be signed until KMS recovers (the endpoint answers 500; gateways keep their last list). The guide recommends a local kill key; the kill key cannot sign releases |
+| Republish silently drops a newly added co-signature | The existing manifest is reused only when it carries exactly the signatures this publish writes; otherwise immutable |
+| HMAC key Go's module refuses crashes a goroutine at runtime | Checked at config load; FIPS mode refuses to start |
+| Plaintext rows injected into a sealed shadow store | Refused when pair keys are configured unless `--allow-plaintext-pairs` |
+| Replay of an older kill list | Strictly-newer `issuedAt` required for any change; an older list with the same kills is a no-op |
 
 ## Consequences
 
 - Positive: the root of trust can live in KMS or an HSM; FIPS deployments have artifacts to run; old releases, old `halod`s (with co-signing) and old `revokedKeys` entries keep working.
-- Negative: ECDSA public keys need an upgraded `halod`; operators must upgrade `halod` before adding one. In `fips140=only`, HMAC secrets and salts under 14 bytes make Go's module panic; Halos documents this but does not yet check lengths at startup for the telemetry salt or webhook secrets.
+- Negative: ECDSA public keys need an upgraded `halod`; operators must upgrade `halod` before adding one. A FIPS deployment with an HMAC secret or salt under 14 bytes no longer starts until it is lengthened. A remote kill key makes new kills depend on KMS availability. A store with unsealed shadow rows written before sealing needs `--allow-plaintext-pairs` once keys are configured.
 - The workload-credential key (`--workload-key-file`) has no KMS backend yet.
 - The KMS client is hand-written against the KMS JSON API; adopting `service/kms` would need dependency approval.
 
 ## Implementation status (2026-10-31)
 
-Implemented: `internal/bundle/keys.go` (algorithms, `Keyring`, `VerifyAs`, parsing, key ids), `internal/bundle/pointer.go` (`verifyManifest`, `signAnnotations`), `internal/bundle/bundle.go` (`alreadyPublished`), `internal/signer` (file, awskms, exec), `internal/gateway/killswitch.go`, `internal/server/killswitch.go` (`killSigCache`), `cmd/halo` (`--key-uri`, `--co-key-uri`, `halo keys public`), `cmd/halod/keys.go`, the FIPS Makefile targets, CI job, goreleaser and Dockerfile. Tested against a fake KMS (`httptest`, SigV4 checked) and fake external signers (the test binary and a shell script); not against a live AWS account or a hardware HSM.
+Implemented: `internal/bundle/keys.go` (algorithms, `Keyring`, `VerifyAs`, parsing, key ids), `internal/bundle/pointer.go` (`verifyManifest`, `signAnnotations`), `internal/bundle/bundle.go` (`alreadyPublished`), `internal/signer` (file, awskms, exec), `internal/gateway/killswitch.go`, `internal/server/killswitch.go` (`killSigCache`), `cmd/halo` (`--key-uri`, `--co-key-uri`, `halo keys public`), `cmd/halod/keys.go`, `internal/hmackey`, the FIPS Makefile targets, CI job, goreleaser and Dockerfile. Tested against a fake KMS (`httptest`, SigV4 checked) and fake external signers (the test binary and a shell script); not against a live AWS account or a hardware HSM.

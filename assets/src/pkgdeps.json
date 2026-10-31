@@ -134,6 +134,7 @@
       "imports": [
         "internal/budget",
         "internal/cloudagents/workflow",
+        "internal/hmackey",
         "internal/ledger",
         "internal/policy",
         "internal/vendoradmin"
@@ -149,6 +150,7 @@
       "path": "internal/controller",
       "imports": [
         "internal/fsutil",
+        "internal/hmackey",
         "internal/policy",
         "internal/promote",
         "internal/rollout",
@@ -310,6 +312,10 @@
       ]
     },
     {
+      "path": "internal/hmackey",
+      "imports": []
+    },
+    {
       "path": "internal/identity",
       "imports": [
         "internal/policy"
@@ -463,6 +469,7 @@
         "internal/gateway",
         "internal/harness",
         "internal/harness/all",
+        "internal/hmackey",
         "internal/identity",
         "internal/ledger",
         "internal/pgstore",
@@ -509,7 +516,9 @@
     },
     {
       "path": "internal/telemetry/gwmetrics",
-      "imports": []
+      "imports": [
+        "internal/hmackey"
+      ]
     },
     {
       "path": "internal/telemetry/synth",

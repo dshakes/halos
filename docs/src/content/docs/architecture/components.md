@@ -197,7 +197,7 @@ Halos ships six binaries from `cmd/`. Two more surfaces run inside one of them o
   - halod reports
   - ClickHouse evidence, when `--controller` is set
 - **Outputs:**
-  - JSON API (routes in [`internal/server/server.go:170-222`](https://github.com/dshakes/halos/blob/main/internal/server/server.go#L170-L222))
+  - JSON API (routes in [`internal/server/server.go:171-228`](https://github.com/dshakes/halos/blob/main/internal/server/server.go#L171-L228))
   - signed kill lists
   - policy PRs, from the portal writer and the controller
   - Slack and webhook notifications
@@ -221,8 +221,8 @@ Halos ships six binaries from `cmd/`. Two more surfaces run inside one of them o
   - Without `--data-dir`, reports are kept in memory only. Neither the kill switch nor the controller can run without it ([`cmd/halo-server/main.go:117-137`](https://github.com/dshakes/halos/blob/main/cmd/halo-server/main.go#L117-L137)).
 - **Trust boundary:**
   - Console users: OIDC login with state and nonce checks ([`internal/server/auth.go:322-400`](https://github.com/dshakes/halos/blob/main/internal/server/auth.go#L322-L400)).
-  - Devices: per-device tokens minted at enrollment and stored hashed ([`internal/server/devices.go:110-139`](https://github.com/dshakes/halos/blob/main/internal/server/devices.go#L110-L139)), or the shared fleet token for MDM and devcontainer fleets ([`internal/server/server.go:300-304`](https://github.com/dshakes/halos/blob/main/internal/server/server.go#L300-L304)).
-  - Gateways: the gateway token, compared in constant time ([`internal/server/killswitch.go:131-149`](https://github.com/dshakes/halos/blob/main/internal/server/killswitch.go#L131-L149)).
+  - Devices: per-device tokens minted at enrollment and stored hashed ([`internal/server/devices.go:110-139`](https://github.com/dshakes/halos/blob/main/internal/server/devices.go#L110-L139)), or the shared fleet token for MDM and devcontainer fleets ([`internal/server/server.go:306-310`](https://github.com/dshakes/halos/blob/main/internal/server/server.go#L306-L310)).
+  - Gateways: the gateway token, compared in constant time ([`internal/server/killswitch.go:133-151`](https://github.com/dshakes/halos/blob/main/internal/server/killswitch.go#L133-L151)).
   - Failed attempts are rate limited per IP.
   - halo-server holds the kill-list private key and never the release key.
 - **Config:** flags ([`cmd/halo-server/main.go:60-137`](https://github.com/dshakes/halos/blob/main/cmd/halo-server/main.go#L60-L137)):
@@ -249,7 +249,7 @@ This is the same loop as `halo controller run`. Every `--interval` it evaluates 
 
 ### Console
 
-`web/` is a React, Vite and TypeScript SPA ([tech stack](/halos/architecture/tech-stack/#web-console)), served by `halo-server` at `/` ([`internal/server/server.go:222`](https://github.com/dshakes/halos/blob/main/internal/server/server.go#L222)). Admin routes are wrapped in `s.admin(...)` and developer routes in `s.user(...)`.
+`web/` is a React, Vite and TypeScript SPA ([tech stack](/halos/architecture/tech-stack/#web-console)), served by `halo-server` at `/` ([`internal/server/server.go:228`](https://github.com/dshakes/halos/blob/main/internal/server/server.go#L228)). Admin routes are wrapped in `s.admin(...)` and developer routes in `s.user(...)`.
 
 ## MCP server
 

@@ -144,7 +144,8 @@ func alreadyPublished(ctx context.Context, dst oras.Target, vt string, cfg, laye
 	for _, co := range cos {
 		want[AnnSignature+"."+co.Type()] = true
 	}
-	if !sameKeys(m.Annotations, want) && !(id != "" && sameKeys(m.Annotations, without(want, AnnSigKeyID))) {
+	legacy := id != "" && sameKeys(m.Annotations, without(want, AnnSigKeyID)) // pre-ADR-0038: no key id
+	if !sameKeys(m.Annotations, want) && !legacy {
 		return ocispec.Descriptor{}, false, nil
 	}
 	if m.Annotations[AnnSigType] != s.Type() || (m.Annotations[AnnSigKeyID] != "" && m.Annotations[AnnSigKeyID] != id) {

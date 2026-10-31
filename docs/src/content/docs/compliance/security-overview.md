@@ -151,7 +151,7 @@ Stated so you do not have to find them.
 | Gap | Detail |
 |---|---|
 | No third-party assurance | No penetration test, code audit, SOC 2 or ISO certification. The [threat model](/halos/reference/threat-model/) is the maintainers' own |
-| No Halos FIPS certificate | `_fips` builds use the Go Cryptographic Module v1.0.0, but Halos is not itself validated; `fips140=only` is tested on the crypto packages, not the whole tree (gateway telemetry salts and webhook secrets must be at least 14 bytes). The workload-credential key has no KMS backend ([FIPS 140-3 builds](/halos/guides/fips/)) |
+| No Halos FIPS certificate | `_fips` builds use the Go Cryptographic Module v1.0.0, but Halos is not itself validated; `fips140=only` is tested on the crypto packages, not the whole tree (a FIPS build refuses to start with an HMAC salt or webhook secret under 14 bytes). The workload-credential key has no KMS backend ([FIPS 140-3 builds](/halos/guides/fips/)) |
 | One built-in KMS | `awskms://` is built in; GCP, Azure, Vault and PKCS#11 need an `exec://` adapter you supply ([key management](/halos/guides/key-management/#external-signers)) |
 | No SAML | OIDC and SCIM only |
 | No TLS in the services | Terminate TLS in front of `halo-server`, `halo-proxy` and `halo-shadow`. No mTLS, no per-user rate limiting |
