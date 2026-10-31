@@ -7,10 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/dshakes/halos/internal/bundle"
@@ -252,7 +254,7 @@ func (s *Server) writeKillList(ctx context.Context, w http.ResponseWriter) {
 		}
 		l.Experiments = append(l.Experiments, rec.Experiment)
 	}
-	env, err := s.killSig.sign(ctx, s.cfg.KillKey, l)
+	env, err := s.killSig.sign(ctx, s.cfg.KillKey, l, s.cfg.Log)
 	if err != nil {
 		s.cfg.Log.Error("sign killswitch", "err", err)
 		apiErr(w, http.StatusInternalServerError, "sign failed")
@@ -261,45 +263,121 @@ func (s *Server) writeKillList(ctx context.Context, w http.ResponseWriter) {
 	writeJSON(w, http.StatusOK, env)
 }
 
-// killSigTTL is how long a remotely signed (KMS, external signer) kill list
-// is served again unchanged. Every gateway and device polls every few
-// seconds; one KMS Sign per poll would hit KMS request quotas and make the
-// kill switch depend on KMS latency. It is far below the pollers' max age
-// (gateway.DefaultKillMaxAge), and a kill or unkill changes the list, which
-// is signed at once.
-const killSigTTL = 30 * time.Second
+const (
+	// killSigTTL is how long a remotely signed (KMS, external signer) kill
+	// list is served again unchanged. Every gateway and device polls every few
+	// seconds; one KMS Sign per poll would hit KMS request quotas and make the
+	// kill switch depend on KMS latency. It is far below the pollers' max age
+	// (gateway.DefaultKillMaxAge), and a kill or unkill changes the list,
+	// which is signed at once.
+	killSigTTL = 30 * time.Second
+	// killSigStale bounds how long an unchanged list may keep being served
+	// from the cache while the remote signer fails (a KMS outage): well under
+	// gateway.DefaultKillMaxAge, so pollers never see an envelope near expiry.
+	// A changed list is never served from the cache.
+	killSigStale = 3 * time.Minute
+	// killSignTimeout bounds one remote signature. The call runs detached
+	// from the poll that started it, so a poller giving up does not abandon
+	// it: the next poll gets its result.
+	killSignTimeout = 30 * time.Second
+)
 
 // killSigCache holds the last remotely signed envelope. In-process keys are
 // not cached: they sign every response, as before.
 type killSigCache struct {
-	mu   sync.Mutex
-	list gateway.KillList // as signed (IssuedAt included)
+	mu       sync.Mutex
+	list     gateway.KillList // as signed (IssuedAt included)
+	env      gateway.KillEnvelope
+	inflight *killSignCall // the remote sign in progress, if any
+	failures atomic.Uint64 // remote sign failures (halo_server_killswitch_sign_failures_total)
+	staleHit atomic.Uint64 // polls answered from the cache because the remote sign failed
+}
+
+// killSignCall is one remote signature shared by every poll that wants the
+// same list while it runs.
+type killSignCall struct {
+	list gateway.KillList // as being signed
+	done chan struct{}
 	env  gateway.KillEnvelope
+	err  error
 }
 
 // remoteSigner is implemented by internal/signer's KMS and exec backends.
 type remoteSigner interface{ Remote() bool }
 
-func (c *killSigCache) sign(ctx context.Context, k bundle.Signer, l gateway.KillList) (gateway.KillEnvelope, error) {
+func sameKillContent(a, b gateway.KillList) bool {
+	return a.Version == b.Version && slices.Equal(a.Experiments, b.Experiments) && slices.Equal(a.Toggles, b.Toggles)
+}
+
+// sign returns the envelope for l. Remote keys: a fresh cached envelope of
+// the same content is reused; otherwise one detached remote sign runs (with
+// its own timeout, shared by concurrent polls, the mutex never held across
+// it). When that sign fails or this poll stops waiting, an unchanged list is
+// answered from the cache while it is younger than killSigStale; a changed
+// list is an error, never a stale list presented as current.
+func (c *killSigCache) sign(ctx context.Context, k bundle.Signer, l gateway.KillList, log *slog.Logger) (gateway.KillEnvelope, error) {
 	if rs, ok := k.(remoteSigner); !ok || !rs.Remote() {
 		return gateway.SignKillList(ctx, k, l)
 	}
-	c.mu.Lock() // held across the sign: concurrent polls wait for one KMS call
+	c.mu.Lock()
+	cached := c.env.Signature != nil && sameKillContent(c.list, l)
+	if cached && l.IssuedAt.Sub(c.list.IssuedAt) < killSigTTL && !l.IssuedAt.Before(c.list.IssuedAt) {
+		env := c.env
+		c.mu.Unlock()
+		return env, nil
+	}
+	call := c.inflight
+	if call == nil || !sameKillContent(call.list, l) {
+		if !l.IssuedAt.After(c.list.IssuedAt) { // pollers need a strictly newer list for any change
+			l.IssuedAt = c.list.IssuedAt.Add(time.Nanosecond)
+		}
+		call = &killSignCall{list: l, done: make(chan struct{})}
+		c.inflight = call
+		go c.run(context.WithoutCancel(ctx), k, call, log)
+	}
+	c.mu.Unlock()
+
+	var err error
+	select {
+	case <-call.done: // run's writes happen before close(done)
+		if call.err == nil {
+			return call.env, nil
+		}
+		err = call.err
+	case <-ctx.Done():
+		err = ctx.Err()
+	}
+	c.mu.Lock()
 	defer c.mu.Unlock()
-	same := c.env.Signature != nil && c.list.Version == l.Version &&
-		slices.Equal(c.list.Experiments, l.Experiments) && slices.Equal(c.list.Toggles, l.Toggles)
-	if same && l.IssuedAt.Sub(c.list.IssuedAt) < killSigTTL && !l.IssuedAt.Before(c.list.IssuedAt) {
+	if c.env.Signature != nil && sameKillContent(c.list, l) && l.IssuedAt.Sub(c.list.IssuedAt) < killSigStale {
+		c.staleHit.Add(1)
+		log.Warn("killswitch: remote signer unavailable; serving the cached signed list (content unchanged)",
+			"err", err, "signedAt", c.list.IssuedAt, "maxStale", killSigStale)
 		return c.env, nil
 	}
-	if !l.IssuedAt.After(c.list.IssuedAt) { // pollers need a strictly newer list for any change
-		l.IssuedAt = c.list.IssuedAt.Add(time.Nanosecond)
+	return gateway.KillEnvelope{}, fmt.Errorf("killswitch: remote sign: %w", err)
+}
+
+// run performs one remote signature detached from the poll that started it
+// and records it if it is still the newest.
+func (c *killSigCache) run(ctx context.Context, k bundle.Signer, call *killSignCall, log *slog.Logger) {
+	ctx, cancel := context.WithTimeout(ctx, killSignTimeout)
+	defer cancel()
+	env, err := gateway.SignKillList(ctx, k, call.list)
+	c.mu.Lock()
+	call.env, call.err = env, err
+	if c.inflight == call {
+		c.inflight = nil
 	}
-	env, err := gateway.SignKillList(ctx, k, l)
-	if err != nil {
-		return env, err
+	switch {
+	case err != nil:
+		c.failures.Add(1)
+		log.Error("killswitch: remote sign failed", "err", err)
+	case call.list.IssuedAt.After(c.list.IssuedAt):
+		c.list, c.env = call.list, env
 	}
-	c.list, c.env = l, env
-	return env, nil
+	c.mu.Unlock()
+	close(call.done)
 }
 
 // killPubPEM is the PKIX PEM of the kill-list verification key ("" if none).

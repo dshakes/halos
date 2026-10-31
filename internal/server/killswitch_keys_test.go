@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"log/slog"
 	"slices"
 	"sync"
 	"testing"
@@ -96,8 +97,8 @@ func TestKillSigCache(t *testing.T) {
 
 	// In-process keys are not cached: every response is signed fresh, as before.
 	var local killSigCache
-	a, _ := local.sign(ctx, bundle.ECDSASigner{Key: k}, l)
-	b, _ := local.sign(ctx, bundle.ECDSASigner{Key: k}, l)
+	a, _ := local.sign(ctx, bundle.ECDSASigner{Key: k}, l, slog.Default())
+	b, _ := local.sign(ctx, bundle.ECDSASigner{Key: k}, l, slog.Default())
 	if string(a.Signature) == string(b.Signature) { // ECDSA is randomized: equal means a cached copy
 		t.Fatal("local key response was cached")
 	}
@@ -106,10 +107,10 @@ func TestKillSigCache(t *testing.T) {
 	// strictly newer, so pollers accept it.
 	var c killSigCache
 	rs := &countingRemote{ECDSASigner: bundle.ECDSASigner{Key: k}}
-	first, _ := c.sign(ctx, rs, l)
+	first, _ := c.sign(ctx, rs, l, slog.Default())
 	changed := l
 	changed.Version, changed.Experiments = 2, []string{"x"}
-	second, err := c.sign(ctx, rs, changed)
+	second, err := c.sign(ctx, rs, changed, slog.Default())
 	if err != nil || rs.count() != 2 {
 		t.Fatalf("change not re-signed: %v", err)
 	}
