@@ -19,7 +19,7 @@ Call `status` first; it tells you what is in flight and what this server can do.
 
 1. **Onboard** (first time only): `doctor`, fix every `fail`; `detect_harnesses`; then `init_policy` (my machine) or `onboard_company` (my company), dry run, yes, write. `local_install`, `local_proxy`, `verify_harness` the same way.
 2. **Draft the change**: edit profile/ring/experiment YAML in the policy repo (read `halos://schema/<kind>` and the existing files first). The experiment starts as `status: draft` in the first ring.
-3. **Validate**: `validate`. Fix every error; explain warnings. Never continue on errors.
+3. **Validate and test**: `validate`, then `policy_test` (offline, seconds, no credentials: renders every ring x harness x OS, asserts no permission-bypass setting, checks each release, runs the policy's `tests/` cases and simulates every rollout; pass `against` with a branch or ref to flag a high blast radius). Fix every error and failed check; explain warnings. Never continue on errors.
 4. **Plan**: `release_build` for the ring (digest, versions, adapter warnings), `plan` against the current `release.tar`, `render_preview` for the ring's OS mix. Call out permissions, MCP servers, hooks and model changes.
 5. **Eval**: `eval_matrix` to see the cells, then `eval_run` (dry run shows the command; it spends credentials, so it is gated like a write). `eval_scorecard` on the result; a `hold` or `block` gate stops here.
 6. **GATE: approval to start.** Present the patch, plan, warnings and scorecard. Wait for yes.

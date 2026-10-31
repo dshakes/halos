@@ -20,7 +20,7 @@ const schemaDir = "../../schemas"
 var kindSchema = map[string]string{
 	"Profile": "profile.schema.json", "Ring": "ring.schema.json", "Experiment": "experiment.schema.json",
 	"Gateway": "gateway.schema.json", "Halos": "halos.schema.json", "Toggle": "toggle.schema.json",
-	"Rollout": "rollout.schema.json", "Unit": "unit.schema.json",
+	"Rollout": "rollout.schema.json", "Unit": "unit.schema.json", "PolicyTest": "policytest.schema.json",
 }
 
 func compileSchemas(t *testing.T) map[string]*jsonschema.Schema {

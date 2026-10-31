@@ -63,6 +63,7 @@ halo
 | [`halo sessions`](/halos/reference/cli/sessions/) | Agent session ledger: one identity-linked record per agent session (ADR-0031) |
 | [`halo status`](/halos/reference/cli/status/) | One screen: rings, rollouts, live experiments, toggles and policy health |
 | [`halo telemetry`](/halos/reference/cli/telemetry/) | Telemetry pipeline artifacts |
+| [`halo test`](/halos/reference/cli/test/) | Test a policy change offline in seconds: validate, render, release, invariants, impact, policy tests, rollouts |
 | [`halo toggle`](/halos/reference/cli/toggle/) | Feature toggles: list, evaluate, kill, find stale |
 | [`halo units`](/halos/reference/cli/units/) | Org hierarchy: business units and teams with delegated owners (ADR-0018) |
 | [`halo upgrade`](/halos/reference/cli/upgrade/) | Watch upstream CLIs and models; open eval-gated upgrade PRs (never merges) |

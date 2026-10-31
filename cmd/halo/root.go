@@ -112,7 +112,7 @@ func newRoot(out, errw io.Writer) *cobra.Command {
 		a.cmdExp(), a.cmdController(), a.cmdGateway(), a.cmdTelemetry(), a.cmdEval(), a.cmdUpgrade(), a.cmdMCP(), a.cmdToggle(), a.cmdRollout(), a.cmdVersion(), a.cmdDocs(),
 		a.cmdModel(), a.cmdEnable(), a.cmdKill(), a.cmdStatus(), a.cmdExplain(), a.cmdEject(), a.cmdMigrate(),
 		a.cmdDoctor(), a.cmdOnboard(), a.cmdQuickstart(), a.cmdUnits(), a.cmdAudit(), a.cmdBudget(), a.cmdCI(), a.cmdAgents(), a.cmdAdmin(), a.cmdCloudAgents(), a.cmdROI(), a.cmdSessions(), a.cmdFreeze(),
-		a.cmdArtifact(), a.cmdEgress(), a.cmdDLP(), a.cmdCopilot())
+		a.cmdArtifact(), a.cmdEgress(), a.cmdDLP(), a.cmdCopilot(), a.cmdTest())
 	addPolicyDirFlags(root)
 	groupCommands(root)
 	return root
@@ -124,7 +124,7 @@ var helpGroups = []struct {
 	cmds      []string
 }{
 	{"start", "Get started:", []string{"quickstart", "init", "onboard", "doctor", "status", "version"}},
-	{"policy", "Policy & releases:", []string{"validate", "explain", "render", "plan", "release", "artifact", "rollback", "keys", "export", "eject", "migrate", "harnesses", "whoami", "units", "model", "enable", "egress"}},
+	{"policy", "Policy & releases:", []string{"validate", "test", "explain", "render", "plan", "release", "artifact", "rollback", "keys", "export", "eject", "migrate", "harnesses", "whoami", "units", "model", "enable", "egress"}},
 	{"rollout", "Rollouts & experiments:", []string{"exp", "rollout", "toggle", "eval", "upgrade", "controller", "kill", "freeze", "roi"}},
 	{"fleet", "Fleet & gateway:", []string{"gateway", "telemetry", "audit", "budget", "dlp", "ci"}},
 	{"agents", "Agents & MCP:", []string{"agents", "cloud-agents", "mcp", "sessions", "copilot"}},

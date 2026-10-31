@@ -57,6 +57,9 @@ func TestMigrateExample(t *testing.T) {
 	dir := copyRepo(t, src)
 	orig := map[string][]byte{}
 	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err == nil && d.IsDir() && p == filepath.Join(dir, policy.TestsDir) {
+			return filepath.SkipDir // not policy: the loader does not read it
+		}
 		if err != nil || d.IsDir() || (filepath.Ext(p) != ".yaml" && filepath.Ext(p) != ".yml") {
 			return err
 		}

@@ -18,6 +18,10 @@ import (
 // RootFile is the policy repo's root document.
 const RootFile = "halos.yaml"
 
+// TestsDir is the policy repo's top-level directory of PolicyTest documents
+// (internal/policytest, `halo test`). Load does not parse it as policy.
+const TestsDir = "tests"
+
 // Root is the halos.yaml document.
 type Root struct {
 	APIVersion string `yaml:"apiVersion,omitempty" json:"apiVersion,omitempty"`
@@ -113,7 +117,7 @@ func Load(dir string) (*Org, error) {
 
 	org := &Org{Name: root.Org, Identity: root.Identity, SelfService: root.SelfService, Workloads: root.Workloads, Agents: root.Agents, VendorAdmin: root.VendorAdmin, CloudAgents: root.CloudAgents, SupplyChain: root.SupplyChain, MCP: root.MCP, Delegation: root.Delegation, Governance: root.Governance, Profiles: map[string]*Profile{}}
 	org.loadLocalArtifacts(dir)
-	skip := artifactDirs(root)
+	skip := append(artifactDirs(root), TestsDir)
 	if root.APIVersion == APIVersionV1Alpha1 {
 		org.Deprecations = append(org.Deprecations, deprecation(dir, rootPath))
 	}
