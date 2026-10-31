@@ -240,7 +240,7 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request, p Principal) {
 	if org.SelfService.Enabled {
 		var setup []LauncherSetup
 		m.Launchers, setup = s.launchers(org, r)
-		if p.can(permAdmin) {
+		if p.canGlobal(permAdmin) { // server setup details: global admins only (ADR-0037)
 			m.LauncherSetup = setup
 		}
 		m.Requestable = append(m.Requestable, org.SelfService.Requestable...)
@@ -270,6 +270,10 @@ type CatalogItem struct {
 	Kind string `json:"kind"`
 	Item string `json:"item"`
 	Desc string `json:"desc,omitempty"`
+	// Ticket lists the patterns (regular expressions, matched whole) a change
+	// ticket must match when this caller requests this item: the approval
+	// rules (ADR-0030) covering what approving it changes. Empty: none needed.
+	Ticket []string `json:"ticket,omitempty"`
 }
 
 // HarnessPin is one harness at the version pinned by the user's ring profile.
@@ -316,7 +320,7 @@ func (s *Server) catalog(w http.ResponseWriter, r *http.Request, p Principal) {
 		case "mcp-server":
 			for _, m := range org.SelfService.Catalog {
 				if !has[kind+"/"+m.Name] {
-					cat.Items = append(cat.Items, CatalogItem{kind, m.Name, m.URL}) // headers deliberately omitted
+					cat.Items = append(cat.Items, CatalogItem{Kind: kind, Item: m.Name, Desc: m.URL}) // headers deliberately omitted
 				}
 			}
 		case "ring-opt-in":
@@ -342,7 +346,29 @@ func (s *Server) catalog(w http.ResponseWriter, r *http.Request, p Principal) {
 	sort.Slice(cat.Items, func(i, j int) bool {
 		return cat.Items[i].Kind+"/"+cat.Items[i].Item < cat.Items[j].Kind+"/"+cat.Items[j].Item
 	})
+	// The ticket each request would need, judged exactly as filing it is
+	// (requestTarget), for this caller only: the console shows it as a hint.
+	target := org.SubjectTarget(p.subject())
+	for i := range cat.Items {
+		req := Request{User: p.ID, Kind: cat.Items[i].Kind, Item: cat.Items[i].Item, Target: &target}
+		if ring != nil {
+			req.Ring = ring.Name
+		}
+		cat.Items[i].Ticket = ticketPatterns(org, &req)
+	}
 	writeJSON(w, http.StatusOK, cat)
+}
+
+// ticketPatterns are the ticket patterns of the approval rules covering req,
+// once each, in rule order (nil when none needs a ticket).
+func ticketPatterns(org *policy.Org, req *Request) []string {
+	var out []string
+	for _, r := range org.ApprovalRules(requestTarget(org, req)) {
+		if r.Ticket != "" && !slices.Contains(out, r.Ticket) {
+			out = append(out, r.Ticket)
+		}
+	}
+	return out
 }
 
 // requestableHarnesses are the registered harnesses with a verified installer.

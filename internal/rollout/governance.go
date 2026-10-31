@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -51,11 +52,19 @@ func Target(org *policy.Org, r *policy.Rollout, from int) policy.ChangeTarget {
 // for the alias in org, hashed: editing any of them after an approval
 // invalidates it.
 func ApprovalKey(org *policy.Org, r *policy.Rollout) string {
+	// StepRings and ExpRings (ADR-0037 review) are what the approval was given
+	// for: the rings the next step enters and the backing experiment's rings,
+	// kept apart so moving a step between two of the experiment's rings is a
+	// new key too. Retargeting either is a new change, so an approval, scoped
+	// or not, stops counting everywhere the key is read (this server, older
+	// replicas and every client that asks it for approvals).
 	change := struct {
 		Release, Alias, Experiment string
 		Route                      *policy.ModelRoute `json:",omitempty"`
-	}{r.Change.Release, r.Change.Alias, r.Experiment, nil}
+		StepRings, ExpRings        []string
+	}{r.Change.Release, r.Change.Alias, r.Experiment, nil, sortedSet(Target(org, r, r.StepIndex(r.Step)).Rings), nil}
 	if e := findExp(org, r.Experiment); e != nil {
+		change.ExpRings = sortedSet(e.Rings)
 		if _, t, ok := e.Arms(); ok {
 			if rt, ok := t.Routes[r.Change.Alias]; ok {
 				change.Route = &rt
@@ -65,6 +74,13 @@ func ApprovalKey(org *policy.Org, r *policy.Rollout) string {
 	b, _ := json.Marshal(change) // strings and a plain struct: cannot fail
 	sum := sha256.Sum256(b)
 	return r.Name + "/" + cmp.Or(r.Step, "-") + "/" + hex.EncodeToString(sum[:16])
+}
+
+// sortedSet is xs sorted, without repeats (a fresh slice).
+func sortedSet(xs []string) []string {
+	out := slices.Clone(xs)
+	slices.Sort(out)
+	return slices.Compact(out)
 }
 
 // Apply sets ev.Freeze and ev.Quorum for advancing r from st.Step at now. A
@@ -85,10 +101,22 @@ func (g Governance) Apply(org *policy.Org, r *policy.Rollout, st State, ev *Evid
 			break
 		}
 	}
-	ev.Quorum = org.Quorum(t, g.Requester, ticket, g.Approvals)
-	if ev.Quorum == nil && len(g.Approvals) > 0 {
+	res := TargetResource(org, r, st.Step)
+	ev.Quorum = org.QuorumFor(&res, t, g.Requester, ticket, g.Approvals)
+	// A scoped approval (ADR-0037) whose scope does not cover the step's
+	// rings satisfies no plain approval gate either.
+	// The requester's own approval satisfies nothing (separation of duties), as in a quorum.
+	if ev.Quorum == nil && slices.ContainsFunc(g.Approvals, func(a policy.Approval) bool {
+		return a.ScopeCovers(&res) && (g.Requester == "" || policy.CanonicalUser(a.By) != policy.CanonicalUser(g.Requester))
+	}) {
 		ev.Approved = true
 	}
+}
+
+// TargetResource is what advancing r from live step from touches, for
+// scoped authorization (ADR-0037): the rings of Target, every unit's members.
+func TargetResource(org *policy.Org, r *policy.Rollout, from int) policy.Resource {
+	return policy.RingResource(Target(org, r, from).Rings...)
 }
 
 // GovernanceBody is the PR-body section recording a decision's approvals and

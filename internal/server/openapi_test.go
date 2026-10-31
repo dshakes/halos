@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"sort"
@@ -461,22 +462,40 @@ func TestOpenAPILiveConformance(t *testing.T) {
 		name     string
 		readOnly bool
 		min2xx   int
-	}{{"empty state, reads only", true, 40}, {"all operations", false, 70}} {
+		scoped   bool
+	}{{"empty state, reads only", true, 40, false}, {"all operations", false, 70, false},
+		// ADR-0037: a viewer bound to one ring; filtered lists and scope 403s must match the spec too.
+		{"scoped viewer, reads only", true, 15, true}} {
 		t.Run(pass.name, func(t *testing.T) {
-			liveWalk(t, doc, sc, ops, routes, pass.readOnly, pass.min2xx)
+			liveWalk(t, doc, sc, ops, routes, pass.readOnly, pass.min2xx, pass.scoped)
 		})
 	}
 }
 
-func liveWalk(t *testing.T, doc map[string]any, sc *jsonschema.Compiler, ops map[string]map[string]any, routes []string, readOnly bool, min2xx int) {
+func liveWalk(t *testing.T, doc map[string]any, sc *jsonschema.Compiler, ops map[string]map[string]any, routes []string, readOnly bool, min2xx int, scoped bool) {
 	_, killKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
 	const gw = "gateway-token-0123456789-0123456789-0123456789"
+	caller := admin
 	e := newEnv(t, func(c *Config) {
 		c.KillKey, c.GatewayToken, c.SCIMTokenSHA256 = killKey, gw, []string{sha256Hex(scimTok)}
+		if scoped {
+			f := filepath.Join(c.PolicyDir, "halos.yaml")
+			b, err := os.ReadFile(f)
+			if err != nil {
+				t.Fatal(err)
+			}
+			y := strings.Replace(string(b), "  adminGroups: [platform-admins]\n", "  adminGroups: [platform-admins]\n  roleBindings:\n    - role: viewer\n      groups: [g-canary-view]\n      scope: {rings: [ring1-canary]}\n", 1)
+			if err := os.WriteFile(f, []byte(y), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
 	})
+	if scoped {
+		caller = Principal{ID: "cv@acme.example", Groups: []string{"g-canary-view"}}
+	}
 	org, _, err := e.s.pol.Get()
 	if err != nil || org == nil {
 		t.Fatalf("policy: %v", err)
@@ -539,7 +558,7 @@ func liveWalk(t *testing.T, doc map[string]any, sc *jsonschema.Compiler, ops map
 		sec, _ := op["security"].([]any)
 		switch {
 		case len(sec) == 2 && secName(sec[0]) == "sessionCookie":
-			r.AddCookie(&http.Cookie{Name: sessionCookie, Value: e.s.seal(cookiePayload{Sub: admin.ID, Groups: admin.Groups, Exp: e.now.Add(3600e9).Unix()})})
+			r.AddCookie(&http.Cookie{Name: sessionCookie, Value: e.s.seal(cookiePayload{Sub: caller.ID, Groups: caller.Groups, Exp: e.now.Add(3600e9).Unix()})})
 		case len(sec) == 1 && secName(sec[0]) == "gatewayToken":
 			r.Header.Set("Authorization", "Bearer "+gw)
 		case len(sec) == 2 && secName(sec[0]) == "fleetToken":

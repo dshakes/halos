@@ -122,6 +122,30 @@ func TestGovernanceApply(t *testing.T) {
 	if ev.Quorum != nil || ev.Freeze != nil || !ev.Approved {
 		t.Fatalf("canary step: %+v", ev)
 	}
+	// A scoped approval (ADR-0037) is a plain approval only when its scope
+	// covers the step's rings.
+	for _, c := range []struct {
+		scope policy.RoleScope
+		want  bool
+	}{{policy.RoleScope{Rings: []string{"canary"}}, true}, {policy.RoleScope{Rings: []string{"ga"}}, false}, {policy.RoleScope{Units: []string{"bu"}}, false}} {
+		ev = Evidence{}
+		a := policy.ScopedApproval("sc@x", nil, t0, "", []policy.RoleScope{c.scope})
+		Governance{Approvals: []policy.Approval{a}}.Apply(org, r, at(0, t0), &ev, sat)
+		if ev.Approved != c.want {
+			t.Errorf("scoped approval over %s: approved=%v, want %v", c.scope, ev.Approved, c.want)
+		}
+	}
+	// (c) The requester's own approval satisfies no plain gate either.
+	for _, c := range []struct {
+		by   string
+		want bool
+	}{{"Bo@X", false}, {"al@x", true}} {
+		ev = Evidence{}
+		Governance{Requester: "bo@x", Approvals: []policy.Approval{{By: c.by}}}.Apply(org, r, at(0, t0), &ev, sat)
+		if ev.Approved != c.want {
+			t.Errorf("approval by %s, requested by bo@x: approved=%v, want %v", c.by, ev.Approved, c.want)
+		}
+	}
 }
 
 // TestApprovalKeyChangesWithStepAndChange: approvals never carry over to
@@ -156,6 +180,9 @@ func TestApprovalKeyChangesWithStepAndChange(t *testing.T) {
 		{"treatment upstream", func(o *policy.Org, _ *policy.Rollout) {
 			o.Experiments[0].Variants[1].Routes["opus"] = policy.ModelRoute{Upstream: "elsewhere", Model: "opus-5-5"}
 		}},
+		// ADR-0037 review (L3): retargeting is a new change, for every reader of the key.
+		{"next step's rings", func(_ *policy.Org, r *policy.Rollout) { r.Steps[0].Ring = "ga" }},
+		{"experiment's rings", func(o *policy.Org, _ *policy.Rollout) { o.Experiments[0].Rings = []string{"canary", "ga"} }},
 	}
 	for _, e := range edits {
 		t.Run(e.name, func(t *testing.T) {
@@ -166,4 +193,16 @@ func TestApprovalKeyChangesWithStepAndChange(t *testing.T) {
 			}
 		})
 	}
+	// Review R2: moving the next step between two rings the experiment
+	// already has keeps the union of rings the same; the key must still change.
+	t.Run("step moved within the experiment's rings", func(t *testing.T) {
+		org, r := setup()
+		org.Experiments[0].Rings = []string{"canary", "ga"}
+		r.Steps[0].Ring = "canary"
+		before := ApprovalKey(org, r)
+		r.Steps[0].Ring = "ga"
+		if ApprovalKey(org, r) == before {
+			t.Fatal("approvals carry over after moving the step from canary to ga")
+		}
+	})
 }

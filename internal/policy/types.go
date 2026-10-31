@@ -111,6 +111,10 @@ type Identity struct {
 	// Roles maps halo-server roles to IdP groups (ADR-0015). omitzero keeps
 	// the JSON form, and so existing snapshot digests, unchanged when unset.
 	Roles RoleGroups `yaml:"roles,omitempty" json:"roles,omitzero"`
+	// RoleBindings grant a role over a scope of rings and units to groups
+	// and users (ADR-0037); identity.roles and adminGroups stay global.
+	// Omitted when empty, so existing snapshot digests are unchanged.
+	RoleBindings []RoleBinding `yaml:"roleBindings,omitempty" json:"roleBindings,omitempty"`
 	// GroupsOverage is what halo-server's console login does when the ID
 	// token says the user's groups did not fit in it (Entra ID past 200
 	// groups: _claim_names / hasgroups): deny (default) refuses the login with

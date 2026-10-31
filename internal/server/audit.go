@@ -655,6 +655,7 @@ func withReqMeta(ctx context.Context, m reqMeta) context.Context {
 // it for actions that must not go unrecorded and fail the request on error.
 func (s *Server) AuditStrict(ctx context.Context, actor, action, target string, details map[string]string) error {
 	m, _ := ctx.Value(reqMetaKey{}).(reqMeta)
+	details = authzDetails(ctx, actor, details) // the scoped grant that authorized it (ADR-0037)
 	e := AuditEntry{Time: s.cfg.Now().UTC(), Actor: actor, Action: action, Target: target, IP: m.ip, RequestID: m.id, Details: details}
 	if err := s.auditLog.append(e); err != nil {
 		s.auditFails.Add(1)

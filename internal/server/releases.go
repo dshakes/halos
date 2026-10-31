@@ -12,6 +12,7 @@ import (
 	"oras.land/oras-go/v2"
 
 	"github.com/dshakes/halos/internal/bundle"
+	"github.com/dshakes/halos/internal/policy"
 )
 
 const (
@@ -189,18 +190,21 @@ type ReleasesResponse struct {
 	Registry string        `json:"registry"`
 }
 
-func (s *Server) getReleases(w http.ResponseWriter, r *http.Request, _ Principal) {
+func (s *Server) getReleases(w http.ResponseWriter, r *http.Request, p Principal) {
 	org, _, err := s.pol.Get()
 	if org == nil {
 		s.policyUnavailable(w, err)
 		return
 	}
 	var names []string
+	f := newReadFilter(p, permRead)
 	for _, rg := range org.Rings {
-		names = append(names, rg.Name)
+		if f.ok(policy.RingResource(rg.Name), nil) { // scoped readers (ADR-0037): their rings only
+			names = append(names, rg.Name)
+		}
 	}
 	stats := map[string]RingStats{}
-	for _, rs := range Aggregate(s.cfg.Store.All(), names) {
+	for _, rs := range Aggregate(s.visibleHosts(p, s.cfg.Store.All()), names) {
 		stats[rs.Ring] = rs
 	}
 	now := s.cfg.Now()

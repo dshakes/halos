@@ -143,7 +143,9 @@ type FreezeView struct {
 	Rings    map[string]policy.FreezeStatus `json:"rings"`
 }
 
-func (s *Server) getFreeze(w http.ResponseWriter, _ *http.Request, _ Principal) {
+// getFreeze: the incident freeze (it holds every ring, so every reader sees
+// it) and the freeze windows of each ring the caller may read (ADR-0037).
+func (s *Server) getFreeze(w http.ResponseWriter, _ *http.Request, p Principal) {
 	org, _, err := s.pol.Get()
 	if org == nil {
 		s.policyUnavailable(w, err)
@@ -157,7 +159,11 @@ func (s *Server) getFreeze(w http.ResponseWriter, _ *http.Request, _ Principal) 
 	}
 	v := FreezeView{Incident: inc, Rings: map[string]policy.FreezeStatus{}}
 	now := s.cfg.Now()
+	f := newReadFilter(p, permRead)
 	for _, r := range org.Rings {
+		if !f.ok(policy.RingResource(r.Name), nil) {
+			continue
+		}
 		st := org.FreezeAt(now, org.RingTarget(r.Name))
 		if inc != nil {
 			st.AddIncident(inc.By, inc.Reason)
@@ -231,6 +237,7 @@ func (s *Server) rolloutApprovals(org *policy.Org, ro *policy.Rollout) (RolloutA
 		return RolloutApprovals{}, err
 	}
 	t := rollout.Target(org, ro, ro.StepIndex(ro.Step))
+	res := rollout.TargetResource(org, ro, ro.StepIndex(ro.Step))
 	ticket := ""
 	for _, a := range as {
 		if a.Ticket != "" {
@@ -238,7 +245,7 @@ func (s *Server) rolloutApprovals(org *policy.Org, ro *policy.Rollout) (RolloutA
 			break
 		}
 	}
-	out := RolloutApprovals{Rollout: ro.Name, Step: ro.Step, Target: t, Approvals: as, Quorum: org.Quorum(t, "", ticket, as), Freeze: org.FreezeAt(s.cfg.Now(), t)}
+	out := RolloutApprovals{Rollout: ro.Name, Step: ro.Step, Target: t, Approvals: as, Quorum: org.QuorumFor(&res, t, "", ticket, as), Freeze: org.FreezeAt(s.cfg.Now(), t)}
 	if out.Approvals == nil {
 		out.Approvals = []policy.Approval{}
 	}
@@ -248,8 +255,9 @@ func (s *Server) rolloutApprovals(org *policy.Org, ro *policy.Rollout) (RolloutA
 	return out, nil
 }
 
-func (s *Server) findRollout(w http.ResponseWriter, name string) (*policy.Org, *policy.Rollout) {
-	org, _, err := s.pol.Get()
+// findRollout looks name up in the policy r was authorized under.
+func (s *Server) findRollout(w http.ResponseWriter, r *http.Request, name string) (*policy.Org, *policy.Rollout) {
+	org, err := s.reqPolicy(r)
 	if org == nil {
 		s.policyUnavailable(w, err)
 		return nil, nil
@@ -264,7 +272,7 @@ func (s *Server) findRollout(w http.ResponseWriter, name string) (*policy.Org, *
 }
 
 func (s *Server) getRolloutApprovals(w http.ResponseWriter, r *http.Request, _ Principal) {
-	org, ro := s.findRollout(w, r.PathValue("name"))
+	org, ro := s.findRollout(w, r, r.PathValue("name"))
 	if ro == nil {
 		return
 	}
@@ -298,7 +306,7 @@ func (s *Server) postRolloutApprove(w http.ResponseWriter, r *http.Request, p Pr
 			return
 		}
 	}
-	org, ro := s.findRollout(w, r.PathValue("name"))
+	org, ro := s.findRollout(w, r, r.PathValue("name"))
 	if ro == nil {
 		return
 	}
@@ -334,7 +342,7 @@ func (s *Server) postRolloutApprove(w http.ResponseWriter, r *http.Request, p Pr
 		apiErr(w, http.StatusInternalServerError, errAuditFailed)
 		return
 	}
-	if _, err := s.approvals.add(key, policy.Approval{By: p.ID, Groups: slices.Clone(p.Groups), At: s.cfg.Now().UTC(), Ticket: in.Ticket}); err != nil {
+	if _, err := s.approvals.add(key, policy.ScopedApproval(p.ID, p.Groups, s.cfg.Now().UTC(), in.Ticket, p.approveScopes())); err != nil {
 		s.cfg.Log.Error("store rollout approval", "rollout", ro.Name, "err", err)
 		apiErr(w, http.StatusInternalServerError, "store failed")
 		return
@@ -360,7 +368,7 @@ type decisionView struct {
 // approved before while the quorum is still short, or the audit failed. A
 // repeat approval of a met quorum (a retry after a failed PR) adds nothing.
 func (s *Server) recordApproval(w http.ResponseWriter, r *http.Request, p Principal, req *Request) (q *policy.QuorumResult, done bool) {
-	org, _, err := s.pol.Get()
+	org, err := s.reqPolicy(r)
 	if org == nil {
 		s.policyUnavailable(w, err)
 		return nil, true
@@ -378,7 +386,7 @@ func (s *Server) recordApproval(w http.ResponseWriter, r *http.Request, p Princi
 		}
 	}
 	if slices.ContainsFunc(req.Approvals, func(a policy.Approval) bool { return p.is(a.By) }) {
-		if q = org.Quorum(t, req.User, req.Ticket, req.Approvals); q == nil || q.Met {
+		if q = quorumFor(org, t, req); q == nil || q.Met {
 			return q, false
 		}
 		apiErr(w, http.StatusConflict, "you already approved this request; it needs "+q.String())
@@ -389,19 +397,56 @@ func (s *Server) recordApproval(w http.ResponseWriter, r *http.Request, p Princi
 		apiErr(w, http.StatusInternalServerError, errAuditFailed)
 		return nil, true
 	}
-	req.Approvals = append(req.Approvals, policy.Approval{By: p.ID, Groups: slices.Clone(p.Groups), At: s.cfg.Now().UTC(), Ticket: req.Ticket})
-	return org.Quorum(t, req.User, req.Ticket, req.Approvals), false
+	req.Approvals = append(req.Approvals, policy.ScopedApproval(p.ID, p.Groups, s.cfg.Now().UTC(), req.Ticket, p.approveScopes()))
+	return quorumFor(org, t, req), false
 }
 
-// requestTarget is what approving req changes. Requests filed before
-// ADR-0030 carry none: their ring and every unit (fail closed).
+// quorumFor is req's quorum: a scoped approval (ADR-0037) counts only when
+// its scope covers what deciding req changes (requestResource).
+func quorumFor(org *policy.Org, t policy.ChangeTarget, req *Request) *policy.QuorumResult {
+	var res *policy.Resource
+	if x, err := requestResource(org, req); err == nil {
+		res = &x
+	}
+	return org.QuorumFor(res, t, req.User, req.Ticket, req.Approvals)
+}
+
+// requestTarget is what approving req changes, for approval rules and
+// freeze windows: the requester's ring and unit chain when filed (requests
+// filed before ADR-0030 carry none: their ring and every unit, fail closed),
+// plus what the approval edits. An opt-in adds the requested ring. An MCP
+// server lands in a profile, so it reaches every ring of mcpReach and every
+// unit; when that cannot be computed, every ring.
 func requestTarget(org *policy.Org, req *Request) policy.ChangeTarget {
+	var t policy.ChangeTarget
 	if req.Target != nil {
-		return *req.Target
+		t = policy.ChangeTarget{Rings: slices.Clone(req.Target.Rings), Units: slices.Clone(req.Target.Units)}
+	} else {
+		var rings []string
+		if req.Ring != "" {
+			rings = []string{req.Ring}
+		}
+		t = org.RingTarget(rings...)
 	}
-	var rings []string
-	if req.Ring != "" {
-		rings = []string{req.Ring}
+	add := func(rings ...string) {
+		for _, r := range rings {
+			if !slices.Contains(t.Rings, r) {
+				t.Rings = append(t.Rings, r)
+			}
+		}
 	}
-	return org.RingTarget(rings...)
+	switch req.Kind {
+	case "ring-opt-in":
+		add(req.Item)
+	case "mcp-server":
+		reach, err := mcpReach(org, req)
+		if err != nil {
+			for _, r := range org.Rings {
+				reach = append(reach, r.Name)
+			}
+		}
+		add(reach...)
+		t.Units = org.RingTarget().Units // a profile is shared by every unit's members
+	}
+	return t
 }

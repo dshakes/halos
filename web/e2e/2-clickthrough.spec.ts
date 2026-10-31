@@ -23,7 +23,8 @@ async function fillAndSubmit(page: Page, scope: Locator) {
     const label = await el.evaluate((e: HTMLInputElement) => e.labels?.[0]?.textContent ?? "");
     const hint = `${label} ${(await el.getAttribute("placeholder")) ?? ""} ${(await el.getAttribute("aria-label")) ?? ""}`.toLowerCase();
     if (/remove/.test(hint)) continue; // removing something that was never there is a 422 the server is right to send
-    await el.fill(/group/.test(hint) ? "eng" : /ring/.test(hint) ? "ring2-early" : /user|email|@/.test(hint) ? "bob@acme.com" : "e2e click-through");
+    // A change ticket in the shape approval rules ask for (CHG[0-9]{7} in the demo policy).
+    await el.fill(/ticket/.test(hint) ? "CHG0000001" : /group/.test(hint) ? "eng" : /ring/.test(hint) ? "ring2-early" : /user|email|@/.test(hint) ? "bob@acme.com" : "e2e click-through");
     filled++;
   }
   if (filled === 0) return false;
