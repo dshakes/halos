@@ -46,6 +46,7 @@ Things you must do:
 - **Grant network access.** The default-deny policy allows only DNS and proxy to halo-shadow. Grant the IdP, model upstreams, git host, registry, ClickHouse, ingress controller and Prometheus through `networkPolicy.ingressFrom.*`, `networkPolicy.egress.*` and `networkPolicy.metricsFrom`, or the pods cannot reach them.
 - **Terminate TLS** in front of `halo-proxy` (it serves plain HTTP). The default ingress annotations assume nginx with 3600s timeouts and buffering off.
 - **Keep single-replica components single, or move them to Postgres.** On the default file backend `halo-server` and `halo-shadow` use RWO volumes with a Recreate strategy and `values.schema.json` pins their replicas to 1. Why, and what that costs during an upgrade: [Operations](/halos/guides/operations/#what-is-highly-available-and-what-is-not). For more than one replica, see [HA on Postgres](#ha-on-postgres).
+- **Size it for the fleet.** Plan at most 10,000 `halod` devices per `halo-server` replica and one replica more than you need; the measured numbers, memory per device and Postgres storage are in [Operations: Sizing halo-server](/halos/guides/operations/#sizing-halo-server).
 - **Set the policy repo.** `policy.gitSync.repo` ships as a placeholder and `NOTES.txt` warns until you change it.
 
 ### Secrets

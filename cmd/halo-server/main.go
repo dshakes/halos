@@ -27,6 +27,7 @@ import (
 	"github.com/dshakes/halos/internal/bundle"
 	"github.com/dshakes/halos/internal/cloudagents"
 	"github.com/dshakes/halos/internal/controller"
+	"github.com/dshakes/halos/internal/fsutil"
 	"github.com/dshakes/halos/internal/pgstore"
 	"github.com/dshakes/halos/internal/promote"
 	"github.com/dshakes/halos/internal/server"
@@ -580,6 +581,13 @@ func run(ctx context.Context, args []string) error {
 	case db != nil:
 		store = server.NewPGStore(db)
 	case o.dataDir != "":
+		// One process per data dir: a second would skip catch-up on its
+		// single-writer logs and its compaction on open would drop the first's appends.
+		lock, lerr := fsutil.LockDir(o.dataDir)
+		if lerr != nil {
+			return fmt.Errorf("--data-dir %s: %w", o.dataDir, lerr)
+		}
+		defer func() { _ = lock.Close() }()
 		if store, err = server.OpenLogStore(o.dataDir); err != nil {
 			return err
 		}

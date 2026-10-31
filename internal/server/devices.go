@@ -52,16 +52,26 @@ const lastSeenPersist = 10 * time.Minute
 
 // deviceStore is an in-memory index over an append-only JSONL log (last line per id wins).
 // ponytail: never compacted beyond open; rotate if devices x lastSeen writes grow.
-func (d *deviceStore) close() error { return storage.CloseLog(&d.mu, d.log) }
+func (d *deviceStore) close() error { return storage.CloseLog(&d.wmu, d.log) }
 
+// deviceStore locking: wmu serializes the log (Append and Catchup, whose replay
+// callback runs inside them) and the read-modify-write sequences built on it;
+// mu guards the maps and the Device records in them. mu is only ever held for
+// memory work, never across log I/O (an fsync, a database round trip), so a
+// slow write does not queue every device authentication behind it. Order: wmu
+// before mu.
 type deviceStore struct {
+	wmu    sync.Mutex
 	mu     sync.Mutex
 	byHash map[string]*Device
 	byID   map[string]*Device
 	log    storage.Log // nil = memory only
 	saved  map[string]time.Time
-	ttl    time.Duration     // for devices persisted without ExpiresAt
-	cc     storage.Coalescer // shared log: one catch-up serves concurrent lookups
+	// revPending: revoked in memory, not yet durably logged (a write failed); retried by revokeUser.
+	revPending map[string]bool
+	ttl        time.Duration     // for devices persisted without ExpiresAt
+	cc         storage.Coalescer // shared log: one catch-up serves concurrent lookups
+	shared     bool              // the log has other writers (Postgres): see lookup
 	// afterMint, when set, runs after a device is minted (test seam: models a
 	// deprovisioning racing an enrollment).
 	afterMint func()
@@ -71,25 +81,28 @@ func openDeviceStore(o storage.Opener, ttl time.Duration) (*deviceStore, error) 
 	if ttl <= 0 {
 		ttl = DefaultDeviceTTL
 	}
-	d := &deviceStore{byHash: map[string]*Device{}, byID: map[string]*Device{}, saved: map[string]time.Time{}, ttl: ttl}
+	d := &deviceStore{byHash: map[string]*Device{}, byID: map[string]*Device{}, saved: map[string]time.Time{}, revPending: map[string]bool{}, ttl: ttl}
 	ctx, cancel := storage.Ctx()
 	defer cancel()
 	log, err := o.OpenLog(ctx, "devices", func(line []byte) {
 		var v Device
 		if json.Unmarshal(line, &v) == nil && v.ID != "" && v.Hash != "" { // torn line: skip
+			d.mu.Lock() // replay also runs from Append/Catchup, beside authentications
 			d.index(&v)
+			d.mu.Unlock()
 		}
 	})
 	if err != nil {
 		return nil, err
 	}
 	d.log = log
+	d.shared = log != nil && !storage.SingleWriter(log)
 	return d, nil
 }
 
 // index makes v the device's current record. Revocation is sticky: a later
 // record still saying not revoked (a lastSeen update another replica wrote
-// before it saw the revocation) cannot bring a device back.
+// before it saw the revocation) cannot bring a device back. Caller holds mu.
 func (d *deviceStore) index(v *Device) {
 	if old := d.byID[v.ID]; old != nil {
 		v.Revoked = v.Revoked || old.Revoked
@@ -99,8 +112,9 @@ func (d *deviceStore) index(v *Device) {
 	d.saved[v.ID] = v.LastSeen
 }
 
-// persist appends v. A revocation is keyed apart from the device's other
-// records, so a shared log compacting by key never drops it.
+// persist appends v (caller holds wmu, not mu, and owns v: pass a copy of a
+// record other requests can see). A revocation is keyed apart from the
+// device's other records, so a shared log compacting by key never drops it.
 func (d *deviceStore) persist(v *Device) error {
 	if d.log == nil {
 		return nil
@@ -118,7 +132,7 @@ func (d *deviceStore) persist(v *Device) error {
 	return d.log.Append(ctx, key, b)
 }
 
-// catchup applies other replicas' device records (caller holds mu).
+// catchup applies other replicas' device records (caller holds wmu).
 func (d *deviceStore) catchup() error {
 	if d.log == nil {
 		return nil
@@ -132,15 +146,15 @@ func (d *deviceStore) catchup() error {
 }
 
 // sharedCatchup is catchup for the per-request path: concurrent device
-// authentications share one database round trip (storage.Coalescer) and d.mu
-// is held only while records are applied (caller does not hold mu).
+// authentications share one database round trip (storage.Coalescer) and the
+// maps are locked only while records are applied (caller holds neither lock).
 func (d *deviceStore) sharedCatchup() error {
-	if d.log == nil {
+	if d.log == nil || storage.SingleWriter(d.log) { // nobody else appends: nothing to apply, nothing to wait for
 		return nil
 	}
 	return d.cc.Do(func() error {
-		d.mu.Lock()
-		defer d.mu.Unlock()
+		d.wmu.Lock()
+		defer d.wmu.Unlock()
 		return d.catchup()
 	})
 }
@@ -164,16 +178,20 @@ func (d *deviceStore) mint(p Principal, now time.Time) (string, Device, error) {
 	tok := randB64(32)
 	v := &Device{ID: newUUID(), Hash: hashDeviceToken(tok), UserID: p.ID, Groups: append([]string(nil), p.Groups...),
 		CreatedAt: now, LastSeen: now, LastAuth: now, ExpiresAt: now.Add(d.ttl)}
-	d.mu.Lock()
-	defer d.mu.Unlock()
+	d.wmu.Lock()
 	if err := d.persist(v); err != nil {
+		d.wmu.Unlock()
 		return "", Device{}, err
 	}
+	d.mu.Lock()
 	d.index(v)
+	out := *v
+	d.mu.Unlock()
+	d.wmu.Unlock()
 	if d.afterMint != nil {
-		defer d.afterMint() // after mu is released
+		d.afterMint() // after the locks are released
 	}
-	return tok, *v, nil
+	return tok, out, nil
 }
 
 // lookup resolves a token by hash (a map lookup on a SHA-256 leaks nothing useful about the token).
@@ -186,10 +204,21 @@ func (d *deviceStore) lookup(tok string, now time.Time) (Device, error) {
 	if err := d.sharedCatchup(); err != nil { // a revocation on another replica must count: fail closed
 		return Device{}, err
 	}
+	if d.shared {
+		// Postgres is the contended resource: a write in flight (an enrollment
+		// transaction) is let finish before more requests join the database
+		// queue behind it. Measured (make load-fleet, 5000 devices enrolling in
+		// a minute, two paired runs): without this wait the enrollment rush was
+		// slower on Postgres (enroll mean 14 and 27 ms against 8 and 9 ms),
+		// since every ring, report and kill-list request then ran beside it. A
+		// local file has no such queue, so its requests never wait here.
+		d.wmu.Lock()
+		d.wmu.Unlock() //nolint:staticcheck // SA2001: the wait is the point
+	}
 	d.mu.Lock()
-	defer d.mu.Unlock()
 	v := d.byHash[hashDeviceToken(tok)]
 	if v == nil || v.Revoked {
+		d.mu.Unlock()
 		return Device{}, errNoDevice
 	}
 	exp := v.ExpiresAt
@@ -197,40 +226,76 @@ func (d *deviceStore) lookup(tok string, now time.Time) (Device, error) {
 		exp = v.CreatedAt.Add(d.ttl)
 	}
 	if !now.Before(exp) {
+		d.mu.Unlock()
 		return Device{}, errDeviceExpired
 	}
 	v.LastSeen = now
-	if now.Sub(d.saved[v.ID]) > lastSeenPersist {
-		if d.persist(v) == nil {
-			d.saved[v.ID] = now
-		}
+	out, id := *v, v.ID
+	stale := now.Sub(d.saved[id]) > lastSeenPersist
+	d.mu.Unlock()
+	if stale {
+		d.persistLastSeen(id, now)
 	}
-	return *v, nil
+	return out, nil
+}
+
+// persistLastSeen appends the device's record with its lastSeen, unless another
+// request did within lastSeenPersist (it re-checks once it holds the log).
+func (d *deviceStore) persistLastSeen(id string, now time.Time) {
+	d.wmu.Lock()
+	defer d.wmu.Unlock()
+	d.mu.Lock()
+	v := d.byID[id]
+	if v == nil || now.Sub(d.saved[id]) <= lastSeenPersist {
+		d.mu.Unlock()
+		return
+	}
+	c := *v
+	d.mu.Unlock()
+	if d.persist(&c) == nil {
+		d.mu.Lock()
+		d.saved[id] = now
+		d.mu.Unlock()
+	}
 }
 
 func (d *deviceStore) revoke(id string) (Device, error) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
+	d.wmu.Lock()
+	defer d.wmu.Unlock()
 	if err := d.catchup(); err != nil {
 		return Device{}, err
 	}
+	d.mu.Lock()
 	v := d.byID[id]
 	if v == nil {
+		d.mu.Unlock()
 		return Device{}, errNoDevice
 	}
-	was := v.Revoked
 	v.Revoked = true
-	if err := d.persist(v); err != nil {
-		v.Revoked = was
+	d.revPending[id] = true
+	c := *v
+	d.mu.Unlock()
+	// A failed write does not undo the revocation in memory: the log may hold
+	// it anyway (written, then the sync failed), a replay may have replaced the
+	// record, and a revoked device that works until a restart is the unsafe
+	// outcome. The caller answers 500 and the revocation is retried.
+	if err := d.persist(&c); err != nil {
 		return Device{}, err
 	}
-	return *v, nil
+	d.mu.Lock()
+	delete(d.revPending, id)
+	d.mu.Unlock()
+	return c, nil
 }
 
 func (d *deviceStore) list() []Device {
+	if d.log != nil && !storage.SingleWriter(d.log) {
+		d.wmu.Lock()
+		_ = d.catchup() // display only: serve the last view (the error is counted by the backend)
+		d.wmu.Unlock()
+	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	_ = d.catchup() // display only: serve the last view (the error is counted by the backend)
 	out := make([]Device, 0, len(d.byID))
 	for _, v := range d.byID {
 		c := *v
