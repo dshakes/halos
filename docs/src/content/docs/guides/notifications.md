@@ -43,11 +43,12 @@ A PagerDuty `trigger` carries a stable `dedup_key` per condition: `halos/experim
 
 - an experiment that rolled back leaves `running` (a human merged the pause PR);
 - an experiment or rollout hold clears because the kill was lifted (unkill);
+- an experiment or rollout is deleted from policy while an incident is open (the controller notices a tracked name missing from the loaded policy, sends the `resolve` to each sink that opened one, once, then drops its state);
 - a rollout's `rollback` or `pause` clears because the rollout left `active` in policy (a human merged the pause or rollback) or a human moved it to another step.
 
 A `resolve` is sent only for an incident that sink actually opened. If the controller restarts or another replica takes over, no incident is duplicated: the trigger and the resolve are each recorded per sink, and the event id (`event_id` in `custom_details`) is the same on every attempt.
 
-Limits to know: an all-clear is best effort. If it still fails after the retries below, the controller does not hold its own state for it (a restarted experiment must be evaluated regardless), so it is logged and counted in `halo_controller_notifications_total{result="error"}`, and that incident has to be resolved in PagerDuty by hand. A kill that is lifted and then re-applied within the same experiment run is not announced a second time (the hold is told once per run). An experiment deleted from policy while an incident is open is never cleared.
+Limits to know: an all-clear is best effort. If it still fails after the retries below, the controller does not hold its own state for it (a restarted experiment must be evaluated regardless), so it is logged and counted (a deletion's all-clear follows the same rule: state is dropped even if it failed) in `halo_controller_notifications_total{result="error"}`, and that incident has to be resolved in PagerDuty by hand. A kill that is lifted and then re-applied within the same experiment run is not announced a second time (the hold is told once per run).
 
 ## Reliability
 

@@ -144,6 +144,7 @@ func (c *Controller) Tick(ctx context.Context) error {
 		}
 	}
 	errs = append(errs, c.tickRollouts(ctx, org))
+	errs = append(errs, c.resolveDeleted(ctx, org))
 	return errors.Join(errs...)
 }
 

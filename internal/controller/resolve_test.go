@@ -280,3 +280,60 @@ func mustJSON(t *testing.T, v any) []byte {
 	}
 	return b
 }
+
+func TestDeletedExperimentMidIncidentResolvesOnce(t *testing.T) {
+	r := newRig(t, promote.Rollback)
+	pd, _ := wirePagerDuty(t, r)
+	ticks(t, r.c, 2)
+	r.org.Experiments = nil // deleted from policy while the incident is open
+	ticks(t, r.c, 3)
+	eq(t, pd.actions(), "trigger halos/experiment/exp-a/rollback", "resolve halos/experiment/exp-a/rollback")
+	if len(r.c.State.Names()) != 0 {
+		t.Fatalf("state kept: %v", r.c.State.Names())
+	}
+}
+
+func TestDeletedRolloutMidPauseResolvesOnce(t *testing.T) {
+	r, _, _ := rolloutRig(t, promote.Rollback, "c5")
+	r.org.Rollouts[0].Steps[0].OnFailure = "pause"
+	pd, _ := wirePagerDuty(t, r)
+	ticks(t, r.c, 2)
+	eq(t, pd.actions(), "trigger halos/rollout/ro/pause")
+	r.org.Rollouts = nil
+	r.org.Experiments[0].Status = "paused"
+	ticks(t, r.c, 3)
+	eq(t, pd.actions(), "trigger halos/rollout/ro/pause", "resolve halos/rollout/ro/pause")
+	if n := r.c.State.Names(); len(n) != 0 {
+		t.Fatalf("state kept: %v", n)
+	}
+}
+
+func TestDeletedNameWithoutTriggerSendsNothing(t *testing.T) {
+	r := newRig(t, promote.Promote) // informational: PagerDuty never opened anything
+	pd, _ := wirePagerDuty(t, r)
+	ticks(t, r.c, 1)
+	r.org.Experiments = nil
+	ticks(t, r.c, 2)
+	eq(t, pd.actions())
+
+	r2, _, _ := rolloutRig(t, promote.Continue, "")
+	pd2, _ := wirePagerDuty(t, r2)
+	ticks(t, r2.c, 2)
+	r2.org.Rollouts = nil
+	ticks(t, r2.c, 2)
+	eq(t, pd2.actions())
+}
+
+func TestFailedResolveOfDeletedStillDropsState(t *testing.T) {
+	r := newRig(t, promote.Rollback)
+	pd, _ := wirePagerDuty(t, r)
+	ticks(t, r.c, 1)
+	pd.setStatus(http.StatusServiceUnavailable)
+	r.org.Experiments = nil
+	if err := r.c.Tick(context.Background()); err == nil || !strings.Contains(err.Error(), "resolve exp-a") {
+		t.Fatalf("want the failed all-clear reported, got %v", err)
+	}
+	if n := r.c.State.Names(); len(n) != 0 {
+		t.Fatalf("state kept after failed resolve: %v", n)
+	}
+}

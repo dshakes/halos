@@ -303,6 +303,11 @@ func (c *Controller) rolloutNotify(ctx context.Context, r *policy.Rollout, st *r
 		}
 		errs = append(errs, ierr)
 		ev.ID = ikey
+		if slices.Contains(rolloutPaging, ev.Verdict) {
+			if rs, ok := n.(resolver); ok && rs.ResolvesFor(Event{Rollout: r.Name, Verdict: ev.Verdict}) {
+				errs = append(errs, c.trackRollout(r.Name)) // so deleting the rollout still clears the incident
+			}
+		}
 		if err := n.Notify(ctx, ev); err != nil {
 			errs = append(errs, c.fail(fmt.Errorf("controller: notify rollout %s (%s) via %s: %w", r.Name, ev.Verdict, names[i], err)))
 			continue
