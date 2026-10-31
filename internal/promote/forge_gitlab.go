@@ -96,11 +96,15 @@ func (g *gitlabAPI) open(ctx context.Context, branch string, r PRRequest) (strin
 	return mr.WebURL, nil
 }
 
-func (g *gitlabAPI) find(ctx context.Context, marker string) (string, bool, error) {
+func (g *gitlabAPI) find(ctx context.Context, marker string, openOnly bool) (string, bool, error) {
 	term := markerTerm(marker)
+	state := "all"
+	if openOnly {
+		state = "opened"
+	}
 	page := "1"
 	for i := 0; i < forgeMaxPages && page != ""; i++ {
-		q := url.Values{"state": {"all"}, "scope": {"all"}, "search": {term}, "in": {"description"},
+		q := url.Values{"state": {state}, "scope": {"all"}, "search": {term}, "in": {"description"},
 			"order_by": {"created_at"}, "sort": {"desc"}, "per_page": {strconv.Itoa(forgePerPage)}, "page": {page}}
 		var mrs []gitlabMR
 		h, err := g.c.do(ctx, "gitlab list merge requests", "GET", g.projectPath("/merge_requests?"+q.Encode()), nil, &mrs)

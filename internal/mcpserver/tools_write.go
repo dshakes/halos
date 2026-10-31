@@ -317,6 +317,15 @@ func (r reasonOpener) OpenPR(ctx context.Context, req promote.PRRequest) (string
 	return openIdempotent(ctx, r.gh, req)
 }
 
+// FindOpenPR implements promote.OpenPRFinder by delegating; nothing found when
+// the wrapped opener cannot search.
+func (r reasonOpener) FindOpenPR(ctx context.Context, dir, marker string) (string, bool, error) {
+	if f, ok := r.gh.(promote.OpenPRFinder); ok {
+		return f.FindOpenPR(ctx, dir, marker)
+	}
+	return "", false, nil
+}
+
 // FindPR implements promote.PRFinder by delegating; it reports nothing found
 // when the wrapped opener cannot search.
 func (r reasonOpener) FindPR(ctx context.Context, dir, marker string) (string, bool, error) {
@@ -345,12 +354,13 @@ func proposeMarker(req promote.PRRequest) string {
 }
 
 // openIdempotent opens the request with a marker in its body. When the opener
-// can search (promote.PRFinder), an existing request with the same marker is
-// returned instead of opening a second one.
+// can search for open requests (promote.OpenPRFinder), an open request with
+// the same marker is returned instead of opening a second one. Merged and
+// closed requests never match: a reverted change can be proposed again.
 func openIdempotent(ctx context.Context, op promote.PROpener, req promote.PRRequest) (string, error) {
 	marker := proposeMarker(req)
-	if f, ok := op.(promote.PRFinder); ok {
-		url, found, err := f.FindPR(ctx, req.RepoDir, marker)
+	if f, ok := op.(promote.OpenPRFinder); ok {
+		url, found, err := f.FindOpenPR(ctx, req.RepoDir, marker)
 		if err != nil {
 			return "", err
 		}

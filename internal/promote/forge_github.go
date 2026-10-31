@@ -88,10 +88,14 @@ var linkNext = regexp.MustCompile(`<[^>]*[?&]page=(\d+)[^>]*>\s*;\s*rel="next"`)
 // find scans pull requests of any state, newest first, for the exact marker.
 // The pulls endpoint cannot search bodies, so it pages (Link rel=next) up to
 // forgeMaxPages x 100.
-func (g *githubAPI) find(ctx context.Context, marker string) (string, bool, error) {
+func (g *githubAPI) find(ctx context.Context, marker string, openOnly bool) (string, bool, error) {
 	page := "1"
+	state := "all"
+	if openOnly {
+		state = "open"
+	}
 	for i := 0; i < forgeMaxPages && page != ""; i++ {
-		q := url.Values{"state": {"all"}, "sort": {"created"}, "direction": {"desc"},
+		q := url.Values{"state": {state}, "sort": {"created"}, "direction": {"desc"},
 			"per_page": {strconv.Itoa(forgePerPage)}, "page": {page}}
 		var prs []githubPR
 		h, err := g.c.do(ctx, "github list pull requests", "GET", g.repoPath("/pulls?"+q.Encode()), nil, &prs)

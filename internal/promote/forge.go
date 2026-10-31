@@ -87,7 +87,11 @@ type ForgeOpener struct {
 	Getenv func(string) string
 }
 
-var _ Forge = (*ForgeOpener)(nil)
+var (
+	_ Forge        = (*ForgeOpener)(nil)
+	_ OpenPRFinder = (*ForgeOpener)(nil)
+	_ OpenPRFinder = GHOpener{}
+)
 
 func (f *ForgeOpener) run(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
 	if f.Exec != nil {
@@ -211,26 +215,38 @@ func (f *ForgeOpener) OpenPR(ctx context.Context, r PRRequest) (string, error) {
 	return api.open(ctx, branch, r)
 }
 
-// FindPR implements PRFinder.
+// FindPR implements PRFinder: a request in any state (merged, closed, open).
 func (f *ForgeOpener) FindPR(ctx context.Context, dir, marker string) (string, bool, error) {
+	return f.findPR(ctx, dir, marker, false)
+}
+
+// FindOpenPR implements OpenPRFinder: only a request that is still open.
+func (f *ForgeOpener) FindOpenPR(ctx context.Context, dir, marker string) (string, bool, error) {
+	return f.findPR(ctx, dir, marker, true)
+}
+
+func (f *ForgeOpener) findPR(ctx context.Context, dir, marker string, openOnly bool) (string, bool, error) {
 	kind, rem, err := f.resolve(ctx, dir)
 	if err != nil {
 		return "", false, err
 	}
 	if kind == ForgeGH {
+		if openOnly {
+			return GHOpener{Exec: f.Exec}.FindOpenPR(ctx, dir, marker)
+		}
 		return GHOpener{Exec: f.Exec}.FindPR(ctx, dir, marker)
 	}
 	api, err := f.api(kind, rem)
 	if err != nil {
 		return "", false, err
 	}
-	return api.find(ctx, marker)
+	return api.find(ctx, marker, openOnly)
 }
 
 // forgeAPI is one REST forge bound to one project.
 type forgeAPI interface {
 	open(ctx context.Context, branch string, r PRRequest) (string, error)
-	find(ctx context.Context, marker string) (string, bool, error)
+	find(ctx context.Context, marker string, openOnly bool) (string, bool, error)
 }
 
 func (f *ForgeOpener) api(kind string, rem Remote) (forgeAPI, error) {

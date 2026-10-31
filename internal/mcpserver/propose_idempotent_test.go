@@ -9,25 +9,70 @@ import (
 )
 
 // fakeFinder is an opener that can also search the bodies it has opened, like
-// promote.ForgeOpener.
+// promote.ForgeOpener. states[i] is "open", "merged" or "closed".
 type fakeFinder struct {
 	bodies []string
+	states []string
 	opens  int
 }
 
 func (f *fakeFinder) OpenPR(_ context.Context, r promote.PRRequest) (string, error) {
 	f.opens++
 	f.bodies = append(f.bodies, r.Body)
+	f.states = append(f.states, "open")
 	return "https://example.com/pr/" + string(rune('0'+f.opens)), nil
 }
 
-func (f *fakeFinder) FindPR(_ context.Context, _, marker string) (string, bool, error) {
+func (f *fakeFinder) find(marker string, openOnly bool) (string, bool) {
 	for i, b := range f.bodies {
-		if strings.Contains(b, marker) {
-			return "https://example.com/pr/" + string(rune('1'+i)), true, nil
+		if strings.Contains(b, marker) && (!openOnly || f.states[i] == "open") {
+			return "https://example.com/pr/" + string(rune('1'+i)), true
 		}
 	}
-	return "", false, nil
+	return "", false
+}
+
+// FindPR is the controller's lookup: any state.
+func (f *fakeFinder) FindPR(_ context.Context, _, marker string) (string, bool, error) {
+	u, ok := f.find(marker, false)
+	return u, ok, nil
+}
+
+func (f *fakeFinder) FindOpenPR(_ context.Context, _, marker string) (string, bool, error) {
+	u, ok := f.find(marker, true)
+	return u, ok, nil
+}
+
+// A merged or closed request with the same marker never blocks a new proposal;
+// an open one is returned.
+func TestOpenIdempotentOnlyDedupesOpen(t *testing.T) {
+	req := promote.PRRequest{RepoDir: "d", Branch: "halos/x", Title: "t", Body: "b", Files: map[string][]byte{"f": []byte("1")}}
+	for _, tc := range []struct {
+		name, state string
+		wantOpens   int
+		wantSame    bool
+	}{
+		{"open one returns the existing URL", "open", 1, true},
+		{"merged one leads to a new PR", "merged", 2, false},
+		{"closed one leads to a new PR", "closed", 2, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &fakeFinder{}
+			first, err := openIdempotent(context.Background(), f, req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			f.states[0] = tc.state
+			second, err := openIdempotent(context.Background(), f, req)
+			if err != nil || f.opens != tc.wantOpens || (second == first) != tc.wantSame {
+				t.Fatalf("second = %q (first %q) err=%v opens=%d", second, first, err, f.opens)
+			}
+			// The controller-style lookup still sees the merged/closed one.
+			if _, ok, _ := f.FindPR(context.Background(), "d", proposeMarker(req)); !ok {
+				t.Fatal("FindPR must match any state")
+			}
+		})
+	}
 }
 
 func TestProposeRolloutIsIdempotent(t *testing.T) {
@@ -63,9 +108,12 @@ func TestReasonOpenerFindsAndDedupes(t *testing.T) {
 	if err != nil || u2 != u1 || f.opens != 1 {
 		t.Fatalf("second open: %q %v opens=%d", u2, err, f.opens)
 	}
-	// FindPR delegates.
+	// FindPR and FindOpenPR delegate.
 	if url, ok, err := o.FindPR(context.Background(), "d", proposeMarker(req)); err != nil || !ok || url != u1 {
 		t.Fatalf("FindPR: %q %v %v", url, ok, err)
+	}
+	if url, ok, err := o.FindOpenPR(context.Background(), "d", proposeMarker(req)); err != nil || !ok || url != u1 {
+		t.Fatalf("FindOpenPR: %q %v %v", url, ok, err)
 	}
 	// Different file content is a different proposal.
 	req.Files = map[string][]byte{"ring.yaml": []byte("a: 2\n")}
