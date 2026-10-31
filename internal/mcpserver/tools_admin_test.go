@@ -85,7 +85,7 @@ func TestAdminPlanReadOnly(t *testing.T) {
 func anyStrings(v any) []string {
 	var out []string
 	for _, x := range v.([]any) {
-		out = append(out, x.(string))
+		out = append(out, stepWhy(x))
 	}
 	return out
 }

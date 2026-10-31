@@ -39,7 +39,7 @@
 
 ```sh
 brew install dshakes/tap/halo      # other installs below
-halo quickstart                    # the whole stack in Docker, about a minute
+halo quickstart                    # the whole stack in Docker, about a minute with a warm Docker cache, 2 to 3 minutes cold
 halo doctor && halo onboard local  # or pin and manage the CLIs on this machine
 halo onboard company               # or: policy repo, gateway, IdP, fleet, first PR
 ```
@@ -86,7 +86,7 @@ A change is a pull request:
   <img src="assets/how-it-works-light.svg" alt="Platform team: policy repo, pull request, CI checks, human merge, signed release. Fleet: rings point at releases; halod applies them on every machine and the gateway routes models; developers keep running their CLI as usual." width="880">
 </picture>
 
-[`examples/simple`](examples/simple) is the one-file version and [`examples/acme-corp`](examples/acme-corp) the full one; `make demo` runs it locally; `halo quickstart` is the same stack (55 s warm, 86 s with a cold build cache, on an arm64 laptop with Docker Desktop 28). Codespaces is UNVERIFIED: CI builds the dev container, but the demo has not been run in a real Codespace. More: [how Halos works](https://dshakes.github.io/halos/concepts/how-it-works/).
+[`examples/simple`](examples/simple) is the one-file version and [`examples/acme-corp`](examples/acme-corp) the full one; `make demo` runs it locally; `halo quickstart` is the same stack (about a minute with a warm Docker cache, 2 to 3 minutes cold; one cold run on an arm64 laptop with Docker Desktop took 2:31). Codespaces is UNVERIFIED: CI builds the dev container, but the demo has not been run in a real Codespace. More: [how Halos works](https://dshakes.github.io/halos/concepts/how-it-works/).
 
 ## Every rollout technique, as code
 
@@ -206,6 +206,7 @@ Traffic goes through `halo-proxy` to Anthropic, Bedrock (SigV4), Vertex, OpenAI,
 | Session ledger | One record per agent session: who (and the delegated chain), release, ring, variant, models, MCP tools, repos, tokens, cost and outcome, from gateway, OTel and vendor audit APIs | [session ledger](https://dshakes.github.io/halos/guides/session-ledger/) |
 | Delivery ROI | `halo roi` joins PR outcomes to randomized experiment arms, so the effect is the change's, not self-selection's; informational, never gates promotion | [delivery ROI](https://dshakes.github.io/halos/guides/delivery-roi/) |
 | Policy copilot | `halo copilot` drafts a policy change from an intent, runs validate, plan, impact and stats on it, and commits only to a local branch; a human opens and merges the PR | [policy copilot](https://dshakes.github.io/halos/guides/policy-copilot/) |
+| Test a change | `halo test` validates, renders every ring x harness x OS, checks invariants and releases, runs your `tests/` cases and simulates rollouts in seconds, offline, before any eval | [testing a policy change](https://dshakes.github.io/halos/guides/testing-policy/) |
 
 ## Runs everywhere
 
@@ -257,7 +258,7 @@ Deep dive, traced to the code: [tech stack](https://dshakes.github.io/halos/arch
 - **Guardrails twice.** `bypassPermissions` and `danger-full-access` are rejected at validate time and again on the rendered output.
 - **Humans own the irreversible step.** There is no auto-merge, no auto-promote and no agent (MCP) tool that publishes. Privileged actions land in a hash-chained audit log.
 
-[Threat model](https://dshakes.github.io/halos/reference/threat-model/) · [SECURITY.md](SECURITY.md)
+[Threat model](https://dshakes.github.io/halos/reference/threat-model/) · [SECURITY.md](SECURITY.md) · Compliance: [control mapping](https://dshakes.github.io/halos/compliance/control-mapping/), [data flow and PII](https://dshakes.github.io/halos/compliance/data-flow-and-pii/), [security overview](https://dshakes.github.io/halos/compliance/security-overview/)
 
 ## Status
 

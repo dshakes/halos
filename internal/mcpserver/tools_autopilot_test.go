@@ -106,7 +106,7 @@ func TestWaitFor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out["satisfied"] != false || !strings.Contains(out["reason"].(string), "no evidence") || !strings.Contains(out["next_steps"].([]any)[0].(string), "--clickhouse") {
+	if out["satisfied"] != false || !strings.Contains(out["reason"].(string), "no evidence") || !strings.Contains(stepWhy(out["next_steps"].([]any)[0]), "--clickhouse") {
 		t.Fatalf("wait experiment: %v", out)
 	}
 	// A draft experiment has nothing to wait for.
@@ -228,7 +228,7 @@ func TestFleetToolsNeedServer(t *testing.T) {
 	t.Setenv("HALO_SESSION", "")
 	cs := connect(t, Options{PolicyDir: example, AllowWrites: true})
 	out, err := call(t, cs, "kill_switch_status", nil)
-	if err != nil || out["configured"] != false || !strings.Contains(out["next_steps"].([]any)[0].(string), "HALO_SESSION") {
+	if err != nil || out["configured"] != false || !strings.Contains(stepWhy(out["next_steps"].([]any)[0]), "HALO_SESSION") {
 		t.Fatalf("kill_switch_status without server: %v %v", out, err)
 	}
 	for _, tool := range []string{"fleet_status", "audit_tail", "session_ledger"} {
@@ -433,15 +433,15 @@ func TestWriteToolsCarryNextSteps(t *testing.T) {
 	dir := copyExample(t)
 	cs := connect(t, Options{PolicyDir: dir, AllowWrites: true})
 	out, err := call(t, cs, "pause_experiment", map[string]any{"name": "opus-5-5-canary", "reason": "r"})
-	if err != nil || out["next_steps"].([]any)[0] != gateApprove {
+	if err != nil || stepWhy(out["next_steps"].([]any)[0]) != gateApprove {
 		t.Fatalf("dry run next_steps: %v %v", out, err)
 	}
 	out, err = call(t, cs, "pause_experiment", map[string]any{"name": "opus-5-5-canary", "reason": "r", "dry_run": false})
-	if err != nil || !strings.Contains(out["next_steps"].([]any)[0].(string), shJoin("git", "-C", dir, "push", "-u", "origin", out["branch"].(string))) {
+	if err != nil || !strings.Contains(stepWhy(out["next_steps"].([]any)[0]), shJoin("git", "-C", dir, "push", "-u", "origin", out["branch"].(string))) {
 		t.Fatalf("applied next_steps: %v %v", out, err)
 	}
 	out, err = call(t, cs, "propose_promotion", map[string]any{"experiment": "opus-5-5-canary", "ring": "ring1-canary", "release": "sha256:" + strings.Repeat("ab", 32), "reason": "r"})
-	if err != nil || !strings.Contains(out["next_steps"].([]any)[0].(string), "--clickhouse") {
+	if err != nil || !strings.Contains(stepWhy(out["next_steps"].([]any)[0]), "--clickhouse") {
 		t.Fatalf("promotion without evidence: %v %v", out, err)
 	}
 }

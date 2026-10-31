@@ -114,6 +114,7 @@ export default defineConfig({
                 'guides/cli-upgrade-ab',
                 'guides/model-upgrade-canary',
                 'guides/delivery-roi',
+                'guides/testing-policy',
                 'guides/writing-evals',
                 'guides/agentic-operations',
                 'guides/policy-copilot',
@@ -134,6 +135,10 @@ export default defineConfig({
           ],
         },
         {
+          label: 'Compliance',
+          items: ['compliance/control-mapping', 'compliance/data-flow-and-pii', 'compliance/security-overview'],
+        },
+        {
           label: 'Reference',
           items: [
             {
@@ -151,7 +156,6 @@ export default defineConfig({
             'reference/gateway-headers',
             'reference/metrics',
             'reference/binaries',
-            { slug: 'getting-started/installation', label: 'Build from source' },
             'reference/harness-matrix',
             'reference/compatibility',
             'reference/support-policy',

@@ -152,7 +152,7 @@ Automation authenticates with service-account tokens (`halo service-token create
 
 The kill switch drops a misbehaving experiment back to control within one gateway poll, with no PR and no merge. `halo-server` signs a kill list; gateways poll it and verify the signature with the public key.
 
-1. Generate the signing key pair: `halo keys generate --name killswitch` (private PKCS#8 PEM and public key).
+1. Generate the signing key pair: `halo keys generate --name killswitch` (private PKCS#8 PEM and public key, written to your per-user config directory; the command prints the paths).
 2. Create the server Secret (`server.killSwitch.existingSecret`) with `signing-key` (the private key) and `gateway-token` (for example `openssl rand -hex 32`). `halo-server` needs both, so set them together.
 3. Create the proxy Secret (`proxy.killSwitch.pubkey.existingSecret`, key `killswitch.pub`) holding only the public half. The proxy token defaults to the server Secret's `gateway-token`; override it with `proxy.killSwitch.token.existingSecret`.
 4. Set `proxy.killSwitch.enabled: true`. `url` defaults to the in-cluster `halo-server` Service at `/api/v1/gateway/killswitch` and `interval` to 10s. `halo-proxy` refuses plain `http://` to a non-loopback host unless `proxy.killSwitch.allowInsecureInCluster` is true (chart default `true`, because the in-cluster `halo-server` Service has no TLS listener; the list is signed but the bearer token travels in the clear). To enforce TLS, set an `https://` `proxy.killSwitch.url` (TLS terminated in front of `halo-server`) and `allowInsecureInCluster: false`.
@@ -227,7 +227,7 @@ halo rollback --ring ring3-ga --to 1.4.2 --registry ghcr.io/acme/halos --key "$R
 ## Signing key management
 
 - **One trust root at a time.** Every `halod`, Dev Container Feature and MDM export verifies with an ed25519 public key (several only during rotation, see below). Whoever holds the private key can ship a hook to every developer, subject to `halod`'s path allowlist.
-- **Generate:** `halo keys generate --name prod --out ./keys` writes `prod.key` (private, keep secret) and `prod.pub`.
+- **Generate:** `halo keys generate --name prod` writes `prod.key` (private, keep secret) and `prod.pub` to your per-user config directory (`<user config dir>/halos/keys`, mode 0700). Pass `--out DIR` to put them elsewhere; `halo keys generate` refuses to write a private key inside a git work tree unless `--force`.
 - **Store the private key in CI secrets or a KMS-backed signer**, never on laptops. The primary signer must be ed25519 file key; KMS-backed **cosign** signatures (`--cosign-key awskms://...` or a file) and keyless (`--cosign-keyless`, which uploads the digest to the public Rekor log) are co-signatures that `halod` does not check.
 - **Protect the branch.** Require review on ring pointers and profile changes, and restrict who can run the publish and refresh workflows.
 - **Distribute the public key** by embedding it inline (Feature option `pubkeyPem`, Coder `pubkey_pem`, `halo export ... --pubkey`) or as a root-owned file that `halod.yaml` points at. The portal serves it at `/enroll/release.pub` for enrollment.
@@ -263,4 +263,5 @@ Every file `halo-server` writes, what losing each one costs, and the restore pro
 - [ ] `halo-proxy` is unreachable except through your ingress or gateway; if you use `trusted_header`, the CIDR pin is set
 - [ ] `--dev-insecure-*` flags are not present anywhere
 - [ ] `identity.roles` separates operators, approvers and auditors; `adminGroups` / `roles.admin` hold only the platform owners
+- [ ] Fill in your questionnaires and privacy review from the [compliance pages](/halos/compliance/security-overview/): [control mapping](/halos/compliance/control-mapping/) and [data flow and PII inventory](/halos/compliance/data-flow-and-pii/); set retention where the inventory says unbounded
 - [ ] Read the [threat model](/halos/reference/threat-model/) and the **UNVERIFIED** items in the [README](https://github.com/dshakes/halos#status)

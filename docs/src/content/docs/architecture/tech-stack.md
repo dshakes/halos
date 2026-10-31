@@ -53,9 +53,9 @@ Most of the core is the Go standard library:
 <!-- check: go.mod -->
 | Module | Version | Used for | Used by |
 | --- | --- | --- | --- |
-| `gopkg.in/yaml.v3` | `v3.0.1` | Policy YAML with strict decoding and line-numbered errors ([`internal/policy/load.go:143-144`](https://github.com/dshakes/halos/blob/main/internal/policy/load.go#L143-L144)), binary configs, and comment-preserving YAML edits for PRs. | `cmd/halo`, `cmd/halo-proxy`, `cmd/halo-shadow`, `cmd/halod`, `internal/cloudagents/workflow`, `internal/copilot`, `internal/eval`, `internal/gateway/kong`, `internal/intent`, `internal/mcpserver`, `internal/policy`, `internal/promote`, `internal/rollout`, `internal/server`, `internal/telemetry`, `internal/upgrade`, `internal/yamledit`; tests: `internal/gateway/adapters` |
-| `github.com/pelletier/go-toml/v2` | `v2.4.3` | Codex `config.toml` rendering, the rendered-config backstop, toggle fragment merges, reading users' Codex MCP servers for drift, and reading Codex settings for the sandbox/egress posture. | `cmd/halod`, `internal/harness`, `internal/harness/codex`, `internal/release`, `internal/toggle` |
-| `github.com/santhosh-tekuri/jsonschema/v6` | `v6.0.3` | Tests that validate policy documents against `schemas/*.schema.json`. | tests: `internal/policy` |
+| `gopkg.in/yaml.v3` | `v3.0.1` | Policy YAML with strict decoding and line-numbered errors ([`internal/policy/load.go:143-144`](https://github.com/dshakes/halos/blob/main/internal/policy/load.go#L143-L144)), binary configs, and comment-preserving YAML edits for PRs. | `cmd/halo`, `cmd/halo-proxy`, `cmd/halo-shadow`, `cmd/halod`, `internal/cloudagents/workflow`, `internal/copilot`, `internal/eval`, `internal/gateway/kong`, `internal/intent`, `internal/mcpserver`, `internal/policy`, `internal/policytest`, `internal/promote`, `internal/rollout`, `internal/server`, `internal/telemetry`, `internal/upgrade`, `internal/yamledit`; tests: `internal/gateway/adapters` |
+| `github.com/pelletier/go-toml/v2` | `v2.4.3` | Codex `config.toml` rendering, the rendered-config backstop, toggle fragment merges, reading users' Codex MCP servers for drift, and reading Codex settings for the sandbox/egress posture. | `cmd/halod`, `internal/harness`, `internal/harness/codex`, `internal/policytest`, `internal/release`, `internal/toggle` |
+| `github.com/santhosh-tekuri/jsonschema/v6` | `v6.0.3` | Tests that validate policy documents against `schemas/*.schema.json`. | tests: `internal/policy`, `internal/policytest` |
 | `howett.net/plist` | `v1.0.1` | macOS MDM configuration profile export. | `internal/delivery/mdm` |
 <!-- /check -->
 
@@ -112,6 +112,7 @@ No OpenTelemetry SDK runs in a Halos binary. The collector, ClickHouse and Grafa
 <!-- check: go.mod -->
 | Module | Version | Used for | Used by |
 | --- | --- | --- | --- |
+| `github.com/google/jsonschema-go` | `v0.4.3` | Reads tool input schemas so the MCP envelope can name a missing or mistyped argument, its type, example and allowed values ([`internal/mcpserver/flow.go`](https://github.com/dshakes/halos/blob/main/internal/mcpserver/flow.go)). Already required by the MCP go-sdk. | `internal/mcpserver` |
 | `github.com/modelcontextprotocol/go-sdk` | `v1.8.0` | The MCP server behind `halo mcp serve` ([`internal/mcpserver/server.go:48-71`](https://github.com/dshakes/halos/blob/main/internal/mcpserver/server.go#L48-L71)). | `cmd/halo`, `internal/mcpserver` |
 <!-- /check -->
 

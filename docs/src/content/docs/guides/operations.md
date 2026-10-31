@@ -322,7 +322,7 @@ Not a flag day: `halod` trusts every key in `pubkey` plus `pubkeys`. Follow [rot
 
 Both halves are read once at startup: `halo-server` from `--killswitch-key-file`, `halo-proxy` from `killSwitch.pubkeyFile` (`cmd/halo-proxy/killswitch.go:26-46`). There is one key on each side, no overlap list, so order the restarts so the window where signatures do not verify is short and safe:
 
-1. `halo keys generate --name killswitch-2026 --out ./keys`.
+1. `halo keys generate --name killswitch-2026` (writes to your per-user config directory; `--out DIR` overrides).
 2. Update the **proxy** Secret (`proxy.killSwitch.pubkey.existingSecret`, key `killswitch.pub`) with the new public key and roll the proxies (`kubectl -n halos rollout restart deploy/halos-proxy`). From now until step 3 they reject lists signed by the old key and **keep the last accepted list** (`internal/gateway/killswitch.go:86`): existing kills stay in force, new kills do not propagate yet. A fresh proxy pod that has never fetched a list kills nothing, so do this when no kill is pending.
 3. Update the **server** Secret (`server.killSwitch.existingSecret`, key `signing-key`) with the new private key and restart `halo-server`. The kill list itself is in `killswitch.jsonl`, not in the key, so nothing is lost.
 4. Check: `GET /api/v1/killswitch` on the server and a proxy log line showing a list fetched and verified. If `halod` is also on the kill switch, update its `killswitch` public key the same way you distribute `pubkeys`.

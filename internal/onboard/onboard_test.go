@@ -54,7 +54,7 @@ func TestDetectAndCredentialsNeverLeakValues(t *testing.T) {
 	if !claude.Installed || claude.Version != "2.1.280" {
 		t.Fatalf("claude = %+v", claude)
 	}
-	if got := SuggestTools(hs); len(got) != 1 || got["claude-code"] != "2.1.280" {
+	if got, _ := SuggestTools(hs); len(got) != 1 || got["claude-code"] != "2.1.280" {
 		t.Fatalf("SuggestTools = %v", got)
 	}
 	if p := SuggestProvider(e); p != "anthropic" {

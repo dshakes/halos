@@ -27,6 +27,10 @@ type Issue struct {
 
 func (i Issue) String() string { return fmt.Sprintf("%s: %s: %s", i.Severity, i.Path, i.Message) }
 
+// ValidVersion reports whether v is an exact semver, the only form a
+// harness version pin may take (no ranges, no latest, no date-style versions).
+func ValidVersion(v string) bool { return semverRe.MatchString(v) }
+
 // HasErrors reports whether any issue is an error.
 func HasErrors(issues []Issue) bool {
 	return slices.ContainsFunc(issues, func(i Issue) bool { return i.Severity == SeverityError })
