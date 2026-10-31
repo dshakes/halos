@@ -130,7 +130,7 @@ IdP setup, group claims, Entra ID groups overage (`identity.groupsOverage`) and 
 server:
   session: {ttl: 12h, idleTimeout: 1h}    # --session-ttl, --session-idle-timeout ("0" = no idle timeout)
   serviceTokens: {maxTTL: 2160h}          # --service-token-max-ttl: longest and default token lifetime
-  breakGlass: {enabled: false, existingSecret: halos-breakglass, key: hash, user: breakglass}
+  breakGlass: {enabled: false, existingSecret: halos-breakglass, key: hash, user: breakglass, allowedCIDRs: "10.8.0.0/16"}
   oidc: {entraGraphURL: ""}               # --entra-graph-url, for identity.groupsOverage: graph
 ```
 

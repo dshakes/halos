@@ -35,6 +35,7 @@ HALO_TOKEN=halo_sat_... halo mcp serve --policy-dir . --server "$HALO_SERVER"
 | Storage | SHA-256 of the token only; the token is shown once |
 | Who creates | An admin, from an interactive session. A token cannot create tokens; break-glass cannot either |
 | Who revokes | Any admin principal: `halo service-token revoke <id> --reason ...`. Holds on every replica at the token's next request |
+| What it cannot do | File, approve or deny access requests, or approve rollout steps: those need a person (403, audited as `authz.deny` with `need: human`). For every separation-of-duties check a token counts as its creator |
 | Audit | Every action under the token's principal; `service-token.create`, `service-token.revoke`; `service-token.use` (method, path) at most hourly per token per replica |
 | Failed attempts | 10 per minute per client address (shared across replicas), then 429. An expired token is a 401 without a penalty |
 
@@ -69,12 +70,14 @@ shred -u bg-hash
 
 ```yaml
 server:
-  breakGlass: {enabled: false, existingSecret: halos-breakglass, key: hash, user: breakglass}
+  breakGlass: {enabled: false, existingSecret: halos-breakglass, key: hash, user: breakglass, allowedCIDRs: "10.8.0.0/16"}
 ```
 
-Without Helm: `--breakglass-hash-file=/path/bg-hash [--breakglass-user=breakglass]`. The hash is PBKDF2-HMAC-SHA256 with 600,000 iterations; passwords under 16 characters are refused.
+Without Helm: `--breakglass-hash-file=/path/bg-hash [--breakglass-user=breakglass] [--breakglass-allowed-cidrs=10.8.0.0/16]`. The hash is PBKDF2-HMAC-SHA256 with 600,000 iterations; passwords under 16 characters are refused.
 
-Alert on these audit actions in your SIEM: `breakglass.login`, `breakglass.login.failed`, `breakglass.request`.
+Set `allowedCIDRs` to your VPN or bastion range: from anywhere else break-glass answers 404 as if sealed and an existing break-glass session is refused, so outside attackers cannot guess the password or trip the lockout. Twenty failed logins within 15 minutes, from any addresses on any replica, lock break-glass for 15 minutes (audited as `breakglass.lockout`, high severity); a correct password is refused while locked.
+
+Alert on these audit actions in your SIEM: `breakglass.login`, `breakglass.login.failed`, `breakglass.lockout`, `breakglass.request`.
 
 ### Use it (incident)
 
@@ -89,7 +92,7 @@ Alert on these audit actions in your SIEM: `breakglass.login`, `breakglass.login
    halo freeze on --reason "SEV1: IdP outage"     # or kill, revoke, ...
    ```
 
-   The session is `breakglass:breakglass` with the admin role, for 30 minutes. It cannot create service tokens or delegate to agents.
+   The session is `breakglass:breakglass` with the admin role, for 30 minutes. It cannot create service tokens, delegate to agents, or decide access requests and rollout approvals. Every change it makes is written to the audit log before it happens; if the log cannot be written the change is refused (503).
 
 ### Close it (rotate after every use)
 

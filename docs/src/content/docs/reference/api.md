@@ -31,7 +31,7 @@ State-changing Session and Admin requests (anything but `GET`) are rejected with
 | `GET /auth/login` | Public | Start the OIDC authorization-code flow (PKCE) |
 | `GET /auth/callback` | Public | OIDC redirect target; sets the session cookie |
 | `POST /auth/logout` | Public | End the session |
-| `POST /auth/breakglass` | Public (password in the body) | Break-glass local admin login `{"user","password"}`: a 30-minute admin session for `breakglass:<user>`. 404 unless `--breakglass-enabled`; 401 bad credentials; 429 after repeated failures or while two attempts are running; 500 if the audit append fails (no session). Audited at high severity: `breakglass.login`, `breakglass.login.failed`, and `breakglass.request` for every request the session makes |
+| `POST /auth/breakglass` | Public (password in the body) | Break-glass local admin login `{"user","password"}`: a 30-minute admin session for `breakglass:<user>`. 404 unless `--breakglass-enabled`, or from a client outside `--breakglass-allowed-cidrs` when set; 401 bad credentials; 429 after repeated failures, during the 15-minute global lockout (20 failures from any addresses; audited as `breakglass.lockout`) or while two attempts are running; 500 if the audit append fails (no session). Audited at high severity: `breakglass.login`, `breakglass.login.failed`, and `breakglass.request` for every request the session makes |
 
 ### Fleet and devices
 
@@ -98,8 +98,8 @@ State-changing Session and Admin requests (anything but `GET`) are rejected with
 | `GET /api/v1/me`, `/catalog`, `/harnesses` | Session | Identity and ring, requestable catalog, harness matrix |
 | `GET /api/v1/whoami` | Session | Ring and variants for a user. Developers: self only; admins: any user |
 | `POST /api/v1/launch/{launcher}` | Session | Launcher output (`devcontainer`, `codespaces`, `coder`, `laptop`) |
-| `POST /api/v1/requests`, `GET /api/v1/requests` | Session | Submit and list access requests |
-| `POST /api/v1/requests/{id}/approve`, `/deny` | Admin | Decide a request; approval opens a PR. 500 if the decision cannot be stored (the request stays pending; the message names a PR already opened) or audited (the decision stands) |
+| `POST /api/v1/requests`, `GET /api/v1/requests` | Session | Submit and list access requests (submitting needs a person: a service token or break-glass gets 403). Rollout step approvals (`POST /api/v1/rollouts/{name}/approve`) are person-only too |
+| `POST /api/v1/requests/{id}/approve`, `/deny` | Admin | Decide a request (a person only: a service token or break-glass gets 403, audited as `authz.deny` with `need: human`); approval opens a PR. 500 if the decision cannot be stored (the request stays pending; the message names a PR already opened) or audited (the decision stands) |
 
 ### Enrollment (public)
 
