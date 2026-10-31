@@ -16,6 +16,8 @@ Everything here is checked against the code it describes; `file:line` references
 | `halo-shadow`, Postgres backend | **N** (`halo-shadow.database.existingSecret`) | Stateless workers; pairs and one global budget in Postgres | `RollingUpdate`, PDB when `replicas > 1`, `/readyz` checks Postgres |
 | OTel collector | 1 by default (`otel.replicas`) | Stateless, can be raised | |
 
+`halo-server` takes an exclusive lock on `<data-dir>/.lock` at start (flock on Linux and macOS, LockFileEx on Windows) and refuses to start with "directory is in use by another process" if another holds it: two processes on one data dir would skip each other's appends and lose them when one compacts the logs on open. The OS drops the lock when the process exits or dies, so a crash leaves nothing to clean up. Do not put `--data-dir` on a filesystem where advisory locks are not enforced (some network mounts); use Postgres for more than one replica.
+
 On the file backend, the honest consequence: a `halo-server` upgrade or reschedule is a short outage of the console, enrollment, fleet reports and the kill-list endpoint. That outage does not reach developers' CLIs: gateways keep serving with their last accepted kill list (`internal/gateway/killswitch.go:86`), `halod` keeps its last-good release and logs failed reports at WARN (`cmd/halod/agent.go:239`, `:685`). A pinned single replica is the right default for a small install: the state is a handful of local files and the blast radius of a 30-second restart is nil for end users. When the console, enrollment and kill-list endpoints must survive a node loss or an upgrade, run the Postgres backend below.
 
 ### HA on Postgres
