@@ -223,8 +223,12 @@ func (k *KillSwitch) refresh(ctx context.Context) error {
 	}
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	if sameList(l, k.list) {
-		return nil // the envelope we already hold (halo-server caches remotely signed ones): nothing to do
+	if sameKills(l, k.list) && !l.IssuedAt.After(k.list.IssuedAt) {
+		// The kills we already hold, signed at the same or an earlier instant:
+		// a cached envelope, or another halo-server replica a little behind.
+		// Accepting it changes nothing, so it is not a replay; an older list
+		// with different kills still is (below).
+		return nil
 	}
 	if !l.IssuedAt.After(k.list.IssuedAt) {
 		return fmt.Errorf("gateway: kill list issued at %s is not newer than the current one (%s); replay?", l.IssuedAt.Format(time.RFC3339Nano), k.list.IssuedAt.Format(time.RFC3339Nano))
@@ -236,12 +240,11 @@ func (k *KillSwitch) refresh(ctx context.Context) error {
 	return nil
 }
 
-// sameList reports whether a and b are the same signed statement (same
-// instant, version and contents). Re-accepting it changes nothing, so it is
-// not a replay; a different list at the same instant still is.
-func sameList(a, b KillList) bool {
-	return !a.IssuedAt.IsZero() && a.IssuedAt.Equal(b.IssuedAt) && a.Version == b.Version &&
-		slices.Equal(a.Experiments, b.Experiments) && slices.Equal(a.Toggles, b.Toggles)
+// sameKills reports whether a and b kill exactly the same experiments and
+// toggles (Version is informational and differs between replicas). b must
+// be a list actually held (non-zero IssuedAt).
+func sameKills(a, b KillList) bool {
+	return !b.IssuedAt.IsZero() && slices.Equal(a.Experiments, b.Experiments) && slices.Equal(a.Toggles, b.Toggles)
 }
 
 // set installs l as the current list; callers hold k.mu.

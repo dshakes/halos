@@ -317,4 +317,17 @@ func TestKillSwitchSameEnvelope(t *testing.T) {
 	if err := k.Refresh(ctx); err == nil || !slices.Equal(k.Killed().Experiments, []string{"a"}) {
 		t.Fatalf("same-instant different list: err=%v list=%v", err, k.Killed())
 	}
+	// L2: another replica a little behind (older issuedAt, other version
+	// counter, same kills) is a silent no-op, not a replay error...
+	behind, _ := SignKillList(ctx, bundle.Ed25519Signer{Key: priv}, KillList{Version: 9, Experiments: []string{"a"}, IssuedAt: now.Add(-2 * time.Second)})
+	ks.set(http.StatusOK, behind)
+	if err := k.Refresh(ctx); err != nil || !k.Killed().IssuedAt.Equal(now) {
+		t.Fatalf("older list with the same kills: err=%v held issuedAt %v", err, k.Killed().IssuedAt)
+	}
+	// ...but an older list with different kills still fails and changes nothing.
+	older, _ := SignKillList(ctx, bundle.Ed25519Signer{Key: priv}, KillList{Version: 1, Experiments: []string{}, IssuedAt: now.Add(-2 * time.Second)})
+	ks.set(http.StatusOK, older)
+	if err := k.Refresh(ctx); err == nil || !slices.Equal(k.Killed().Experiments, []string{"a"}) {
+		t.Fatalf("older list with different kills: err=%v list=%v", err, k.Killed())
+	}
 }
