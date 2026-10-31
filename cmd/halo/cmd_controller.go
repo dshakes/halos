@@ -20,7 +20,8 @@ import (
 func (a *app) cmdController() *cobra.Command {
 	c := &cobra.Command{Use: "controller", Short: "Automated experiment loop (evaluate, kill on rollback, PRs, notify)"}
 	var ch clickhouseFlags
-	var dataDir, verdicts, base, slackFile, hookFile, secretFile string
+	var dataDir, verdicts, base string
+	var notify controller.NotifyConfig
 	var once, noPR, killServed bool
 	var interval time.Duration
 	run := &cobra.Command{
@@ -41,7 +42,8 @@ func (a *app) cmdController() *cobra.Command {
 			if !once && interval < time.Minute {
 				return errors.New("--interval must be at least 1m")
 			}
-			notifiers, err := controller.NotifiersFromFiles(slackFile, hookFile, secretFile)
+			notify.Retry = controller.DefaultRetry
+			notifiers, err := notify.Build()
 			if err != nil {
 				return err
 			}
@@ -114,9 +116,7 @@ func (a *app) cmdController() *cobra.Command {
 	f.StringVar(&dataDir, "data-dir", "", "directory for controller-state.jsonl and killswitch.jsonl (required)")
 	f.StringVar(&verdicts, "verdicts-file", "", "upsert each verdict into this JSON array file read by halo-server")
 	f.StringVar(&base, "base", "", "PR base branch")
-	f.StringVar(&slackFile, "notify-slack-url-file", "", "file holding a Slack incoming-webhook URL")
-	f.StringVar(&hookFile, "notify-webhook-url-file", "", "file holding a generic webhook URL")
-	f.StringVar(&secretFile, "notify-webhook-secret-file", "", "file holding the webhook HMAC-SHA256 secret (X-Halo-Signature)")
+	controller.NotifyFlags(f, &notify)
 	f.BoolVar(&once, "once", false, "run a single tick and exit (CI/cron); non-zero exit if any experiment failed")
 	f.BoolVar(&noPR, "no-pr", false, "do not open PRs (verdicts, kills and notifications only)")
 	f.DurationVar(&interval, "interval", 5*time.Minute, "tick interval without --once")

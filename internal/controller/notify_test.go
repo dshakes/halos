@@ -214,7 +214,7 @@ func TestNotifiersFromFiles(t *testing.T) {
 		})
 	}
 	ns, _ := NotifiersFromFiles("", hook, secret)
-	if w := ns[0].(Webhook); string(w.Secret) != "k" || w.URL != "https://hooks.test/y" {
+	if w := ns[0].(*Sink).Notifier.(Webhook); string(w.Secret) != "k" || w.URL != "https://hooks.test/y" {
 		t.Fatalf("webhook = %+v", w)
 	}
 }

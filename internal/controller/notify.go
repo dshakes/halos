@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -9,10 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
-	"net/url"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -50,11 +46,24 @@ type Event struct {
 	PRError     string          `json:"prError,omitempty"`
 	Report      promote.Report  `json:"report"`
 	At          time.Time       `json:"at"`
+	// Resolved marks the all-clear for an earlier event of the same Verdict:
+	// the condition that raised it is over (a human merged the pause or
+	// advanced the rollout, or the kill was lifted). Only sinks that opt in
+	// with the "resolved" event kind receive it (webhook, PagerDuty).
+	Resolved bool `json:"resolved,omitempty"`
 }
 
 // Text is a one-paragraph human summary.
 func (e Event) Text() string {
 	var b strings.Builder
+	if e.Resolved {
+		kind, name := "experiment", e.Experiment
+		if e.Rollout != "" {
+			kind, name = "rollout", e.Rollout
+		}
+		fmt.Fprintf(&b, "Halos %s %s: %s resolved (%s)", kind, name, strings.ToUpper(string(e.Verdict)), e.Reason)
+		return b.String()
+	}
 	if e.Rollout != "" {
 		fmt.Fprintf(&b, "Halos rollout %s: %s (%s)", e.Rollout, strings.ToUpper(string(e.Verdict)), e.Reason)
 	} else {
@@ -111,37 +120,16 @@ func defaultClient() *http.Client {
 	return &http.Client{Timeout: notifyTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 }
 
-// post sends body and never lets the (secret-bearing) URL into an error.
+// post sends body once and never lets the (secret-bearing) URL into an error.
 func post(ctx context.Context, hc *http.Client, kind, u string, body []byte, hdr http.Header) error {
-	if hc == nil {
-		hc = defaultClient()
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("%s notify: invalid URL", kind) // err would echo the URL
-	}
-	req.Header = hdr
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := hc.Do(req)
-	if err != nil {
-		var ue *url.Error
-		if errors.As(err, &ue) {
-			err = ue.Err // drop the URL
-		}
-		return fmt.Errorf("%s notify: %w", kind, err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)) // drain for keep-alive
-	if resp.StatusCode/100 != 2 {
-		return fmt.Errorf("%s notify: HTTP %d", kind, resp.StatusCode)
-	}
-	return nil
+	return deliver(ctx, RetryPolicy{}, hc, kind, u, body, hdr)
 }
 
 // Slack posts to a Slack(-compatible) incoming webhook.
 type Slack struct {
 	URL    string
 	Client *http.Client
+	Retry  RetryPolicy // zero: one attempt
 }
 
 var slackEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;")
@@ -155,7 +143,7 @@ func (s Slack) Notify(ctx context.Context, e Event) error {
 	if err != nil {
 		return fmt.Errorf("slack notify: encode: %w", err)
 	}
-	return post(ctx, s.Client, "slack", s.URL, body, http.Header{})
+	return deliver(ctx, s.Retry, s.Client, "slack", s.URL, body, http.Header{})
 }
 
 // Webhook authentication. The signature covers the timestamp so a captured
@@ -180,6 +168,7 @@ type Webhook struct {
 	Secret []byte
 	Client *http.Client
 	Now    func() time.Time // default time.Now
+	Retry  RetryPolicy      // zero: one attempt
 }
 
 // Sign returns the SignatureHeader value for body sent at unix time ts.
@@ -227,59 +216,5 @@ func (w Webhook) Notify(ctx context.Context, e Event) error {
 		h.Set(TimestampHeader, strconv.FormatInt(ts, 10))
 		h.Set(SignatureHeader, Sign(w.Secret, ts, body))
 	}
-	return post(ctx, w.Client, "webhook", w.URL, body, h)
-}
-
-// NotifiersFromFiles builds notifiers from secret files (any path may be ""):
-// a Slack incoming-webhook URL, a generic webhook URL and its HMAC secret.
-func NotifiersFromFiles(slackURLFile, webhookURLFile, webhookSecretFile string) (Notifiers, error) {
-	read := func(flag, p string) (string, error) {
-		if p == "" {
-			return "", nil
-		}
-		b, err := os.ReadFile(p)
-		if err != nil {
-			return "", fmt.Errorf("%s: %w", flag, err)
-		}
-		v := strings.TrimSpace(string(b))
-		if v == "" {
-			return "", fmt.Errorf("%s: %s is empty", flag, p)
-		}
-		return v, nil
-	}
-	checkURL := func(flag, v string) error {
-		u, err := url.Parse(v)
-		if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
-			return fmt.Errorf("%s: not an http(s) URL", flag) // never echo the URL
-		}
-		return nil
-	}
-	var ns Notifiers
-	slack, err := read("--notify-slack-url-file", slackURLFile)
-	if err != nil {
-		return nil, err
-	}
-	if slack != "" {
-		if err := checkURL("--notify-slack-url-file", slack); err != nil {
-			return nil, err
-		}
-		ns = append(ns, Slack{URL: slack})
-	}
-	hook, err := read("--notify-webhook-url-file", webhookURLFile)
-	if err != nil {
-		return nil, err
-	}
-	secret, err := read("--notify-webhook-secret-file", webhookSecretFile)
-	if err != nil {
-		return nil, err
-	}
-	if hook != "" {
-		if err := checkURL("--notify-webhook-url-file", hook); err != nil {
-			return nil, err
-		}
-		ns = append(ns, Webhook{URL: hook, Secret: []byte(secret)})
-	} else if secret != "" {
-		return nil, errors.New("--notify-webhook-secret-file set without --notify-webhook-url-file")
-	}
-	return ns, nil
+	return deliver(ctx, w.Retry, w.Client, "webhook", w.URL, body, h)
 }
