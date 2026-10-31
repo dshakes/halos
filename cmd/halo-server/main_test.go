@@ -317,7 +317,7 @@ func TestNewControllerWiring(t *testing.T) {
 		{"clone is the served dir", with(func(o *options) { o.policyRepoDir = served }), nil, "separate clone", nil, false},
 		{"clone inside the portal clone", with(func(o *options) { o.policyRepoDir = filepath.Join(portalDir, "sub") }), nil, "separate clone", nil, false},
 		{"bad password file", with(func(o *options) { o.chPasswordFile = filepath.Join(root, "missing") }), nil, "--clickhouse-password-file", nil, false},
-		{"bad notifier file", with(func(o *options) { o.slackURLFile = filepath.Join(root, "missing") }), nil, "--notify-slack-url-file", nil, false},
+		{"bad notifier file", with(func(o *options) { o.notify.SlackURLFile = filepath.Join(root, "missing") }), nil, "--notify-slack-url-file", nil, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c, err := newController(tc.o, portal, pw, srv, tc.kills)

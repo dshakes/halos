@@ -62,7 +62,7 @@ type options struct {
 	gatewayCapTokenFiles                                           [5]string // killswitch, posture, budget, directory, dlp (gatewayCapFlags order)
 	gatewayDLPTokensDir                                            string    // one file per gateway: name = gateway, content = its DLP token
 	workloadKeyFile                                                string
-	slackURLFile, webhookURLFile, webhookSecretFile                string
+	notify                                                         controller.NotifyConfig
 	policyRepoDir, policyRepoSubdir, policyRepoBase, metricsListen string
 	forge, forgeBaseURL                                            string // --forge, --forge-base-url
 
@@ -123,9 +123,7 @@ func parseFlags(args []string) (options, error) {
 	fs.StringVar(&o.gatewayDLPTokensDir, "gateway-dlp-tokens-dir", "", "directory of per-gateway DLP tokens: each file is named for one gateway and holds the token that gateway posts /api/v1/gateway/dlp/events with; its events are attributed to it (recommended over --gateway-dlp-token-file, whose events are recorded as gateway:unverified)")
 	fs.StringVar(&o.workloadKeyFile, "workload-key-file", "", "ed25519 PKCS#8 PEM private key signing CI/cloud workload credentials from POST /api/v1/token/exchange (halo keys generate --name workload); empty disables the endpoint")
 	fs.DurationVar(&o.postureMaxAge, "posture-max-age", server.DefaultPostureMaxAge, "a device whose last halod report is older is non-compliant for the gateway posture gate")
-	fs.StringVar(&o.slackURLFile, "notify-slack-url-file", "", "file holding a Slack incoming-webhook URL")
-	fs.StringVar(&o.webhookURLFile, "notify-webhook-url-file", "", "file holding a generic webhook URL (JSON event, signed with X-Halo-Signature)")
-	fs.StringVar(&o.webhookSecretFile, "notify-webhook-secret-file", "", "file holding the webhook HMAC-SHA256 secret")
+	controller.NotifyFlags(fs, &o.notify)
 	fs.StringVar(&o.policyRepoDir, "policy-repo-dir", "", "dedicated policy-repo clone the controller opens PRs from (hard-reset to origin before each PR; must not be --policy-dir or the portal clone)")
 	fs.StringVar(&o.policyRepoSubdir, "policy-repo-subdir", "", "policy root inside --policy-repo-dir")
 	fs.StringVar(&o.policyRepoBase, "policy-repo-base", "main", "PR base branch for controller PRs")
@@ -798,7 +796,8 @@ func newController(o options, portal server.Portal, portalWriter server.PolicyWr
 		}
 		pw = strings.TrimSpace(string(b))
 	}
-	notifiers, err := controller.NotifiersFromFiles(o.slackURLFile, o.webhookURLFile, o.webhookSecretFile)
+	o.notify.Retry = controller.DefaultRetry
+	notifiers, err := o.notify.Build()
 	if err != nil {
 		return nil, err
 	}

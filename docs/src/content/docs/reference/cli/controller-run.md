@@ -33,9 +33,16 @@ halo controller run [flags]
 | `--interval` |  | duration | 5m0s | tick interval without --once |
 | `--killswitch-served` |  | bool | false | acknowledge that halo-server (with --killswitch-key-file) serves this --data-dir to gateways; without it, rollback messages say the kill is only recorded, not enforced |
 | `--no-pr` |  | bool | false | do not open PRs (verdicts, kills and notifications only) |
+| `--notify-pagerduty-events` |  | string |  | PagerDuty: comma-separated event kinds to deliver (see the notifications guide; "all" = every kind), plus resolved; default experiment.rollback,experiment.killed,rollout.rollback,rollout.pause,rollout.killed,resolved |
+| `--notify-pagerduty-routing-key-file` |  | string |  | file holding a PagerDuty Events API v2 routing (integration) key |
+| `--notify-pagerduty-url` |  | string |  | PagerDuty Events API URL (default https://events.pagerduty.com/v2/enqueue; EU region: https://events.eu.pagerduty.com/v2/enqueue) |
+| `--notify-slack-events` |  | string |  | Slack: comma-separated event kinds to deliver (see the notifications guide; "all" = every kind); default every event |
 | `--notify-slack-url-file` |  | string |  | file holding a Slack incoming-webhook URL |
-| `--notify-webhook-secret-file` |  | string |  | file holding the webhook HMAC-SHA256 secret (X-Halo-Signature) |
-| `--notify-webhook-url-file` |  | string |  | file holding a generic webhook URL |
+| `--notify-teams-events` |  | string |  | Teams: comma-separated event kinds to deliver (see the notifications guide; "all" = every kind); default every event |
+| `--notify-teams-url-file` |  | string |  | file holding a Microsoft Teams Workflows (Power Automate) webhook URL; posts an Adaptive Card |
+| `--notify-webhook-events` |  | string |  | webhook: comma-separated event kinds to deliver (see the notifications guide; "all" = every kind), plus resolved; default every event except resolved |
+| `--notify-webhook-secret-file` |  | string |  | file holding the webhook HMAC-SHA256 secret (X-Halo-Timestamp, X-Halo-Signature) |
+| `--notify-webhook-url-file` |  | string |  | file holding a generic webhook URL (JSON event, signed with X-Halo-Signature when a secret is set) |
 | `--once` |  | bool | false | run a single tick and exit (CI/cron); non-zero exit if any experiment failed |
 | `--policy-dir` |  | string |  | policy repo directory (default ".") |
 | `--user` |  | string |  | ClickHouse user (password from HALO_CLICKHOUSE_PASSWORD) |

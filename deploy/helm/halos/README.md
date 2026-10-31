@@ -131,6 +131,7 @@ OIDC issuer/audience live in the policy repo (halo-server) and `proxy.config.ide
 | `server.metrics.{enabled,port}` | off, 9092 | `--metrics-listen` |
 | `server.audit.{rotation,export}` | `{}` | rendered to `--audit-config` JSON: audit log rotation and SIEM export ([guide](https://dshakes.github.io/halos/guides/siem-export/)); credentials are `{env}`/`{file}` refs only; needs persistence |
 | `server.controller.{enabled,interval,clickhouse,notify,policyRepo}` | off, `5m` | automated experiment loop (see design notes) |
+| `server.controller.notify.{slack,teams,webhook,pagerduty}` | off | `existingSecret` + key(s) per sink (never inline a URL or routing key) and an optional `events` filter; PagerDuty also takes `url` (EU region). See the docs site, "Notifications" |
 | `server.proposals.enabled` | `false` | writable clone for self-service proposals |
 | `server.persistence.*` | 5Gi RWO | `--data-dir`; `existingClaim` supported; disabled = in-memory store (or Postgres with `server.database`) |
 | `server.database.{existingSecret,key,autoMigrate,leaseTTL,maxConns,insecureTLS}` | off, `url`, `false`, `15s`, 16, `false` | HA: Postgres state, `replicas > 1` allowed; the URL must be `sslmode=verify-full` unless `insecureTLS` (test only); `autoMigrate` needs DDL rights on the serving role |

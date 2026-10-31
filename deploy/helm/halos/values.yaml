@@ -166,10 +166,14 @@ server:
       existingSecret: ""
       userKey: username
       passwordKey: password
-    # Each is optional; Secret value = the URL / HMAC secret. Empty existingSecret disables that channel.
+    # Each is optional; Secret value = the URL / HMAC secret / routing key (never put one in values). Empty existingSecret
+    # disables that channel. `events` is a comma-separated list of event kinds (docs: guides/notifications); empty = the
+    # channel's default (everything for slack/teams/webhook, only what pages for pagerduty).
     notify:
-      slack: {existingSecret: "", key: url}                    # --notify-slack-url-file
-      webhook: {existingSecret: "", urlKey: url, secretKey: secret}   # --notify-webhook-url-file / -secret-file (X-Halo-Signature)
+      slack: {existingSecret: "", key: url, events: ""}                      # --notify-slack-url-file / -events
+      teams: {existingSecret: "", key: url, events: ""}                      # --notify-teams-url-file / -events (Workflows webhook, not the retired O365 connector)
+      webhook: {existingSecret: "", urlKey: url, secretKey: secret, events: ""}   # --notify-webhook-url-file / -secret-file / -events (X-Halo-Signature)
+      pagerduty: {existingSecret: "", key: routingKey, url: "", events: ""}  # --notify-pagerduty-routing-key-file / -url (EU region) / -events
     # PR opening from ONE writable clone (/policy-writer/repo, shared with proposals; never the served policy dir), made by
     # an init container running a real `git clone` (git-sync worktrees have no origin). Needs `git`, `sh`, `gh` (`gh` only for forge gh) (+ `ssh` for
     # ssh auth) IN THE halo-server IMAGE: set `image` to one that has them. UNVERIFIED against a real cluster.
@@ -422,7 +426,7 @@ networkPolicy:
   controllerEgress:
     clickhouse: {to: [], ports: [8123]}    # e.g. [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: data}}}]
     git: {to: [], ports: [443, 22]}        # git host + GitHub API for `gh` (api.github.com, github.com)
-    webhook: {to: [], ports: [443]}        # Slack / generic webhook receiver
+    webhook: {to: [], ports: [443]}        # Slack / Teams / PagerDuty / generic webhook receivers (all notification sinks)
   # halo-proxy -> AWS. Bedrock runtime is bedrock-runtime.<region>.amazonaws.com:443 (prefer a bedrock-runtime VPC
   # interface endpoint and put its subnet CIDR here). IRSA also calls sts.<region>.amazonaws.com:443 (add its CIDR/endpoint).
   # Pod Identity instead talks to the node-local agent 169.254.170.23:80 (podIdentityAgent: true).

@@ -61,6 +61,7 @@ For Claude Code these ride on `OTEL_RESOURCE_ATTRIBUTES`. Codex uses its `[otel]
 | `halo_controller_ticks_total` | counter | Evaluation ticks started |
 | `halo_controller_verdicts_total{verdict}` | counter | Verdicts reached, by `continue`, `expired`, `promote`, `rollback` |
 | `halo_controller_errors_total` | counter | Failed evaluations, PRs, kills, notifications or state writes |
+| `halo_controller_notifications_total{sink,result}` | counter | Notification deliveries per sink (`slack`, `teams`, `webhook`, `pagerduty`) by `result`: `ok`, `error` (failed after retries; retried on the next tick) or `filtered` (dropped by the sink's event filter) |
 
 A rising `halo_controller_errors_total` with flat verdicts usually means ClickHouse or the policy clone is unreachable; the loop retries at 15s, 30s, and so on.
 

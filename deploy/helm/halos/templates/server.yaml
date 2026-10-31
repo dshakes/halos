@@ -234,10 +234,31 @@ spec:
             {{- end }}
             {{- if $c.notify.slack.existingSecret }}
             - --notify-slack-url-file=/secrets/notify-slack-url
+            {{- with $c.notify.slack.events }}
+            - --notify-slack-events={{ . }}
+            {{- end }}
+            {{- end }}
+            {{- if $c.notify.teams.existingSecret }}
+            - --notify-teams-url-file=/secrets/notify-teams-url
+            {{- with $c.notify.teams.events }}
+            - --notify-teams-events={{ . }}
+            {{- end }}
             {{- end }}
             {{- if $c.notify.webhook.existingSecret }}
             - --notify-webhook-url-file=/secrets/notify-webhook-url
             - --notify-webhook-secret-file=/secrets/notify-webhook-secret
+            {{- with $c.notify.webhook.events }}
+            - --notify-webhook-events={{ . }}
+            {{- end }}
+            {{- end }}
+            {{- if $c.notify.pagerduty.existingSecret }}
+            - --notify-pagerduty-routing-key-file=/secrets/notify-pagerduty-routing-key
+            {{- with $c.notify.pagerduty.url }}
+            - --notify-pagerduty-url={{ . }}
+            {{- end }}
+            {{- with $c.notify.pagerduty.events }}
+            - --notify-pagerduty-events={{ . }}
+            {{- end }}
             {{- end }}
             {{- if $pr }}
             - --policy-repo-dir=/policy-writer/repo
@@ -376,10 +397,20 @@ spec:
                   name: {{ $c.notify.slack.existingSecret }}
                   items: [{key: {{ $c.notify.slack.key }}, path: notify-slack-url}]
               {{- end }}
+              {{- if and $c.enabled $c.notify.teams.existingSecret }}
+              - secret:
+                  name: {{ $c.notify.teams.existingSecret }}
+                  items: [{key: {{ $c.notify.teams.key }}, path: notify-teams-url}]
+              {{- end }}
               {{- if and $c.enabled $c.notify.webhook.existingSecret }}
               - secret:
                   name: {{ $c.notify.webhook.existingSecret }}
                   items: [{key: {{ $c.notify.webhook.urlKey }}, path: notify-webhook-url}, {key: {{ $c.notify.webhook.secretKey }}, path: notify-webhook-secret}]
+              {{- end }}
+              {{- if and $c.enabled $c.notify.pagerduty.existingSecret }}
+              - secret:
+                  name: {{ $c.notify.pagerduty.existingSecret }}
+                  items: [{key: {{ $c.notify.pagerduty.key }}, path: notify-pagerduty-routing-key}]
               {{- end }}
         {{- if $s.persistence.enabled }}
         - name: data

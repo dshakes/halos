@@ -122,7 +122,15 @@ func (c *Controller) Tick(ctx context.Context) error {
 		}
 		if e.Status != "running" {
 			// A human merged the pause/conclude (or never started it): the
-			// next run of this experiment starts with a clean slate.
+			// next run of this experiment starts with a clean slate. Any open
+			// incident is cleared first; that is best effort, so a sink outage
+			// never keeps a restarted experiment from being evaluated.
+			if rerr := c.resolveExperiment(ctx, e.Name, resolveLeftRunning, experimentPaging...); rerr != nil {
+				errs = append(errs, rerr)
+				if fenced(rerr) {
+					continue
+				}
+			}
 			if err := c.State.Reset(e.Name, c.now()); err != nil {
 				errs = append(errs, c.fail(err))
 			}
@@ -136,6 +144,7 @@ func (c *Controller) Tick(ctx context.Context) error {
 		}
 	}
 	errs = append(errs, c.tickRollouts(ctx, org))
+	errs = append(errs, c.resolveDeleted(ctx, org))
 	return errors.Join(errs...)
 }
 
@@ -146,10 +155,19 @@ func (c *Controller) step(ctx context.Context, e *policy.Experiment) error {
 	if d, done := c.State.Done(e.Name, string(promote.Rollback), ActionRollback); done {
 		return c.rollback(ctx, e, decodeReport(d))
 	}
+	var errs []error
 	if killed, err := c.killed(e.Name); err != nil {
 		return c.fail(fmt.Errorf("controller: read kill switch for %s: %w", e.Name, err))
 	} else if killed {
 		return c.hold(ctx, e)
+	} else if _, held := c.State.Done(e.Name, string(VerdictKilled), ActionHold); held {
+		// Unkilled since the hold was announced: close that incident.
+		if rerr := c.resolveExperiment(ctx, e.Name, resolveUnkilled, VerdictKilled); rerr != nil {
+			errs = append(errs, rerr)
+			if fenced(rerr) {
+				return errors.Join(errs...)
+			}
+		}
 	}
 	now := c.now()
 	rep, err := promote.EvaluateAt(ctx, e, c.Metrics, now)
@@ -165,7 +183,6 @@ func (c *Controller) step(ctx context.Context, e *policy.Experiment) error {
 	c.log().Info("experiment evaluated", "experiment", e.Name, "verdict", rep.Verdict, "reason", rep.Reason,
 		"n_control", rep.NControl, "n_treatment", rep.NTreatment)
 
-	var errs []error
 	switch {
 	case c.VerdictDocs != nil:
 		b, err := promote.VerdictRow(e.Name, rep, now.UTC())
@@ -437,6 +454,9 @@ func (c *Controller) Run(ctx context.Context, interval time.Duration) {
 func (c *Controller) WriteMetrics(w io.Writer) {
 	fmt.Fprintf(w, "# TYPE halo_controller_ticks_total counter\nhalo_controller_ticks_total %d\n", c.ticks.Load())
 	fmt.Fprintf(w, "# TYPE halo_controller_errors_total counter\nhalo_controller_errors_total %d\n", c.errs.Load())
+	if m, ok := c.Notifier.(interface{ WriteMetrics(io.Writer) }); ok {
+		m.WriteMetrics(w)
+	}
 	c.vmu.Lock()
 	defer c.vmu.Unlock()
 	fmt.Fprint(w, "# TYPE halo_controller_verdicts_total counter\n")
