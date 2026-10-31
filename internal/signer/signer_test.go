@@ -545,6 +545,7 @@ func TestParseExecURI(t *testing.T) {
 		{uri: "exec://host/usr/bin/s", err: "exec:///absolute"},
 		{uri: "exec://relative", err: "exec:///absolute"},
 		{uri: "exec:///usr/../bin/s", err: "clean"},
+		{uri: "exec:///tmp/x%00y", err: "clean"},
 		{uri: "exec:///usr/bin/s?x=1", err: "unknown exec"},
 		{uri: "exec:///usr/bin/s?timeout=forever", err: "timeout"},
 		{uri: "exec:///usr/bin/s?timeout=11m", err: "timeout"},
