@@ -21,6 +21,16 @@ The `uat-k8s` CI job installs the chart on kind on every PR (`test/uat/REPORT.md
 
 ## Helm
 
+From the first release that includes this change (v0.5.0 and later) the chart is published as a signed OCI artifact, so no source checkout is needed:
+
+```bash
+helm install halos oci://ghcr.io/dshakes/charts/halos --version 0.5.0 -n halos -f my-values.yaml   # a human runs this
+cosign verify --certificate-identity https://github.com/dshakes/halos/.github/workflows/release.yml@refs/tags/v0.5.0 \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com ghcr.io/dshakes/charts/halos:0.5.0
+```
+
+The chart version and `appVersion` equal the release tag, so the default image tags are the images of that release. Releases before v0.5.0 (including v0.4.1) have no OCI chart: use the source checkout of the matching tag.
+
 ```bash
 helm lint deploy/helm/halos -f deploy/helm/halos/ci/all-values.yaml
 helm template halo deploy/helm/halos -f my-values.yaml | kubectl diff -f -    # review
@@ -29,7 +39,7 @@ helm upgrade --install halo deploy/helm/halos -n halos -f my-values.yaml  # a hu
 
 The chart deploys `halo-server`, `halo-proxy`, `halo-shadow`, optionally an OTEL collector and a `KongPlugin` custom resource, each toggled by `<component>.enabled`. Policy reaches the pods through git-sync (init container plus sidecar into an `emptyDir`; `halo-server` reloads by mtime). `halo-proxy` reads its compiled snapshot from a ConfigMap (`proxy.policy.source: configMap`) or from the git-sync clone (`gitSync`, using `gitSyncPath`).
 
-Things the chart does for you: non-root (65532), read-only root filesystem, drop ALL capabilities, RuntimeDefault seccomp, no service-account token, default-deny NetworkPolicy, HPA and PDB for the proxy, long-stream timeouts and `terminationGracePeriodSeconds: 150` (must exceed the proxy's 2m `shutdownTimeout`).
+Things the chart does for you: non-root (65532), read-only root filesystem, drop ALL capabilities, RuntimeDefault seccomp (on every container, tested by `go test ./internal/obsassets`), no service-account token, default-deny NetworkPolicy, HPA and PDB for the proxy, a PDB for any component with more than one replica, one-pod-per-node `podAntiAffinity` and zone/node topology spread, optional HPAs for the Postgres-backed `halo-server`, `halo-shadow` and the collector (`<component>.autoscaling.enabled`), `global.imageRegistry` / `global.imagePullSecrets` on every pod (third-party images too), an opt-in `PrometheusRule` and Grafana dashboards (`monitoring.*`, [Operations](/halos/guides/operations/#alerts)), long-stream timeouts and `terminationGracePeriodSeconds: 150` (must exceed the proxy's 2m `shutdownTimeout`).
 
 Things you must do:
 
@@ -251,7 +261,7 @@ If the private key is **compromised**, add its fingerprint to `revokedKeys` (`ha
 
 ## Backups and state
 
-Every file `halo-server` writes, what losing each one costs, and the restore procedure are in [Operations: backup and restore](/halos/guides/operations/#backup-and-restore); the signing keys and the signer state file are covered above. The chart keeps PVCs on uninstall (`helm.sh/resource-policy: keep`). SLOs, Prometheus alert rules and the incident runbook are on the same page; the [support and versioning policy](/halos/reference/support-policy/) gives the upgrade order.
+Every file `halo-server` writes, what losing each one costs, and the restore procedure are in [Operations: backup and restore](/halos/guides/operations/#backup-and-restore); the signing keys and the signer state file are covered above. The chart keeps PVCs on uninstall (`helm.sh/resource-policy: keep`). SLOs, Prometheus alert rules and the incident runbook are on the same page; the DR targets, PITR setup and the tested restore order are in [Backup and restore](/halos/guides/backup-and-restore/); installing without internet access is in [Air-gapped install](/halos/guides/air-gapped-install/); the [support and versioning policy](/halos/reference/support-policy/) gives the upgrade order.
 
 ## Before you go live
 

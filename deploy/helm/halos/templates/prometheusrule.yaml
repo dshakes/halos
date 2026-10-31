@@ -1,0 +1,51 @@
+{{- /*
+  PrometheusRule from files/prometheus-rules.yaml (the single source of the alert list; the Grafana alerting provisioning is
+  generated from the same file). Groups render only when their component exposes the metrics. The file is not run through
+  tpl, so `{{ $labels.x }}` in annotations reaches Prometheus untouched.
+*/ -}}
+{{- $pr := .Values.monitoring.prometheusRule -}}
+{{- if and $pr.enabled (or $pr.skipCapabilityCheck (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1/PrometheusRule")) }}
+{{- $v := .Values -}}
+{{- $metrics := and $v.server.enabled $v.server.metrics.enabled -}}
+{{- $on := dict
+      "halos-gateway" $v.proxy.enabled
+      "halos-shadow" (and $v.shadow.enabled $v.shadow.metricsListen)
+      "halos-control-plane" $metrics
+      "halos-controller" (and $metrics $v.server.controller.enabled)
+      "halos-ha" (and $metrics $v.server.database.existingSecret) -}}
+{{- $skip := $pr.disabledAlerts | default list -}}
+{{- $proxyMin := ternary $v.proxy.autoscaling.minReplicas $v.proxy.replicas $v.proxy.autoscaling.enabled -}}
+{{- if lt (int $proxyMin) 2 }}{{ $skip = append $skip "HaloProxyBelowTwoReplicas" }}{{ end -}}
+{{- $serverJob := include "halo.cname" (list . "server") -}}
+{{- $proxyDeploy := include "halo.cname" (list . "proxy") -}}
+{{- $groups := list -}}
+{{- range $g := (.Files.Get "files/prometheus-rules.yaml" | fromYaml).groups }}
+{{- if get $on $g.name }}
+{{- $rules := list -}}
+{{- range $r := $g.rules }}
+{{- if not (has $r.alert $skip) }}
+{{- $r = deepCopy $r -}}
+{{- $e := $r.expr | replace `job=~".*halos?-server"` (printf "job=%q" $serverJob) | replace `deployment=~".*-proxy"` (printf "namespace=%q, deployment=%q" $.Release.Namespace $proxyDeploy) -}}
+{{- $_ := set $r "expr" $e -}}
+{{- if $pr.additionalRuleLabels }}{{ $_ := set $r "labels" (merge (dict) $r.labels $pr.additionalRuleLabels) }}{{ end -}}
+{{- $rules = append $rules $r -}}
+{{- end }}
+{{- end }}
+{{- if $rules }}{{ $groups = append $groups (dict "name" $g.name "rules" $rules) }}{{ end -}}
+{{- end }}
+{{- end }}
+{{- if $groups }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "halo.fullname" . }}
+  namespace: {{ default .Release.Namespace $pr.namespace }}
+  labels: {{- include "halo.labels" . | nindent 4 }}
+    {{- with $pr.labels }}{{ toYaml . | nindent 4 }}{{ end }}
+  {{- with $pr.annotations }}
+  annotations: {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  groups: {{- toYaml $groups | nindent 4 }}
+{{- end }}
+{{- end }}

@@ -35,6 +35,7 @@
 {{- if and $ha .Values.networkPolicy.enabled (not .Values.networkPolicy.databaseEgress.to) }}{{ fail "server.database.existingSecret with networkPolicy.enabled needs networkPolicy.databaseEgress.to (the Postgres CIDR or peers): default-deny would block every replica from its database" }}{{ end }}
 {{- if and $s.database.migrateJob.enabled (not $ha) }}{{ fail "server.database.migrateJob needs server.database.existingSecret" }}{{ end }}
 {{- if and $ha $s.persistence.enabled }}{{ fail "server.database.existingSecret and server.persistence.enabled are exclusive: state lives in Postgres (move a data dir with `halo-server import`)" }}{{ end }}
+{{- if and $s.autoscaling.enabled (not $ha) }}{{ fail "server.autoscaling.enabled requires server.database.existingSecret (the file backend is a single writer, see replicas)" }}{{ end }}
 {{- if and (gt (int $s.replicas) 1) (not $ha) }}{{ fail "server.replicas > 1 requires server.database.existingSecret (file state has a single writer)" }}{{ end }}
 {{- if and $ks.existingSecret (not $s.persistence.enabled) (not $ha) }}{{ fail "server.killSwitch.existingSecret requires server.persistence.enabled or server.database (kills must survive a restart)" }}{{ end }}
 {{- $audit := $s.audit | default dict }}
@@ -122,7 +123,9 @@ metadata:
   name: {{ $n }}
   labels: {{- include "halo.labels" . | nindent 4 }}
 spec:
+  {{- if not $s.autoscaling.enabled }}
   replicas: {{ $s.replicas }}
+  {{- end }}
   {{- if $s.persistence.enabled }}
   strategy: {type: Recreate}   # RWO volume: old pod must release it first
   {{- end }}
@@ -298,9 +301,7 @@ spec:
       {{- with $s.tolerations }}
       tolerations: {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with $s.affinity }}
-      affinity: {{- toYaml . | nindent 8 }}
-      {{- end }}
+      {{- include "halo.affinity" (list . "server" $s.affinity (or (gt (int $s.replicas) 1) $s.autoscaling.enabled)) | nindent 6 }}
       volumes:
         - {name: policy, emptyDir: {}}
         {{- if $wr }}
@@ -377,7 +378,7 @@ spec:
         {{- end }}
         {{- include "halo.gitsyncVolume" . | nindent 8 }}
         {{- with $s.extraVolumes }}{{ toYaml . | nindent 8 }}{{ end }}
-{{- if or $s.pdb.enabled (and $ha (gt (int $s.replicas) 1)) }}
+{{- if or $s.pdb.enabled (and $ha (or (gt (int $s.replicas) 1) $s.autoscaling.enabled)) }}
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget
@@ -388,5 +389,9 @@ spec:
   maxUnavailable: {{ $s.pdb.maxUnavailable }}
   selector:
     matchLabels: {{- include "halo.selector" (list . "server") | nindent 6 }}
+{{- end }}
+{{- if $s.autoscaling.enabled }}
+---
+{{ include "halo.hpa" (dict "root" . "name" $n "a" $s.autoscaling) }}
 {{- end }}
 {{- end }}

@@ -1,0 +1,42 @@
+# Monitoring, autoscaling, anti-affinity and registry plumbing toggles on top of an HA install (self-contained so it lints alone).
+# helm lint deploy/helm/halos -f deploy/helm/halos/ci/monitoring-values.yaml
+global:
+  imageRegistry: registry.corp.example
+  imagePullSecrets: [{name: regcred}]
+imagePullSecrets: [{name: legacy-regcred}]
+podAntiAffinity: {enabled: true, mode: preferred}
+topologySpread: {enabled: true, whenUnsatisfiable: ScheduleAnyway}
+serviceMonitor: {enabled: true, labels: {release: kube-prometheus-stack}}
+monitoring:
+  prometheusRule:
+    enabled: true
+    skipCapabilityCheck: true       # helm template/lint have no API server to advertise the CRD
+    labels: {release: kube-prometheus-stack}
+    additionalRuleLabels: {team: platform}
+    disabledAlerts: [HaloProxyTTFBRegression]
+  dashboards:
+    enabled: true
+    annotations: {grafana_folder: Halos}
+server:
+  replicas: 2
+  persistence: {enabled: false}
+  database: {existingSecret: halos-postgres, key: url, leaseTTL: 15s}
+  metrics: {enabled: true}
+  autoscaling: {enabled: true, minReplicas: 2, maxReplicas: 5}
+  controller:
+    enabled: true
+    clickhouse: {url: "http://clickhouse.data.svc:8123"}
+shadow:
+  enabled: true
+  persistence: {enabled: false}
+  database: {existingSecret: halos-postgres, key: url}
+  autoscaling: {enabled: true, minReplicas: 2, maxReplicas: 4}
+proxy:
+  policy: {existingConfigMap: halos-gateway-snapshot}
+otel:
+  enabled: true
+  clickhouse: {existingSecret: clickhouse-pw}
+  gatewayToken: {existingSecret: halos-otel-gw}
+  autoscaling: {enabled: true, minReplicas: 2, maxReplicas: 4}
+networkPolicy:
+  databaseEgress: {to: [{ipBlock: {cidr: 10.20.0.0/24}}], ports: [5432]}

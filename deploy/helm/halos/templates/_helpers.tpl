@@ -32,19 +32,75 @@ app.kubernetes.io/component: {{ index . 1 }}
 {{- else -}}{{ default (include "halo.serviceAccountName" .) $sa.name }}{{- end -}}
 {{- end -}}
 
-{{/* image: (list . imageValues defaultRepoName) ; digest wins over tag */}}
+{{/* image: (list . imageValues defaultRepoName) ; digest wins over tag. global.imageRegistry (a mirror that holds every
+     image under its upstream repository path, e.g. for air-gapped installs) wins over image.registry and any per-image registry. */}}
 {{- define "halo.image" -}}
 {{- $root := index . 0 -}}{{- $img := index . 1 -}}
-{{- $reg := default $root.Values.image.registry $img.registry -}}
+{{- $g := $root.Values.global | default dict -}}
+{{- $reg := coalesce $g.imageRegistry $img.registry $root.Values.image.registry -}}
 {{- if $img.digest -}}{{ printf "%s/%s@%s" $reg $img.repository $img.digest }}
 {{- else -}}{{ printf "%s/%s:%s" $reg $img.repository (default $root.Chart.AppVersion $img.tag) }}{{- end -}}
 {{- end -}}
 
+{{/* imagePullSecrets for every pod-bearing template: global.imagePullSecrets then imagePullSecrets. */}}
 {{- define "halo.pullSecrets" -}}
-{{- with .Values.imagePullSecrets }}
+{{- $g := .Values.global | default dict -}}
+{{- with concat ($g.imagePullSecrets | default list) (.Values.imagePullSecrets | default list) }}
 imagePullSecrets:
 {{- toYaml . | nindent 2 }}
 {{- end }}
+{{- end -}}
+
+{{/* pod affinity: (list . "proxy" userAffinity multiReplica). A user-set affinity is used verbatim; otherwise, for a
+     component that can run more than one replica, podAntiAffinity spreads its pods across nodes. */}}
+{{- define "halo.affinity" -}}
+{{- $root := index . 0 -}}{{- $user := index . 2 -}}{{- $multi := index . 3 -}}{{- $aa := $root.Values.podAntiAffinity -}}
+{{- if $user }}
+affinity: {{- toYaml $user | nindent 2 }}
+{{- else if and $aa.enabled $multi }}
+affinity:
+  podAntiAffinity:
+    {{- if eq $aa.mode "required" }}
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - topologyKey: {{ $aa.topologyKey }}
+        labelSelector:
+          matchLabels: {{- include "halo.selector" (list $root (index . 1)) | nindent 12 }}
+    {{- else }}
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          topologyKey: {{ $aa.topologyKey }}
+          labelSelector:
+            matchLabels: {{- include "halo.selector" (list $root (index . 1)) | nindent 14 }}
+    {{- end }}
+{{- end }}
+{{- end -}}
+
+{{/* HorizontalPodAutoscaler: (dict "root" . "name" fullname "a" autoscalingValues) */}}
+{{- define "halo.hpa" -}}
+{{- $a := .a -}}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ .name }}
+  labels: {{- include "halo.labels" .root | nindent 4 }}
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: {{ .name }}}
+  minReplicas: {{ $a.minReplicas }}
+  maxReplicas: {{ $a.maxReplicas }}
+  metrics:
+    {{- with $a.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource: {name: cpu, target: {type: Utilization, averageUtilization: {{ . }}}}
+    {{- end }}
+    {{- with $a.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource: {name: memory, target: {type: Utilization, averageUtilization: {{ . }}}}
+    {{- end }}
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: {{ $a.scaleDownStabilizationSeconds }}
+      policies: [{type: Pods, value: 1, periodSeconds: 120}]
 {{- end -}}
 
 {{/* topology spread: (list . "proxy") */}}

@@ -1,0 +1,60 @@
+# In-cluster dependencies of the disaster-recovery drill (scripts/uat-dr.sh): the policy repo (git daemon) and the Postgres the
+# HA control plane keeps its state in. Images are loaded into kind by the script (imagePullPolicy Never). The Postgres
+# data lives in an emptyDir on purpose: deleting the pod or dropping the database is the "disaster".
+# Secret halos-pg (POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB) is created by the script, never committed.
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: git, namespace: halos-dr}
+spec:
+  selector: {matchLabels: {app: git}}
+  template:
+    metadata: {labels: {app: git}}
+    spec:
+      initContainers:
+        - name: init
+          image: halos-dr/git:dr
+          imagePullPolicy: Never
+          command: [sh, -ec, 'git init --bare -b main /srv/git/policy.git && git -C /srv/git/policy.git config daemon.receivepack true']
+          volumeMounts: [{name: git, mountPath: /srv/git}]
+      containers:
+        - name: git
+          image: halos-dr/git:dr
+          imagePullPolicy: Never
+          command: [git, daemon, --reuseaddr, --base-path=/srv/git, --export-all, --enable=receive-pack, --listen=0.0.0.0, --port=9418]
+          ports: [{containerPort: 9418}]
+          readinessProbe: {tcpSocket: {port: 9418}}
+          volumeMounts: [{name: git, mountPath: /srv/git}]
+      volumes: [{name: git, emptyDir: {}}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: git, namespace: halos-dr}
+spec:
+  selector: {app: git}
+  ports: [{port: 9418, targetPort: 9418}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: postgres, namespace: halos-dr}
+spec:
+  selector: {matchLabels: {app: postgres}}
+  template:
+    metadata: {labels: {app: postgres}}
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          imagePullPolicy: Never
+          envFrom: [{secretRef: {name: halos-pg}}]
+          env: [{name: PGDATA, value: /var/lib/postgresql/data/pgdata}]
+          ports: [{containerPort: 5432}]
+          readinessProbe: {exec: {command: [sh, -c, 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"']}, periodSeconds: 2}
+          volumeMounts: [{name: data, mountPath: /var/lib/postgresql/data}]
+      volumes: [{name: data, emptyDir: {}}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: postgres, namespace: halos-dr}
+spec:
+  selector: {app: postgres}
+  ports: [{port: 5432, targetPort: 5432}]

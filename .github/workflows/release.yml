@@ -2,8 +2,8 @@ name: release
 
 # Tagging vX.Y.Z (or vX.Y.Z-rc.N) runs: gate (vet, race tests, CHANGELOG section, tap token)
 # -> web (unprivileged npm build) -> release (GoReleaser: archives, deb/rpm/apk, checksums,
-# SBOMs, cosign signatures, ghcr.io images, Homebrew/Scoop on final tags; build provenance
-# attestations) -> verify (checks the published artifacts the way a user gets them).
+# SBOMs, cosign signatures, ghcr.io images, the Helm chart as a signed OCI artifact,
+# Homebrew/Scoop on final tags; build provenance attestations) -> verify (checks the published artifacts the way a user gets them).
 # Cut releases with scripts/release.sh; see RELEASING.md for the process and secrets.
 #
 # Re-run for an existing tag: Actions > release > Run workflow, choose the TAG itself under
@@ -136,6 +136,27 @@ jobs:
           HALO_WEB_PREBUILT: "1"
           # The gate fails a final tag when this is empty; rc tags skip tap/bucket (skip_upload: auto).
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+      - name: Package, push and sign the Helm chart (OCI)
+        # oci://ghcr.io/<owner>/charts/halos:<version>, chart version and appVersion = the tag, so the default image tags
+        # (appVersion) are the images GoReleaser just pushed. Signed by digest, keyless, with the same workflow identity as the
+        # images (verified below in `verify`). A new ghcr.io package starts private: see RELEASING.md for making it public.
+        env:
+          VERSION: ${{ needs.gate.outputs.version }}
+          OWNER: ${{ github.repository_owner }}
+          ACTOR: ${{ github.actor }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          owner=${OWNER,,}
+          helm lint deploy/helm/halos -f deploy/helm/halos/ci/all-values.yaml
+          helm lint deploy/helm/halos -f deploy/helm/halos/ci/ha-values.yaml
+          helm package deploy/helm/halos --version "$VERSION" --app-version "$VERSION" --destination "$RUNNER_TEMP/chart"
+          printf '%s' "$GH_TOKEN" | helm registry login ghcr.io --username "$ACTOR" --password-stdin
+          helm push "$RUNNER_TEMP/chart/halos-$VERSION.tgz" "oci://ghcr.io/$owner/charts" 2>&1 | tee "$RUNNER_TEMP/helm-push.txt"
+          digest=$(sed -n 's/^Digest: *//p' "$RUNNER_TEMP/helm-push.txt" | tail -1)
+          [[ $digest =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::helm push printed no digest"; exit 1; }
+          cosign sign --yes "ghcr.io/$owner/charts/halos@$digest"
+          echo "signed ghcr.io/$owner/charts/halos:$VERSION@$digest"
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: |
@@ -182,6 +203,20 @@ jobs:
             cosign verify --certificate-identity "$IDENTITY" --certificate-oidc-issuer "$ISSUER" "ghcr.io/dshakes/$img:$VERSION" >/dev/null
             echo "verified ghcr.io/dshakes/$img:$VERSION"
           done
+      - name: Helm chart (OCI) signature, version and default images
+        run: |
+          set -euo pipefail
+          owner=${REPO%%/*}; owner=${owner,,}
+          ref="ghcr.io/$owner/charts/halos"
+          cosign verify --certificate-identity "$IDENTITY" --certificate-oidc-issuer "$ISSUER" "$ref:$VERSION" >/dev/null
+          echo "verified $ref:$VERSION"
+          printf '%s' "$GH_TOKEN" | helm registry login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          helm pull "oci://$ref" --version "$VERSION" --destination "$RUNNER_TEMP/chart"
+          chart=$(tar -xzOf "$RUNNER_TEMP/chart/halos-$VERSION.tgz" halos/Chart.yaml)
+          grep -qx "version: $VERSION" <<<"$chart" || { echo "::error::chart version is not $VERSION"; exit 1; }
+          grep -qE "^appVersion: \"?$VERSION\"?$" <<<"$chart" || { echo "::error::chart appVersion is not $VERSION"; exit 1; }
+          helm template halos "$RUNNER_TEMP/chart/halos-$VERSION.tgz" | grep -F "ghcr.io/dshakes/halo-server:$VERSION" >/dev/null
+          echo "chart $VERSION pulls, is signed by release.yml@$TAG and defaults to the $VERSION images"
       - name: install.sh installs this version
         run: |
           curl -fsSL --proto '=https' "https://raw.githubusercontent.com/$REPO/$TAG/install/install.sh" \

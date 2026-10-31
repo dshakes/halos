@@ -9,7 +9,7 @@ Everything here is checked against the code it describes; `file:line` references
 
 | Component | Replicas | Why | Chart |
 |---|---|---|---|
-| `halo-proxy` | 2+ (HPA 2 to 10 on CPU) | Stateless: policy snapshot from a ConfigMap or git-sync, kill list polled from `halo-server` | `RollingUpdate` with `maxUnavailable: 0, maxSurge: 1` (`deploy/helm/halos/templates/proxy.yaml:74`), readinessProbe `/readyz` and livenessProbe `/healthz` on the admin port (`proxy.yaml:114-115`), `preStop` sleep (`proxy.yaml:118`), HPA (`proxy.yaml:187`), PDB `maxUnavailable: 1` (`proxy.yaml:212`), zone and hostname topology spread (`_helpers.tpl:53`) |
+| `halo-proxy` | 2+ (HPA 2 to 10 on CPU) | Stateless: policy snapshot from a ConfigMap or git-sync, kill list polled from `halo-server` | `RollingUpdate` with `maxUnavailable: 0, maxSurge: 1` (`deploy/helm/halos/templates/proxy.yaml:74`), readinessProbe `/readyz` and livenessProbe `/healthz` on the admin port (`proxy.yaml:114-115`), `preStop` sleep (`proxy.yaml:118`), HPA (`proxy.yaml:185`), PDB `maxUnavailable: 1` (`proxy.yaml:210`), zone and hostname topology spread (`_helpers.tpl:107`) |
 | `halo-server`, file backend (default) | **exactly 1** (`values.schema.json`, `haWhenDatabase`) | Single writer over append-only JSONL files in `--data-dir` that are replayed into memory at start; no locking, no leader election | `Recreate` when persistence is on, readinessProbe `/readyz` (policy loaded) and livenessProbe `/healthz` (`internal/server/server.go`, `Handler`) |
 | `halo-server`, Postgres backend | **N** (`server.database.existingSecret`) | Shared state in Postgres; the experiment controller runs on the one replica holding the leader lease ([ADR-0021](/halos/adr/0021-ha-control-plane-on-postgres/)) | `RollingUpdate`, PDB `maxUnavailable: 1` when `replicas > 1`, `/readyz` also fails while Postgres is unreachable, startup probe |
 | `halo-shadow`, file backend (default) | **exactly 1** | One pair file and an in-process spend counter; a second replica splits pairs and doubles the budget | `Recreate` |
@@ -42,7 +42,7 @@ Turning it on (values): `server.database.existingSecret` (a Secret holding the U
 
 `make uat-k8s` proves the proxy side on a kind cluster with `test/load` at 200 rps through the ingress (`scripts/uat-k8s.sh:141-215`): delete a proxy pod mid-traffic, roll the Deployment with `helm upgrade`, and evict both pods back to back. Each must finish with zero client-visible errors and the second eviction must be refused by the PDB. Last measured on main (CI job 111349967655, 2026-10-04): pod kill, 0 of 2880 requests failed (p50 2.14 ms, p95 4.2 ms, p99 31.15 ms through the kind ingress); rolling upgrade, 0 of 4973 failed with both pods replaced; PDB, 1st eviction ok, 2nd refused (429), later eviction ok, no client errors. The HA scenarios print to the job log, not to `test/uat/REPORT.md`. A SIGKILLed proxy pod still drops its in-flight requests; only the graceful path (SIGTERM, drain) is covered.
 
-Every container runs as 65532, read-only root filesystem, no capabilities, `RuntimeDefault` seccomp (`values.yaml:16-26`), with default-deny NetworkPolicy (`networkPolicy.enabled`, see [production deployment](/halos/guides/production-deployment/)).
+Every container runs as 65532, read-only root filesystem, no capabilities, `RuntimeDefault` seccomp (`values.yaml:25-35`), with default-deny NetworkPolicy (`networkPolicy.enabled`, see [production deployment](/halos/guides/production-deployment/)).
 
 ## SLOs
 
@@ -57,158 +57,68 @@ Set these on the gateway: it is the only component in the developer's request pa
 | Controller health | Ticks every `--interval`, no sustained errors | `halo_controller_ticks_total`, `halo_controller_errors_total` (`server.metrics.enabled`) |
 | Audit export freshness | Every audit entry in the SIEM within 15 minutes | `halo_server_audit_forward_lag_entries`, `halo_server_audit_forward_last_success_timestamp_seconds` (`server.metrics.enabled`, `server.audit.export`) |
 
-`halo-server` itself exposes no request metrics (only the controller and audit export series). Measure its availability from your ingress controller or a blackbox probe of `GET /readyz` (returns 503 until policy is loaded and during drain).
+`halo-server` exposes request counts and latency by route and status class on its metrics port (`halo_server_requests_total`, `halo_server_request_duration_seconds`; `server.metrics.enabled`), which the `HaloServerErrorRateHigh` alert uses. Availability from the developer's side is still best measured from your ingress controller or a blackbox probe of `GET /readyz` (returns 503 until policy is loaded and during drain).
 
 ## Alerts
 
-Prometheus rules, written against the metric names and labels the binaries emit. Scrape with `serviceMonitor.enabled: true` (proxy admin port 9090, shadow 9091, server controller 9092; all unauthenticated, keep them inside `networkPolicy.metricsFrom`).
+The alert rules are shipped, not copy-pasted: [`deploy/helm/halos/files/prometheus-rules.yaml`](https://github.com/dshakes/halos/blob/main/deploy/helm/halos/files/prometheus-rules.yaml) is the single source. The chart renders it as a `PrometheusRule`, and `make obs-assets` derives the Grafana alerting provisioning (`deploy/observability/grafana/provisioning/alerting/halos-alerts.yaml`) from the same file; `go test ./internal/obsassets` fails when the file, the generated provisioning, the dashboards or this table drift apart, or when a rule names a metric no binary exports. Written against the metric names and labels the binaries emit; scrape with `serviceMonitor.enabled: true` (proxy admin port 9090, shadow 9091, server 9092; all unauthenticated, keep them inside `networkPolicy.metricsFrom`).
 
 ```yaml
-groups:
-  - name: halos-gateway
-    rules:
-      - alert: HaloProxyErrorRateHigh
-        expr: |
-          sum(rate(halo_proxy_requests_total{status=~"5.."}[5m]))
-            / sum(rate(halo_proxy_requests_total[5m])) > 0.01
-        for: 10m
-        labels: {severity: page}
-        annotations:
-          summary: "halo-proxy 5xx rate above 1% for 10m (SLO 99.9% / 30d)"
-      - alert: HaloProxyUpstreamFailing
-        expr: |
-          sum(rate(halo_proxy_upstream_attempts_total{outcome=~"failed|circuit_open"}[5m])) by (provider)
-            / sum(rate(halo_proxy_upstream_attempts_total[5m])) by (provider) > 0.2
-        for: 5m
-        labels: {severity: page}
-        annotations:
-          summary: "{{ $labels.provider }} upstream: >20% of attempts failed or breaker open"
-      - alert: HaloProxyTTFBRegression
-        expr: |
-          histogram_quantile(0.99, sum(rate(halo_proxy_upstream_ttfb_seconds_bucket[10m])) by (le))
-            > 2 * histogram_quantile(0.99, sum(rate(halo_proxy_upstream_ttfb_seconds_bucket[10m] offset 1d)) by (le))
-        for: 15m
-        labels: {severity: ticket}
-        annotations:
-          summary: "p99 time-to-first-byte doubled vs 24h ago (upstream or proxy)"
-      - alert: HaloProxyAuthFailuresSpike
-        expr: sum(rate(halo_proxy_auth_failures_total[5m])) > 1
-        for: 10m
-        labels: {severity: ticket}
-        annotations:
-          summary: "callers failing identity verification: expired JWKS, wrong issuer/audience, or an attack"
-      - alert: HaloProxyShadowDropping
-        expr: sum(rate(halo_proxy_shadow_dropped_total[5m]) + rate(halo_proxy_shadow_failed_total[5m])) > 0
-        for: 15m
-        labels: {severity: ticket}
-        annotations:
-          summary: "shadow mirror dropping jobs: halo-shadow down, queue full or token mismatch (client traffic unaffected)"
-      - alert: HaloBudgetNearLimit
-        expr: sum(increase(halo_proxy_budget_checks_total{outcome="alert"}[15m])) by (budget) > 0
-        labels: {severity: ticket}
-        annotations:
-          summary: "budget {{ $labels.budget }}: callers past an alertAt threshold (halo budget status shows which counters)"
-      - alert: HaloBudgetExhausted
-        expr: sum(increase(halo_proxy_budget_checks_total{outcome=~"exceeded|refused"}[15m])) by (budget, outcome) > 0
-        labels: {severity: ticket}
-        annotations:
-          summary: "budget {{ $labels.budget }} used up ({{ $labels.outcome }}): refused means developers are getting 429s"
-      - alert: HaloBudgetVerdictUnknown
-        expr: sum(rate(halo_proxy_budget_checks_total{outcome="unknown"}[5m])) > 0
-        for: 10m
-        labels: {severity: page}
-        annotations:
-          summary: "no budget verdicts from halo-server past grace: budgets are not enforced (failMode open) or callers get 503 (failMode closed)"
-      - alert: HaloBudgetReportsFailing
-        expr: |
-          sum(rate(halo_proxy_budget_reports_total{outcome="failed"}[10m])) > 0
-            or sum(rate(halo_proxy_budget_dropped_total[10m])) > 0
-        for: 10m
-        labels: {severity: ticket}
-        annotations:
-          summary: "halo-proxy cannot report usage to halo-server (or is dropping it): budget counters lag or under-count"
-      - alert: HaloBudgetUsageUnmetered
-        expr: |
-          sum(rate(halo_proxy_budget_responses_total{outcome=~"no_usage|unpriced"}[30m]))
-            / sum(rate(halo_proxy_budget_responses_total[30m])) > 0.05
-        for: 30m
-        labels: {severity: ticket}
-        annotations:
-          summary: ">5% of metered responses had no usage object or no price in gateway.pricing: USD budgets under-count"
-      - alert: HaloProxyBelowTwoReplicas
-        expr: |
-          sum(kube_deployment_status_replicas_available{deployment=~".*-proxy"}) < 2
-        for: 5m
-        labels: {severity: page}
-        annotations:
-          summary: "fewer than 2 ready halo-proxy pods: no headroom for a drain or upgrade"
-
-  - name: halos-control-plane
-    rules:
-      - alert: HaloServerDown
-        expr: up{job=~".*halo-server.*"} == 0 or absent(up{job=~".*halo-server.*"})
-        for: 5m
-        labels: {severity: page}
-        annotations:
-          summary: "halo-server unreachable >5m: console, enrollment, reports and kill-list polls are failing (gateways keep the last list)"
-      - alert: HaloControllerStalled
-        expr: increase(halo_controller_ticks_total[20m]) == 0
-        for: 0m
-        labels: {severity: ticket}
-        annotations:
-          summary: "no controller tick in 20m (default interval 5m)"
-      - alert: HaloControllerErrors
-        expr: increase(halo_controller_errors_total[30m]) > 3
-        labels: {severity: ticket}
-        annotations:
-          summary: "controller errors: ClickHouse, policy clone, PR, kill or notify failing; rollbacks may not be enforced"
-      - alert: HaloNoControllerLeader
-        expr: (sum(halo_leader{lease="controller"}) or vector(0)) == 0
-        for: 2m
-        labels: {severity: page}
-        annotations:
-          summary: "HA: no halo-server replica holds the controller lease for 2m (Postgres down or every replica failing to renew); rollbacks are not being acted on"
-      - alert: HaloTwoControllerLeaders
-        expr: sum(halo_leader{lease="controller"}) > 1
-        for: 1m
-        labels: {severity: page}
-        annotations:
-          summary: "HA: two replicas report leadership for 1m; fenced writes keep state safe, but check clock and network health"
-      - alert: HaloDatabaseErrors
-        expr: sum(rate(halo_db_errors_total[5m])) > 0.1
-        for: 5m
-        labels: {severity: page}
-        annotations:
-          summary: "HA: Postgres statements failing on halo-server/halo-shadow; replicas go unready and device auth answers 503"
-      - alert: HaloLeaderFlapping
-        expr: sum(increase(halo_leader_changes_total[30m])) > 6
-        labels: {severity: ticket}
-        annotations:
-          summary: "HA: controller lease changed hands repeatedly in 30m; renewals are timing out (database latency or lease TTL too short)"
-      - alert: HaloAuditExportStalled
-        expr: halo_server_audit_forward_lag_entries > 0 and time() - halo_server_audit_forward_last_success_timestamp_seconds > 900
-        for: 5m
-        labels: {severity: page}
-        annotations:
-          summary: "{{ $labels.sink }}: audit entries waiting >15m; the SIEM is down, rejecting credentials, or the hash chain broke (see the server log)"
-      - alert: HaloAuditRotationFailing
-        expr: increase(halo_server_audit_rotate_errors_total[1h]) > 0
-        labels: {severity: ticket}
-        annotations:
-          summary: "audit log rotation failing; audit.jsonl keeps growing (nothing is lost)"
-      - alert: HaloPolicyRefused
-        expr: increase(halo_server_policy_refused_total[15m]) > 0 or increase(halo_proxy_policy_refused_total[15m]) > 0
-        labels: {severity: page}
-        annotations:
-          summary: "a policy with security validation errors (unpinned workload rule, unit loosening) was refused; the last good policy is serving, see the 'policy refused' log line"
-      - alert: HaloShadowBudgetNearlyExhausted
-        expr: halo_shadow_spend_usd / halo_shadow_budget_usd > 0.9
-        labels: {severity: ticket}
-        annotations:
-          summary: "halo-shadow has spent 90% of its budget; mirroring stops at 100% (evidence gap, not an outage)"
+# values.yaml
+serviceMonitor: {enabled: true, labels: {release: kube-prometheus-stack}}
+server: {metrics: {enabled: true}}
+monitoring:
+  prometheusRule:
+    enabled: true
+    labels: {release: kube-prometheus-stack}   # your Prometheus ruleSelector
+    additionalRuleLabels: {team: platform}
+    disabledAlerts: [HaloProxyTTFBRegression]
 ```
 
+The rule is rendered only when the cluster serves `monitoring.coreos.com/v1` `PrometheusRule` (the chart reads `.Capabilities`); `helm template` and Argo CD do not see CRDs, so set `monitoring.prometheusRule.skipCapabilityCheck: true` there. Groups render only where their component exposes the metrics:
+
+| Group | Rendered when |
+|---|---|
+| `halos-gateway` | `proxy.enabled` |
+| `halos-shadow` | `shadow.enabled` and `shadow.metricsListen` |
+| `halos-control-plane` | `server.metrics.enabled` |
+| `halos-controller` | `server.metrics.enabled` and `server.controller.enabled` |
+| `halos-ha` | `server.metrics.enabled` and `server.database.existingSecret` |
+
+`HaloServerDown` and `HaloProxyBelowTwoReplicas` are rewritten to this release's Service and Deployment names; `HaloProxyBelowTwoReplicas` is dropped when the proxy is configured below two replicas. It also needs kube-state-metrics. The alerts:
+
+| Alert | Severity | Group | Fires when |
+|---|---|---|---|
+| `HaloProxyErrorRateHigh` | page | halos-gateway | halo-proxy 5xx rate above 1% for 10m (SLO 99.9% / 30d) |
+| `HaloProxyUpstreamFailing` | page | halos-gateway | {{ $labels.provider }} upstream: >20% of attempts failed or breaker open |
+| `HaloProxyTTFBRegression` | ticket | halos-gateway | p99 time-to-first-byte doubled vs 24h ago (upstream or proxy) |
+| `HaloProxyAuthFailuresSpike` | ticket | halos-gateway | callers failing identity verification: expired JWKS, wrong issuer/audience, or an attack |
+| `HaloProxyShadowDropping` | ticket | halos-gateway | shadow mirror dropping jobs: halo-shadow down, queue full or token mismatch (client traffic unaffected) |
+| `HaloBudgetNearLimit` | ticket | halos-gateway | budget {{ $labels.budget }}: callers past an alertAt threshold (halo budget status shows which counters) |
+| `HaloBudgetExhausted` | ticket | halos-gateway | budget {{ $labels.budget }} used up ({{ $labels.outcome }}): refused means developers are getting 429s |
+| `HaloBudgetVerdictUnknown` | page | halos-gateway | no budget verdicts from halo-server past grace: budgets are not enforced (failMode open) or callers get 503 (failMode closed) |
+| `HaloBudgetReportsFailing` | ticket | halos-gateway | halo-proxy cannot report usage to halo-server (or is dropping it): budget counters lag or under-count |
+| `HaloBudgetUsageUnmetered` | ticket | halos-gateway | >5% of metered responses had no usage object or no price in gateway.pricing: USD budgets under-count |
+| `HaloProxyBelowTwoReplicas` | page | halos-gateway | fewer than 2 ready halo-proxy pods: no headroom for a drain or upgrade |
+| `HaloShadowBudgetNearlyExhausted` | ticket | halos-shadow | halo-shadow has spent 90% of its budget; mirroring stops at 100% (evidence gap, not an outage) |
+| `HaloServerDown` | page | halos-control-plane | halo-server unreachable >5m: console, enrollment, reports and kill-list polls are failing (gateways keep the last list) |
+| `HaloServerErrorRateHigh` | ticket | halos-control-plane | halo-server answering 5xx to more than 5% of requests for 10m (see the route label in halo_server_requests_total) |
+| `HaloServerGatewayLookupErrors` | ticket | halos-control-plane | gateway {{ $labels.kind }} lookups erroring on halo-server: gateways fall back to cached verdicts, then their fail mode |
+| `HaloAuditExportStalled` | page | halos-control-plane | {{ $labels.sink }}: audit entries waiting >15m; the SIEM is down, rejecting credentials, or the hash chain broke (see the server log) |
+| `HaloAuditRotationFailing` | ticket | halos-control-plane | audit log rotation failing; audit.jsonl keeps growing (nothing is lost) |
+| `HaloPolicyRefused` | page | halos-control-plane | a policy with security validation errors (unpinned workload rule, unit loosening) was refused; the last good policy is serving, see the 'policy refused' log line |
+| `HaloControllerStalled` | ticket | halos-controller | no controller tick in 20m (default interval 5m) |
+| `HaloControllerErrors` | ticket | halos-controller | controller errors: ClickHouse, policy clone, PR, kill or notify failing; rollbacks may not be enforced |
+| `HaloNoControllerLeader` | page | halos-ha | HA: no halo-server replica holds the controller lease for 2m (Postgres down or every replica failing to renew); rollbacks are not being acted on |
+| `HaloTwoControllerLeaders` | page | halos-ha | HA: two replicas report leadership for 1m; fenced writes keep state safe, but check clock and network health |
+| `HaloDatabaseErrors` | page | halos-ha | HA: Postgres statements failing on halo-server/halo-shadow; replicas go unready and device auth answers 503 |
+| `HaloLeaderFlapping` | ticket | halos-ha | HA: controller lease changed hands repeatedly in 30m; renewals are timing out (database latency or lease TTL too short) |
+
 Two things no exporter covers, so wire them from CI: the daily `halo release refresh` job failing twice in a row (page: pointers expire after 7 days), and the nightly [soak workflow](https://github.com/dshakes/halos/blob/main/.github/workflows/soak.yml) failing (ticket: client-visible errors, a cut SSE stream or a goroutine or heap leak in `halo-proxy` reached `main`, or a p99 regression against `test/load/baseline.json`).
+
+### Dashboards
+
+Four Prometheus dashboards ship in `deploy/observability/grafana/dashboards/`, using only metrics the binaries export: `halos-server` (requests, auth, gateway lookups, audit export, Postgres and leader), `halos-proxy` (availability, latency, upstreams, budgets, DLP, shadow mirror), `halos-fleet` (enrollment, reports and kill-list polls as halo-server sees them: `halod` exports no Prometheus metrics, so adoption by release is the ClickHouse dashboard `halo-fleet`), and `halos-rollouts` (controller, verdicts, leader, per-arm traffic, shadow spend). With the Grafana sidecar, `monitoring.dashboards.enabled: true` ships them as ConfigMaps labelled `grafana_dashboard: "1"` (set `monitoring.dashboards.namespace` when the sidecar watches one namespace, `annotations: {grafana_folder: Halos}` for a folder). Without the chart, import the JSON files; they ask for a Prometheus datasource. For Grafana-managed alerting instead of Prometheus rules, mount `provisioning/alerting/halos-alerts.yaml` (it queries the datasource with uid `prometheus`).
 
 ## Backup and restore
 
@@ -258,7 +168,7 @@ Take the data backup at least daily and immediately before an upgrade. Keep the 
 ### Restore
 
 1. Scale `halo-server` to 0 (`kubectl -n halos scale deploy/halos-server --replicas 0`). The server reads the files once at start (only the kill store re-reads on external appends, `internal/controller/killstore.go:88`); never write into a running server's directory.
-2. Put the files back in `--data-dir` (restore the PVC snapshot, or `kubectl cp` into a helper pod mounting the claim). Ownership must be uid 65532 (`values.yaml:18`).
+2. Put the files back in `--data-dir` (restore the PVC snapshot, or `kubectl cp` into a helper pod mounting the claim). Ownership must be uid 65532 (`values.yaml:27`).
 3. Recreate the Secrets if they were lost: `server.killSwitch.existingSecret` with the same private key, `proxy.killSwitch.pubkey.existingSecret` with the matching public key. A different kill key is a rotation; follow [rotate the kill-switch keys](#rotate-the-kill-switch-keys).
 4. Scale back to 1 and check: `GET /readyz` returns 200 (policy loaded), `GET /api/v1/killswitch` lists the kills you expect, `GET /api/v1/audit?limit=1` returns `verified: true`, and the console shows the device count you had.
 5. Gateways need nothing: on their next poll (10 s) they fetch the restored list and compare its `version` (`internal/gateway/killswitch.go:209`).

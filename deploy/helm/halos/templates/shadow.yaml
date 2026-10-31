@@ -18,6 +18,7 @@
 {{- $ha := $d.database.existingSecret }}{{- /* shared Postgres pairs + budget (ADR-0021): replicas may be > 1 */}}
 {{- if and $ha .Values.networkPolicy.enabled (not .Values.networkPolicy.databaseEgress.to) }}{{ fail "halo-shadow.database.existingSecret with networkPolicy.enabled needs networkPolicy.databaseEgress.to (the Postgres CIDR or peers)" }}{{ end }}
 {{- if and $ha $d.persistence.enabled }}{{ fail "halo-shadow.database.existingSecret and halo-shadow.persistence.enabled are exclusive: pairs live in Postgres" }}{{ end }}
+{{- if and $d.autoscaling.enabled (not $ha) }}{{ fail "halo-shadow.autoscaling.enabled requires halo-shadow.database.existingSecret (pairs file and budget are per process)" }}{{ end }}
 {{- if and (gt (int $d.replicas) 1) (not $ha) }}{{ fail "halo-shadow.replicas > 1 requires halo-shadow.database.existingSecret (pairs file and budget are per process)" }}{{ end }}
 {{- if and $d.persistence.enabled (not $d.persistence.existingClaim) }}
 apiVersion: v1
@@ -58,7 +59,9 @@ metadata:
   name: {{ $n }}
   labels: {{- include "halo.labels" . | nindent 4 }}
 spec:
+  {{- if not $d.autoscaling.enabled }}
   replicas: {{ $d.replicas }}
+  {{- end }}
   {{- if $d.persistence.enabled }}
   strategy: {type: Recreate}
   {{- end }}
@@ -152,9 +155,7 @@ spec:
       {{- with $d.tolerations }}
       tolerations: {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with $d.affinity }}
-      affinity: {{- toYaml . | nindent 8 }}
-      {{- end }}
+      {{- include "halo.affinity" (list . "halo-shadow" $d.affinity (or (gt (int $d.replicas) 1) $d.autoscaling.enabled)) | nindent 6 }}
       volumes:
         - {name: tmp, emptyDir: {}}
         {{- if $gs }}
@@ -183,7 +184,7 @@ spec:
         {{- else }}
         - {name: data, emptyDir: {}}
         {{- end }}
-{{- if or $d.pdb.enabled (and $ha (gt (int $d.replicas) 1)) }}
+{{- if or $d.pdb.enabled (and $ha (or (gt (int $d.replicas) 1) $d.autoscaling.enabled)) }}
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget
@@ -194,5 +195,9 @@ spec:
   maxUnavailable: {{ $d.pdb.maxUnavailable }}
   selector:
     matchLabels: {{- include "halo.selector" (list . "halo-shadow") | nindent 6 }}
+{{- end }}
+{{- if $d.autoscaling.enabled }}
+---
+{{ include "halo.hpa" (dict "root" . "name" $n "a" $d.autoscaling) }}
 {{- end }}
 {{- end }}
