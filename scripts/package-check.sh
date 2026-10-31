@@ -135,7 +135,7 @@ feature() {
   chmod 644 "$F"/certs/*
   go build -o "$W/halo" ./cmd/halo
   for a in amd64 arm64; do CGO_ENABLED=0 GOOS=linux GOARCH=$a go build -trimpath -o "$F/static/halod/linux-$a/halod" ./cmd/halod; done
-  (cd "$F" && "$W/halo" keys generate --name rel >/dev/null)
+  (cd "$F" && "$W/halo" keys generate --name rel --out "$F" >/dev/null)
   # Two registries over one store: plain HTTP on loopback for `halo release publish`, TLS for halod in the container.
   docker run -d --name pkt-reg-http --label $L -v "$F/reg:/var/lib/registry" -p 127.0.0.1:0:5000 registry:2 >/dev/null
   docker run -d --name pkt-reg-tls --label $L -v "$F/reg:/var/lib/registry" -v "$F/certs:/certs:ro" -e REGISTRY_HTTP_TLS_CERTIFICATE=/certs/ca.pem \

@@ -30,6 +30,31 @@ What the human still does, in order: approve GATE 1; publish the release (`halo 
 
 Verified: `test/e2e` `TestAutopilotLifecycle` drives all of it through `halo mcp serve` (real halo-server kill switch, bare origin, recording `gh`), and three headless `claude -p` sessions with the plugin ran the same loop (stop at GATE 1; approve, start, wait, stop at GATE 2; regression: kill, rollback PR). In every case origin `main` never moved and the only remote branches were the review branches the tools opened.
 
+## Responses, errors and defaults
+
+Every tool answers the same way, success or error, so an agent never needs a doc to know what to do next:
+
+```json
+{ "...": "tool result fields",
+  "next_steps": [
+    { "tool": "validate", "why": "check the policy in the policy dir" },
+    { "tool": "plan", "args": { "ring": "ring0-harness-team" }, "why": "diff the release a ring would get" },
+    { "command": "halo release publish ...", "why": "a human runs this at the gate" } ] }
+```
+
+`next_steps` is ordered; an entry is either a `tool` to call (with an `args` example you can pass as is) or a `command` only a human runs, plus `why`. An error result carries `error` (`kind`, `message`, and for argument problems `field`, `expected`, `example`, `allowed`) next to `next_steps`:
+
+```json
+{ "error": { "kind": "invalid_arguments", "field": "ring", "expected": "string", "example": "ring0-harness-team",
+             "allowed": ["ring0-harness-team", "ring1-canary", "ring3-ga"],
+             "message": "invalid arguments for plan: \"ring\" is required (type string; one of: ring0-harness-team, ...; example: \"ring0-harness-team\")" },
+  "next_steps": [ { "tool": "list_rings", "why": "..." }, { "tool": "plan", "args": { "ring": "ring0-harness-team" }, "why": "..." } ] }
+```
+
+Error kinds: `invalid_arguments`, `writes_disabled` (the next step is the human's CLI command and the dry run), `policy_invalid`, `conflict` (refused to overwrite), `not_configured` and `error`. Tool input schemas carry `examples` and `default`. Forgiving shapes are accepted where unambiguous: a single string for an array (`"delivery": "mdm"` or `"mdm,halod"`), `["claude-code@2.1.280"]` or `"claude-code@2.1.280"` for the `tools` map, and `"true"` for a boolean.
+
+`onboard_company` requires only `org`. The dry run fills the rest with documented defaults and says so: `assumed` maps each defaulted answer to the value used (CLIs found on PATH or `claude-code`, `halo-proxy`, `halod` delivery, provider `anthropic`, `standard` safety and rollout), and `placeholders` lists the stand-ins on `example.com` (issuer, gateway, registry, policy repo, console URL). A real write (`dry_run: false`, `--allow-writes`) is refused until those are given.
+
 ## Tools
 
 Read tools are always on and annotated read-only.

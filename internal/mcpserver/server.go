@@ -74,6 +74,7 @@ func (s *srv) prOpener() promote.PROpener {
 type srv struct {
 	Options
 	dir string // absolute policy dir
+	mw  mwState
 }
 
 // New builds the MCP server. It registers tools, resources and prompts.
@@ -97,6 +98,7 @@ func New(o Options) (*mcp.Server, error) {
 			"preview by default; they write files only with dry_run false on a server started with --allow-writes. " +
 			"Every tool answers with next_steps: the next call, or the exact human command at a gate.",
 	})
+	s.addEnvelope(m)
 	s.addReadTools(m)
 	s.addOnboardTools(m)
 	s.addAutopilotTools(m)

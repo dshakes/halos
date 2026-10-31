@@ -24,10 +24,12 @@ var (
 	date    = "unknown"
 )
 
-// Exit codes: 0 ok, 1 error, 2 validation issues.
+// Exit codes: 0 ok, 1 error, 2 validation issues, 3 nothing verified
+// (halo onboard verify: every CLI skipped, so no round trip was proven).
 const (
 	exitError      = 1
 	exitValidation = 2
+	exitUnverified = 3
 )
 
 // exitErr carries a specific exit code. A nil-message error means the output

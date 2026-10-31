@@ -97,8 +97,8 @@ Sources: GitHub [OIDC reference](https://docs.github.com/en/actions/reference/se
 ## 2. halo-server and the gateway
 
 ```bash
-halo keys generate --name workload             # workload.key / workload.pub; a new key, not the release or kill key
-halo-server ... --workload-key-file workload.key
+halo keys generate --name workload             # workload.key / workload.pub in your user config dir (the command prints the path); a new key, not the release or kill key
+halo-server ... --workload-key-file <path printed above>/workload.key
 ```
 
 Without `--workload-key-file`, or without `workloads` in policy, the endpoint answers 404.

@@ -116,7 +116,7 @@ func TestOnboardToolsFromEmptyDir(t *testing.T) {
 	if err != nil || vr["status"] != onboard.VerifyDryRun {
 		t.Fatalf("verify: %v %v", err, vr)
 	}
-	if vr, err = call(t, rw, "verify_harness", map[string]any{"harness": "claude-code"}); err != nil || vr["status"] != onboard.VerifySkipped {
+	if vr, err = call(t, rw, "verify_harness", map[string]any{"harness": "claude-code"}); err != nil || vr["status"] != onboard.VerifySkipped || summaryText(vr) != "verified 0 of 1 (1 skipped)" {
 		t.Fatalf("verify without credentials: %v %v", err, vr)
 	}
 	// A real run spawns the CLI and spends the human's credentials: read-only refuses it, --allow-writes runs it.
@@ -152,5 +152,44 @@ func TestOnboardCompanyTool(t *testing.T) {
 	}
 	if v, err := call(t, rw, "validate", nil); err != nil || v["ok"] != true {
 		t.Fatalf("generated repo does not validate: %v %v", err, v)
+	}
+}
+
+// summaryText is the "verified X of N" line of a verify_harness result.
+func summaryText(vr map[string]any) string {
+	s, _ := vr["summary"].(map[string]any)
+	t, _ := s["text"].(string)
+	return t
+}
+
+// TestOnboardCompanyDefaultToolsSkipUnpinnableVersions: with cursor-agent on
+// PATH (a date-style version a policy pin cannot hold), the defaulted tools
+// leave it out with a warning and the dry run still validates.
+func TestOnboardCompanyDefaultToolsSkipUnpinnableVersions(t *testing.T) {
+	m := fakeMachine()
+	m.LookPath = func(b string) (string, error) {
+		if b == "claude" || b == "cursor-agent" {
+			return "/usr/bin/" + b, nil
+		}
+		return "", errors.New("not found")
+	}
+	m.Run = func(_ context.Context, bin string, _ ...string) ([]byte, error) {
+		if strings.HasSuffix(bin, "cursor-agent") {
+			return []byte("2026.04.17-787b533"), nil
+		}
+		return []byte("2.1.280 (Claude Code)"), nil
+	}
+	ro := connect(t, Options{PolicyDir: t.TempDir(), Onboard: m})
+	out, err := call(t, ro, "onboard_company", map[string]any{"org": "acme"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tools, _ := out["assumed"].(map[string]any)["tools"].(map[string]any)
+	if _, ok := tools["cursor-agent"]; ok || tools["claude-code"] != "2.1.280" {
+		t.Fatalf("assumed tools = %v, want claude-code only", tools)
+	}
+	ws, _ := out["warnings"].([]any)
+	if len(ws) == 0 || !strings.Contains(ws[0].(string), "cursor-agent") {
+		t.Fatalf("warnings = %v, want one naming cursor-agent", ws)
 	}
 }

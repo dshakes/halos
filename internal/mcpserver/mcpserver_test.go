@@ -75,6 +75,16 @@ func call(t *testing.T, cs *mcp.ClientSession, name string, args map[string]any)
 	return m, nil
 }
 
+// stepWhy is a next_steps entry's why text (a step object, or a bare string).
+func stepWhy(v any) string {
+	if m, ok := v.(map[string]any); ok {
+		w, _ := m["why"].(string)
+		return w
+	}
+	s, _ := v.(string)
+	return s
+}
+
 type toolErr struct{ msg string }
 
 func (e *toolErr) Error() string { return e.msg }
@@ -514,7 +524,7 @@ func TestCommandsAreShellQuoted(t *testing.T) {
 	}
 	var publish string
 	for _, n := range out["next_steps"].([]any) {
-		if s := n.(string); strings.HasPrefix(s, "human gate (publishes") {
+		if s := n.(map[string]any)["why"].(string); strings.HasPrefix(s, "human gate (publishes") {
 			publish = s[strings.Index(s, "halo release publish"):strings.Index(s, " --key")]
 		}
 	}
@@ -526,7 +536,7 @@ func TestCommandsAreShellQuoted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	gate := out["next_steps"].([]any)[0].(string)
+	gate := out["next_steps"].([]any)[0].(map[string]any)["why"].(string)
 	push, _, _ := strings.Cut(strings.TrimPrefix(gate, "human gate: "), " && ")
 	if got := shArgv(t, push); len(got) < 3 || got[2] != dir {
 		t.Errorf("push command argv %q (from %q)", got, gate)
