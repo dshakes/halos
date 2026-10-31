@@ -112,7 +112,7 @@ func newRoot(out, errw io.Writer) *cobra.Command {
 		a.cmdExp(), a.cmdController(), a.cmdGateway(), a.cmdTelemetry(), a.cmdEval(), a.cmdUpgrade(), a.cmdMCP(), a.cmdToggle(), a.cmdRollout(), a.cmdVersion(), a.cmdDocs(),
 		a.cmdModel(), a.cmdEnable(), a.cmdKill(), a.cmdStatus(), a.cmdExplain(), a.cmdEject(), a.cmdMigrate(),
 		a.cmdDoctor(), a.cmdOnboard(), a.cmdQuickstart(), a.cmdUnits(), a.cmdAudit(), a.cmdBudget(), a.cmdCI(), a.cmdAgents(), a.cmdAdmin(), a.cmdCloudAgents(), a.cmdROI(), a.cmdSessions(), a.cmdFreeze(),
-		a.cmdArtifact(), a.cmdEgress(), a.cmdDLP(), a.cmdCopilot(), a.cmdTest())
+		a.cmdArtifact(), a.cmdEgress(), a.cmdDLP(), a.cmdCopilot(), a.cmdServiceToken(), a.cmdTest())
 	addPolicyDirFlags(root)
 	groupCommands(root)
 	return root
@@ -128,7 +128,7 @@ var helpGroups = []struct {
 	{"rollout", "Rollouts & experiments:", []string{"exp", "rollout", "toggle", "eval", "upgrade", "controller", "kill", "freeze", "roi"}},
 	{"fleet", "Fleet & gateway:", []string{"gateway", "telemetry", "audit", "budget", "dlp", "ci"}},
 	{"agents", "Agents & MCP:", []string{"agents", "cloud-agents", "mcp", "sessions", "copilot"}},
-	{"admin", "Admin:", []string{"admin"}},
+	{"admin", "Admin:", []string{"admin", "service-token"}},
 }
 
 func groupCommands(root *cobra.Command) {

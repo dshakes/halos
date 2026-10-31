@@ -98,6 +98,31 @@
             }
           },
           "additionalProperties": false
+        },
+        "groupsOverage": {
+          "enum": [
+            "deny",
+            "graph"
+          ],
+          "description": "Console login when the ID token says the user's groups did not fit (Entra ID groups overage: _claim_names / hasgroups): deny (default) refuses the login with a clear error; graph reads them from Microsoft Graph /me/getMemberObjects with the login's access token (ADR-0036)."
+        },
+        "requireAcr": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^\\S{1,256}$"
+          },
+          "uniqueItems": true,
+          "description": "Console login only: the ID token's acr must be one of these (sent as acr_values), e.g. Okta urn:okta:loa:2fa:any."
+        },
+        "requireAmr": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^\\S{1,256}$"
+          },
+          "uniqueItems": true,
+          "description": "Console login only: the ID token's amr must contain at least one of these, e.g. [mfa]."
         }
       },
       "additionalProperties": false

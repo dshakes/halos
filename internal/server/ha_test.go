@@ -41,11 +41,13 @@ type memShared struct {
 	pending map[string]string
 	fails   map[string]int64
 	*revocationLog
+	*serviceTokenLog
 }
 
 func newMemShared() *memShared {
 	revs, _ := openRevocationLog(storage.Dir(""), time.Now) // memory only: cannot fail
-	return &memShared{streams: map[string][][]byte{}, docs: map[string][]byte{}, revocationLog: revs}
+	toks, _ := openServiceTokenLog(storage.Dir(""))         // memory only: cannot fail
+	return &memShared{streams: map[string][][]byte{}, docs: map[string][]byte{}, revocationLog: revs, serviceTokenLog: toks}
 }
 
 // CountAuthFailure: ponytail: no window expiry; tests stay within one window.

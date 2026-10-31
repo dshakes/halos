@@ -60,6 +60,7 @@ halo
 | [`halo roi`](/halos/reference/cli/roi/) | Delivery ROI of a policy change: PR outcomes per experiment arm (ADR-0027) |
 | [`halo rollback`](/halos/reference/cli/rollback/) | Point a ring (and its experiment channels) back at an earlier signed release (version or manifest digest) |
 | [`halo rollout`](/halos/reference/cli/rollout/) | Phased rollouts: plan, status, simulate; advance opens a PR, never merges |
+| [`halo service-token`](/halos/reference/cli/service-token/) | Create, list and revoke halo-server service-account API tokens (admin) |
 | [`halo sessions`](/halos/reference/cli/sessions/) | Agent session ledger: one identity-linked record per agent session (ADR-0031) |
 | [`halo status`](/halos/reference/cli/status/) | One screen: rings, rollouts, live experiments, toggles and policy health |
 | [`halo telemetry`](/halos/reference/cli/telemetry/) | Telemetry pipeline artifacts |

@@ -156,6 +156,9 @@ func validateRequest(org *policy.Org, req *Request) error {
 }
 
 func (s *Server) postRequest(w http.ResponseWriter, r *http.Request, p Principal) {
+	if !s.requireHuman(w, r, p, "POST /api/v1/requests") {
+		return
+	}
 	org := s.selfService(w)
 	if org == nil {
 		return
@@ -261,6 +264,9 @@ func (s *Server) listRequests(w http.ResponseWriter, _ *http.Request, p Principa
 
 func (s *Server) decide(approve bool) authedHandler {
 	return func(w http.ResponseWriter, r *http.Request, p Principal) {
+		if !s.requireHuman(w, r, p, r.Pattern) {
+			return
+		}
 		// One decision at a time per request across replicas. The claim is a
 		// lock owned by this decision (random token) that expires on the
 		// store's clock after a hung PR attempt, and only its owner releases it.
@@ -298,7 +304,7 @@ func (s *Server) decide(approve bool) authedHandler {
 			l.mu.Unlock()
 			apiErr(w, http.StatusConflict, "request is "+req.Status)
 			return
-		case sameUser(req.User, p.ID):
+		case p.is(req.User):
 			l.mu.Unlock()
 			apiErr(w, http.StatusForbidden, "you cannot decide your own request")
 			return

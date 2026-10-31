@@ -39,9 +39,9 @@ func serverSession(srv string) (string, string, error) {
 	if srv == "" {
 		srv = os.Getenv("HALO_SERVER")
 	}
-	session := os.Getenv("HALO_SESSION")
+	session := serverCredential()
 	if srv == "" || session == "" {
-		return "", "", errors.New("set --server (or HALO_SERVER) and HALO_SESSION (a halo_session cookie value; list/show/export need the audit role, import needs admin)")
+		return "", "", errors.New("set --server (or HALO_SERVER) and HALO_TOKEN or HALO_SESSION (a halo_session cookie value; list/show/export need the audit role, import needs admin)")
 	}
 	return srv, session, nil
 }
@@ -67,7 +67,7 @@ func sessionsCall(ctx context.Context, srv, session, method, path string, q url.
 		return fmt.Errorf("sessions: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.AddCookie(&http.Cookie{Name: "halo_session", Value: session}) //nolint:gosec // outgoing request cookie; Secure/HttpOnly only apply to Set-Cookie
+	authorize(req, session)
 	cl := http.Client{Timeout: 60 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	resp, err := cl.Do(req)
 	if err != nil {
@@ -220,7 +220,7 @@ func (a *app) cmdSessionsImport() *cobra.Command {
 	f.StringVar(&ghPhrase, "github-phrase", "", `audit log search phrase for --source github (default "action:agent_session"; the window is added)`)
 	f.StringVar(&paths, "paths", ledger.PathsDrop, "file and repository redaction: drop (count only) or hash (HMAC-SHA256 with --hash-salt-file)")
 	f.StringVar(&saltFile, "hash-salt-file", "", "file holding the HMAC salt for --paths hash (at least 16 bytes; keep it stable to compare across imports)")
-	f.StringVar(&srv, "server", "", "halo-server base URL (or HALO_SERVER); the session cookie comes from HALO_SESSION")
+	f.StringVar(&srv, "server", "", "halo-server base URL (or HALO_SERVER); the credential comes from HALO_TOKEN or HALO_SESSION")
 	f.BoolVar(&dryRun, "dry-run", false, "print the normalized, redacted records; store nothing")
 	f.BoolVar(&writeClickHouse, "write-clickhouse", false, "also copy the stored records into ClickHouse halo_session_ledger")
 	creds.add(c, false)
@@ -288,7 +288,7 @@ func (f *sessionFilterFlags) add(c *cobra.Command) {
 	c.Flags().StringVar(&f.tool, "tool", "", "tool or MCP server used")
 	c.Flags().StringVar(&f.since, "since", "", "sessions started at or after: RFC 3339, a duration back (24h) or days (7d)")
 	c.Flags().StringVar(&f.until, "until", "", "sessions started before")
-	c.Flags().StringVar(&f.srv, "server", "", "halo-server base URL (or HALO_SERVER); the session cookie comes from HALO_SESSION (audit role)")
+	c.Flags().StringVar(&f.srv, "server", "", "halo-server base URL (or HALO_SERVER); the credential comes from HALO_TOKEN or HALO_SESSION (audit role)")
 }
 
 func (f *sessionFilterFlags) query(limit int) (url.Values, error) {
@@ -387,7 +387,7 @@ func (a *app) cmdSessionsShow() *cobra.Command {
 			})
 		},
 	}
-	c.Flags().StringVar(&srv, "server", "", "halo-server base URL (or HALO_SERVER); the session cookie comes from HALO_SESSION (audit role)")
+	c.Flags().StringVar(&srv, "server", "", "halo-server base URL (or HALO_SERVER); the credential comes from HALO_TOKEN or HALO_SESSION (audit role)")
 	return c
 }
 

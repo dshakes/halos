@@ -11,15 +11,17 @@ description: Onboard and drive rollouts from Claude Code, Codex, Gemini CLI or C
 halo mcp serve --policy-dir /path/to/policy-repo                       # read-only
 halo mcp serve --policy-dir /path/to/policy-repo --allow-writes         # add write tools
 halo mcp serve --policy-dir /path/to/policy-repo --clickhouse http://localhost:8123 --database halo
-HALO_SESSION=<admin halo_session cookie> halo mcp serve --policy-dir ... --server https://halo.acme.example   # fleet tools
+HALO_TOKEN=halo_sat_... halo mcp serve --policy-dir ... --server https://halo.acme.example   # fleet tools
 ```
+
+Give the fleet tools a [service-account token](/halos/guides/admin-access/#service-account-tokens) in `HALO_TOKEN`, not a cookie copied from your browser: it holds only the role you mint it with (`operator` covers `kill_switch` and the status tools; `audit_tail` and `session_ledger` need `auditor` or `admin`), it expires, it is revocable on its own, and its actions are audited as `service-account:<name>:<id>` rather than as you. Mint one once with `halo service-token create --name mcp-ops --role operator --ttl 720h` from your own session. `HALO_SESSION` (a `halo_session` cookie value) still works, but a console session now ends after an hour without browser use.
 
 | Flag | Purpose |
 |---|---|
 | `--policy-dir` | Policy repo (default `.`) |
 | `--allow-writes` | Expose experiment status and proposal tools; lets `kill_switch`, `eval_run` and `eval_harvest` run for real |
 | `--clickhouse`, `--database`, `--user` | Enables `analyze_experiment` and `wait_for` on experiments; the password comes from `HALO_CLICKHOUSE_PASSWORD` |
-| `--server` (or `HALO_SERVER`) | halo-server base URL for `kill_switch`, `kill_switch_status`, `fleet_status`, `audit_tail`. The admin session is read from `HALO_SESSION`, never a flag or a tool argument; plain `http` is accepted on loopback only |
+| `--server` (or `HALO_SERVER`) | halo-server base URL for `kill_switch`, `kill_switch_status`, `fleet_status`, `audit_tail`. The credential is read from `HALO_TOKEN` (preferred) or `HALO_SESSION`, never a flag or a tool argument; plain `http` is accepted on loopback only |
 | `--schema-dir` | JSON Schema directory (default: auto-detect) |
 
 ## Autopilot: the whole lifecycle, hands-off
@@ -65,8 +67,8 @@ Read tools are always on and annotated read-only.
 | `validate` | Load and validate the policy repo |
 | `release_build` | Build a ring's release in memory: digest, per-harness versions, file list, adapter warnings, and the human's `halo release publish` command |
 | `wait_for` | Poll an experiment (until the verdict leaves `continue`; needs `--clickhouse`) or a rollout (until its decision leaves `hold`) with a bounded timeout (default 60 s, max 600 s); call again to keep waiting |
-| `kill_switch_status`, `fleet_status`, `audit_tail` | halo-server's kill list, devices per ring with drift, and the audit log (needs `--server` + `HALO_SESSION`) |
-| `session_ledger` | The agent session ledger: one record per agent session with who, harness, ring, models, tools, tokens, cost and evidence, and whether the audit chain verifies ([ADR-0031](/halos/adr/0031-agent-session-ledger/); needs `--server` + `HALO_SESSION` with the audit role) |
+| `kill_switch_status`, `fleet_status`, `audit_tail` | halo-server's kill list, devices per ring with drift, and the audit log (needs `--server` + `HALO_TOKEN` or `HALO_SESSION`) |
+| `session_ledger` | The agent session ledger: one record per agent session with who, harness, ring, models, tools, tokens, cost and evidence, and whether the audit chain verifies ([ADR-0031](/halos/adr/0031-agent-session-ledger/); needs `--server` + `HALO_TOKEN` or `HALO_SESSION` with the audit role) |
 | `plan` | Diff the release a ring would get against a baseline `release.tar` |
 | `render_preview` | Render a ring's harness files for an OS and return their contents; writes nothing |
 | `whoami` | Ring and experiment variants a user would be assigned |
@@ -93,7 +95,7 @@ Write tools exist only with `--allow-writes`:
 | `propose_promotion` | Open a PR pointing a ring at a release and concluding the experiment. **Requires a `promote` verdict** |
 | `propose_rollback` | Pause an experiment and optionally re-point a ring at a known-good release **in policy YAML**. Does not touch the registry |
 | `propose_rollout_advance`, `propose_rollout_rollback` | Move a rollout to its next step or abort it in policy YAML (advance is refused when a gate failed). `open_pr: true` pushes a review branch and opens the PR instead of committing locally |
-| `kill_switch` | Kill or unkill an experiment, toggle or rollout (its backing experiment) through halo-server's signed kill list: the fast, reversible rollback. Registered always; `dry_run: false` needs `--allow-writes`, a `reason`, `--server` and `HALO_SESSION`. Never edits policy |
+| `kill_switch` | Kill or unkill an experiment, toggle or rollout (its backing experiment) through halo-server's signed kill list: the fast, reversible rollback. Registered always; `dry_run: false` needs `--allow-writes`, a `reason`, `--server` and `HALO_TOKEN` or `HALO_SESSION`. Never edits policy |
 | `eval_run` | `halo eval run --output json` with a bounded timeout, scorecard under `<policy>/.halos/scorecards`. Registered always; the real run spends credentials and needs `--allow-writes` and a `reason` (a preview accepts one) |
 | `eval_harvest` | `halo eval harvest`: turn shadow steps where the candidate regressed into redacted step-level eval cases ([ADR-0020](/halos/adr/0020-harvest-shadow-sessions-into-replay-evals/)). Registered always; the preview returns provenance and expected tool names, never request content. `dry_run: false` needs `--allow-writes` and a `reason`, and writes 0600 files under the policy dir |
 | `propose_toggle_change` | Change a toggle's default, a rule's rollout percent or its expiry |

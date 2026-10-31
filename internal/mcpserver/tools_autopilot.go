@@ -50,7 +50,7 @@ const (
 	gatePublish  = "human gate (publishes to the registry): %s --key <release.key> --registry <registry>"
 	gateAllowW   = "write tools are off: ask the human to restart with `halo mcp serve --allow-writes` (dry runs still work)"
 	gateEvidence = "no evidence source: ask the human to restart with `halo mcp serve --clickhouse <url>`; without it analyze_experiment and wait_for cannot decide"
-	gateServer   = "halo-server is not configured: start the MCP server with --server <url> (or HALO_SERVER) and export HALO_SESSION (an admin halo_session cookie value)"
+	gateServer   = "halo-server is not configured: start the MCP server with --server <url> (or HALO_SERVER) and export HALO_TOKEN (a service-account token: halo service-token create) or HALO_SESSION (an admin halo_session cookie value)"
 )
 
 type statusOut struct {
@@ -468,9 +468,19 @@ func (s *srv) serverURL() string {
 	return os.Getenv("HALO_SERVER")
 }
 
-// session is the admin cookie value, read from the environment at call time
-// and never from a tool argument.
-func (s *srv) session() string { return strings.TrimSpace(os.Getenv("HALO_SESSION")) }
+// serviceTokenPrefix is server.ServiceTokenPrefix, kept here so this package
+// does not depend on internal/server (TestServiceTokenPrefixInSync pins it).
+const serviceTokenPrefix = "halo_sat_"
+
+// session is the halo-server credential, read from the environment at call
+// time and never from a tool argument: HALO_TOKEN (a service-account token,
+// ADR-0036) wins over HALO_SESSION (an admin halo_session cookie value).
+func (s *srv) session() string {
+	if t := strings.TrimSpace(os.Getenv("HALO_TOKEN")); t != "" {
+		return t
+	}
+	return strings.TrimSpace(os.Getenv("HALO_SESSION"))
+}
 
 func (s *srv) serverJSON(ctx context.Context, method, path string, body any) (map[string]any, error) {
 	raw := s.serverURL()
@@ -482,7 +492,7 @@ func (s *srv) serverJSON(ctx context.Context, method, path string, body any) (ma
 		return nil, fmt.Errorf("invalid halo-server URL %q", raw)
 	}
 	if host := base.Hostname(); base.Scheme != "https" && host != "localhost" && !isLoopback(host) {
-		return nil, errors.New("halo-server URL must be https (or http on loopback): the session cookie would travel in clear")
+		return nil, errors.New("halo-server URL must be https (or http on loopback): the credential would travel in clear")
 	}
 	var rd io.Reader
 	if body != nil {
@@ -497,7 +507,11 @@ func (s *srv) serverJSON(ctx context.Context, method, path string, body any) (ma
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.AddCookie(&http.Cookie{Name: "halo_session", Value: s.session()}) //nolint:gosec // a client-side request cookie: Secure/HttpOnly are response attributes; https (or loopback) is enforced above
+	if cred := s.session(); strings.HasPrefix(cred, serviceTokenPrefix) {
+		req.Header.Set("Authorization", "Bearer "+cred)
+	} else {
+		req.AddCookie(&http.Cookie{Name: "halo_session", Value: cred}) //nolint:gosec // a client-side request cookie: Secure/HttpOnly are response attributes; https (or loopback) is enforced above
+	}
 	cl := &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	resp, err := cl.Do(req)
 	if err != nil {

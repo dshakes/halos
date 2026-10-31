@@ -93,6 +93,15 @@ Limits: a kill affects gateways (routing and mirroring). It reaches client-axis 
 - **Denials are audited.** A 403 for a missing permission appends `authz.deny` with the user, path, route, needed permission and the user's roles.
 - **The console only hides.** `/api/v1/me` and `/api/v1/capabilities` report the caller's roles and permissions so the console can hide what it may not do; the server enforces either way.
 
+## Sessions, service accounts and break-glass
+
+[ADR-0036](/halos/adr/0036-admin-api-credentials-break-glass-and-session-policy/); operator steps in [Admin access](/halos/guides/admin-access/).
+
+- **Sessions end.** A console session lasts at most `--session-ttl` (12h) from login and ends after `--session-idle-timeout` (1h) without a request. Both are enforced from the signed cookie on every replica; the idle time slides as the session is used, the absolute expiry never moves.
+- **Automation has its own credential.** Service-account tokens (`halo_sat_`, 256-bit secret, SHA-256 stored, constant-time compared) hold exactly one role no stronger than their creator's, always expire (90 days by default), are revocable alone with effect on every replica at the next request, and are audited as `service-account:<name>:<id>`. Only an interactive admin session mints them: a token cannot mint its successor. Failed attempts share a per-address budget across replicas.
+- **Break-glass is sealed and loud.** One local admin (PBKDF2-HMAC-SHA256, 600,000 iterations) answers 404 unless explicitly enabled; its session is 30 minutes and never slides; every login, failure and request is a high-severity audit entry exported to the SIEM (OCSF High, syslog critical), and a login whose audit entry cannot be written is refused. Disabling it or rotating its password ends its sessions. It cannot mint tokens or delegate.
+- **No silent loss of roles at login.** An Entra ID token that signals groups overage is refused with a clear error unless policy resolves groups from Microsoft Graph (`identity.groupsOverage: graph`); a Graph error refuses too. `identity.requireAcr` / `requireAmr` refuse console logins without the required authentication context. Ids starting `service-account:` or `breakglass:` are refused from the IdP.
+
 ## Audit log
 
 Privileged actions (login, logout, authorization denials, device enroll and revoke, session and credential revoke, access-request decisions, experiment status PRs, kill and unkill) append to `audit.jsonl` in `--data-dir`. Each entry carries `seq`, `prev` (the previous entry's hash) and its own `hash` over every other field. With rotation on, full segments become `audit-<seq>.jsonl` and the chain runs on across them: a segment's first `prev` is the previous segment's last `hash`. `GET /api/v1/audit` verifies the whole chain, every segment, and returns `verified` plus a `head` hash; `halo audit verify` does the same offline. Editing, reordering or removing any entry except the newest breaks the chain from that point on, and the console shows it.

@@ -653,9 +653,9 @@ func (a *app) cmdKill() *cobra.Command {
 			if server == "" {
 				server = os.Getenv("HALO_SERVER")
 			}
-			session := os.Getenv("HALO_SESSION")
+			session := serverCredential()
 			if server == "" || session == "" {
-				return errors.New("set --server (or HALO_SERVER) and HALO_SESSION (an admin halo_session cookie value)")
+				return errors.New("set --server (or HALO_SERVER) and HALO_TOKEN or HALO_SESSION (an admin halo_session cookie value)")
 			}
 			verb := "kill"
 			if unkill {

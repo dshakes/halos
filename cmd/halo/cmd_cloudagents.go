@@ -192,7 +192,7 @@ func (a *app) cmdCloudAgents() *cobra.Command {
 				return err
 			}
 			if srv == "" {
-				return errors.New("set --server (or HALO_SERVER) and HALO_SESSION (an operator halo_session cookie value)")
+				return errors.New("set --server (or HALO_SERVER) and HALO_TOKEN or HALO_SESSION (an operator halo_session cookie value)")
 			}
 			dry := !execute
 			var res server.CloudKillResponse

@@ -405,7 +405,11 @@ func syslogHost(h string) string {
 func (s *syslogSink) send(ctx context.Context, evs []auditEvent) error {
 	var b bytes.Buffer
 	for _, ev := range evs {
-		msg := fmt.Sprintf("<%d>1 %s %s halo-server - audit - %s", s.pri, ev.e.Time.UTC().Format("2006-01-02T15:04:05.999999Z07:00"), s.host, payload(s.format, ev))
+		pri := s.pri
+		if auditHigh(ev.e) { // syslog severity 2 (critical) instead of 6 (informational)
+			pri -= 4
+		}
+		msg := fmt.Sprintf("<%d>1 %s %s halo-server - audit - %s", pri, ev.e.Time.UTC().Format("2006-01-02T15:04:05.999999Z07:00"), s.host, payload(s.format, ev))
 		fmt.Fprintf(&b, "%d %s", len(msg), msg)
 	}
 	if s.conn == nil {
@@ -766,6 +770,11 @@ type ocsfResource struct {
 	Name string `json:"name"`
 }
 
+// auditHigh marks entries a SIEM should alert on (break-glass use, ADR-0036):
+// details severity=high. The marker is inside the hashed entry, so it cannot
+// be stripped without breaking the chain.
+func auditHigh(e AuditEntry) bool { return e.Details["severity"] == "high" }
+
 func ocsfEvent(ev auditEvent) ocsfAPIActivity {
 	e := ev.e
 	var o ocsfAPIActivity
@@ -774,6 +783,9 @@ func ocsfEvent(ev auditEvent) ocsfAPIActivity {
 	o.ClassUID, o.ClassName = 6003, "API Activity"
 	o.TypeUID = o.ClassUID*100 + o.ActivityID
 	o.SeverityID, o.Severity = 1, "Informational"
+	if auditHigh(e) {
+		o.SeverityID, o.Severity = 4, "High"
+	}
 	o.StatusID, o.Status = 1, "Success" // only performed actions are audited
 	o.Time = e.Time.UnixMilli()
 	o.Actor.User.UID, o.Actor.User.Name = e.Actor, e.Actor

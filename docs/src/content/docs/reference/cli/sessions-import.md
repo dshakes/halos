@@ -32,7 +32,7 @@ halo sessions import [flags]
 | `--github-token-file` |  | string |  | file holding the github API credential (read once, never logged) |
 | `--hash-salt-file` |  | string |  | file holding the HMAC salt for --paths hash (at least 16 bytes; keep it stable to compare across imports) |
 | `--paths` |  | string | drop | file and repository redaction: drop (count only) or hash (HMAC-SHA256 with --hash-salt-file) |
-| `--server` |  | string |  | halo-server base URL (or HALO_SERVER); the session cookie comes from HALO_SESSION |
+| `--server` |  | string |  | halo-server base URL (or HALO_SERVER); the credential comes from HALO_TOKEN or HALO_SESSION |
 | `--since` |  | string | 24h | window start: RFC 3339, a duration back (24h) or days (7d) |
 | `--source` |  | stringSlice | [] | evidence source, repeatable: gateway, otel, anthropic, github, jsonl |
 | `--until` |  | string |  | window end (default now) |

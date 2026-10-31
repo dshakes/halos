@@ -30,7 +30,6 @@ import (
 const (
 	sessionCookie = "halo_session"
 	oidcCookie    = "halo_oidc"
-	sessionTTL    = 12 * time.Hour
 )
 
 // Principal is the authenticated portal user. Roles are recomputed from current
@@ -40,6 +39,18 @@ type Principal struct {
 	Groups []string `json:"groups"`
 	Roles  []string `json:"roles"`
 	Admin  bool     `json:"admin"` // holds RoleAdmin; kept for API clients that predate roles
+	// Kind is empty for a human console session, else KindServiceAccount or
+	// KindBreakGlass (ADR-0036).
+	Kind string `json:"kind,omitempty"`
+	// OnBehalfOf is the human who created a service token: separation-of-
+	// duties checks treat the token as that person (ADR-0036).
+	OnBehalfOf string `json:"onBehalfOf,omitempty"`
+}
+
+// is reports whether p is user, or acts on user's behalf: every
+// separation-of-duties comparison goes through it, never through p.ID alone.
+func (p Principal) is(user string) bool {
+	return sameUser(user, p.ID) || (p.OnBehalfOf != "" && sameUser(user, p.OnBehalfOf))
 }
 
 func newPrincipal(id string, groups, roles []string) Principal {
@@ -61,6 +72,8 @@ type cookiePayload struct {
 	PKCE   string   `json:"v,omitempty"`
 	SID    string   `json:"i,omitempty"` // server-side session id (groups too large for a cookie)
 	Iat    int64    `json:"t,omitempty"` // session issue time (unix nanos), checked against revocations
+	Seen   int64    `json:"l,omitempty"` // last activity (unix seconds), for the idle timeout (ADR-0036)
+	BG     string   `json:"b,omitempty"` // break-glass session: fingerprint of the credential it was issued for
 	Exp    int64    `json:"e"`
 }
 
@@ -120,30 +133,62 @@ func (s *Server) roles(groups []string) []string {
 }
 
 func (s *Server) principal(r *http.Request) (Principal, bool) {
+	p, _, ok := s.sessionPrincipal(r)
+	return p, ok
+}
+
+// sessionPrincipal resolves the session cookie (or --dev-insecure-user) and
+// returns the cookie too, for the idle timeout's sliding re-issue.
+func (s *Server) sessionPrincipal(r *http.Request) (Principal, cookiePayload, bool) {
 	if s.cfg.DevUser != "" { // --dev-insecure-user: no authentication at all
-		return newPrincipal(s.cfg.DevUser, s.cfg.DevGroups, s.cfg.DevRoles), true
+		return newPrincipal(s.cfg.DevUser, s.cfg.DevGroups, s.cfg.DevRoles), cookiePayload{}, true
 	}
 	c, err := r.Cookie(sessionCookie)
 	if err != nil {
-		return Principal{}, false
+		return Principal{}, cookiePayload{}, false
 	}
 	p, err := s.unseal(c.Value)
-	if err != nil || p.Sub == "" || !s.revoked.valid(p.Sub, p.Iat) {
-		return Principal{}, false
+	if err != nil || p.Sub == "" || !s.revoked.valid(p.Sub, p.Iat) || s.sessionLive(p) != nil {
+		return Principal{}, cookiePayload{}, false
 	}
+	if p.BG != "" { // break-glass: admin by configuration, outside policy and the directory
+		if !s.breakGlassFrom(r) {
+			return Principal{}, cookiePayload{}, false
+		}
+		bp := newPrincipal(p.Sub, nil, []string{RoleAdmin})
+		bp.Kind = KindBreakGlass
+		return bp, p, true
+	}
+	groups := p.Groups
 	if p.SID != "" {
 		g, ok := s.oidc.session(p.SID)
 		if !ok {
-			return Principal{}, false
+			return Principal{}, cookiePayload{}, false
 		}
-		p.Groups = g
+		groups = g
 	}
-	g, ok := s.directoryGroups(p.Sub, p.Groups) // SCIM: deactivated users are out; authoritative groups win
+	g, ok := s.directoryGroups(p.Sub, groups) // SCIM: deactivated users are out; authoritative groups win
 	if !ok {
-		return Principal{}, false
+		return Principal{}, cookiePayload{}, false
 	}
 	// Roles are recomputed from current policy and directory groups rather than trusted from the cookie.
-	return newPrincipal(p.Sub, g, s.roles(g)), true
+	return newPrincipal(p.Sub, g, s.roles(g)), p, true
+}
+
+// authenticate resolves the caller of a console/API route: a service-account
+// token (Authorization: Bearer halo_sat_...) or the session cookie. It writes
+// the failure itself.
+func (s *Server) authenticate(w http.ResponseWriter, r *http.Request) (Principal, bool) {
+	if tok, ok := serviceTokenFrom(r); ok && s.cfg.DevUser == "" {
+		return s.serviceTokenAuth(w, r, tok)
+	}
+	p, c, ok := s.sessionPrincipal(r)
+	if !ok {
+		apiErr(w, http.StatusUnauthorized, "login required")
+		return Principal{}, false
+	}
+	s.slide(w, c)
+	return p, true
 }
 
 type authedHandler func(http.ResponseWriter, *http.Request, Principal)
@@ -164,14 +209,23 @@ func sameOrigin(r *http.Request) bool {
 
 func (s *Server) user(next authedHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		p, ok := s.principal(r)
+		p, ok := s.authenticate(w, r)
 		if !ok {
-			apiErr(w, http.StatusUnauthorized, "login required")
 			return
 		}
 		if r.Method != http.MethodGet && !sameOrigin(r) {
 			apiErr(w, http.StatusForbidden, "cross-origin request rejected")
 			return
+		}
+		if p.Kind == KindBreakGlass { // every break-glass request is on the record
+			d := map[string]string{"method": r.Method, "severity": "high"}
+			if r.Method == http.MethodGet {
+				s.Audit(r.Context(), p.ID, "breakglass.request", r.URL.Path, d)
+			} else if err := s.AuditStrict(r.Context(), p.ID, "breakglass.request", r.URL.Path, d); err != nil {
+				// A change made with break-glass is never unrecorded: fail closed before acting.
+				apiErr(w, http.StatusServiceUnavailable, errAuditFailed)
+				return
+			}
 		}
 		next(w, r, p)
 	}
@@ -278,10 +332,14 @@ func (s *Server) oidcConfig(ctx context.Context) (*oauth2.Config, *oidc.IDTokenV
 		}
 		s.oidc.provider, s.oidc.key = p, id.Issuer
 	}
+	scopes := []string{oidc.ScopeOpenID, "profile", "email"}
+	if id.GroupsOverage == policy.GroupsOverageGraph { // the access token must be able to read memberships
+		scopes = append(scopes, graphScopes...)
+	}
 	oc := &oauth2.Config{
 		ClientID: id.ClientID, ClientSecret: s.cfg.OIDCClientSecret, Endpoint: s.oidc.provider.Endpoint(),
 		RedirectURL: strings.TrimRight(s.cfg.Portal.BaseURL, "/") + "/auth/callback",
-		Scopes:      []string{oidc.ScopeOpenID, "profile", "email"},
+		Scopes:      scopes,
 	}
 	return oc, s.oidc.provider.Verifier(&oidc.Config{ClientID: id.ClientID}), id, nil
 }
@@ -295,7 +353,7 @@ func randB64(n int) string {
 }
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
-	oc, _, _, err := s.oidcConfig(r.Context())
+	oc, _, id, err := s.oidcConfig(r.Context())
 	if err != nil {
 		s.cfg.Log.Error("login unavailable", "err", err)
 		apiErr(w, http.StatusServiceUnavailable, "login unavailable") // public: the cause (policy, IdP) is logged above
@@ -303,7 +361,11 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	}
 	st, nonce, verifier := randB64(16), randB64(16), oauth2.GenerateVerifier()
 	s.setCookie(w, oidcCookie, s.seal(cookiePayload{State: st, Nonce: nonce, PKCE: verifier, Exp: s.cfg.Now().Add(10 * time.Minute).Unix()}), "/auth", 10*time.Minute)
-	http.Redirect(w, r, oc.AuthCodeURL(st, oauth2.S256ChallengeOption(verifier), oidc.Nonce(nonce)), http.StatusFound)
+	opts := []oauth2.AuthCodeOption{oauth2.S256ChallengeOption(verifier), oidc.Nonce(nonce)}
+	if len(id.RequireAcr) > 0 { // ask for it up front (OIDC Core 3.1.2.1); the callback still checks the token
+		opts = append(opts, oauth2.SetAuthURLParam("acr_values", strings.Join(id.RequireAcr, " ")))
+	}
+	http.Redirect(w, r, oc.AuthCodeURL(st, opts...), http.StatusFound)
 }
 
 // principalFromClaims extracts identity per the org's userClaim/groupsClaim
@@ -386,6 +448,36 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 		fail("identity", http.StatusForbidden, err.Error(), err)
 		return
 	}
+	if reservedSubject(p.ID) {
+		fail("identity", http.StatusForbidden, "user id uses a prefix reserved for service accounts and break-glass", nil)
+		return
+	}
+	// Policy denials of a real user: audited, never charged to the address's
+	// failed-login budget (an office NAT must not be locked out by them).
+	deny := func(reason string, code int, msg string, err error) {
+		s.metrics.authFailure("login", reason)
+		s.cfg.Log.Warn("oidc login denied", "user", p.ID, "reason", reason, "err", err)
+		s.Audit(r.Context(), p.ID, "login.denied", "", map[string]string{"reason": reason, "detail": msg})
+		apiErr(w, code, msg)
+	}
+	if err := checkAuthnContext(claims, id); err != nil {
+		deny("authn_context", http.StatusForbidden, err.Error(), nil)
+		return
+	}
+	if groupsOverage(claims, id.GroupsClaim) && !s.scimAuthoritative() {
+		// Never log the user in with no groups: that silently strips their roles.
+		if id.GroupsOverage != policy.GroupsOverageGraph {
+			deny("groups_overage", http.StatusForbidden, "your group memberships did not fit in the ID token (Entra ID groups overage) and identity.groupsOverage is not graph: "+
+				"an admin must set identity.groupsOverage: graph, or emit only groups assigned to the application", nil)
+			return
+		}
+		gs, err := s.graphGroups(r.Context(), tok.AccessToken)
+		if err != nil {
+			deny("groups_graph", http.StatusServiceUnavailable, "your group memberships could not be read from Microsoft Graph; try again or ask an admin to check the app's Graph permissions", err)
+			return
+		}
+		p = newPrincipal(p.ID, gs, rolesFor(id, gs))
+	}
 	g, provisioned := s.directoryGroups(p.ID, p.Groups)
 	if !provisioned {
 		fail("not_provisioned", http.StatusForbidden, "user is deactivated or not provisioned", nil)
@@ -394,13 +486,14 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 	// Directory groups may differ from the token's: roles follow the groups in force.
 	p = newPrincipal(p.ID, g, rolesFor(id, g))
 	org, _, _ := s.pol.Get()
-	exp := s.cfg.Now().Add(sessionTTL)
-	iat, ok := s.revoked.issueAt(p.ID, s.cfg.Now()) // past a (padded) revocation epoch: this is a fresh login
+	now := s.cfg.Now()
+	exp := now.Add(s.session.TTL)
+	iat, ok := s.revoked.issueAt(p.ID, now) // past a (padded) revocation epoch: this is a fresh login
 	if !ok {
 		apiErr(w, http.StatusServiceUnavailable, "login unavailable")
 		return
 	}
-	sess := cookiePayload{Sub: p.ID, Groups: policyGroups(org, p.Groups), Exp: exp.Unix(), Iat: iat}
+	sess := cookiePayload{Sub: p.ID, Groups: policyGroups(org, p.Groups), Exp: exp.Unix(), Iat: iat, Seen: now.Unix()}
 	if v := s.seal(sess); len(v) > maxCookie {
 		sid, err := s.oidc.newSession(sess.Groups, exp)
 		if err != nil {
@@ -410,11 +503,21 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 		}
 		sess.SID, sess.Groups = sid, nil
 	}
-	s.setCookie(w, sessionCookie, s.seal(sess), "/", sessionTTL)
+	s.setCookie(w, sessionCookie, s.seal(sess), "/", s.session.TTL)
 	s.cfg.Log.Info("login", "user", p.ID, "roles", p.Roles)
 	s.Audit(r.Context(), p.ID, "login", "", map[string]string{"admin": strconv.FormatBool(p.Admin), "roles": strings.Join(p.Roles, ",")})
 	http.Redirect(w, r, "/", http.StatusFound)
 }
+
+// reservedSubject reports whether id is a service-account or break-glass
+// principal id, which no IdP login may take (audit attribution relies on it).
+func reservedSubject(id string) bool {
+	id = canonicalUser(id) // ids compare canonicalized everywhere (sameUser), so must the reservation
+	return strings.HasPrefix(id, ServiceAccountPrefix) || strings.HasPrefix(id, breakGlassSubPrefix)
+}
+
+// scimAuthoritative: the SCIM directory, not the token, decides groups.
+func (s *Server) scimAuthoritative() bool { return s.scim != nil && s.cfg.SCIMAuthoritative }
 
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	if !sameOrigin(r) {

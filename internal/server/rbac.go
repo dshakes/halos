@@ -103,6 +103,12 @@ var routePerms = map[string]perm{
 	"POST /api/v1/freeze":                     permAdmin, // incident freeze on/off (ADR-0030)
 	"POST /api/v1/revocations":                permAdmin, // per-credential revocation (ADR-0026)
 	"GET /api/v1/revocations":                 permAdmin,
+	// Service-account tokens (ADR-0036): only a human session may create one
+	// (checked in the handler); any admin principal may list and revoke.
+	"POST /api/v1/service-tokens":             permAdmin,
+	"GET /api/v1/service-tokens":              permAdmin,
+	"POST /api/v1/service-tokens/{id}/revoke": permAdmin,
+	"POST /api/v1/breakglass/unlock":          permAdmin, // a person only (requireHuman)
 }
 
 // rolesFor returns the roles groups hold under id, in Roles order.
@@ -186,6 +192,25 @@ func (s *Server) deny(w http.ResponseWriter, r *http.Request, p Principal, route
 		"route": route, "method": r.Method, "need": string(need), "roles": strings.Join(p.Roles, ","),
 	})
 	apiErr(w, http.StatusForbidden, string(need)+" permission required")
+}
+
+// requireHuman refuses (403, audited as authz.deny with need "human") a
+// service-account token or break-glass caller: filing, approving and denying
+// access requests and approving rollout steps are decisions by and about
+// people, and a person must not be able to count twice, or approve their
+// own change, through a credential they minted (ADR-0036).
+func (s *Server) requireHuman(w http.ResponseWriter, r *http.Request, p Principal, route string) bool {
+	if p.Kind == "" {
+		return true
+	}
+	s.metrics.deny(route)
+	d := map[string]string{"route": route, "method": r.Method, "need": "human", "kind": p.Kind}
+	if p.OnBehalfOf != "" {
+		d["onBehalfOf"] = p.OnBehalfOf
+	}
+	s.Audit(r.Context(), p.ID, "authz.deny", r.URL.Path, d)
+	apiErr(w, http.StatusForbidden, "this decision needs a person signed in to the console: a "+p.Kind+" cannot file, approve or deny requests or approve rollout steps")
+	return false
 }
 
 // routeMux records every registered pattern, and which went through s.route,

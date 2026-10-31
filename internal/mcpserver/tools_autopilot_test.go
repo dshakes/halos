@@ -15,6 +15,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/dshakes/halos/internal/promote"
+	"github.com/dshakes/halos/internal/server"
 )
 
 // Every tool the guide names must exist on a server with writes; the guide
@@ -186,10 +187,39 @@ func (f *fakeServer) handler() http.Handler {
 func (f *fakeServer) record(r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if c, err := r.Cookie("halo_session"); err == nil {
+	switch c, err := r.Cookie("halo_session"); {
+	case err == nil:
 		f.seen = append(f.seen, c.Value)
-	} else {
+	case r.Header.Get("Authorization") != "":
+		f.seen = append(f.seen, r.Header.Get("Authorization"))
+	default:
 		f.seen = append(f.seen, "")
+	}
+}
+
+func TestServiceTokenPrefixInSync(t *testing.T) {
+	if serviceTokenPrefix != server.ServiceTokenPrefix {
+		t.Fatalf("%q != server.ServiceTokenPrefix %q", serviceTokenPrefix, server.ServiceTokenPrefix)
+	}
+}
+
+// TestFleetToolsServiceToken (ADR-0036): HALO_TOKEN goes out as a bearer
+// token, never as a cookie, and wins over HALO_SESSION.
+func TestFleetToolsServiceToken(t *testing.T) {
+	f := &fakeServer{}
+	hs := httptest.NewServer(f.handler())
+	defer hs.Close()
+	tok := "halo_sat_" + strings.Repeat("cd", 40)
+	t.Setenv("HALO_TOKEN", tok)
+	t.Setenv("HALO_SESSION", "admin-cookie")
+	cs := connect(t, Options{PolicyDir: example, Server: hs.URL})
+	if _, err := call(t, cs, "fleet_status", nil); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.seen) == 0 || f.seen[len(f.seen)-1] != "Bearer "+tok {
+		t.Fatalf("credential sent: %v", f.seen)
 	}
 }
 

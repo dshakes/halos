@@ -18,7 +18,7 @@ halo freeze status [flags]
 | `--at` |  | string |  | evaluate at this RFC 3339 time instead of now (planning; policy windows only) |
 | `--policy-dir` |  | string |  | policy repo directory (default ".") |
 | `--ring` |  | string |  | only this ring (default: every ring) |
-| `--server` |  | string |  | halo-server base URL (or HALO_SERVER) to include the incident freeze; session from HALO_SESSION |
+| `--server` |  | string |  | halo-server base URL (or HALO_SERVER) to include the incident freeze; credential from HALO_TOKEN or HALO_SESSION |
 
 ## Global flags
 

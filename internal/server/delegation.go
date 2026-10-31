@@ -81,6 +81,12 @@ func (s *Server) verifyParent(ctx context.Context, raw, typ string, now time.Tim
 		if !s.revoked.valid(p.Sub, p.Iat) {
 			return parentCred{sub: policy.Subject{ID: p.Sub}, via: "session"}, fmt.Errorf("%w: session revoked", errParentRefused)
 		}
+		if p.BG != "" { // break-glass recovers access; it never leaves credentials behind (ADR-0036)
+			return parentCred{sub: policy.Subject{ID: p.Sub}, via: "session"}, fmt.Errorf("%w: a break-glass session cannot delegate", errParentRefused)
+		}
+		if err := s.sessionLive(p); err != nil {
+			return parentCred{}, signedButRejected(err)
+		}
 		groups := p.Groups
 		if p.SID != "" {
 			g, ok := s.oidc.session(p.SID)
@@ -93,7 +99,7 @@ func (s *Server) verifyParent(ctx context.Context, raw, typ string, now time.Tim
 		if !ok {
 			return parentCred{sub: policy.Subject{ID: p.Sub}, via: "session"}, fmt.Errorf("%w: %w", errParentRefused, errDeprovisioned)
 		}
-		return parentCred{sub: policy.Subject{ID: p.Sub, Groups: g}, exp: time.Unix(p.Exp, 0), authTime: p.Iat / int64(time.Second), via: "session"}, nil
+		return parentCred{sub: policy.Subject{ID: p.Sub, Groups: g}, exp: s.sessionDeadline(p), authTime: p.Iat / int64(time.Second), via: "session"}, nil
 	case typ != tokenTypeJWT && typ != tokenTypeAccess:
 		return parentCred{}, fmt.Errorf("subject_token_type must be %s, or %s for a Halos credential", tokenTypeSession, tokenTypeJWT)
 	}

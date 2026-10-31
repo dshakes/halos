@@ -57,6 +57,7 @@ The chart never holds secret values; it references Secrets you create.
 | `halos-fleet-token` | `token` | `halo-server --token-file`, shared fleet report token |
 | `halos-session` | `session-key` | Portal session signing; at least 32 bytes |
 | `server.oidcClientSecret.existingSecret` | `client-secret` | Portal OIDC client secret |
+| `server.breakGlass.existingSecret` | `hash` | Break-glass password hash from `halo-server breakglass-hash` (`--breakglass-hash-file`); sealed unless `server.breakGlass.enabled` ([Admin access](/halos/guides/admin-access/#break-glass)) |
 | `halos-halo-shadow` | `token` | `halo-shadow` `HALO_SHADOW_TOKEN`; also injected into `halo-proxy` as `HALO_PROXY_HALO_SHADOW_TOKEN` |
 | `halo-shadow.authHeader.existingSecret` | `auth-header` | Upstream credential header for halo-shadow (`Name: value`) |
 | `server.killSwitch.existingSecret` | `signing-key`, `gateway-token` | Kill-switch signing key (Ed25519 PKCS#8 PEM) and gateway bearer token (random hex or base64, at least 32 characters and 128 bits, e.g. `openssl rand -hex 32`; passphrases are refused); set together |
@@ -128,6 +129,22 @@ identity:
 ```
 
 For segregation of duties, keep `operator`, `approver` and `auditor` in different groups and keep `admin` small. Auditors get no fleet view unless their group is also a viewer. A user holds every role any of their groups maps to; removing a group from a role applies on the next request, adding one at the user's next login. An unknown role name fails `halo validate`. Every refused request is audit-logged as `authz.deny`; [Operations](/halos/guides/operations/#a-user-gets-403) shows how to read them. Nothing changes in the Helm values.
+
+IdP setup, group claims, Entra ID groups overage (`identity.groupsOverage`) and MFA requirements (`identity.requireAcr`, `identity.requireAmr`): [Entra ID](/halos/guides/sso-entra/), [Okta](/halos/guides/sso-okta/).
+
+## Sessions, automation and break-glass
+
+[ADR-0036](/halos/adr/0036-admin-api-credentials-break-glass-and-session-policy/); runbook in [Admin access](/halos/guides/admin-access/).
+
+```yaml
+server:
+  session: {ttl: 12h, idleTimeout: 1h}    # --session-ttl, --session-idle-timeout ("0" = no idle timeout)
+  serviceTokens: {maxTTL: 2160h}          # --service-token-max-ttl: longest and default token lifetime
+  breakGlass: {enabled: false, existingSecret: halos-breakglass, key: hash, user: breakglass, allowedCIDRs: "10.8.0.0/16"}
+  oidc: {entraGraphURL: ""}               # --entra-graph-url, for identity.groupsOverage: graph
+```
+
+Automation authenticates with service-account tokens (`halo service-token create`, used as `HALO_TOKEN`), never with a copied console cookie. On Postgres the tokens live in `halo_service_tokens` (schema v4; run `halo-server migrate`), on the file backend in `service-tokens.jsonl`. Keep `breakGlass.enabled: false` outside an incident, and alert on `breakglass.*` audit actions.
 
 ## Controller
 

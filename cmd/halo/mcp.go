@@ -19,7 +19,7 @@ func (a *app) cmdMCP() *cobra.Command {
 		Use:   "serve",
 		Short: "Serve Halos tools, resources and prompts over stdio MCP",
 		Long: "Serve Halos over stdio MCP. Read-only tools are always on. --allow-writes adds experiment " +
-			"and proposal tools (dry_run by default, reason required). --server (or HALO_SERVER) plus an admin HALO_SESSION " +
+			"and proposal tools (dry_run by default, reason required). --server (or HALO_SERVER) plus HALO_TOKEN (an admin service-account token) or an admin HALO_SESSION " +
 			"enables the fleet tools (kill switch, audit, devices). --admin-read lets admin_plan read the vendor consoles with " +
 			"HALO_MCP_ADMIN_<VENDOR>_TOKEN; without it admin_plan renders from policy only. --roi-identities enables roi_report (delivery ROI, read-only). No tool publishes releases, retags rings, merges or pushes.",
 		Args: cobra.NoArgs,
@@ -42,7 +42,7 @@ func (a *app) cmdMCP() *cobra.Command {
 	serve.Flags().BoolVar(&writes, "allow-writes", false, "expose write tools (experiment status, promotion/rollback proposals)")
 	serve.Flags().BoolVar(&adminRead, "admin-read", false, "let admin_plan read the live vendor consoles with HALO_MCP_ADMIN_<VENDOR>_TOKEN (default: render from policy only)")
 	serve.Flags().StringVar(&schemaDir, "schema-dir", "", "JSON Schema directory (default: auto-detect)")
-	serve.Flags().StringVar(&server, "server", "", "halo-server base URL for the fleet tools (or HALO_SERVER); admin session from HALO_SESSION")
+	serve.Flags().StringVar(&server, "server", "", "halo-server base URL for the fleet tools (or HALO_SERVER); admin credential from HALO_TOKEN or HALO_SESSION")
 	serve.Flags().StringVar(&ch.url, "clickhouse", "", "ClickHouse HTTP URL; enables analyze_experiment")
 	serve.Flags().StringVar(&ch.db, "database", "", "ClickHouse database")
 	serve.Flags().StringVar(&ch.user, "user", "", "ClickHouse user (password from HALO_CLICKHOUSE_PASSWORD)")

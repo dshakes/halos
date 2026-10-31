@@ -21,7 +21,7 @@ halo copilot next [flags]
 | `--policy-dir` |  | string |  | policy repo directory (default ".") |
 | `--roi` |  | string |  | ROI report JSON (halo roi report --output json) |
 | `--scorecard` |  | stringSlice | [] | eval scorecard JSON (repeatable) |
-| `--server` |  | string |  | halo-server base URL (or HALO_SERVER) for budget counters; session from HALO_SESSION |
+| `--server` |  | string |  | halo-server base URL (or HALO_SERVER) for budget counters; credential from HALO_TOKEN or HALO_SESSION |
 | `--verdicts-file` |  | string |  | verdicts JSON array (halo exp analyze --verdicts-file) |
 
 ## Global flags

@@ -16,7 +16,7 @@ halo freeze on [flags]
 | Flag | Shorthand | Type | Default | Description |
 |---|---|---|---|---|
 | `--reason` |  | string |  | why (required; recorded in the audit log) |
-| `--server` |  | string |  | halo-server base URL (or HALO_SERVER) ; session from HALO_SESSION |
+| `--server` |  | string |  | halo-server base URL (or HALO_SERVER) ; credential from HALO_TOKEN or HALO_SESSION |
 
 ## Global flags
 

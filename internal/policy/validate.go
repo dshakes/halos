@@ -73,6 +73,7 @@ func (o *Org) Validate() []Issue {
 	v.governance()
 	v.supplyChain()
 	v.mcpRegistry()
+	v.identity()
 	for _, g := range builtinGuardrails {
 		v.issues = append(v.issues, g(o)...)
 	}
@@ -97,8 +98,9 @@ func (o *Org) Validate() []Issue {
 // unpinned or plain-http remote AgentCards; ADR-0024), governance (freeze
 // windows and approval quorums: a broken rule must not silently stop
 // gating changes; ADR-0030), and the MCP registry (unpinned packages, auth
-// modes; ADR-0029).
-var securityPaths = []string{"workloads", "units[", "delegation", "agents", "governance", "mcp"}
+// modes; ADR-0029), and the console login's identity hardening (groups
+// overage handling, required acr/amr; ADR-0036).
+var securityPaths = []string{"workloads", "units[", "delegation", "agents", "governance", "mcp", "identity"}
 
 // SecurityIssues returns o's error-severity Validate issues on security fields
 // (securityPaths). halo-server and the gateways run it on every policy load

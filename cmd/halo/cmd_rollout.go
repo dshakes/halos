@@ -288,7 +288,7 @@ func (a *app) cmdRollout() *cobra.Command {
 // freeze (halo freeze on) is unknown. The CLI stays usable offline; the PR's
 // required `halo freeze check` and the controller still hold it.
 func (a *app) warnNoIncidentFreeze() {
-	fmt.Fprintln(a.errw, a.yellow("warning:"), "no halo-server configured: checked the policy's freeze windows only, not the incident freeze (set --server or HALO_SERVER, and HALO_SESSION)")
+	fmt.Fprintln(a.errw, a.yellow("warning:"), "no halo-server configured: checked the policy's freeze windows only, not the incident freeze (set --server or HALO_SERVER, and HALO_TOKEN or HALO_SESSION)")
 }
 
 // governanceRefusal is why an advance may not be proposed now: a change
@@ -318,7 +318,7 @@ func (a *app) cmdRolloutApprove() *cobra.Command {
 				return err
 			}
 			if srv == "" {
-				return errors.New("set --server (or HALO_SERVER) and HALO_SESSION (an approver's halo_session cookie value)")
+				return errors.New("set --server (or HALO_SERVER) and HALO_TOKEN or HALO_SESSION (an approver's halo_session cookie value)")
 			}
 			var res server.RolloutApprovals
 			if err := sessionJSON(cmd.Context(), srv, session, "POST", "/api/v1/rollouts/"+url.PathEscape(args[0])+"/approve", map[string]string{"ticket": ticket}, &res); err != nil {

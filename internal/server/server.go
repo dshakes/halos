@@ -16,6 +16,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -102,6 +103,16 @@ type Config struct {
 	CloudWebhookSecrets []string
 	CloudClients        cloudagents.Clients
 
+	// Admin access (ADR-0036). Session bounds console sessions (absolute TTL
+	// and sliding idle timeout). ServiceTokenMaxTTL caps service-account token
+	// lifetimes (0 = DefaultServiceTokenMaxTTL). BreakGlass is the sealed local
+	// admin account. EntraGraphURL is where identity.groupsOverage: graph
+	// resolves groups ("" = DefaultGraphURL).
+	Session            SessionPolicy
+	ServiceTokenMaxTTL time.Duration
+	BreakGlass         BreakGlass
+	EntraGraphURL      string
+
 	// DevUser disables authentication and acts as this user. INSECURE: local demos only.
 	// DevRoles are its roles (ADR-0015); DevAdmin adds RoleAdmin.
 	DevUser   string
@@ -132,6 +143,7 @@ type Server struct {
 	exchangeFails authLimiter // POST /api/v1/token/exchange (CI workload federation)
 	agentFails    authLimiter // agent delegation exchange and POST /api/v1/agents/egress
 	scimFails     authLimiter // /scim/v2
+	tokenFails    authLimiter // service-account tokens on console/API routes (ADR-0036)
 	revoked       *sessionRevocations
 	auditLog      *auditLog
 	forwarders    []*auditForwarder
@@ -149,6 +161,16 @@ type Server struct {
 	auditFails    atomic.Uint64 // audit appends that failed (strict and best-effort)
 	revs          revocationStore
 	metrics       serverMetrics
+
+	// Admin access (ADR-0036).
+	session     SessionPolicy     // normalized Config.Session
+	tokens      serviceTokenStore // Backend, else serviceTokenLog
+	tokenMaxTTL time.Duration
+	tokenUsed   sync.Map // token id -> time its use was last audited (this replica)
+	bg          *breakGlassHash
+	bgSem       chan struct{}
+	bgLock      breakGlassLockout
+	graphURL    string
 }
 
 // New validates cfg and returns a Server. It does not require the policy dir to load yet.
@@ -174,6 +196,27 @@ func New(cfg Config) (*Server, error) {
 		return nil, errors.New("server: session key must be at least 32 bytes (or set DevUser for a demo)")
 	}
 	if err := cfg.Portal.Validate(cfg.DevUser != ""); err != nil {
+		return nil, err
+	}
+	session, err := cfg.Session.normalize()
+	if err != nil {
+		return nil, err
+	}
+	if cfg.ServiceTokenMaxTTL == 0 {
+		cfg.ServiceTokenMaxTTL = DefaultServiceTokenMaxTTL
+	}
+	if cfg.ServiceTokenMaxTTL < minServiceTokenTTL || cfg.ServiceTokenMaxTTL > MaxServiceTokenMaxTTL {
+		return nil, fmt.Errorf("server: service token max TTL %s out of range [%s, %s]", cfg.ServiceTokenMaxTTL, minServiceTokenTTL, MaxServiceTokenMaxTTL)
+	}
+	bg, bgCfg, err := newBreakGlass(cfg.BreakGlass, cfg.DevUser)
+	if err != nil {
+		return nil, err
+	}
+	cfg.BreakGlass = bgCfg
+	if cfg.EntraGraphURL == "" {
+		cfg.EntraGraphURL = DefaultGraphURL
+	}
+	if err := checkGraphURL(cfg.EntraGraphURL); err != nil {
 		return nil, err
 	}
 	if cfg.Store == nil {
@@ -258,6 +301,15 @@ func New(cfg Config) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	var tokens serviceTokenStore = cfg.Backend
+	if cfg.Backend == nil {
+		tl, err := openServiceTokenLog(logs)
+		if err != nil {
+			return nil, err
+		}
+		closers = append(closers, tl.close)
+		tokens = tl
+	}
 	bs, err := openBudgetStore(cfg.DataDir, cfg.Backend)
 	if err != nil {
 		return nil, err
@@ -266,11 +318,18 @@ func New(cfg Config) (*Server, error) {
 		cfg.Log.Warn("no --data-dir: gateway budget counters are in memory and reset on restart")
 	}
 	s := &Server{cfg: cfg, tokSum: sha256.Sum256([]byte(cfg.Token)), pol: &policyHolder{dir: cfg.PolicyDir, log: cfg.Log}, reqs: reqs, approvals: approvals, devices: devs, revoked: revoked,
-		auditLog: al, forwarders: fwds, relCache: &releaseCache{byKey: map[string]cachedPointer{}, chans: map[string][]string{}}, budgets: bs, kv: kv, revs: revs}
+		auditLog: al, forwarders: fwds, relCache: &releaseCache{byKey: map[string]cachedPointer{}, chans: map[string][]string{}}, budgets: bs, kv: kv, revs: revs,
+		session: session, tokens: tokens, tokenMaxTTL: cfg.ServiceTokenMaxTTL, bg: bg, bgSem: make(chan struct{}, breakGlassVerifiers), graphURL: cfg.EntraGraphURL}
+	if bg != nil && cfg.BreakGlass.Enabled {
+		cfg.Log.Warn("BREAK-GLASS ENABLED: the local admin account can log in at POST /auth/breakglass; disable it and rotate its password once the incident is over", "user", breakGlassSubPrefix+cfg.BreakGlass.User, "allowedCIDRs", cfg.BreakGlass.AllowedCIDRs)
+		if wide := wideBreakGlassCIDRs(cfg.BreakGlass.AllowedCIDRs); len(wide) > 0 { // too-broad ranges were refused in newBreakGlass
+			cfg.Log.Warn("break-glass allowed CIDRs are wide (IPv4 shorter than /16, IPv6 shorter than /48): everyone in them can spend the global failure budget; narrow them to the VPN or bastion range", "cidrs", wide)
+		}
+	}
 	for _, l := range []struct {
 		a     *authLimiter
 		class string
-	}{{&s.authFails, "device"}, {&s.loginFails, "login"}, {&s.gwFails, "gateway"}, {&s.exchangeFails, "exchange"}, {&s.agentFails, "agent"}, {&s.scimFails, "scim"}} {
+	}{{&s.authFails, "device"}, {&s.loginFails, "login"}, {&s.gwFails, "gateway"}, {&s.exchangeFails, "exchange"}, {&s.agentFails, "agent"}, {&s.scimFails, "scim"}, {&s.tokenFails, "service-token"}} {
 		l.a.class, l.a.log = l.class, cfg.Log
 		if cfg.Backend != nil { // one budget across replicas (ADR-0021, amended)
 			l.a.shared = cfg.Backend
@@ -309,6 +368,9 @@ func New(cfg Config) (*Server, error) {
 func (s *Server) Close() error {
 	errs := []error{s.reqs.close(), s.approvals.close(), s.devices.close(), s.revoked.close(), s.auditLog.close(), s.scim.close(), s.budgets.save(s.cfg.Now(), true)}
 	if c, ok := s.revs.(*revocationLog); ok {
+		errs = append(errs, c.close())
+	}
+	if c, ok := s.tokens.(*serviceTokenLog); ok {
 		errs = append(errs, c.close())
 	}
 	if s.cfg.KillStore == nil && s.kills != nil {
@@ -403,6 +465,10 @@ func (s *Server) mux() *routeMux {
 	s.route(m, "POST /api/v1/users/{id}/revoke-sessions", s.revokeSessions)
 	s.route(m, "POST /api/v1/revocations", s.postRevocation)
 	s.route(m, "GET /api/v1/revocations", s.listRevocations)
+	s.route(m, "POST /api/v1/service-tokens", s.createServiceToken) // ADR-0036
+	s.route(m, "GET /api/v1/service-tokens", s.listServiceTokens)
+	s.route(m, "POST /api/v1/service-tokens/{id}/revoke", s.revokeServiceToken)
+	s.route(m, "POST /api/v1/breakglass/unlock", s.breakGlassUnlock) // lift the break-glass lockout from an SSO admin session
 	s.route(m, "GET /api/v1/fleet", s.getFleet)
 	s.route(m, "GET /api/v1/policy", s.getPolicy)
 	s.route(m, "GET /api/v1/experiments", s.listExperiments)
@@ -441,7 +507,8 @@ func (s *Server) mux() *routeMux {
 	m.HandleFunc("GET /auth/login", s.login)
 	m.HandleFunc("GET /auth/callback", s.callback)
 	m.HandleFunc("POST /auth/logout", s.logout)
-	s.scimRoutes(m) // /scim/v2 and GET /api/v1/gateway/directory
+	m.HandleFunc("POST /auth/breakglass", s.breakGlassLogin) // 404 unless break-glass is enabled (ADR-0036)
+	s.scimRoutes(m)                                          // /scim/v2 and GET /api/v1/gateway/directory
 	m.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) { apiErr(w, http.StatusNotFound, "not found") })
 	m.HandleFunc("/", s.static)
 	return m

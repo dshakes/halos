@@ -18,7 +18,7 @@ halo sessions list [flags]
 | `--harness` |  | string |  | harness, e.g. claude-code, copilot-agent |
 | `--limit` |  | int | 100 | at most this many sessions (1..5000) |
 | `--ring` |  | string |  | ring |
-| `--server` |  | string |  | halo-server base URL (or HALO_SERVER); the session cookie comes from HALO_SESSION (audit role) |
+| `--server` |  | string |  | halo-server base URL (or HALO_SERVER); the credential comes from HALO_TOKEN or HALO_SESSION (audit role) |
 | `--since` |  | string |  | sessions started at or after: RFC 3339, a duration back (24h) or days (7d) |
 | `--tool` |  | string |  | tool or MCP server used |
 | `--until` |  | string |  | sessions started before |
