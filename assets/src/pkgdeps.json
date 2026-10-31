@@ -373,6 +373,7 @@
         "internal/harness/all",
         "internal/intent",
         "internal/policy",
+        "internal/promote",
         "internal/release"
       ]
     },
