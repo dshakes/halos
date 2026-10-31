@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { useCatalog, useCreateRequest, useLaunch, useMe, useMyDevices, useRequests, type AccessRequest, type Host, type Launch, type Me, type MyDevices } from "../api";
+import { ApiError, useCatalog, useCreateRequest, useLaunch, useMe, useMyDevices, useRequests, type AccessRequest, type Host, type Launch, type Me, type MyDevices } from "../api";
 import { Card, Empty, ErrorBox, Mono, Pill, ago, shortDigest, type Tone } from "../ui";
 
 function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) {
@@ -95,21 +95,45 @@ function LauncherTile({ id, onLaunch }: { id: string; onLaunch?: () => void }) {
   );
 }
 
+// A 422 that names a ticket: the change needs one (or a different one) under an approval rule.
+const ticketError = (e: Error | null) => e instanceof ApiError && e.status === 422 && /ticket/i.test(e.message);
+
 function RequestForm({ kind, item, onDone }: { kind: string; item: string; onDone: () => void }) {
   const [why, setWhy] = useState("");
+  const [ticket, setTicket] = useState("");
   const create = useCreateRequest();
+  // The catalog says which ticket pattern this request needs, judged as the server judges filing it.
+  const hint = useCatalog(true).data?.items.find((i) => i.kind === kind && i.item === item)?.ticket ?? [];
+  const tErr = ticketError(create.error);
   return (
     <form
       className="mt-2 flex flex-wrap gap-2"
       onSubmit={(e) => {
         e.preventDefault();
-        create.mutate({ kind, item, justification: why }, { onSuccess: onDone });
+        const t = ticket.trim();
+        create.mutate({ kind, item, justification: why, ...(t ? { ticket: t } : {}) }, { onSuccess: onDone });
       }}
     >
       <input autoFocus required maxLength={1000} value={why} onChange={(e) => setWhy(e.target.value)} aria-label={`Why do you need ${item}?`} placeholder="Why do you need this?" className="h-8 min-w-0 flex-1 rounded-md border border-line bg-panel px-2.5 outline-none focus:border-accent" />
+      <label className="flex basis-full flex-wrap items-center gap-2">
+        <span className="text-mute">Change ticket{hint.length > 0 ? "" : " (optional)"}</span>
+        <input
+          maxLength={64}
+          value={ticket}
+          onChange={(e) => setTicket(e.target.value)}
+          aria-label="Change ticket"
+          aria-invalid={tErr || undefined}
+          aria-describedby={`ticket-help-${kind}-${item}`}
+          placeholder={hint.length > 0 ? "e.g. CHG0012345" : "only if your change process needs one"}
+          className={`h-8 w-48 rounded-md border bg-panel px-2.5 outline-none focus:border-accent ${tErr ? "border-rose-500" : "border-line"}`}
+        />
+        <span id={`ticket-help-${kind}-${item}`} className={tErr ? "text-rose-600 dark:text-rose-300" : "text-mute"} role={tErr ? "alert" : undefined}>
+          {tErr ? create.error?.message : hint.length > 0 ? `Required: matching ${hint.join(" and ")}` : ""}
+        </span>
+      </label>
       <button disabled={create.isPending || !why.trim()} className="h-8 rounded-md bg-accent px-3 font-medium text-white disabled:opacity-50">{create.isPending ? "Sending…" : "Send"}</button>
       <button type="button" onClick={onDone} className="h-8 px-2 text-mute">Cancel</button>
-      {create.error && <span role="alert" className="basis-full text-rose-600 dark:text-rose-300">{create.error.message}</span>}
+      {create.error && !tErr && <span role="alert" className="basis-full text-rose-600 dark:text-rose-300">{create.error.message}</span>}
     </form>
   );
 }

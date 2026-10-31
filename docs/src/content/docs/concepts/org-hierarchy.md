@@ -145,3 +145,7 @@ instructions                   # Acme engineering ...     profile base + unit pa
 ## Delivery
 
 A release carries every unit in its signed manifest: the member selector, plus the files the unit's effective config renders differently, as whole files. `halod` picks the device's unit with the subject and IdP groups that halo-server's ring endpoint returns, writes the unit's files in place of the release's own, and then merges client toggle fragments on top. A device with no unit, or one pinned to a ring in `halod.yaml` (so it has no groups), gets the release's own files. The unit applied is reported as `unit` in the device status.
+
+## Console roles for a unit
+
+A unit's owners own its policy files; who operates the unit in the halo-server console is a separate grant in `halos.yaml`: `identity.roleBindings` with `scope: {units: [payments]}` gives a group a role over the unit's members and every unit below it (their devices and access requests). Rings, experiments and rollouts draw from every unit, so a unit scope does not reach them. See [Delegated administration](/halos/guides/delegated-administration/) and [ADR-0037](/halos/adr/0037-scoped-role-bindings/).

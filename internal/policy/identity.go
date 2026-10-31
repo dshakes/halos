@@ -28,4 +28,5 @@ func (v *validator) identity() {
 			seen[x] = true
 		}
 	}
+	v.roleBindings()
 }

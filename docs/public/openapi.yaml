@@ -313,6 +313,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/Capabilities'
               example:
+                bindings:
+                  - role: operator
+                    scope:
+                      rings:
+                        - ring1-canary
+                    source: identity.roleBindings[0]
                 killSwitch: true
                 permissions:
                   - read
@@ -343,9 +349,15 @@ paths:
               schema:
                 $ref: '#/components/schemas/Catalog'
               example:
-                items: []
+                items:
+                  - desc: https://mcp.acme.example/jira
+                    item: jira
+                    kind: mcp-server
+                    ticket:
+                      - CHG[0-9]{7}
                 harnesses: []
-                launchers: []
+                launchers:
+                  - laptop
         "401":
           $ref: '#/components/responses/Unauthorized'
         "403":
@@ -1764,6 +1776,7 @@ paths:
                 $ref: '#/components/schemas/Me'
               example:
                 admin: false
+                bindings: []
                 groups: []
                 id: dev@acme.example
                 launchers: []
@@ -2458,7 +2471,7 @@ paths:
       operationId: createServiceToken
       summary: Create a service-account token (ADR-0036)
       description: |-
-        The secret is shown once. The role may not exceed the caller's; `ttl` is 1h up to --service-token-max-ttl (default and maximum 90 days). Audited as service-token.create.
+        The secret is shown once. The role may not exceed the caller's; `ttl` is 1h up to --service-token-max-ttl (default and maximum 90 days). `scope` (ADR-0037) bounds the role to rings and units within the caller's admin grants; absent is global. The body is decoded strictly: exact keys, each once, and a present scope must name a ring or a unit. Audited as service-token.create.
 
         Requires the `admin` permission. Only an interactive session may create one: a token or break-glass caller gets 403.
       x-halo-permission: admin
@@ -2476,6 +2489,9 @@ paths:
               name: ci-reporter
               owner: platform
               role: viewer
+              scope:
+                rings:
+                  - ring1-canary
               ttl: 720h
       responses:
         "201":
@@ -2496,9 +2512,12 @@ paths:
                   principal: service-account:ci-reporter:0123456789abcdef
                   revoked: false
                   role: viewer
+                  scope:
+                    rings:
+                      - ring1-canary
                 token: halo_sat_0123456789abcdef.secret
         "400":
-          description: Invalid name, role, ttl, description or owner.
+          description: Invalid name, role, scope, ttl, description or owner; an unknown, repeated or case-variant key; a scope naming no ring or unit, or one not in policy.
           content:
             application/json:
               schema:
@@ -2572,6 +2591,7 @@ paths:
                 principal: service-account:ci-reporter:0123456789abcdef
                 revoked: true
                 role: viewer
+                scope: {}
         "400":
           description: Invalid id, JSON or reason.
           content:
@@ -4526,11 +4546,16 @@ components:
             $ref: '#/components/schemas/budget.Status'
     Capabilities:
       required:
+        - bindings
         - killSwitch
         - permissions
         - roles
       type: object
       properties:
+        bindings:
+          type: array
+          items:
+            $ref: '#/components/schemas/policy.Grant'
         killSwitch:
           type: boolean
         permissions:
@@ -4572,6 +4597,10 @@ components:
           type: string
         kind:
           type: string
+        ticket:
+          type: array
+          items:
+            type: string
     ChannelRelease:
       required:
         - channel
@@ -4690,6 +4719,7 @@ components:
           type: string
         role:
           type: string
+        scope: {}
         ttl:
           type: string
     CreateServiceTokenResponse:
@@ -5015,6 +5045,7 @@ components:
     Me:
       required:
         - admin
+        - bindings
         - groups
         - id
         - launchers
@@ -5029,6 +5060,10 @@ components:
       properties:
         admin:
           type: boolean
+        bindings:
+          type: array
+          items:
+            $ref: '#/components/schemas/policy.Grant'
         devInsecure:
           type: boolean
         groups:
@@ -5493,6 +5528,7 @@ components:
         - principal
         - revoked
         - role
+        - scope
       type: object
       properties:
         createdAt:
@@ -5526,6 +5562,8 @@ components:
           type: string
         role:
           type: string
+        scope:
+          $ref: '#/components/schemas/policy.RoleScope'
     ServiceTokensResponse:
       required:
         - tokens
@@ -6427,6 +6465,14 @@ components:
           type: array
           items:
             type: string
+        scopedGroups:
+          type: array
+          items:
+            type: string
+        scopes:
+          type: array
+          items:
+            $ref: '#/components/schemas/policy.RoleScope'
         ticket:
           type: string
     policy.Budget:
@@ -6667,6 +6713,19 @@ components:
           type: string
         ttlSeconds:
           type: integer
+    policy.Grant:
+      required:
+        - role
+        - scope
+        - source
+      type: object
+      properties:
+        role:
+          type: string
+        scope:
+          $ref: '#/components/schemas/policy.RoleScope'
+        source:
+          type: string
     policy.HarnessSpec:
       required:
         - version
@@ -6979,6 +7038,17 @@ components:
           type: string
         unit:
           type: string
+    policy.RoleScope:
+      type: object
+      properties:
+        rings:
+          type: array
+          items:
+            type: string
+        units:
+          type: array
+          items:
+            type: string
     policy.Rollout:
       required:
         - apiVersion

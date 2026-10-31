@@ -269,6 +269,18 @@ Generated from `schemas/halos.schema.json`; do not edit. Nested fields use dotte
 | `identity.requireAcr[]` | string |  |  |  | pattern ^\S&#123;1,256}$ |  |
 | `identity.requireAmr` | array of string |  |  |  |  | Console login only: the ID token's amr must contain at least one of these, e.g. [mfa]. |
 | `identity.requireAmr[]` | string |  |  |  | pattern ^\S&#123;1,256}$ |  |
+| `identity.roleBindings` | array of object |  |  |  |  | Scoped halo-server roles (ADR-0037): each binding grants a role to groups and users over a scope of rings and units. An empty scope is global, the same as identity.roles. |
+| `identity.roleBindings[]` | object |  |  |  |  |  |
+| `identity.roleBindings[].groups` | array of string |  |  |  |  | IdP (or SCIM) groups that hold the binding. |
+| `identity.roleBindings[].groups[]` | string |  |  |  | minLength 1 |  |
+| `identity.roleBindings[].role` |  | yes |  | viewer, operator, approver, auditor, admin |  | The role granted. Audit routes are global only: a scoped auditor grants nothing. |
+| `identity.roleBindings[].scope` | object |  |  |  |  | What the role covers: resources wholly inside any listed ring and, when units are listed too, belonging to a listed unit or a descendant. Empty is global. |
+| `identity.roleBindings[].scope.rings` | array of string |  |  |  |  | Ring names defined in policy. |
+| `identity.roleBindings[].scope.rings[]` | string |  |  |  | minLength 1 |  |
+| `identity.roleBindings[].scope.units` | array of string |  |  |  |  | Unit names defined in policy (ADR-0018); each covers its descendants. |
+| `identity.roleBindings[].scope.units[]` | string |  |  |  | minLength 1 |  |
+| `identity.roleBindings[].users` | array of string |  |  |  |  | User ids that hold the binding (compared case-insensitively). |
+| `identity.roleBindings[].users[]` | string |  |  |  | minLength 1 |  |
 | `identity.roles` | object |  |  |  |  | halo-server roles (ADR-0015): IdP groups per role. A user holds every role any of their groups maps to. |
 | `identity.roles.admin` | array of string |  |  |  |  | Everything, including devices, sessions and toggle proposals. Same as adminGroups. |
 | `identity.roles.admin[]` | string |  |  |  | minLength 1 |  |

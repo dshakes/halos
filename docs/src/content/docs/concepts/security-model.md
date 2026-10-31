@@ -91,7 +91,18 @@ Limits: a kill affects gateways (routing and mirroring). It reaches client-axis 
 - **One table, deny by default.** Every cookie-authenticated route is in `routePerms` (`internal/server/rbac.go`) with the one permission it needs. A route registered without an entry answers 403 to everyone, admins included, and a test walking the server's routes fails until the entry is added.
 - **Roles come from current policy.** They are recomputed from the session's groups on every request, never read from the cookie, so removing a group from a role takes effect at once. A misspelled role name in policy is a load error.
 - **Denials are audited.** A 403 for a missing permission appends `authz.deny` with the user, path, route, needed permission and the user's roles.
-- **The console only hides.** `/api/v1/me` and `/api/v1/capabilities` report the caller's roles and permissions so the console can hide what it may not do; the server enforces either way.
+- **The console only hides.** `/api/v1/me` and `/api/v1/capabilities` report the caller's roles, permissions and bindings so the console can hide what it may not do; the server enforces either way.
+
+### Scoped roles
+
+`identity.roleBindings` grant a role over a scope of rings and units ([ADR-0037](/halos/adr/0037-scoped-role-bindings/); how-to in [Delegated administration](/halos/guides/delegated-administration/)). `identity.roles` and `adminGroups` stay global, and a policy without scoped bindings authorizes every request as before.
+
+- **Wholly inside.** A grant covers a resource only when every ring the resource affects is in the scope and, when the scope lists units, the resource belongs to one of them or a descendant. Experiments, toggles, rollouts and rings affect every unit's members, so a unit-only scope never covers them; devices and access requests belong to their owner's unit.
+- **Scope comes from the server.** A device is placed by its owner's identity under current policy, never by the ring it reports; a request by what approving it changes, from the server's record. No route reads a scope from a body or query.
+- **Every route says how it is scoped.** `routeScopes` (`internal/server/scope.go`) sits next to `routePerms`: one resource, a filtered list, a handler check, or global only with the reason. A route without an entry refuses every scoped caller, and a test fails.
+- **Deny by default.** An unknown name, an unprovisioned owner or an unloaded policy is out of every scope, with the same 403 as out of scope, so names outside the scope cannot be probed. Lists drop out-of-scope items and compute counts from what is left.
+- **No escalation through tokens or approvals.** A service token's scope must be within its creator's admin grants and role permissions; scoped approvals count toward a quorum only while their scope covers the change. Break-glass stays global.
+- **Audited.** Scope denials are `authz.deny` with the reason, the resource and the caller's bindings; an action a scoped grant authorized names the grant (`authzRole`, `authzScope`, `authzBinding`).
 
 ## Sessions, service accounts and break-glass
 

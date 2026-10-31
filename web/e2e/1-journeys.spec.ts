@@ -157,6 +157,30 @@ test("developer: from landing to an enrolled, compliant device, no admin involve
   await expect(mine).toContainText("ring1-canary");
   await expectHealthy(page, errs, "kiosk after requesting");
 
+  // An MCP server lands in bob's profile, which ring3-ga shares: the ga-two-person
+  // rule needs a change ticket (ADR-0030). The form says so up front, refuses
+  // without one next to the field, keeps what was typed, and files with one.
+  const ask = page.locator("section", { has: page.getByRole("heading", { name: "Request something" }) });
+  const linear = ask.locator("div.rounded-md", { hasText: "linear" }).first();
+  if (await linear.getByRole("button", { name: "Request" }).isVisible()) { // on a re-run it was already asked
+    await linear.getByRole("button", { name: "Request" }).click();
+    await expect(linear.getByText("Required: matching CHG[0-9]{7}")).toBeVisible();
+    const why = linear.getByRole("textbox", { name: /Why do you need linear/ });
+    await why.fill("e2e: issue tracking from the CLI");
+    await linear.getByRole("button", { name: "Send" }).click();
+    await settle(page);
+    await expect(linear.getByRole("alert")).toContainText("requires a ticket reference matching CHG[0-9]{7}");
+    await expect(linear.getByRole("textbox", { name: "Change ticket" })).toHaveAttribute("aria-invalid", "true");
+    await expect(why).toHaveValue("e2e: issue tracking from the CLI"); // nothing typed is lost
+    errs.splice(0); // the browser logs the deliberate 422 above as a console error
+    await linear.getByRole("textbox", { name: "Change ticket" }).fill("CHG0000001");
+    await linear.getByRole("button", { name: "Send" }).click();
+    await settle(page);
+    await expect(linear.getByText("requested")).toBeVisible();
+  }
+  await expect(mine).toContainText("linear");
+  await expectHealthy(page, errs, "kiosk after requesting with a ticket");
+
   // The developer's own "why this setup?" page explains their ring without an admin.
   await page.goto("/#/debug");
   await settle(page);
@@ -196,7 +220,9 @@ test("admin: the populated console, and every safe action is one click or a PR",
   await settle(page);
   const decided = page.locator("section", { has: page.getByRole("heading", { name: "Decided" }) });
   const pending = page.locator("section", { has: page.getByRole("heading", { name: /^Pending/ }) });
-  const approve = pending.getByRole("button", { name: /Approve → open PR/ }).first();
+  // bob's opt-in (no approval rule covers ring1/ring2): one approval decides it. His MCP request
+  // (ga-two-person: two sre-leads approvers) waits for the right people and is not clicked here.
+  const approve = pending.locator("div.grid").filter({ hasText: "ring-opt-in" }).getByRole("button", { name: /Approve → open PR/ }).first();
   if (await approve.isVisible()) { // on a re-run the request was decided last time
     await expect(pending).toContainText("bob@acme.com");
     await expect(pending).toContainText("ring1-canary");
