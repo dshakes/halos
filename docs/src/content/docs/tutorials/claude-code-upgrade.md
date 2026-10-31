@@ -43,7 +43,7 @@ A client-axis variant is held to its ring profile: exact pins, nothing widened (
 
 ```console
 $ halo plan --ring ring1-canary --against localhost:5055/acme/halos:v2.1.300 \
-    --plain-http --pubkey keys/dev.pub --release-version 2.1.301
+    --plain-http --pubkey /tmp/acme-keys/dev.pub --release-version 2.1.301
 release version: 2.1.300 -> 2.1.301
 …
 version changes:
@@ -56,7 +56,7 @@ Control is untouched: only the release label changes. The new pin lives in the `
 
 ```console
 $ halo plan --ring ring1-canary --against localhost:5055/acme/halos:v2.1.300 \
-    --plain-http --pubkey keys/dev.pub --release-version 2.1.301 --output json
+    --plain-http --pubkey /tmp/acme-keys/dev.pub --release-version 2.1.301 --output json
 {
   "changed": true,
   "versions": [

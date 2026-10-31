@@ -152,7 +152,6 @@ export default defineConfig({
             'reference/gateway-headers',
             'reference/metrics',
             'reference/binaries',
-            { slug: 'getting-started/installation', label: 'Build from source' },
             'reference/harness-matrix',
             'reference/compatibility',
             'reference/support-policy',

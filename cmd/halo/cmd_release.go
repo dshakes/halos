@@ -427,17 +427,35 @@ func (a *app) cmdRollback() *cobra.Command {
 func (a *app) cmdKeys() *cobra.Command {
 	keys := &cobra.Command{Use: "keys", Short: "Signing key management"}
 	var dir, name string
+	var force bool
 	gen := &cobra.Command{
 		Use:   "generate",
 		Short: "Generate an ed25519 signing key pair (PEM)",
-		Args:  cobra.NoArgs,
-		RunE: func(*cobra.Command, []string) error {
+		Long: "Writes <name>.key (private, 0600) and <name>.pub. Without --out the pair goes to the per-user config\n" +
+			"directory (<user config dir>/halos/keys, 0700), never the current directory: that is often a policy repo,\n" +
+			"where `git add -A` would commit the private key. A private key is refused inside a git work tree\n" +
+			"unless --force.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			dirMode := os.FileMode(0o755)
+			if !cmd.Flags().Changed("out") {
+				cfg, err := os.UserConfigDir()
+				if err != nil {
+					return fmt.Errorf("no per-user config directory to keep the key in (%w): pass --out DIR", err)
+				}
+				dir, dirMode = filepath.Join(cfg, "halos", "keys"), 0o700
+			}
+			if root, ok := gitWorkTree(dir); ok && !force {
+				return fmt.Errorf("%s is inside the git work tree %s: a committed signing key lets anyone sign releases. "+
+					"Write it elsewhere (--out DIR outside the repo; the default is the per-user config directory) "+
+					"or pass --force if you will git-ignore it", dir, root)
+			}
 			priv, pub := filepath.Join(dir, name+".key"), filepath.Join(dir, name+".pub")
 			privPEM, pubPEM, err := bundle.GenerateKeyPair()
 			if err != nil {
 				return fmt.Errorf("generate key pair: %w", err)
 			}
-			if err := os.MkdirAll(dir, 0o755); err != nil {
+			if err := os.MkdirAll(dir, dirMode); err != nil {
 				return fmt.Errorf("create %s: %w", dir, err)
 			}
 			// O_EXCL: never overwrite (or race) an existing key.
@@ -453,10 +471,31 @@ func (a *app) cmdKeys() *cobra.Command {
 			})
 		},
 	}
-	gen.Flags().StringVar(&dir, "out", ".", "output directory")
+	gen.Flags().StringVar(&dir, "out", "", "output directory (default: <user config dir>/halos/keys)")
 	gen.Flags().StringVar(&name, "name", "halo", "file base name")
+	gen.Flags().BoolVar(&force, "force", false, "write the key even inside a git work tree (git-ignore it yourself)")
 	keys.AddCommand(gen)
 	return keys
+}
+
+// gitWorkTree reports the nearest enclosing directory of dir (which need not
+// exist yet) that holds a .git entry: a work tree, or a worktree or submodule
+// whose .git is a file.
+func gitWorkTree(dir string) (string, bool) {
+	d, err := filepath.Abs(dir)
+	if err != nil {
+		return "", false
+	}
+	for {
+		if _, err := os.Lstat(filepath.Join(d, ".git")); err == nil {
+			return d, true
+		}
+		parent := filepath.Dir(d)
+		if parent == d {
+			return "", false
+		}
+		d = parent
+	}
 }
 
 // createExcl writes a new file, failing if p already exists.

@@ -15,15 +15,32 @@ import (
 var FallbackTools = map[string]string{"claude-code": "2.1.280"}
 
 // SuggestTools pins every installed CLI at the version found on PATH, so the
-// first release changes no CLI binary. Empty when none is installed.
-func SuggestTools(hs []Harness) map[string]string {
-	out := map[string]string{}
+// first release changes no CLI binary. Empty when none is installed. A CLI
+// whose version is not an exact semver (cursor-agent reports a date such as
+// 2026.04.17-787b533) cannot be pinned by policy: it is left out and a warning
+// says which tool and how to pin it, so one such CLI never fails onboarding.
+func SuggestTools(hs []Harness) (tools map[string]string, warnings []string) {
+	tools = map[string]string{}
 	for _, h := range hs {
-		if h.Installed && h.Version != "" {
-			out[h.Name] = h.Version
+		switch {
+		case !h.Installed || h.Version == "":
+		case !policy.ValidVersion(h.Version):
+			warnings = append(warnings, fmt.Sprintf("%s %s is installed but not pinned: its version is not an exact semver (x.y.z), which a policy pin requires, so it is left out of halos.yaml. To manage it, pin a semver yourself: --tools %s@<x.y.z>", h.Name, h.Version, h.Name))
+		default:
+			tools[h.Name] = h.Version
 		}
 	}
-	return out
+	return tools, warnings
+}
+
+// AutoTools is the default --tools: SuggestTools over the CLIs on PATH, or
+// FallbackTools (with a warning) when that leaves nothing to pin.
+func AutoTools(hs []Harness) (map[string]string, []string) {
+	tools, warns := SuggestTools(hs)
+	if len(tools) == 0 {
+		return FallbackTools, warns
+	}
+	return tools, warns
 }
 
 // SuggestProvider picks the provider whose credential is already exported;
@@ -45,16 +62,20 @@ type LocalOptions struct {
 	GOOS  string
 	Root  string // stage managed config under this directory instead of the real paths
 	Apply bool   // write halos.yaml (never the managed config: see Install)
+	// Warnings are caller-side findings (autodetect left a CLI out) reported with the result.
+	Warnings []string
 }
 
 // LocalResult is one pass of init -> validate -> install plan.
 type LocalResult struct {
-	DryRun  bool         `json:"dryRun"`
-	Policy  PolicyResult `json:"policy"`
-	Valid   bool         `json:"valid"`
-	Issues  []string     `json:"issues"`
-	Install *InstallPlan `json:"install,omitempty"`
-	Next    []string     `json:"next"`
+	DryRun bool         `json:"dryRun"`
+	Policy PolicyResult `json:"policy"`
+	Valid  bool         `json:"valid"`
+	Issues []string     `json:"issues"`
+	// Warnings never fail the run: tools autodetect could not pin.
+	Warnings []string     `json:"warnings"`
+	Install  *InstallPlan `json:"install,omitempty"`
+	Next     []string     `json:"next"`
 }
 
 // Local creates (or keeps) the policy in o.Dir, validates it as it would be
@@ -72,14 +93,16 @@ func Local(o LocalOptions) (*LocalResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	res := &LocalResult{DryRun: !o.Apply, Policy: pr, Next: []string{}}
+	res := &LocalResult{DryRun: !o.Apply, Policy: pr, Warnings: append([]string{}, o.Warnings...), Next: []string{}}
 	org, issues, err := loadChange(ch)
 	if err != nil {
 		return nil, err
 	}
 	res.Issues, res.Valid = Issues(issues)
 	if !res.Valid {
-		res.Next = append(res.Next, "fix the validation errors above; nothing was written")
+		res.Next = append(res.Next,
+			"fix the validation errors above; nothing was written",
+			"pin the tools yourself with exact semvers: halo onboard local --policy-dir "+o.Dir+" --tools name@x.y.z (e.g. claude-code@2.1.280; `halo doctor` lists what is installed)")
 		return res, nil
 	}
 	if res.Install, err = PlanInstall(org, o.Ring, o.GOOS, o.Root); err != nil {
