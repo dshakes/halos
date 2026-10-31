@@ -284,19 +284,34 @@ const (
 
 // killSigCache holds the last remotely signed envelope. In-process keys are
 // not cached: they sign every response, as before.
+//
+// At most one remote sign runs at a time. A poll that wants a list other
+// than the one being signed takes the single pending slot (replacing an
+// older pending list, whose waiters are told it was superseded); the pending
+// list is signed when the running sign ends. So a slow or hanging signer
+// costs one goroutine and one in-flight call however many distinct lists
+// polls ask for.
 type killSigCache struct {
 	mu       sync.Mutex
 	list     gateway.KillList // as signed (IssuedAt included)
 	env      gateway.KillEnvelope
-	inflight *killSignCall // the remote sign in progress, if any
+	inflight *killSignCall // the remote sign running, if any
+	pending  *killSignCall // the newest other list, signed after inflight
+	signer   bundle.Signer // for the pending call
+	log      *slog.Logger
 	failures atomic.Uint64 // remote sign failures (halo_server_killswitch_sign_failures_total)
 	staleHit atomic.Uint64 // polls answered from the cache because the remote sign failed
 }
 
+// errKillSuperseded ends the wait of polls whose pending list was replaced
+// by a newer one before it was signed.
+var errKillSuperseded = errors.New("superseded by a newer kill list before it was signed")
+
 // killSignCall is one remote signature shared by every poll that wants the
-// same list while it runs.
+// same list.
 type killSignCall struct {
 	list gateway.KillList // as being signed
+	ctx  context.Context  // detached from the poll that created it
 	done chan struct{}
 	env  gateway.KillEnvelope
 	err  error
@@ -310,11 +325,13 @@ func sameKillContent(a, b gateway.KillList) bool {
 }
 
 // sign returns the envelope for l. Remote keys: a fresh cached envelope of
-// the same content is reused; otherwise one detached remote sign runs (with
-// its own timeout, shared by concurrent polls, the mutex never held across
-// it). When that sign fails or this poll stops waiting, an unchanged list is
-// answered from the cache while it is younger than killSigStale; a changed
-// list is an error, never a stale list presented as current.
+// the same content is reused; otherwise l joins the running sign (same
+// content), the pending one (same content), or becomes the pending list. The
+// sign runs detached from the poll, with its own timeout, and the mutex is
+// never held across it. When the sign fails or this poll stops waiting, an
+// unchanged list is answered from the cache while it is younger than
+// killSigStale; a changed list is an error, never a stale list presented as
+// current.
 func (c *killSigCache) sign(ctx context.Context, k bundle.Signer, l gateway.KillList, log *slog.Logger) (gateway.KillEnvelope, error) {
 	if rs, ok := k.(remoteSigner); !ok || !rs.Remote() {
 		return gateway.SignKillList(ctx, k, l)
@@ -326,20 +343,30 @@ func (c *killSigCache) sign(ctx context.Context, k bundle.Signer, l gateway.Kill
 		c.mu.Unlock()
 		return env, nil
 	}
-	call := c.inflight
-	if call == nil || !sameKillContent(call.list, l) {
-		if !l.IssuedAt.After(c.list.IssuedAt) { // pollers need a strictly newer list for any change
-			l.IssuedAt = c.list.IssuedAt.Add(time.Nanosecond)
+	c.signer, c.log = k, log
+	var call *killSignCall
+	switch {
+	case c.inflight != nil && sameKillContent(c.inflight.list, l):
+		call = c.inflight
+	case c.pending != nil && sameKillContent(c.pending.list, l):
+		call = c.pending
+	default:
+		call = &killSignCall{list: l, ctx: context.WithoutCancel(ctx), done: make(chan struct{})}
+		if c.inflight == nil {
+			c.start(call)
+		} else {
+			if old := c.pending; old != nil { // a newer list replaces it: it will never be signed
+				old.err = errKillSuperseded
+				close(old.done)
+			}
+			c.pending = call
 		}
-		call = &killSignCall{list: l, done: make(chan struct{})}
-		c.inflight = call
-		go c.run(context.WithoutCancel(ctx), k, call, log)
 	}
 	c.mu.Unlock()
 
 	var err error
 	select {
-	case <-call.done: // run's writes happen before close(done)
+	case <-call.done: // the writer of env/err happens before close(done)
 		if call.err == nil {
 			return call.env, nil
 		}
@@ -358,23 +385,38 @@ func (c *killSigCache) sign(ctx context.Context, k bundle.Signer, l gateway.Kill
 	return gateway.KillEnvelope{}, fmt.Errorf("killswitch: remote sign: %w", err)
 }
 
-// run performs one remote signature detached from the poll that started it
-// and records it if it is still the newest.
+// start makes call the running sign; callers hold c.mu. issuedAt is bumped
+// past the cached list's: pollers need a strictly newer list for any change.
+func (c *killSigCache) start(call *killSignCall) {
+	if !call.list.IssuedAt.After(c.list.IssuedAt) {
+		call.list.IssuedAt = c.list.IssuedAt.Add(time.Nanosecond)
+	}
+	c.inflight = call
+	go c.run(call.ctx, c.signer, call, c.log)
+}
+
+// run performs one remote signature detached from the poll that started it,
+// records it if it is the newest, and starts the pending list, if any.
 func (c *killSigCache) run(ctx context.Context, k bundle.Signer, call *killSignCall, log *slog.Logger) {
 	ctx, cancel := context.WithTimeout(ctx, killSignTimeout)
 	defer cancel()
-	env, err := gateway.SignKillList(ctx, k, call.list)
+	c.mu.Lock()
+	list := call.list
+	c.mu.Unlock()
+	env, err := gateway.SignKillList(ctx, k, list)
 	c.mu.Lock()
 	call.env, call.err = env, err
-	if c.inflight == call {
-		c.inflight = nil
-	}
 	switch {
 	case err != nil:
 		c.failures.Add(1)
 		log.Error("killswitch: remote sign failed", "err", err)
-	case call.list.IssuedAt.After(c.list.IssuedAt):
-		c.list, c.env = call.list, env
+	case list.IssuedAt.After(c.list.IssuedAt):
+		c.list, c.env = list, env
+	}
+	c.inflight = nil
+	if next := c.pending; next != nil {
+		c.pending = nil
+		c.start(next)
 	}
 	c.mu.Unlock()
 	close(call.done)
