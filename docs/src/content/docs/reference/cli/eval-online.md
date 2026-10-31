@@ -15,6 +15,7 @@ halo eval online [flags]
 
 | Flag | Shorthand | Type | Default | Description |
 |---|---|---|---|---|
+| `--allow-plaintext-pairs` |  | bool | false | with --pair-key-file, also read unsealed rows (a store written before sealing was turned on); off: such rows are refused |
 | `--experiment` |  | string |  | only this experiment |
 | `--history` |  | string |  | scorecard history JSONL: skip already-graded pairs and append results |
 | `--judge-cache` |  | string |  | directory caching judge verdicts |

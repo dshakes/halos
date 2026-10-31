@@ -96,6 +96,7 @@ func (a *app) writeScorecard(sc *eval.Scorecard, f evalRunFlags) error {
 func (a *app) cmdEvalOnline() *cobra.Command {
 	var pairs, rubric, history, experiment, otlp, otlpTokenFile, polDir string
 	var keyFiles []string
+	var allowPlain bool
 	var jc eval.JudgeConfig
 	var sample int
 	var seed uint64
@@ -137,7 +138,7 @@ func (a *app) cmdEvalOnline() *cobra.Command {
 				}
 			}
 			start := time.Now()
-			rs, err := eval.RunOnline(cmd.Context(), eval.FilePairs{Path: pairs, Keys: keys}, eval.OnlineOptions{
+			rs, err := eval.RunOnline(cmd.Context(), eval.FilePairs{Path: pairs, Keys: keys, AllowPlaintext: allowPlain}, eval.OnlineOptions{
 				Judge: j, Rubric: r, Sample: sample, Seed: seed, Experiment: experiment, Skip: skip, AgentSkip: agentSkip, ControlNames: controls,
 			})
 			if err != nil {
@@ -170,6 +171,7 @@ func (a *app) cmdEvalOnline() *cobra.Command {
 	}
 	c.Flags().StringVar(&pairs, "pairs", "", "halo-shadow pair store (JSONL) (required)")
 	c.Flags().StringSliceVar(&keyFiles, "pair-key-file", nil, "base64 32-byte pair key (repeatable: current and retired)")
+	c.Flags().BoolVar(&allowPlain, "allow-plaintext-pairs", false, "with --pair-key-file, also read unsealed rows (a store written before sealing was turned on); off: such rows are refused")
 	c.Flags().StringVar(&rubric, "rubric", "", "rubric YAML (required)")
 	c.Flags().StringVar(&jc.URL, "judge-url", "", "gateway base URL for the judge (required)")
 	c.Flags().StringVar(&jc.Wire, "judge-wire", eval.WireAnthropic, "judge wire: anthropic-messages | openai-responses")
@@ -204,6 +206,7 @@ func readPairKeys(files []string) ([][]byte, error) {
 func (a *app) cmdEvalHarvest() *cobra.Command {
 	var pairs, out, history, experiment string
 	var keyFiles, sel, patterns, keep []string
+	var allowPlain bool
 	var o eval.HarvestOptions
 	var dry bool
 	c := &cobra.Command{
@@ -231,7 +234,7 @@ func (a *app) cmdEvalHarvest() *cobra.Command {
 				}
 			}
 			o.Experiment, o.Select = experiment, sel
-			res, err := eval.Harvest(cmd.Context(), eval.FilePairs{Path: pairs, Keys: keys}, o)
+			res, err := eval.Harvest(cmd.Context(), eval.FilePairs{Path: pairs, Keys: keys, AllowPlaintext: allowPlain}, o)
 			if err != nil {
 				return err
 			}
@@ -259,6 +262,7 @@ func (a *app) cmdEvalHarvest() *cobra.Command {
 	}
 	c.Flags().StringVar(&pairs, "pairs", "", "halo-shadow pair store (JSONL) (required)")
 	c.Flags().StringSliceVar(&keyFiles, "pair-key-file", nil, "base64 32-byte pair key (repeatable: current and retired)")
+	c.Flags().BoolVar(&allowPlain, "allow-plaintext-pairs", false, "with --pair-key-file, also read unsealed rows (a store written before sealing was turned on); off: such rows are refused")
 	c.Flags().StringVar(&out, "out", "", "suite directory to write the cases into (created 0700)")
 	c.Flags().StringVar(&experiment, "experiment", "", "only this experiment")
 	c.Flags().StringSliceVar(&sel, "select", eval.DefaultSelect, "why a step becomes a case: diverged, invalid-call, premature-stop, judge-loss, sample")

@@ -17,6 +17,7 @@ halo eval harvest [flags]
 
 | Flag | Shorthand | Type | Default | Description |
 |---|---|---|---|---|
+| `--allow-plaintext-pairs` |  | bool | false | with --pair-key-file, also read unsealed rows (a store written before sealing was turned on); off: such rows are refused |
 | `--dry-run` |  | bool | false | select and redact, print the summary, write nothing |
 | `--experiment` |  | string |  | only this experiment |
 | `--history` |  | string |  | `halo eval online` history JSONL: judge scores for --select judge-loss |

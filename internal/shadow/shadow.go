@@ -127,14 +127,37 @@ func ReadKeyFile(path string) ([]byte, error) {
 	return k, nil
 }
 
-// DecodePair reads one JSONL row, decrypting it with keys (by key id) when sealed.
+// ErrPlaintextRow is a plaintext (unsealed) pair row read with pair keys
+// configured. Whoever can write the store could otherwise inject unsealed
+// rows into a store that is supposed to be encrypted; reading rows written
+// before sealing was turned on needs the explicit migration switch
+// (DecodePairAllowPlaintext, --allow-plaintext-pairs).
+var ErrPlaintextRow = errors.New("shadow: plaintext pair row in a sealed store (rows written before pair keys were configured need --allow-plaintext-pairs)")
+
+// DecodePair reads one JSONL row, decrypting it with keys (by key id) when
+// sealed. With no keys it reads plaintext rows; with keys it refuses them
+// (ErrPlaintextRow).
 func DecodePair(line []byte, keys ...[]byte) (Pair, error) {
+	return decodePair(line, false, keys)
+}
+
+// DecodePairAllowPlaintext is DecodePair that also accepts plaintext rows
+// when keys are configured: the migration path for a store sealed part way
+// through its life. Off unless an operator asks for it.
+func DecodePairAllowPlaintext(line []byte, keys ...[]byte) (Pair, error) {
+	return decodePair(line, true, keys)
+}
+
+func decodePair(line []byte, allowPlaintext bool, keys [][]byte) (Pair, error) {
 	var p Pair
 	var s sealed
 	if err := json.Unmarshal(line, &s); err != nil {
 		return p, fmt.Errorf("shadow: decode pair row: %w", err)
 	}
 	if s.KID == "" {
+		if len(keys) > 0 && !allowPlaintext {
+			return p, fmt.Errorf("%w: pair %s", ErrPlaintextRow, s.ID)
+		}
 		err := json.Unmarshal(line, &p)
 		return p, err
 	}

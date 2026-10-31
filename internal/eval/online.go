@@ -33,6 +33,10 @@ type PairSource interface {
 type FilePairs struct {
 	Path string
 	Keys [][]byte
+	// AllowPlaintext reads plaintext rows even with Keys set (a store sealed
+	// part way through its life). Off by default: with keys configured an
+	// unsealed row is refused (shadow.ErrPlaintextRow).
+	AllowPlaintext bool
 }
 
 func (f FilePairs) Pairs(ctx context.Context) ([]shadow.Pair, error) {
@@ -51,7 +55,11 @@ func (f FilePairs) Pairs(ctx context.Context) ([]shadow.Pair, error) {
 		if len(bytes.TrimSpace(sc.Bytes())) == 0 {
 			continue
 		}
-		p, err := shadow.DecodePair(sc.Bytes(), f.Keys...)
+		decode := shadow.DecodePair
+		if f.AllowPlaintext {
+			decode = shadow.DecodePairAllowPlaintext
+		}
+		p, err := decode(sc.Bytes(), f.Keys...)
 		if err != nil {
 			return nil, fmt.Errorf("pair store %s line %d: %w", f.Path, n, err)
 		}
