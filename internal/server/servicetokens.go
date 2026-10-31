@@ -435,9 +435,10 @@ func grantWithin(org *policy.Org, role string, scope policy.RoleScope, p Princip
 
 // tokenScope decodes a create request's scope strictly (an unknown key is an
 // error: a typo must not mint a global token) and checks every ring and unit
-// against current policy. Absent is global; a scope that is present must name
-// a ring or a unit: {}, null or empty lists are refused, never global.
-func (s *Server) tokenScope(raw json.RawMessage) (policy.RoleScope, error) {
+// against org, the request's policy snapshot. Absent is global; a scope that
+// is present must name a ring or a unit: {}, null or empty lists are refused,
+// never global.
+func tokenScope(org *policy.Org, raw json.RawMessage) (policy.RoleScope, error) {
 	var sc policy.RoleScope
 	if len(raw) == 0 {
 		return sc, nil
@@ -450,7 +451,6 @@ func (s *Server) tokenScope(raw json.RawMessage) (policy.RoleScope, error) {
 	if sc.Global() {
 		return sc, errors.New("scope names no ring or unit: omit it for a global token")
 	}
-	org, _, _ := s.pol.Get()
 	if org == nil && !sc.Global() {
 		return sc, errors.New("policy not loaded: a scope cannot be checked")
 	}
@@ -555,13 +555,16 @@ func (s *Server) createServiceToken(w http.ResponseWriter, r *http.Request, p Pr
 		}
 		ttl = d
 	}
-	scope, err := s.tokenScope(in.Scope)
+	// One policy load for the whole decision (ADR-0037 review): the names in
+	// the scope, the admin grant over it and the role ceiling are all checked
+	// against the snapshot s.route pinned, so a reload cannot mix loads.
+	org, _ := s.reqPolicy(r)
+	scope, err := tokenScope(org, in.Scope)
 	if err != nil {
 		apiErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	org, _, _ := s.pol.Get()
-	adminGrant, adminOver := s.adminGrantOver(p, scope)
+	adminGrant, adminOver := adminGrantOver(org, p, scope)
 	switch {
 	case !policy.ValidName(in.Name):
 		apiErr(w, http.StatusBadRequest, "name must be a lowercase name (a-z, 0-9, '.', '_', '-'; at most 63 characters)")
@@ -646,19 +649,20 @@ func (s *Server) listServiceTokens(w http.ResponseWriter, r *http.Request, p Pri
 	}
 	now := s.cfg.Now()
 	everything := p.canGlobal(permAdmin)
+	org, _ := s.reqPolicy(r) // the snapshot the route was authorized under
 	out := ServiceTokensResponse{Tokens: make([]ServiceTokenInfo, 0, len(all))}
 	for _, t := range all {
 		info := serviceTokenInfo(t, now)
-		if _, ok := s.adminGrantOver(p, info.Scope); everything || ok {
+		if _, ok := adminGrantOver(org, p, info.Scope); everything || ok {
 			out.Tokens = append(out.Tokens, info)
 		}
 	}
 	writeJSON(w, http.StatusOK, out)
 }
 
-// adminGrantOver is p's admin grant whose scope holds scope (a global one first).
-func (s *Server) adminGrantOver(p Principal, scope policy.RoleScope) (policy.Grant, bool) {
-	org, _, _ := s.pol.Get()
+// adminGrantOver is p's admin grant whose scope holds scope under org (a
+// global one first; with no policy, only a global one).
+func adminGrantOver(org *policy.Org, p Principal, scope policy.RoleScope) (policy.Grant, bool) {
 	if g, ok := p.globalGrant(permAdmin); ok {
 		return g, true
 	}
@@ -704,7 +708,8 @@ func (s *Server) revokeServiceToken(w http.ResponseWriter, r *http.Request, p Pr
 		}
 		var rec serviceTokenRecord
 		_ = json.Unmarshal(cur.Record, &rec) // garbage: a global scope, which no scoped grant holds
-		g, within := s.adminGrantOver(p, rec.Scope)
+		org, _ := s.reqPolicy(r)             // the snapshot the route was authorized under
+		g, within := adminGrantOver(org, p, rec.Scope)
 		if !within {
 			s.denyScope(w, r, p, route, permAdmin, scopeWhyOutside, nil)
 			return

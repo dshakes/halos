@@ -185,6 +185,51 @@ func TestReviewRenderFromSnapshot(t *testing.T) {
 	}
 }
 
+// TestReviewTokenCreateOneLoad: service-token create, list and revoke check
+// scope names, the admin grant and the role ceiling against one policy load,
+// the request's snapshot. The snapshot has unit checkout; a reload deletes it.
+// Reading the reload anywhere would turn a valid create into a 400 or 403.
+func TestReviewTokenCreateOneLoad(t *testing.T) {
+	e := scopedEnv(t)
+	org, view, _ := e.s.pol.Get()
+	if err := os.RemoveAll(filepath.Join(e.s.cfg.PolicyDir, "units/payments/checkout")); err != nil {
+		t.Fatal(err)
+	}
+	e.s.ReloadPolicy()
+	if now, _, err := e.s.pol.Get(); err != nil || now.Unit("checkout") != nil {
+		t.Fatalf("reload did not drop checkout: %v", err)
+	}
+	call := func(h authedHandler, method, path, body string, pinned bool, id string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, path, strings.NewReader(body))
+		if id != "" {
+			r.SetPathValue("id", id)
+		}
+		if pinned {
+			r = withPolicy(r, org, view)
+		}
+		w := httptest.NewRecorder()
+		h(w, r, grantPrincipal(payAdmin.ID, payAdmin.Groups, org.Identity.Grants(policy.Subject{ID: payAdmin.ID, Groups: payAdmin.Groups})))
+		return w
+	}
+	const body = `{"name":"co","role":"viewer","scope":{"units":["checkout"]}}`
+	w := call(e.s.createServiceToken, "POST", "/api/v1/service-tokens", body, true, "")
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create under the snapshot: %d %s", w.Code, w.Body)
+	}
+	id := decode[CreateServiceTokenResponse](t, w).ServiceToken.ID
+	if w := call(e.s.createServiceToken, "POST", "/api/v1/service-tokens", strings.Replace(body, `"co"`, `"co2"`, 1), false, ""); w.Code == http.StatusCreated {
+		t.Fatalf("without the snapshot, current policy (no checkout) must refuse: %d", w.Code)
+	}
+	// List and revoke judge the token's scope against the same snapshot.
+	lw := call(e.s.listServiceTokens, "GET", "/api/v1/service-tokens", "", true, "")
+	if got := decode[ServiceTokensResponse](t, lw).Tokens; len(got) != 1 || got[0].ID != id {
+		t.Fatalf("list under the snapshot: %+v", got)
+	}
+	if w := call(e.s.revokeServiceToken, "POST", "/api/v1/service-tokens/"+id+"/revoke", `{"reason":"x"}`, true, id); w.Code != http.StatusOK {
+		t.Fatalf("revoke under the snapshot: %d %s", w.Code, w.Body)
+	}
+}
+
 // TestReviewTokenScopeDrift (L2): a token's scope is re-checked against its
 // creator's grant scope under current policy on every use.
 func TestReviewTokenScopeDrift(t *testing.T) {
