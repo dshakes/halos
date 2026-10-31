@@ -127,6 +127,64 @@ func TestReviewTogglePreview(t *testing.T) {
 	}
 }
 
+// TestReviewSelfPreviewGroupsResolveRing (R1): a scoped reader's self preview
+// is the same with and without query groups: the ring resolves from their
+// own groups too, not only the evaluation.
+func TestReviewSelfPreviewGroupsResolveRing(t *testing.T) {
+	e := scopedEnv(t)
+	for _, me := range []Principal{canaryView, {ID: "cve@acme.example", Groups: []string{"g-canary-view", "early-members"}}} {
+		a := e.as(me, "GET", "/api/v1/toggles/github-mcp?user="+me.ID, "")
+		b := e.as(me, "GET", "/api/v1/toggles/github-mcp?user="+me.ID+"&groups=canary-members", "")
+		if a.Code != 200 || a.Body.String() != b.Body.String() {
+			t.Errorf("%s: self preview depends on query groups:\n%s\n%s", me.ID, a.Body, b.Body)
+		}
+	}
+}
+
+// TestReviewRenderFromSnapshot (R3): the experiment and rollout views render
+// from the snapshot the request was authorized under, not a later reload.
+func TestReviewRenderFromSnapshot(t *testing.T) {
+	e := scopedEnv(t)
+	org, view, _ := e.s.pol.Get()
+	for _, f := range []string{"experiments/opus-5-5-canary.yaml", "rollouts/opus-5-5-upgrade.yaml"} {
+		if err := os.Remove(filepath.Join(e.s.cfg.PolicyDir, f)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e.s.ReloadPolicy()
+	if now, _, _ := e.s.pol.Get(); findRolloutIn(now, "opus-5-5-upgrade") != nil {
+		t.Fatal("reload did not drop the rollout")
+	}
+	for _, c := range []struct {
+		path, name string
+		h          authedHandler
+	}{
+		{"/api/v1/experiments/opus-5-5-canary", "opus-5-5-canary", e.s.getExperiment},
+		{"/api/v1/rollouts/opus-5-5-upgrade", "opus-5-5-upgrade", e.s.getRollout},
+	} {
+		serve := func(pinned bool) *httptest.ResponseRecorder {
+			r := httptest.NewRequest("GET", c.path, nil)
+			r.SetPathValue("name", c.name)
+			if pinned {
+				r = withPolicy(r, org, view)
+			}
+			w := httptest.NewRecorder()
+			c.h(w, r, admin)
+			return w
+		}
+		if w := serve(true); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), c.name) {
+			t.Errorf("%s from the snapshot: %d %.200s", c.path, w.Code, w.Body)
+		}
+		if w := serve(false); w.Code != http.StatusNotFound {
+			t.Errorf("%s from current policy: %d", c.path, w.Code)
+		}
+	}
+	// And through s.route: the list a check filtered is the list rendered.
+	if got := names(decode[[]ExperimentDetail](t, e.as(canaryView, "GET", "/api/v1/experiments", "")), func(x ExperimentDetail) string { return x.Name }); len(got) != 0 {
+		t.Fatalf("after reload, canary viewer sees %v", got)
+	}
+}
+
 // TestReviewTokenScopeDrift (L2): a token's scope is re-checked against its
 // creator's grant scope under current policy on every use.
 func TestReviewTokenScopeDrift(t *testing.T) {
@@ -220,7 +278,7 @@ func TestReviewPolicySnapshot(t *testing.T) {
 	newReq := func() *http.Request {
 		return httptest.NewRequest("POST", "/api/v1/experiments/opus-5-5-canary/kill", strings.NewReader(`{"reason":"x"}`))
 	}
-	if c := kill(withPolicy(newReq(), before)); c != http.StatusOK {
+	if c := kill(withPolicy(newReq(), before, PolicyView{})); c != http.StatusOK {
 		t.Fatalf("handler did not act on the snapshot it was authorized under: %d", c)
 	}
 	if c := kill(newReq()); c != http.StatusNotFound {
@@ -230,7 +288,8 @@ func TestReviewPolicySnapshot(t *testing.T) {
 	m := &routeMux{ServeMux: http.NewServeMux()}
 	var pinned bool
 	e.s.route(m, "GET /api/v1/policy", func(_ http.ResponseWriter, r *http.Request, _ Principal) {
-		_, pinned = r.Context().Value(policyKey{}).(*policy.Org)
+		snap, ok := r.Context().Value(policyKey{}).(policySnap)
+		pinned = ok && snap.org != nil
 	})
 	r := httptest.NewRequest("GET", "/api/v1/policy", nil)
 	r.AddCookie(&http.Cookie{Name: sessionCookie, Value: e.s.seal(cookiePayload{Sub: admin.ID, Groups: admin.Groups, Exp: e.now.Unix() + 60})})

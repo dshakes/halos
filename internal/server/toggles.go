@@ -219,7 +219,8 @@ func (s *Server) getToggle(w http.ResponseWriter, r *http.Request, p Principal) 
 			}
 		}
 		if sub.Ring == "" { // same resolution as the gateway
-			if ring := org.ResolveRing(policy.Subject{ID: user, Groups: groups}); ring != nil {
+			// sub.Groups, not the query's: a scoped reader's own groups (review R1).
+			if ring := org.ResolveRing(policy.Subject{ID: user, Groups: sub.Groups}); ring != nil {
 				sub.Ring = ring.Name
 			}
 		} else if ringByName(org, sub.Ring) == nil {

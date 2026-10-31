@@ -39,7 +39,7 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 - The install pages are one: `getting-started/installation` (components, build from source, prerequisites) is merged into `getting-started/install`.
 - The quickstart timing claim is now "about a minute with a warm Docker cache, 2 to 3 minutes cold" (a fresh cold-cache run took 2:31), replacing "55 s warm, 86 s cold".
 - `POST /api/v1/service-tokens` decodes its body strictly (ADR-0037 review): an unknown, repeated or case-variant key is now a 400 (it was ignored), and a `scope` naming no ring or unit is refused. `halo service-token create --scope-*` revokes a token whose returned scope differs from the request (an older server ignores `scope`) and fails.
-- Rollout-step approvals are keyed by the rings they approve (the next step's and the backing experiment's): retargeting either invalidates them. Approvals pending at the upgrade must be given again.
+- Rollout-step approvals are keyed by the rings they approve (the next step's and the backing experiment's, kept apart): retargeting either invalidates them. The key changed shape, so every rollout-step approval recorded before the upgrade stops counting and must be given again.
 - An access request's approval rules and freeze windows (ADR-0030) now cover what approving it changes: an opt-in also matches the requested ring; an MCP server request matches every ring its profile reaches (rings on profiles extending it, experiment variants on them) and every unit.
 - The rollout gate without an approval rule no longer counts the requester's own approval.
 

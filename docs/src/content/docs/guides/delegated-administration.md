@@ -94,4 +94,6 @@ A scoped token keeps the scope of the admin grant that allowed it. If a later po
 
 Before adding the first `roleBindings` entry, upgrade to the first release with ADR-0037: every halo-server replica, the `halo` CLI, `halo mcp serve` and any standalone `halo controller run`. An older halo-server refuses such a policy (and keeps its last good one), refuses scoped tokens and counts scoped approvals for no approval rule; an older halo-server, CLI or MCP server would still count a scoped approval toward a step's plain approval gate. An older halo-server also ignores a token's `scope` and mints a global token: `halo service-token create --scope-*` notices, revokes it and fails.
 
-Rollout-step approvals are keyed by the rings they approve (the next step's and the experiment's) from this release on, so approvals pending at the upgrade must be given again.
+Rollout-step approvals are keyed by the rings they approve (the next step's and the experiment's) from this release on. The key changed shape, so every rollout-step approval recorded before the upgrade stops counting, for every rollout: give pending ones again after upgrading.
+
+Scopes name rings and units. A ring or unit deleted and later recreated under the same name is the same scope to bindings and tokens: retire names rather than reuse them, or revoke the tokens that name them.

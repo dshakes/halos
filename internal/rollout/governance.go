@@ -52,30 +52,35 @@ func Target(org *policy.Org, r *policy.Rollout, from int) policy.ChangeTarget {
 // for the alias in org, hashed: editing any of them after an approval
 // invalidates it.
 func ApprovalKey(org *policy.Org, r *policy.Rollout) string {
-	// Rings (ADR-0037 review) are what the approval was given for: the rings
-	// the next step enters and the backing experiment's rings. Retargeting the
-	// step or the experiment to other rings is a new change, so an approval,
-	// scoped or not, stops counting everywhere the key is read (this server,
-	// older replicas and every client that asks it for approvals).
+	// StepRings and ExpRings (ADR-0037 review) are what the approval was given
+	// for: the rings the next step enters and the backing experiment's rings,
+	// kept apart so moving a step between two of the experiment's rings is a
+	// new key too. Retargeting either is a new change, so an approval, scoped
+	// or not, stops counting everywhere the key is read (this server, older
+	// replicas and every client that asks it for approvals).
 	change := struct {
 		Release, Alias, Experiment string
 		Route                      *policy.ModelRoute `json:",omitempty"`
-		Rings                      []string
-	}{r.Change.Release, r.Change.Alias, r.Experiment, nil, nil}
-	rings := slices.Clone(Target(org, r, r.StepIndex(r.Step)).Rings)
+		StepRings, ExpRings        []string
+	}{r.Change.Release, r.Change.Alias, r.Experiment, nil, sortedSet(Target(org, r, r.StepIndex(r.Step)).Rings), nil}
 	if e := findExp(org, r.Experiment); e != nil {
-		rings = append(rings, e.Rings...)
+		change.ExpRings = sortedSet(e.Rings)
 		if _, t, ok := e.Arms(); ok {
 			if rt, ok := t.Routes[r.Change.Alias]; ok {
 				change.Route = &rt
 			}
 		}
 	}
-	slices.Sort(rings)
-	change.Rings = slices.Compact(rings)
 	b, _ := json.Marshal(change) // strings and a plain struct: cannot fail
 	sum := sha256.Sum256(b)
 	return r.Name + "/" + cmp.Or(r.Step, "-") + "/" + hex.EncodeToString(sum[:16])
+}
+
+// sortedSet is xs sorted, without repeats (a fresh slice).
+func sortedSet(xs []string) []string {
+	out := slices.Clone(xs)
+	slices.Sort(out)
+	return slices.Compact(out)
 }
 
 // Apply sets ev.Freeze and ev.Quorum for advancing r from st.Step at now. A

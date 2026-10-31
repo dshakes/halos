@@ -24,7 +24,7 @@ func (s *Server) postExperimentStatus(w http.ResponseWriter, r *http.Request, p 
 		return
 	}
 	name := r.PathValue("name")
-	exps, ok := s.experiments(w)
+	exps, ok := s.experiments(w, r)
 	if !ok {
 		return
 	}

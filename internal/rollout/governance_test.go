@@ -193,4 +193,16 @@ func TestApprovalKeyChangesWithStepAndChange(t *testing.T) {
 			}
 		})
 	}
+	// Review R2: moving the next step between two rings the experiment
+	// already has keeps the union of rings the same; the key must still change.
+	t.Run("step moved within the experiment's rings", func(t *testing.T) {
+		org, r := setup()
+		org.Experiments[0].Rings = []string{"canary", "ga"}
+		r.Steps[0].Ring = "canary"
+		before := ApprovalKey(org, r)
+		r.Steps[0].Ring = "ga"
+		if ApprovalKey(org, r) == before {
+			t.Fatal("approvals carry over after moving the step from canary to ga")
+		}
+	})
 }

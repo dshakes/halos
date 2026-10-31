@@ -767,8 +767,9 @@ type ExperimentDetail struct {
 	Verdict *Verdict `json:"verdict,omitempty"`
 }
 
-func (s *Server) experiments(w http.ResponseWriter) ([]ExperimentDetail, bool) {
-	org, view, err := s.pol.Get()
+// experiments renders from the policy snapshot r was authorized under.
+func (s *Server) experiments(w http.ResponseWriter, r *http.Request) ([]ExperimentDetail, bool) {
+	org, view, err := s.reqSnapshot(r)
 	if org == nil {
 		s.policyUnavailable(w, err)
 		return nil, false
@@ -789,7 +790,7 @@ func (s *Server) experiments(w http.ResponseWriter) ([]ExperimentDetail, bool) {
 }
 
 func (s *Server) listExperiments(w http.ResponseWriter, r *http.Request, p Principal) {
-	out, ok := s.experiments(w)
+	out, ok := s.experiments(w, r)
 	if !ok {
 		return
 	}
@@ -806,7 +807,7 @@ func (s *Server) listExperiments(w http.ResponseWriter, r *http.Request, p Princ
 }
 
 func (s *Server) getExperiment(w http.ResponseWriter, r *http.Request, _ Principal) {
-	out, ok := s.experiments(w)
+	out, ok := s.experiments(w, r)
 	if !ok {
 		return
 	}

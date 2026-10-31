@@ -132,8 +132,8 @@ func (s *Server) authorizeScope(w http.ResponseWriter, r *http.Request, p Princi
 	if need == permSession {
 		return r, true
 	}
-	if org, _, _ := s.pol.Get(); org != nil {
-		r = withPolicy(r, org) // one snapshot for the check and the handler
+	if org, view, _ := s.pol.Get(); org != nil {
+		r = withPolicy(r, org, view) // one snapshot for the check and the handler
 	}
 	if g, ok := p.globalGrant(need); ok {
 		return withAuthz(r, p, g), true // global: no lookup, exactly the pre-ADR-0037 behaviour
@@ -274,19 +274,31 @@ func authzDetails(ctx context.Context, actor string, details map[string]string) 
 // policyKey carries the policy snapshot a request was authorized under.
 type policyKey struct{}
 
-// withPolicy pins org as r's policy: the scope check and the handler then
-// read the same snapshot, so a reload between them cannot let a handler act
-// on a resource the check never saw (ADR-0037 review).
-func withPolicy(r *http.Request, org *policy.Org) *http.Request {
-	return r.WithContext(context.WithValue(r.Context(), policyKey{}, org))
+// policySnap is one policy load: the org and the view rendered from it.
+type policySnap struct {
+	org  *policy.Org
+	view PolicyView
+}
+
+// withPolicy pins org (and its view) as r's policy: the scope check and the
+// handler then read the same snapshot, so a reload between them cannot let a
+// handler act on, or render, a resource the check never saw (ADR-0037 review).
+func withPolicy(r *http.Request, org *policy.Org, view PolicyView) *http.Request {
+	return r.WithContext(context.WithValue(r.Context(), policyKey{}, policySnap{org: org, view: view}))
 }
 
 // reqPolicy is the policy r was authorized under, else the current one.
 func (s *Server) reqPolicy(r *http.Request) (*policy.Org, error) {
-	if org, ok := r.Context().Value(policyKey{}).(*policy.Org); ok && org != nil {
-		return org, nil
+	org, _, err := s.reqSnapshot(r)
+	return org, err
+}
+
+// reqSnapshot is reqPolicy with the view rendered from the same load.
+func (s *Server) reqSnapshot(r *http.Request) (*policy.Org, PolicyView, error) {
+	if snap, ok := r.Context().Value(policyKey{}).(policySnap); ok && snap.org != nil {
+		return snap.org, snap.view, nil
 	}
-	return s.org()
+	return s.pol.Get()
 }
 
 func (s *Server) org() (*policy.Org, error) {

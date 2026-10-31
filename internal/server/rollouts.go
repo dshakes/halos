@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"net/http"
 	"path/filepath"
 	"slices"
@@ -32,8 +31,10 @@ func (s *Server) rolloutStates() rollout.StateStore {
 	return nil
 }
 
-func (s *Server) rollouts(ctx context.Context, w http.ResponseWriter) ([]RolloutView, bool) {
-	org, _, err := s.pol.Get()
+// rollouts renders from the policy snapshot r was authorized under.
+func (s *Server) rollouts(w http.ResponseWriter, r *http.Request) ([]RolloutView, bool) {
+	ctx := r.Context()
+	org, err := s.reqPolicy(r)
 	if org == nil {
 		s.policyUnavailable(w, err)
 		return nil, false
@@ -55,7 +56,7 @@ func (s *Server) rollouts(ctx context.Context, w http.ResponseWriter) ([]Rollout
 }
 
 func (s *Server) listRollouts(w http.ResponseWriter, r *http.Request, p Principal) {
-	out, ok := s.rollouts(r.Context(), w)
+	out, ok := s.rollouts(w, r)
 	if !ok {
 		return
 	}
@@ -73,7 +74,7 @@ func (s *Server) listRollouts(w http.ResponseWriter, r *http.Request, p Principa
 }
 
 func (s *Server) getRollout(w http.ResponseWriter, r *http.Request, _ Principal) {
-	out, ok := s.rollouts(r.Context(), w)
+	out, ok := s.rollouts(w, r)
 	if !ok {
 		return
 	}
