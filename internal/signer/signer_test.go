@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -32,22 +33,22 @@ import (
 )
 
 // TestMain doubles as the fake external signer: exec:// tests run this test
-// binary with HALO_FAKE_SIGNER_KEY set.
+// binary with HALOS_SIGNER_FAKE_KEY set.
 func TestMain(m *testing.M) {
-	if os.Getenv("HALO_FAKE_SIGNER_KEY") != "" {
+	if os.Getenv("HALOS_SIGNER_FAKE_KEY") != "" {
 		os.Exit(fakeExecSigner())
 	}
 	os.Exit(m.Run())
 }
 
 func fakeExecSigner() int {
-	mode := os.Getenv("HALO_FAKE_SIGNER_MODE")
+	mode := os.Getenv("HALOS_SIGNER_FAKE_MODE")
 	var req execRequest
 	if err := json.NewDecoder(os.Stdin).Decode(&req); err != nil {
 		os.Stderr.WriteString("bad request: " + err.Error())
 		return 3
 	}
-	pemb, err := os.ReadFile(os.Getenv("HALO_FAKE_SIGNER_KEY"))
+	pemb, err := os.ReadFile(os.Getenv("HALOS_SIGNER_FAKE_KEY"))
 	if err != nil {
 		return 4
 	}
@@ -58,8 +59,19 @@ func fakeExecSigner() int {
 	out := map[string]any{"protocol": ExecProtocol}
 	switch {
 	case mode == "exit1":
-		os.Stderr.WriteString("hsm unavailable")
+		os.Stderr.WriteString("hsm unavailable PIN=123456")
 		return 1
+	case mode == "dumpenv": // report the environment names the signer received
+		var names []string
+		for _, kv := range os.Environ() {
+			n, _, _ := strings.Cut(kv, "=")
+			names = append(names, n)
+		}
+		out["error"] = "env:" + strings.Join(names, ",")
+	case mode == "spawn": // a helper in the signer's process group outlives a hung signer unless the group is killed
+		_ = exec.Command("/bin/sh", "-c", "sleep 1; touch "+os.Getenv("HALOS_SIGNER_FAKE_MARKER")).Start()
+		time.Sleep(5 * time.Second)
+		return 0
 	case mode == "garbage":
 		os.Stdout.WriteString("not json")
 		return 0
@@ -130,8 +142,8 @@ func execURI(t *testing.T, keyPath, mode string, extra string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("HALO_FAKE_SIGNER_KEY", keyPath)
-	t.Setenv("HALO_FAKE_SIGNER_MODE", mode)
+	t.Setenv("HALOS_SIGNER_FAKE_KEY", keyPath)
+	t.Setenv("HALOS_SIGNER_FAKE_MODE", mode)
 	return "exec://" + exe + "?key=test-key" + extra
 }
 
@@ -473,7 +485,7 @@ func TestExecFailures(t *testing.T) {
 		atOpen           bool
 		wantErr          string
 	}{
-		{"exit1", ecPath, "", true, "hsm unavailable"},
+		{"exit1", ecPath, "", true, "exit status 1"},
 		{"garbage", ecPath, "", true, "decode response"},
 		{"trailing", ecPath, "", true, "trailing data"},
 		{"big", ecPath, "", true, "over"},

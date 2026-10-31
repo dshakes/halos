@@ -19,6 +19,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -45,6 +46,8 @@ type Options struct {
 	Region string
 	// Now is the SigV4 clock (tests).
 	Now func() time.Time
+	// Log receives exec signers' stderr at debug level (nil: slog.Default).
+	Log *slog.Logger
 }
 
 // Scheme reports the key URI's backend: "file", "awskms" or "exec".
@@ -67,7 +70,7 @@ func Open(ctx context.Context, uri string, o Options) (bundle.KeySigner, error) 
 	case "awskms":
 		return openAWSKMS(ctx, uri, o)
 	case "exec":
-		return openExec(ctx, uri)
+		return openExec(ctx, uri, o.Log)
 	}
 	return openFile(uri)
 }
