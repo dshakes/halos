@@ -2,10 +2,12 @@ package bundle
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
 	"oras.land/oras-go/v2"
+	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
 
 	"github.com/dshakes/halos/internal/policy"
@@ -67,6 +69,20 @@ func staged(ctx context.Context, dst oras.Target, rel *release.Release, s Signer
 		}
 		if cur.Digest != rel.Digest {
 			return false, fmt.Errorf("bundle: tag %s already names release %s, not %s; release tags are immutable (choose another version label)", tag, cur.Digest, rel.Digest)
+		}
+		// Same release: only "already staged" if it carries exactly the
+		// signatures this publish would write (no co-signer silently dropped).
+		mj, err := json.Marshal(rel.Manifest)
+		if err != nil {
+			return false, err
+		}
+		cfg := content.NewDescriptorFromBytes(ConfigMediaType, mj)
+		layer := content.NewDescriptorFromBytes(LayerMediaType, rel.Tar)
+		if _, ok, err := alreadyPublished(ctx, dst, tag, cfg, layer, s, v); err != nil || !ok {
+			if err == nil {
+				err = fmt.Errorf("bundle: tag %s names release %s without the signatures this publish adds (a co-signer changed); release tags are immutable (choose another version label)", tag, rel.Digest)
+			}
+			return false, err
 		}
 		return true, nil
 	} else if !errors.Is(err, errdef.ErrNotFound) {

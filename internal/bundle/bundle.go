@@ -11,6 +11,7 @@ package bundle
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -82,7 +83,7 @@ func publish(ctx context.Context, dst oras.Target, rel *release.Release, s Signe
 	// new manifest that trips tag immutability: a v-tag already naming exactly
 	// this release (same config and layer) with a signature our key verifies
 	// is reused as-is instead.
-	desc, reused, err := alreadyPublished(ctx, dst, vt, cfg, layer, v)
+	desc, reused, err := alreadyPublished(ctx, dst, vt, cfg, layer, s, v)
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
@@ -105,10 +106,16 @@ func publish(ctx context.Context, dst oras.Target, rel *release.Release, s Signe
 }
 
 // alreadyPublished reports whether tag vt names a halos release manifest
-// with exactly cfg and layer whose signature v verifies; it returns that
-// manifest. Anything else (absent, different, unverifiable) is false, and
-// pushRelease's immutability check decides.
-func alreadyPublished(ctx context.Context, dst oras.Target, vt string, cfg, layer ocispec.Descriptor, v Verifier) (ocispec.Descriptor, bool, error) {
+// that is exactly what publishing rel with s would write, apart from the
+// randomized signature bytes: same config and layer, the same annotation
+// keys (those of a pre-ADR-0038 manifest, which had no key id, also count),
+// a primary signature of s's algorithm that s's key verifies, and a verifying
+// co-signature from every native co-signer s carries (cosign co-signatures
+// must be present). It returns that manifest. Anything else (absent,
+// different, unverifiable, a co-signer added since) is false, and
+// pushRelease's immutability check decides: a co-signature is never
+// silently dropped.
+func alreadyPublished(ctx context.Context, dst oras.Target, vt string, cfg, layer ocispec.Descriptor, s Signer, v Verifier) (ocispec.Descriptor, bool, error) {
 	cur, err := dst.Resolve(ctx, vt)
 	if errors.Is(err, errdef.ErrNotFound) {
 		return ocispec.Descriptor{}, false, nil
@@ -124,10 +131,65 @@ func alreadyPublished(ctx context.Context, dst oras.Target, vt string, cfg, laye
 		m.Layers[0].Digest != layer.Digest || m.Layers[0].Size != layer.Size || m.Layers[0].MediaType != LayerMediaType {
 		return ocispec.Descriptor{}, false, nil
 	}
-	if verifyManifest(ctx, m, v, layer.Digest.String()) != nil {
+	msg := layer.Digest.String()
+	want := map[string]bool{AnnSignature: true, AnnSigType: true, ocispec.AnnotationCreated: true}
+	id := KeyID(v)
+	if id != "" {
+		want[AnnSigKeyID] = true
+	}
+	var cos []Signer
+	if ms, ok := s.(MultiSigner); ok {
+		cos = ms[1:]
+	}
+	for _, co := range cos {
+		want[AnnSignature+"."+co.Type()] = true
+	}
+	if !sameKeys(m.Annotations, want) && !(id != "" && sameKeys(m.Annotations, without(want, AnnSigKeyID))) {
 		return ocispec.Descriptor{}, false, nil
 	}
+	if m.Annotations[AnnSigType] != s.Type() || (m.Annotations[AnnSigKeyID] != "" && m.Annotations[AnnSigKeyID] != id) {
+		return ocispec.Descriptor{}, false, nil
+	}
+	if !annotationVerifies(ctx, m.Annotations[AnnSignature], s.Type(), v, msg) {
+		return ocispec.Descriptor{}, false, nil
+	}
+	for _, co := range cos {
+		ks, native := co.(KeySigner)
+		if !native {
+			continue // cosign: present (checked above); halod never verifies it
+		}
+		if !annotationVerifies(ctx, m.Annotations[AnnSignature+"."+co.Type()], co.Type(), ks.Verifier(), msg) {
+			return ocispec.Descriptor{}, false, nil
+		}
+	}
 	return cur, true, nil
+}
+
+func annotationVerifies(ctx context.Context, enc, alg string, v Verifier, msg string) bool {
+	sig, err := base64.StdEncoding.DecodeString(enc)
+	return err == nil && len(sig) > 0 && VerifyAs(ctx, v, alg, msg, sig) == nil
+}
+
+func sameKeys(ann map[string]string, want map[string]bool) bool {
+	if len(ann) != len(want) {
+		return false
+	}
+	for k := range ann {
+		if !want[k] {
+			return false
+		}
+	}
+	return true
+}
+
+func without(m map[string]bool, k string) map[string]bool {
+	out := make(map[string]bool, len(m))
+	for x, v := range m {
+		if x != k {
+			out[x] = v
+		}
+	}
+	return out
 }
 
 // pushRelease signs rel, pushes its blobs and manifest and tags it vt.
