@@ -413,10 +413,10 @@ func TestWebhookResolvedEventIsSigned(t *testing.T) {
 	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	ev := testEvent()
 	ev.Resolved, ev.Reason = true, "cleared"
-	if err := (Webhook{URL: srv.srv.URL, Secret: []byte("k"), Now: func() time.Time { return now }}).Notify(context.Background(), ev); err != nil {
+	if err := (Webhook{URL: srv.srv.URL, Secret: []byte("k-0123456789abcdef"), Now: func() time.Time { return now }}).Notify(context.Background(), ev); err != nil {
 		t.Fatal(err)
 	}
-	if err := Verify([]byte("k"), srv.hdrs[0], srv.bodies[0], now, WebhookTolerance); err != nil {
+	if err := Verify([]byte("k-0123456789abcdef"), srv.hdrs[0], srv.bodies[0], now, WebhookTolerance); err != nil {
 		t.Fatalf("receiver cannot verify: %v", err)
 	}
 	var got Event
