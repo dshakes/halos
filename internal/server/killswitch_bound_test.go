@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"log/slog"
 	"runtime"
@@ -33,6 +34,50 @@ func (h *hangingRemote) Sign(ctx context.Context, msg string) ([]byte, error) {
 		return nil, ctx.Err()
 	}
 	return h.ECDSASigner.Sign(ctx, msg)
+}
+
+// R1: a poll waiting on a pending list that a newer list replaces is told at
+// once (superseded), not left waiting for a sign that will never happen.
+func TestKillSigSupersededWaiterWoken(t *testing.T) {
+	k, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &hangingRemote{ECDSASigner: bundle.ECDSASigner{Key: k}, release: make(chan struct{})}
+	defer close(h.release)
+	var c killSigCache
+	quiet := slog.New(slog.DiscardHandler)
+	at := time.Unix(1000, 0)
+	list := func(i int) gateway.KillList {
+		return gateway.KillList{Version: uint64(i), Experiments: []string{fmt.Sprintf("exp-%d", i)}, IssuedAt: at.Add(time.Duration(i) * time.Millisecond)}
+	}
+	go func() { _, _ = c.sign(context.Background(), h, list(1), quiet) }() // becomes the hung in-flight sign
+	waitUntil(t, func() bool { return h.n.Load() == 1 })
+	errc := make(chan error, 1)
+	go func() { _, err := c.sign(context.Background(), h, list(2), quiet); errc <- err }() // pending, no deadline
+	waitUntil(t, func() bool { c.mu.Lock(); defer c.mu.Unlock(); return c.pending != nil })
+	short, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+	defer cancel()
+	_, _ = c.sign(short, h, list(3), quiet) // replaces pending list 2
+	select {
+	case err := <-errc:
+		if !errors.Is(err, errKillSuperseded) {
+			t.Fatalf("superseded waiter got %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("waiter on a superseded list was never woken")
+	}
+}
+
+func waitUntil(t *testing.T, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatal("condition not reached")
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
 }
 
 // R1: with the signer hanging, 200 polls for 200 distinct lists cost one
