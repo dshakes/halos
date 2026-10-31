@@ -98,7 +98,9 @@ server:
   # the incident, then disable it and rotate the password (docs: guides/admin-access). Every login and every
   # request it makes is a high-severity audit event exported to your SIEM sinks.
   # allowedCIDRs: comma-separated client CIDRs (after trustedProxyCIDRs) break-glass may be used from, e.g. the VPN or
-  # bastion range; elsewhere it answers 404. Empty = anywhere.
+  # bastion range; elsewhere it answers 404. REQUIRED when enabled (the chart refuses to render without it): it keeps
+  # outsiders from locking break-glass with failed logins. Never 0.0.0.0/0 (warned at startup). An SSO admin lifts a
+  # lockout with POST /api/v1/breakglass/unlock.
   breakGlass: {enabled: false, existingSecret: "", key: hash, user: breakglass, allowedCIDRs: ""}
   # Microsoft Graph base URL for policy identity.groupsOverage: graph ("" = https://graph.microsoft.com/v1.0;
   # national clouds: https://graph.microsoft.us/v1.0, https://microsoftgraph.chinacloudapi.cn/v1.0).

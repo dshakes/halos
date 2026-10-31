@@ -31,7 +31,7 @@ State-changing Session and Admin requests (anything but `GET`) are rejected with
 | `GET /auth/login` | Public | Start the OIDC authorization-code flow (PKCE) |
 | `GET /auth/callback` | Public | OIDC redirect target; sets the session cookie |
 | `POST /auth/logout` | Public | End the session |
-| `POST /auth/breakglass` | Public (password in the body) | Break-glass local admin login `{"user","password"}`: a 30-minute admin session for `breakglass:<user>`. 404 unless `--breakglass-enabled`, or from a client outside `--breakglass-allowed-cidrs` when set; 401 bad credentials; 429 after repeated failures, during the 15-minute global lockout (20 failures from any addresses; audited as `breakglass.lockout`) or while two attempts are running; 500 if the audit append fails (no session). Audited at high severity: `breakglass.login`, `breakglass.login.failed`, and `breakglass.request` for every request the session makes |
+| `POST /auth/breakglass` | Public (password in the body) | Break-glass local admin login `{"user","password"}`: a 30-minute admin session for `breakglass:<user>`. 404 unless `--breakglass-enabled`, or from a client outside `--breakglass-allowed-cidrs` (required when enabled); 401 bad credentials; 429 after repeated failures, during the 15-minute global lockout (20 failures from allowed addresses on any replica; audited once as `breakglass.lockout`; lifted by `POST /api/v1/breakglass/unlock`) or while two attempts are running; 500 if the audit append fails (no session). Audited at high severity: `breakglass.login`, `breakglass.login.failed`, and `breakglass.request` for every request the session makes |
 
 ### Fleet and devices
 
@@ -49,6 +49,7 @@ State-changing Session and Admin requests (anything but `GET`) are rejected with
 | `POST /api/v1/service-tokens` | Admin, interactive session only | Create a service-account token `{"name","role","ttl","description","owner"}`: 201 with `token` (shown once) and `serviceToken`. The role may not exceed the caller's; `ttl` 1h to `--service-token-max-ttl` (default and maximum, 90 days). 403 for a token or break-glass caller, 409 at 1,000 active tokens, 500 if the audit append fails (the token is revoked and not returned). Audited as `service-token.create`. `halo service-token create` |
 | `GET /api/v1/service-tokens` | Admin | Every token's id, principal, name, role, owner, creator, expiry and revocation; never the secret. `halo service-token list` |
 | `POST /api/v1/service-tokens/{id}/revoke` | Admin | Revoke `{"reason"}`; holds on every replica at the token's next request. Audited as `service-token.revoke`. `halo service-token revoke` |
+| `POST /api/v1/breakglass/unlock` | Admin, interactive session only | Lift the break-glass global lockout on every replica and reset its failure count; `{"wasLocked"}`. 403 for a token or break-glass caller, 404 when break-glass is not configured, 500 if the audit append fails (nothing changed). Audited as `breakglass.unlock` at high severity |
 
 ### Releases and audit
 

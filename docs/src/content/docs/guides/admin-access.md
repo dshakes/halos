@@ -73,16 +73,24 @@ server:
   breakGlass: {enabled: false, existingSecret: halos-breakglass, key: hash, user: breakglass, allowedCIDRs: "10.8.0.0/16"}
 ```
 
-Without Helm: `--breakglass-hash-file=/path/bg-hash [--breakglass-user=breakglass] [--breakglass-allowed-cidrs=10.8.0.0/16]`. The hash is PBKDF2-HMAC-SHA256 with 600,000 iterations; passwords under 16 characters are refused.
+Without Helm: `--breakglass-hash-file=/path/bg-hash --breakglass-allowed-cidrs=10.8.0.0/16 [--breakglass-user=breakglass]`. The hash is PBKDF2-HMAC-SHA256 with 600,000 iterations; passwords under 16 characters are refused.
 
-Set `allowedCIDRs` to your VPN or bastion range: from anywhere else break-glass answers 404 as if sealed and an existing break-glass session is refused, so outside attackers cannot guess the password or trip the lockout. Twenty failed logins within 15 minutes, from any addresses on any replica, lock break-glass for 15 minutes (audited as `breakglass.lockout`, high severity); a correct password is refused while locked.
+`allowedCIDRs` is **required** to enable break-glass: halo-server refuses to start, and the chart to render, without it. Set it to your VPN or bastion range. From anywhere else break-glass answers 404 as if sealed, before the password is read, and an existing break-glass session is refused, so outside attackers can neither guess the password nor trip the lockout. Do not use `0.0.0.0/0` or another very broad range (broader than /8, or /32 for IPv6): it re-opens the lockout denial of service, and halo-server warns about it at startup.
 
-Alert on these audit actions in your SIEM: `breakglass.login`, `breakglass.login.failed`, `breakglass.lockout`, `breakglass.request`.
+Twenty failed logins within 15 minutes from allowed addresses, on any replica, lock break-glass on every replica for 15 minutes; a correct password is refused while locked. The lockout is audited once as `breakglass.lockout` (high severity). An admin signed in through SSO lifts it without the locked path:
+
+```bash
+curl -X POST -b "halo_session=$HALO_SESSION" https://halo.acme.example/api/v1/breakglass/unlock   # admin, a person (not a token)
+```
+
+That resets the failure count on every replica and is audited as `breakglass.unlock` (high severity). If SSO is down too, wait out the 15 minutes from inside the allowed range.
+
+Alert on these audit actions in your SIEM: `breakglass.login`, `breakglass.login.failed`, `breakglass.lockout`, `breakglass.unlock`, `breakglass.request`.
 
 ### Use it (incident)
 
 1. Get approval under your incident process; record who and why.
-2. Enable: `server.breakGlass.enabled: true` (`--breakglass-enabled`) and roll out. The server logs `BREAK-GLASS ENABLED` at start.
+2. Enable: `server.breakGlass.enabled: true` (`--breakglass-enabled`; `allowedCIDRs` must be set) and roll out. The server logs `BREAK-GLASS ENABLED` at start.
 3. Log in and act:
 
    ```bash
