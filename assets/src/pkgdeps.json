@@ -518,6 +518,12 @@
       ]
     },
     {
+      "path": "internal/tools/genopenapi",
+      "imports": [
+        "internal/server"
+      ]
+    },
+    {
       "path": "internal/tools/obsassets",
       "imports": [
         "internal/obsassets"

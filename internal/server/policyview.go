@@ -176,7 +176,7 @@ func buildPolicyView(o *policy.Org) PolicyView {
 		if st == "" {
 			st = "draft"
 		}
-		v.Experiments = append(v.Experiments, ExperimentView{e.Name, e.Type, e.Axis, st, e.Rings, e.Variants, e.SampleRate, e.Metrics, e.Stopping})
+		v.Experiments = append(v.Experiments, ExperimentView{e.Name, e.Type, e.Axis, st, orEmpty(e.Rings), orEmpty(e.Variants), e.SampleRate, e.Metrics, e.Stopping})
 	}
 	for _, i := range o.Validate() {
 		v.Issues = append(v.Issues, IssueView{string(i.Severity), i.Path, i.Message})
@@ -193,16 +193,22 @@ func redact(p *policy.Profile) *policy.Profile {
 		c.MCP.Servers[i].Headers = maskAll(s.Headers)
 	}
 	c.Env = maskAll(p.Env)
-	if p.Harnesses != nil {
-		c.Harnesses = make(map[string]policy.HarnessSpec, len(p.Harnesses))
-		for k, h := range p.Harnesses {
-			if h.Overrides != nil {
-				h.Overrides = redactAny(h.Overrides).(map[string]any)
-			}
-			c.Harnesses[k] = h
+	c.Harnesses = make(map[string]policy.HarnessSpec, len(p.Harnesses)) // {} not null when a profile pins none
+	for k, h := range p.Harnesses {
+		if h.Overrides != nil {
+			h.Overrides = redactAny(h.Overrides).(map[string]any)
 		}
+		c.Harnesses[k] = h
 	}
 	return &c
+}
+
+// orEmpty is s, or an empty slice for nil: the API encodes a list as [], never null.
+func orEmpty[T any](s []T) []T {
+	if s == nil {
+		return []T{}
+	}
+	return s
 }
 
 func maskAll(m map[string]string) map[string]string {
