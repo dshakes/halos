@@ -146,7 +146,7 @@ Consequence: a unit-only scope covers people-shaped resources (devices, their re
 | CLI | `cmd/halo/cmd_policy.go`, `cmd_servicetoken.go` | `TestWhoamiConsoleRoles`, `TestServiceTokenCLIScope` | Done |
 | Console shows scopes | `web/` | | Follow-up |
 
-Mutation check: each of 15 single-line mutations (scope ignored by Covers, the path check, list filters, the token ceiling, quorum counting, audit fields, global-only routes, request resources, the token record, token management, strict decoding, binding scopes, unit chains, approval scopes, device placement) makes at least one of these tests fail.
+Mutation check: each of 15 single-line mutations (scope ignored by Covers, the path check, list filters, the token ceiling, quorum counting, audit fields, global-only routes, request resources, the token record, token management, strict decoding, binding scopes, unit chains, approval scopes, device placement) makes at least one of these tests fail. The security review's fixes were checked the same way: 18 mutations (profile reach without extends or variants, the approval-rule target, repeated, case-variant and unknown keys, empty scopes, the CLI scope check, the toggle preview's self, groups and redaction rules, the creator-scope check and record, ApprovalKey rings, approvals scoping, `admin`, the requester's own approval, and both halves of the policy snapshot) each fail a test.
 
 ## More information
 
