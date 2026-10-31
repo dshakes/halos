@@ -79,7 +79,18 @@ func (l *fileLog) Append(_ context.Context, _ string, rec []byte) error {
 }
 
 func (l *fileLog) Catchup(context.Context) error { return nil }
-func (l *fileLog) Close() error                  { return l.f.Close() }
+
+// SingleWriter marks the log as written by this process alone: Catchup never
+// has anything to apply.
+func (l *fileLog) SingleWriter() bool { return true }
+
+// SingleWriter reports whether l is a log no other process appends to, so
+// Catchup is a no-op and a caller can skip it (and the lock it would take).
+func SingleWriter(l Log) bool {
+	s, ok := l.(interface{ SingleWriter() bool })
+	return ok && s.SingleWriter()
+}
+func (l *fileLog) Close() error { return l.f.Close() }
 
 // CloseLog closes l under mu; a nil Log (memory only) is a no-op.
 func CloseLog(mu sync.Locker, l Log) error {
