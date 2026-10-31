@@ -136,7 +136,7 @@ func TestForwardProposalsWarnWithoutServer(t *testing.T) {
 			steps, _ := out["next_steps"].([]any)
 			gotSteps := false
 			for _, s := range steps {
-				gotSteps = gotSteps || strings.Contains(s.(string), "halo freeze status --server")
+				gotSteps = gotSteps || strings.Contains(exampleJSON(s), "halo freeze status --server")
 			}
 			if got := strings.Contains(note, "incident freeze not checked"); got != c.warn || gotSteps != c.warn {
 				t.Fatalf("warning in note %v, next_steps %v; want %v: %v", got, gotSteps, c.warn, out)

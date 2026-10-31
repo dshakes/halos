@@ -146,7 +146,7 @@ Only the Claude Code harness has an MDM channel.
 
 ### Exit codes
 
-`halo validate` exits 0 when valid and 2 on validation errors. Other commands exit non-zero with `error: ...` on stderr.
+`halo validate` exits 0 when valid and 2 on validation errors. `halo onboard verify` exits 0 when at least one CLI round trip passed and none failed, 1 when one failed, and 3 when nothing was verified (every CLI skipped, e.g. no credentials). Other commands exit non-zero with `error: ...` on stderr.
 
 ## `halod`
 

@@ -104,7 +104,7 @@ func strs(v any) []string {
 	a, _ := v.([]any)
 	s := make([]string, 0, len(a))
 	for _, e := range a {
-		s = append(s, e.(string))
+		s = append(s, stepWhy(e))
 	}
 	return s
 }

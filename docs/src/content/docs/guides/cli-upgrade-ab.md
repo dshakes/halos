@@ -16,7 +16,8 @@ For a shorter, policy-only walkthrough (plan, rollout simulation, promote patch)
 
 ```bash
 docker run -d --rm --name halo-reg -p 127.0.0.1:5055:5000 registry:2
-halo keys generate --out keys          # keys/halo.key, keys/halo.pub
+KEYS=$(mktemp -d)                    # outside the checkout: halo refuses a private key inside a git work tree
+halo keys generate --out "$KEYS"       # $KEYS/halo.key, $KEYS/halo.pub
 P=examples/acme-corp
 REG=localhost:5055/acme/halos
 ```
@@ -57,7 +58,7 @@ The example experiment is `status: running`; to start a paused one use `halo exp
 
 ```bash
 halo release publish --policy-dir $P --ring ring1-canary --release-version 2.1.300 \
-  --registry $REG --key keys/halo.key --plain-http --no-artifacts
+  --registry $REG --key "$KEYS/halo.key" --plain-http --no-artifacts
 ```
 
 `--no-artifacts` builds offline; in production leave it off so `halod` gets verified install artifacts. Output (one signed release per variant, then the ring):
@@ -110,7 +111,7 @@ If the device has no subject, `halod` applies the ring release and reports `no_s
 ## 6. Keep pointers fresh
 
 ```bash
-halo release refresh --ring ring1-canary --registry $REG --key keys/halo.key --plain-http
+halo release refresh --ring ring1-canary --registry $REG --key "$KEYS/halo.key" --plain-http
 ```
 
 ```text
@@ -138,7 +139,7 @@ To ship the treatment, a human merges a change that points the ring's profile at
 | Goal | Command | Effect on devices |
 |---|---|---|
 | Stop the experiment | `halo exp pause claude-cli-2.1.3xx-ab --policy-dir $P`, merge, then `halo release publish ... --release-version 2.1.301` | The new ring release lists no experiment and no channels; devices converge to it on their next pull |
-| Undo a release | `halo rollback --ring ring1-canary --to 2.1.300 --registry $REG --key keys/halo.key --plain-http` | Ring and every channel re-point to the snapshot published with 2.1.300, each with a higher `seq`. `--to <version>` is refused unless the release's signed manifest carries that version; `--to sha256:<manifest digest>` is content-addressed |
+| Undo a release | `halo rollback --ring ring1-canary --to 2.1.300 --registry $REG --key "$KEYS/halo.key" --plain-http` | Ring and every channel re-point to the snapshot published with 2.1.300, each with a higher `seq`. `--to <version>` is refused unless the release's signed manifest carries that version; `--to sha256:<manifest digest>` is content-addressed |
 | Stop it now | [Kill switch](/halos/concepts/experiments/#kill-switch) | See below |
 
 **Check (pause):** after `halod once`, `status` has no `experiment` and `halo.release=2.1.301` appears in `OTEL_RESOURCE_ATTRIBUTES`. **Check (rollback):** the output has `ok rolled back` for the ring and each channel.

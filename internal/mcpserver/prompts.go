@@ -38,22 +38,31 @@ func addPrompts(m *mcp.Server) {
 		"from_model", "to_model")
 	add("onboard", "Onboard onto Halos: try it, my machine, or my company. Dry run every write; approval before each; nothing outward.",
 		[]*mcp.PromptArgument{{Name: "path", Description: "try | machine | company (ask when empty)"}},
-		"Onboard me onto Halos, path: %[1]s (ask which if empty: try it, my machine, my company). Hard rules: call doctor first "+
-			"and relay each fix verbatim; show every write as a dry run and wait for a yes before dry_run false (one yes per step); "+
-			"never print or ask for a credential value (doctor and detect_harnesses only say whether a variable is set); never "+
-			"publish, enroll, retag, push, merge or deploy, hand me the command and stop. Try it: doctor, then I run `halo quickstart` "+
-			"(Docker, mock IdP and models) and you walk me through the tour it prints. My machine: detect_harnesses; confirm CLIs "+
-			"(default: those found, at their versions), provider (default: suggested_provider) and whether to use a local halo-proxy; "+
-			"init_policy dry run, show halos.yaml and validation, then write; plan; local_install dry run with show true, explain what "+
-			"lands where, then write (admin paths: give me the sudo command) and re-run to prove it is idempotent; local_proxy and its "+
-			"start command; verify_harness per CLI, dry run then real, assume_auth true if the CLI is logged in. My company: interview "+
-			"(org, CLIs and versions, provider and models, gateway kind and URL, OIDC issuer, client id, admin groups, delivery "+
-			"channels, registry, policy repo URL, console URL, safety, rollout), onboard_company dry run then write, validate, plan, "+
-			"harness_matrix, eval_scorecard, commit on a branch and open a PR after I approve the push, then list the remaining human "+
-			"steps from the generated README and stop.", "path")
+		"Onboard me onto Halos, path: %[1]s (ask which if empty: try it, my machine, my company).\n"+
+			"Every tool answers with next_steps ({tool|command, why, args}); follow them. An error names the field, type, example and allowed values to retry with.\n"+
+			"Hard rules: relay each doctor fix verbatim; every write is a dry run first (dry_run defaults to true): show it and wait for one yes per step before dry_run false "+
+			"(needs a server started with --allow-writes, else give me the CLI command from the error); never print or ask for a credential value; never publish, "+
+			"enroll, retag, push, merge or deploy: hand me the command and stop.\n"+
+			"Try it: doctor; I run `halo quickstart` (Docker) and you walk me through its tour.\n"+
+			"My machine: doctor -> detect_harnesses -> init_policy {\"org\":\"acme\"} (dry run: show halos.yaml and validation; defaults are the CLIs found and suggested_provider) -> "+
+			"yes -> init_policy {\"org\":\"acme\",\"dry_run\":false} -> validate -> plan {\"ring\":\"<first of list_rings>\"} -> "+
+			"local_install {\"dry_run\":true,\"show\":true} (explain what lands where; admin paths: give me the sudo command), yes, write, re-run to prove it is idempotent -> "+
+			"local_proxy {} -> verify_harness {\"harness\":\"claude-code\"} dry run, then real (assume_auth true if the CLI is logged in). Stop when verify passes.\n"+
+			"My company: doctor -> onboard_company {\"org\":\"acme\"} (dry run; ONLY org is required; `assumed` lists every default it filled and `placeholders` the example.com ones to replace: ask me for "+
+			"issuer, gateway, registry, policy_repo, portal_url, delivery [devcontainer|mdm|halod], tools {\"claude-code\":\"2.1.280\"}, provider, admin_groups) -> yes -> same call with the real answers and dry_run false "+
+			"(refused while placeholders remain) -> validate -> plan -> harness_matrix -> eval_scorecard. Then list the remaining human steps from the generated README and stop; "+
+			"committing on a branch and opening the PR are mine to approve.\n"+
+			"Stop and ask me when: a tool errors twice with the same message, doctor reports a fail you cannot fix, a write would replace a file you did not create, or any step needs a credential.", "path")
 	add("autopilot", "Drive the whole Halos lifecycle hands-off (onboard, draft, validate, plan, eval, start, wait, promote or roll back), stopping only at the human gates.",
 		[]*mcp.PromptArgument{{Name: "goal", Description: "what to roll out, e.g. 'claude-code 2.1.300 to ring1' or 'opus-5-5 as the default model' (ask when empty)"}},
-		"Goal: %[1]s (ask what to roll out if empty). Follow this guide exactly; it is also the resource "+guideURI+".\n\n"+autopilotGuide, "goal")
+		"Goal: %[1]s (ask what to roll out if empty). Follow this guide exactly; it is also the resource "+guideURI+".\n\n"+
+			"Call sequence (every answer's next_steps names the next call; an error names the field, type, example and allowed values):\n"+
+			"status -> validate -> plan {\"ring\":\"ring1-canary\"} -> release_build {\"ring\":\"ring1-canary\"} -> eval_run {\"suite\":\"evals/smoke.yaml\"} (dry run) -> "+
+			"GATE: show me the diff, plan and scorecard -> start_experiment {\"name\":\"<experiment>\",\"reason\":\"<why>\",\"dry_run\":false} after my yes -> "+
+			"wait_for / analyze_experiment {\"name\":\"<experiment>\"} -> propose_promotion or propose_rollback (opens a PR; dry run first) -> "+
+			"GATE: I merge. Rolling back (kill_switch, propose_rollback) is the only direction you may take without asking.\n"+
+			"Stop conditions: a human gate, validate errors, a failing guardrail or eval, a write refused (give me the command), or the same error twice. "+
+			"Never publish, retag, merge or deploy.\n\n"+autopilotGuide, "goal")
 	add("copilot", "Halos Copilot: turn an intent into a verified policy change; you draft, Halos checks, a human approves.",
 		[]*mcp.PromptArgument{{Name: "intent", Description: "what to change, e.g. 'move ring1-canary to Claude Code 2.1.300' (ask when empty)"}},
 		"Intent: %[1]s (ask what to change if empty). You are the drafter; Halos is the gate (ADR-0035). Loop: read the policy "+
