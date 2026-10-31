@@ -25,7 +25,6 @@ import (
 	"github.com/dshakes/halos/internal/policy"
 	"github.com/dshakes/halos/internal/promote"
 	"github.com/dshakes/halos/internal/rollout"
-	"github.com/dshakes/halos/internal/server"
 )
 
 // The autopilot tools let an agent drive the whole lifecycle hands-off and
@@ -469,6 +468,10 @@ func (s *srv) serverURL() string {
 	return os.Getenv("HALO_SERVER")
 }
 
+// serviceTokenPrefix is server.ServiceTokenPrefix, kept here so this package
+// does not depend on internal/server (TestServiceTokenPrefixInSync pins it).
+const serviceTokenPrefix = "halo_sat_"
+
 // session is the halo-server credential, read from the environment at call
 // time and never from a tool argument: HALO_TOKEN (a service-account token,
 // ADR-0036) wins over HALO_SESSION (an admin halo_session cookie value).
@@ -504,7 +507,7 @@ func (s *srv) serverJSON(ctx context.Context, method, path string, body any) (ma
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if cred := s.session(); strings.HasPrefix(cred, server.ServiceTokenPrefix) {
+	if cred := s.session(); strings.HasPrefix(cred, serviceTokenPrefix) {
 		req.Header.Set("Authorization", "Bearer "+cred)
 	} else {
 		req.AddCookie(&http.Cookie{Name: "halo_session", Value: cred}) //nolint:gosec // a client-side request cookie: Secure/HttpOnly are response attributes; https (or loopback) is enforced above

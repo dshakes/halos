@@ -15,6 +15,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/dshakes/halos/internal/promote"
+	"github.com/dshakes/halos/internal/server"
 )
 
 // Every tool the guide names must exist on a server with writes; the guide
@@ -193,6 +194,12 @@ func (f *fakeServer) record(r *http.Request) {
 		f.seen = append(f.seen, r.Header.Get("Authorization"))
 	default:
 		f.seen = append(f.seen, "")
+	}
+}
+
+func TestServiceTokenPrefixInSync(t *testing.T) {
+	if serviceTokenPrefix != server.ServiceTokenPrefix {
+		t.Fatalf("%q != server.ServiceTokenPrefix %q", serviceTokenPrefix, server.ServiceTokenPrefix)
 	}
 }
 
