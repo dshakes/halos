@@ -22,6 +22,8 @@ GitHub users who set nothing see no change: a `github.com` remote autodetects to
 
 The project is read from the `origin` URL (`https://`, `ssh://` or `git@host:path`). A nested GitLab path such as `group/sub/repo` is sent as one URL-encoded segment (`group%2Fsub%2Frepo`).
 
+If the forge is served under a URL prefix, give the full API root: `--forge-base-url https://host/gitlab/api/v4` with the remote `https://host/gitlab/group/sub/repo.git` (or `git@host:gitlab/group/sub/repo.git`). Halos strips the base URL's path before `/api/v4` (or `/api/v3`) from the remote path, so the project is `group/sub/repo`. A remote that does not start with that prefix is used as is.
+
 If the token variable is unset the command stops before pushing anything and names the variable (`no API token: set GITLAB_TOKEN`). Halos never prints a token.
 
 ## GitLab

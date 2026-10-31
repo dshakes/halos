@@ -253,6 +253,9 @@ func (f *ForgeOpener) api(kind string, rem Remote) (forgeAPI, error) {
 	if err != nil {
 		return nil, err
 	}
+	if f.BaseURL != "" {
+		rem.Path = stripSubPath(base, rem.Path)
+	}
 	hc := &httpAPI{base: base, hc: f.client()}
 	vars := map[string][]string{ForgeGitLab: {"GITLAB_TOKEN"}, ForgeGitHub: {"GITHUB_TOKEN", "GH_TOKEN"}}[kind]
 	hc.vars, hc.getenv = vars, f.env
@@ -279,6 +282,34 @@ func (f *ForgeOpener) api(kind string, rem Remote) (forgeAPI, error) {
 		return &githubAPI{c: hc, owner: parts[0], repo: parts[1]}, nil
 	}
 	return nil, fmt.Errorf("promote: forge: unsupported kind %q", kind)
+}
+
+// stripSubPath handles a forge served under a URL prefix (https://host/gitlab).
+// The prefix is the base URL's path minus its trailing /api/v3 or /api/v4; when
+// the remote project path starts with it, it is removed, so
+// https://host/gitlab/group/repo with base https://host/gitlab/api/v4 is the
+// project group/repo. With no prefix, or a remote that does not carry it, the
+// path is unchanged.
+func stripSubPath(base, project string) string {
+	u, err := url.Parse(base)
+	if err != nil {
+		return project
+	}
+	p := strings.Trim(u.Path, "/")
+	for _, suf := range []string{"api/v4", "api/v3"} {
+		if p == suf {
+			p = ""
+		} else {
+			p = strings.TrimSuffix(p, "/"+suf)
+		}
+	}
+	if p == "" {
+		return project
+	}
+	if rest, ok := strings.CutPrefix(project, p+"/"); ok && rest != "" {
+		return rest
+	}
+	return project
 }
 
 // checkBaseURL accepts https, or http to a loopback host (tests, local mocks),
