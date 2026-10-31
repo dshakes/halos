@@ -52,7 +52,11 @@ spec:
       labels: {{- include "halo.selector" (list . "migrate") | nindent 8 }}
     spec:
       restartPolicy: Never
+      {{- /* A pre-install hook runs before the chart's ServiceAccount exists: the Job pod would never be created. It needs no
+           API access (token not mounted), so a fresh install uses the namespace default SA. */}}
+      {{- if .Release.IsUpgrade }}
       serviceAccountName: {{ include "halo.serviceAccountName" . }}
+      {{- end }}
       automountServiceAccountToken: false
       securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
       {{- include "halo.pullSecrets" . | nindent 6 }}

@@ -2,6 +2,15 @@
 nameOverride: ""
 fullnameOverride: ""
 
+# Cross-cutting overrides for mirrored and air-gapped installs (image and pull plumbing only).
+#  imageRegistry: replaces the registry of EVERY image the chart renders (halo-server/proxy/shadow, the policy sync
+#    sidecar, the OTel collector, the migrate Job), so the mirror must hold each image under its upstream repository path,
+#    e.g. registry.corp/dshakes/halo-server and registry.corp/otel/opentelemetry-collector-contrib.
+#  imagePullSecrets: added to every pod (before the chart-level imagePullSecrets below).
+global:
+  imageRegistry: ""
+  imagePullSecrets: []         # [{name: regcred}]
+
 image:
   registry: ghcr.io
   pullPolicy: IfNotPresent
@@ -24,6 +33,14 @@ securityContext:
   readOnlyRootFilesystem: true
   runAsNonRoot: true
   capabilities: {drop: [ALL]}
+
+# Soft (preferred) one-pod-per-node spread for any component that can run more than one replica (replicas > 1 or
+# autoscaling on). A component's own `affinity` replaces it. mode: required refuses to schedule two replicas on one node
+# (needs at least as many nodes as replicas; do not use on a one-node cluster).
+podAntiAffinity:
+  enabled: true
+  mode: preferred                # preferred | required
+  topologyKey: kubernetes.io/hostname
 
 topologySpread:
   enabled: true
@@ -156,6 +173,8 @@ server:
     requests: {cpu: 100m, memory: 128Mi}
     limits: {memory: 512Mi}
   pdb: {enabled: false, maxUnavailable: 1}   # single replica: a PDB would block node drains (always rendered for HA replicas > 1)
+  # HPA for the stateless Postgres-backed workers (needs database.existingSecret); replaces `replicas`. Off by default.
+  autoscaling: {enabled: false, minReplicas: 2, maxReplicas: 6, targetCPUUtilizationPercentage: 70, targetMemoryUtilizationPercentage: null, scaleDownStabilizationSeconds: 300}
   nodeSelector: {}
   tolerations: []
   affinity: {}
@@ -308,6 +327,8 @@ shadow:
     requests: {cpu: 100m, memory: 128Mi}
     limits: {memory: 512Mi}
   pdb: {enabled: false, maxUnavailable: 1}   # always rendered for HA replicas > 1
+  # HPA for the stateless Postgres-backed workers (needs database.existingSecret); replaces `replicas`. Off by default.
+  autoscaling: {enabled: false, minReplicas: 2, maxReplicas: 6, targetCPUUtilizationPercentage: 70, targetMemoryUtilizationPercentage: null, scaleDownStabilizationSeconds: 300}
   nodeSelector: {}
   tolerations: []
   affinity: {}
@@ -339,7 +360,9 @@ otel:
   resources:
     requests: {cpu: 100m, memory: 256Mi}
     limits: {memory: 512Mi}
-  pdb: {enabled: false, maxUnavailable: 1}
+  pdb: {enabled: false, maxUnavailable: 1}   # always rendered when replicas > 1 or autoscaling is on
+  # HPA for the collector (stateless fan-in); replaces `replicas`. Off by default.
+  autoscaling: {enabled: false, minReplicas: 2, maxReplicas: 6, targetCPUUtilizationPercentage: 70, targetMemoryUtilizationPercentage: null, scaleDownStabilizationSeconds: 300}
   nodeSelector: {}
   tolerations: []
   affinity: {}
@@ -388,6 +411,30 @@ serviceMonitor:
   interval: 30s
   labels: {}                       # e.g. release: kube-prometheus-stack
   # halo-server controller metrics are scraped too when server.metrics.enabled
+
+# Alerts and dashboards (guide: guides/operations). files/prometheus-rules.yaml is the single source of the alert list;
+# deploy/observability/grafana/provisioning/alerting/ is generated from it (make obs-assets).
+monitoring:
+  prometheusRule:
+    enabled: false
+    # Rendered only when the cluster serves monitoring.coreos.com/v1 PrometheusRule (.Capabilities). `helm template`, Argo CD
+    # and other tools that do not query the API server cannot see CRDs: set skipCapabilityCheck to render anyway.
+    skipCapabilityCheck: false
+    labels: {}                     # e.g. release: kube-prometheus-stack (the Prometheus ruleSelector)
+    annotations: {}
+    namespace: ""                  # default: the release namespace
+    additionalRuleLabels: {}       # added to every alert, e.g. {team: platform}
+    disabledAlerts: []             # alert names to drop, e.g. [HaloProxyTTFBRegression]
+    # Groups follow the config: gateway rules with proxy.enabled; shadow with shadow.enabled; control-plane rules with
+    # server.metrics.enabled; controller rules also need server.controller.enabled; HA rules also need server.database.existingSecret.
+  # Grafana dashboards as ConfigMaps for the Grafana sidecar (kube-prometheus-stack, grafana chart): the four Prometheus
+  # dashboards from deploy/observability/grafana/dashboards. They use a Prometheus datasource template variable.
+  dashboards:
+    enabled: false
+    namespace: ""                  # default: the release namespace; set to the Grafana namespace if the sidecar is namespace-scoped
+    label: grafana_dashboard
+    labelValue: "1"
+    annotations: {}                # e.g. {grafana_folder: Halos} for the sidecar's folderAnnotation
 
 # Kong Ingress Controller mode: render a KongPlugin CR for halo-kong. UNVERIFIED (never applied).
 # The halo-kong plugin must already be installed in Kong and the policy snapshot must exist at
