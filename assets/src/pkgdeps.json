@@ -71,6 +71,7 @@
         "internal/bundle",
         "internal/cloudagents",
         "internal/controller",
+        "internal/fsutil",
         "internal/pgstore",
         "internal/promote",
         "internal/rollout",
