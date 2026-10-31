@@ -192,6 +192,9 @@ spec:
             {{- if $bgx.existingSecret }}
             - --breakglass-hash-file=/secrets/breakglass-hash
             - --breakglass-user={{ $bgx.user | default "breakglass" }}
+            {{- with $bgx.allowedCIDRs }}
+            - --breakglass-allowed-cidrs={{ . }}
+            {{- end }}
             {{- if $bgx.enabled }}
             - --breakglass-enabled
             {{- end }}

@@ -221,7 +221,9 @@ func TestServiceTokenFailedAuthLimit(t *testing.T) {
 
 type brokenTokens struct{}
 
-func (brokenTokens) PutServiceToken(context.Context, pgstore.ServiceToken) error { return errBroken }
+func (brokenTokens) PutServiceToken(context.Context, pgstore.ServiceToken, int, time.Time) error {
+	return errBroken
+}
 func (brokenTokens) RevokeServiceToken(context.Context, string, []byte) (pgstore.ServiceToken, bool, error) {
 	return pgstore.ServiceToken{}, false, errBroken
 }

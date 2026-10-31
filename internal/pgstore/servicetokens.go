@@ -23,11 +23,38 @@ type ServiceToken struct {
 // list still shows recently expired tokens.
 const serviceTokenRetention = 30 * 24 * time.Hour
 
-// PutServiceToken inserts a new token; an existing id is an error (ids are
+// ErrServiceTokenLimit is PutServiceToken's refusal at the active-token cap.
+var ErrServiceTokenLimit = errors.New("service token limit reached")
+
+// serviceTokenLock serializes the cap check and insert across replicas.
+const serviceTokenLock = 0x73617463 // "satc"
+
+// PutServiceToken inserts a new token unless maxActive tokens (not revoked,
+// expiring after now) already exist (ErrServiceTokenLimit): the count and the
+// insert are one transaction under an advisory lock, so concurrent creations
+// on any replicas never exceed it. An existing id is an error (ids are
 // random: a collision is a bug, never an overwrite). Long-expired rows are pruned.
-func (d *DB) PutServiceToken(ctx context.Context, t ServiceToken) error {
-	if err := putServiceToken(ctx, d.db, t); err != nil {
+func (d *DB) PutServiceToken(ctx context.Context, t ServiceToken, maxActive int, now time.Time) error {
+	x, err := d.db.BeginTx(ctx, nil)
+	if err != nil {
+		return d.fail(fmt.Errorf("pgstore: put service token: %w", err))
+	}
+	defer func() { _ = x.Rollback() }() // no-op after Commit
+	if _, err := x.ExecContext(ctx, `SELECT pg_advisory_xact_lock($1)`, serviceTokenLock); err != nil {
+		return d.fail(fmt.Errorf("pgstore: lock service tokens: %w", err))
+	}
+	var n int
+	if err := x.QueryRowContext(ctx, `SELECT count(*) FROM halo_service_tokens WHERE NOT revoked AND expires_at > $1`, now).Scan(&n); err != nil {
+		return d.fail(fmt.Errorf("pgstore: count service tokens: %w", err))
+	}
+	if n >= maxActive {
+		return ErrServiceTokenLimit // a refusal, not a database error
+	}
+	if err := putServiceToken(ctx, x, t); err != nil {
 		return d.fail(err)
+	}
+	if err := x.Commit(); err != nil {
+		return d.fail(fmt.Errorf("pgstore: put service token: %w", err))
 	}
 	if _, err := d.db.ExecContext(ctx, `DELETE FROM halo_service_tokens WHERE expires_at <= now() - $1 * interval '1 second'`, int64(serviceTokenRetention/time.Second)); err != nil {
 		return d.fail(fmt.Errorf("pgstore: prune service tokens: %w", err))

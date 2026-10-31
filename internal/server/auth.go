@@ -42,6 +42,15 @@ type Principal struct {
 	// Kind is empty for a human console session, else KindServiceAccount or
 	// KindBreakGlass (ADR-0036).
 	Kind string `json:"kind,omitempty"`
+	// OnBehalfOf is the human who created a service token: separation-of-
+	// duties checks treat the token as that person (ADR-0036).
+	OnBehalfOf string `json:"onBehalfOf,omitempty"`
+}
+
+// is reports whether p is user, or acts on user's behalf: every
+// separation-of-duties comparison goes through it, never through p.ID alone.
+func (p Principal) is(user string) bool {
+	return sameUser(user, p.ID) || (p.OnBehalfOf != "" && sameUser(user, p.OnBehalfOf))
 }
 
 func newPrincipal(id string, groups, roles []string) Principal {
@@ -143,6 +152,9 @@ func (s *Server) sessionPrincipal(r *http.Request) (Principal, cookiePayload, bo
 		return Principal{}, cookiePayload{}, false
 	}
 	if p.BG != "" { // break-glass: admin by configuration, outside policy and the directory
+		if !s.breakGlassFrom(r) {
+			return Principal{}, cookiePayload{}, false
+		}
 		bp := newPrincipal(p.Sub, nil, []string{RoleAdmin})
 		bp.Kind = KindBreakGlass
 		return bp, p, true
@@ -206,7 +218,14 @@ func (s *Server) user(next authedHandler) http.HandlerFunc {
 			return
 		}
 		if p.Kind == KindBreakGlass { // every break-glass request is on the record
-			s.Audit(r.Context(), p.ID, "breakglass.request", r.URL.Path, map[string]string{"method": r.Method, "severity": "high"})
+			d := map[string]string{"method": r.Method, "severity": "high"}
+			if r.Method == http.MethodGet {
+				s.Audit(r.Context(), p.ID, "breakglass.request", r.URL.Path, d)
+			} else if err := s.AuditStrict(r.Context(), p.ID, "breakglass.request", r.URL.Path, d); err != nil {
+				// A change made with break-glass is never unrecorded: fail closed before acting.
+				apiErr(w, http.StatusServiceUnavailable, errAuditFailed)
+				return
+			}
 		}
 		next(w, r, p)
 	}
@@ -493,6 +512,7 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 // reservedSubject reports whether id is a service-account or break-glass
 // principal id, which no IdP login may take (audit attribution relies on it).
 func reservedSubject(id string) bool {
+	id = canonicalUser(id) // ids compare canonicalized everywhere (sameUser), so must the reservation
 	return strings.HasPrefix(id, ServiceAccountPrefix) || strings.HasPrefix(id, breakGlassSubPrefix)
 }
 

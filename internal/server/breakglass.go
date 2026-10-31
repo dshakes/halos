@@ -10,11 +10,15 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/netip"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dshakes/halos/internal/policy"
+	"github.com/dshakes/halos/internal/storage"
 )
 
 // Break-glass (ADR-0036): one sealed local admin account for when the IdP is
@@ -41,11 +45,70 @@ const (
 
 // BreakGlass configures the break-glass account. Hash is a
 // HashBreakGlassPassword string; it is sealed (logins answer 404) unless
-// Enabled. User defaults to "breakglass".
+// Enabled. User defaults to "breakglass". AllowedCIDRs, when set, are the only
+// client addresses (after TrustedProxies) that may use it: login from
+// elsewhere answers 404 as if sealed, and a session used from elsewhere is
+// refused, so attackers outside them can neither guess nor exhaust it.
 type BreakGlass struct {
-	Enabled bool
-	User    string
-	Hash    string
+	Enabled      bool
+	User         string
+	Hash         string
+	AllowedCIDRs []netip.Prefix
+}
+
+// Global failed-login lockout (all addresses together, all replicas): past
+// breakGlassGlobalFails failures within breakGlassLockWindow, every
+// break-glass login is refused for breakGlassLockWindow, and the lockout is
+// audited at high severity. With AllowedCIDRs only allowed addresses count.
+const breakGlassLockWindow = 15 * time.Minute
+
+// breakGlassGlobalFails is the global failure budget (a var so tests can lower it).
+var breakGlassGlobalFails = int64(20)
+
+// breakGlassLockout is the in-process side of the global budget.
+type breakGlassLockout struct {
+	mu    sync.Mutex
+	fails []time.Time
+	until time.Time
+}
+
+func (l *breakGlassLockout) locked(now time.Time) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return now.Before(l.until)
+}
+
+// fail records one failure (n is the shared count when a Backend has one, else
+// 0) and reports whether this failure locked break-glass.
+func (l *breakGlassLockout) fail(now time.Time, shared int64) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	keep := l.fails[:0]
+	for _, t := range l.fails {
+		if now.Sub(t) < breakGlassLockWindow {
+			keep = append(keep, t)
+		}
+	}
+	l.fails = append(keep, now)
+	if (int64(len(l.fails)) >= breakGlassGlobalFails || shared >= breakGlassGlobalFails) && !now.Before(l.until) {
+		l.until = now.Add(breakGlassLockWindow)
+		return true
+	}
+	return false
+}
+
+// breakGlassFrom reports whether r's client may use break-glass.
+func (s *Server) breakGlassFrom(r *http.Request) bool {
+	cidrs := s.cfg.BreakGlass.AllowedCIDRs
+	if len(cidrs) == 0 {
+		return true
+	}
+	a, err := netip.ParseAddr(s.clientIP(r))
+	if err != nil {
+		return false
+	}
+	a = a.Unmap()
+	return slices.ContainsFunc(cidrs, func(p netip.Prefix) bool { return p.Contains(a) })
 }
 
 type breakGlassHash struct {
@@ -142,7 +205,7 @@ type BreakGlassLogin struct {
 // enabled is audited at high severity, and a login whose audit entry cannot be
 // written is refused: break-glass is never used unrecorded.
 func (s *Server) breakGlassLogin(w http.ResponseWriter, r *http.Request) {
-	if s.bg == nil || !s.cfg.BreakGlass.Enabled {
+	if s.bg == nil || !s.cfg.BreakGlass.Enabled || !s.breakGlassFrom(r) {
 		apiErr(w, http.StatusNotFound, "not found")
 		return
 	}
@@ -154,6 +217,11 @@ func (s *Server) breakGlassLogin(w http.ResponseWriter, r *http.Request) {
 	if s.loginFails.blocked(ip) {
 		w.Header().Set("Retry-After", "60")
 		apiErr(w, http.StatusTooManyRequests, "too many failed logins")
+		return
+	}
+	if s.bgLock.locked(s.cfg.Now()) {
+		w.Header().Set("Retry-After", strconv.Itoa(int(breakGlassLockWindow.Seconds())))
+		apiErr(w, http.StatusTooManyRequests, "break-glass is locked after too many failed logins; see the audit log")
 		return
 	}
 	var in BreakGlassLogin
@@ -179,6 +247,22 @@ func (s *Server) breakGlassLogin(w http.ResponseWriter, r *http.Request) {
 		s.loginFails.fail(ip)
 		s.cfg.Log.Warn("break-glass login failed", "remote", ip)
 		s.Audit(r.Context(), sub, "breakglass.login.failed", "", map[string]string{"severity": "high"})
+		var shared int64
+		if b := s.cfg.Backend; b != nil { // one budget across replicas
+			ctx, cancel := storage.Ctx()
+			n, err := b.CountAuthFailure(ctx, "breakglass/global", breakGlassLockWindow)
+			cancel()
+			if err != nil {
+				s.cfg.Log.Warn("shared break-glass failure count unavailable; this replica's count still applies", "err", err)
+			}
+			shared = n
+		}
+		if s.bgLock.fail(s.cfg.Now(), shared) {
+			s.cfg.Log.Error("BREAK-GLASS LOCKED after repeated failed logins", "window", breakGlassLockWindow)
+			if err := s.AuditStrict(r.Context(), sub, "breakglass.lockout", "", map[string]string{"severity": "high", "window": breakGlassLockWindow.String()}); err != nil {
+				s.cfg.Log.Error("break-glass lockout not audited", "err", err) // the lockout holds either way
+			}
+		}
 		apiErr(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}

@@ -169,6 +169,7 @@ type Server struct {
 	tokenUsed   sync.Map // token id -> time its use was last audited (this replica)
 	bg          *breakGlassHash
 	bgSem       chan struct{}
+	bgLock      breakGlassLockout
 	graphURL    string
 }
 

@@ -81,6 +81,23 @@ func (s *Server) sessionLive(c cookiePayload) error {
 	return nil
 }
 
+// sessionDeadline is when c stops being usable if nothing slides it: its
+// absolute expiry, or sooner its idle deadline. Credentials delegated from a
+// session (ADR-0024) never outlive it, and every credential delegated from
+// those is bounded by its parent's expiry, so a whole chain dies with the
+// idle session rather than living to the absolute TTL.
+func (s *Server) sessionDeadline(c cookiePayload) time.Time {
+	exp := time.Unix(c.Exp, 0)
+	if idle := s.session.Idle; idle > 0 {
+		if last := c.lastSeen(); last != 0 {
+			if d := time.Unix(last, 0).Add(idle); d.Before(exp) {
+				exp = d
+			}
+		}
+	}
+	return exp
+}
+
 // slide re-issues c with a fresh last-seen time when the idle timeout is on
 // and the cookie's is older than slideEvery. The absolute expiry never moves.
 // Break-glass sessions do not slide: their lifetime is fixed.

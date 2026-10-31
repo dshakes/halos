@@ -12,7 +12,7 @@ server:
   metrics: {enabled: true}
   session: {ttl: 8h, idleTimeout: 30m}
   serviceTokens: {maxTTL: 720h}
-  breakGlass: {enabled: false, existingSecret: halos-breakglass}
+  breakGlass: {enabled: false, existingSecret: halos-breakglass, allowedCIDRs: "10.8.0.0/16,192.0.2.10/32"}
   oidc: {entraGraphURL: "https://graph.microsoft.us/v1.0"}
   audit:
     rotation: {maxBytes: 67108864, maxAgeSeconds: 86400}

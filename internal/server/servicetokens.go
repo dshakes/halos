@@ -43,13 +43,15 @@ const (
 	serviceTokenIDLen     = 16 // hex digits
 	serviceTokenSecretLen = 64 // hex digits: 256 bits
 	// ServiceAccountPrefix starts a service account's principal id (and audit actor).
-	ServiceAccountPrefix   = "service-account:"
-	serviceTokenLogName    = "service-tokens"
-	maxActiveServiceTokens = 1000
-	maxServiceTokenText    = 256
+	ServiceAccountPrefix = "service-account:"
+	serviceTokenLogName  = "service-tokens"
+	maxServiceTokenText  = 256
 	// serviceTokenUseEvery: a token's use is audited at most this often per replica.
 	serviceTokenUseEvery = time.Hour
 )
+
+// maxActiveServiceTokens caps live tokens (a var so tests can lower it).
+var maxActiveServiceTokens = 1000
 
 // Principal kinds; empty is a human console session.
 const (
@@ -60,8 +62,10 @@ const (
 // serviceTokenStore is where tokens live: the Backend (shared across
 // replicas), or serviceTokenLog on a single replica.
 type serviceTokenStore interface {
-	// PutServiceToken inserts a new token; an existing id is an error.
-	PutServiceToken(ctx context.Context, t pgstore.ServiceToken) error
+	// PutServiceToken inserts a new token unless maxActive tokens (not
+	// revoked, expiring after now) exist (pgstore.ErrServiceTokenLimit); the
+	// check and the insert are atomic. An existing id is an error.
+	PutServiceToken(ctx context.Context, t pgstore.ServiceToken, maxActive int, now time.Time) error
 	// RevokeServiceToken marks id revoked (the first revocation's record stands).
 	RevokeServiceToken(ctx context.Context, id string, record []byte) (pgstore.ServiceToken, bool, error)
 	// ServiceToken is the row with id.
@@ -116,11 +120,20 @@ func (l *serviceTokenLog) append(ctx context.Context, t pgstore.ServiceToken) er
 	return l.log.Append(ctx, "", b)
 }
 
-func (l *serviceTokenLog) PutServiceToken(ctx context.Context, t pgstore.ServiceToken) error {
+func (l *serviceTokenLog) PutServiceToken(ctx context.Context, t pgstore.ServiceToken, maxActive int, now time.Time) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if _, dup := l.m[t.ID]; dup {
 		return fmt.Errorf("service token id %s already exists", t.ID)
+	}
+	n := 0
+	for _, x := range l.m {
+		if !x.Revoked && now.Before(x.Expires) {
+			n++
+		}
+	}
+	if n >= maxActive {
+		return pgstore.ErrServiceTokenLimit
 	}
 	if err := l.append(ctx, t); err != nil {
 		return err
@@ -336,6 +349,7 @@ func (s *Server) serviceTokenAuth(w http.ResponseWriter, r *http.Request, tok st
 		return Principal{}, false
 	}
 	p := newPrincipal(serviceAccountID(rec.Name, t.ID), nil, []string{rec.Role})
+	p.OnBehalfOf = rec.CreatedBy
 	p.Kind = KindServiceAccount
 	now := s.cfg.Now()
 	if last, ok := s.tokenUsed.Load(t.ID); !ok || now.Sub(last.(time.Time)) >= serviceTokenUseEvery {
@@ -412,16 +426,6 @@ func (s *Server) createServiceToken(w http.ResponseWriter, r *http.Request, p Pr
 	ctx, cancel := context.WithTimeout(r.Context(), storage.OpTimeout)
 	defer cancel()
 	now := s.cfg.Now()
-	all, err := s.tokens.ServiceTokens(ctx)
-	if err != nil {
-		s.cfg.Log.Error("list service tokens", "err", err)
-		apiErr(w, http.StatusServiceUnavailable, "state store unavailable")
-		return
-	}
-	if n := countActiveTokens(all, now); n >= maxActiveServiceTokens {
-		apiErr(w, http.StatusConflict, fmt.Sprintf("%d service tokens are active (the limit): revoke unused ones first", n))
-		return
-	}
 	tok, id, err := newServiceToken()
 	if err != nil {
 		s.cfg.Log.Error("mint service token", "err", err)
@@ -431,7 +435,10 @@ func (s *Server) createServiceToken(w http.ResponseWriter, r *http.Request, p Pr
 	rec := serviceTokenRecord{Name: in.Name, Role: in.Role, Description: in.Description, Owner: in.Owner, CreatedBy: p.ID, CreatedAt: now.UTC()}
 	recb, _ := json.Marshal(rec) // plain struct: cannot fail
 	row := pgstore.ServiceToken{ID: id, Hash: hashServiceToken(tok), Expires: now.Add(ttl).UTC().Truncate(time.Microsecond), Record: recb}
-	if err := s.tokens.PutServiceToken(ctx, row); err != nil {
+	if err := s.tokens.PutServiceToken(ctx, row, maxActiveServiceTokens, now); errors.Is(err, pgstore.ErrServiceTokenLimit) {
+		apiErr(w, http.StatusConflict, fmt.Sprintf("%d service tokens are active (the limit): revoke unused ones first", maxActiveServiceTokens))
+		return
+	} else if err != nil {
 		s.cfg.Log.Error("store service token", "err", err)
 		apiErr(w, http.StatusServiceUnavailable, "state store unavailable")
 		return
@@ -453,16 +460,6 @@ func (s *Server) createServiceToken(w http.ResponseWriter, r *http.Request, p Pr
 	}
 	s.cfg.Log.Info("service token created", "id", id, "name", in.Name, "role", in.Role, "by", p.ID)
 	writeJSON(w, http.StatusCreated, CreateServiceTokenResponse{Token: tok, ServiceToken: info})
-}
-
-func countActiveTokens(all []pgstore.ServiceToken, now time.Time) int {
-	n := 0
-	for _, t := range all {
-		if !t.Revoked && now.Before(t.Expires) {
-			n++
-		}
-	}
-	return n
 }
 
 // listServiceTokens (admin): GET /api/v1/service-tokens.

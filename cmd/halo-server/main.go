@@ -85,6 +85,7 @@ type options struct {
 	sessionTTL, sessionIdle, serviceTokenMaxTTL time.Duration
 	breakGlassEnabled                           bool
 	breakGlassUser, breakGlassHashFile          string
+	breakGlassCIDRs                             string
 	entraGraphURL                               string
 }
 
@@ -146,6 +147,7 @@ func parseFlags(args []string) (options, error) {
 	fs.DurationVar(&o.serviceTokenMaxTTL, "service-token-max-ttl", server.DefaultServiceTokenMaxTTL, "longest lifetime (and the default) of a service-account API token (1h..8760h)")
 	fs.BoolVar(&o.breakGlassEnabled, "breakglass-enabled", false, "allow the break-glass local admin to log in at POST /auth/breakglass (needs --breakglass-hash-file; every use is a high-severity audit event)")
 	fs.StringVar(&o.breakGlassUser, "breakglass-user", "breakglass", "break-glass account name")
+	fs.StringVar(&o.breakGlassCIDRs, "breakglass-allowed-cidrs", "", "comma-separated CIDRs the break-glass login and session may come from (client address after --trusted-proxy-cidrs); elsewhere it answers 404 as if sealed. Empty = any address")
 	fs.StringVar(&o.breakGlassHashFile, "breakglass-hash-file", "", "file holding the break-glass password hash from `halo-server breakglass-hash`; sealed (refused) unless --breakglass-enabled")
 	fs.StringVar(&o.entraGraphURL, "entra-graph-url", server.DefaultGraphURL, "Microsoft Graph base URL for identity.groupsOverage: graph (national clouds: https://graph.microsoft.us/v1.0, https://microsoftgraph.chinacloudapi.cn/v1.0)")
 	fs.Usage = func() {
@@ -811,6 +813,13 @@ func newController(o options, portal server.Portal, portalWriter server.PolicyWr
 // breakGlassConfig reads --breakglass-hash-file (ADR-0036).
 func breakGlassConfig(o options) (server.BreakGlass, error) {
 	bg := server.BreakGlass{Enabled: o.breakGlassEnabled, User: o.breakGlassUser}
+	for _, c := range splitCSV(o.breakGlassCIDRs) {
+		p, err := netip.ParsePrefix(c)
+		if err != nil {
+			return bg, fmt.Errorf("--breakglass-allowed-cidrs: %w", err)
+		}
+		bg.AllowedCIDRs = append(bg.AllowedCIDRs, p.Masked())
+	}
 	if o.breakGlassHashFile == "" {
 		return bg, nil
 	}

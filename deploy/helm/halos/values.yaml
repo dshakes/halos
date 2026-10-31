@@ -97,7 +97,9 @@ server:
   # (`halo-server breakglass-hash` < password-file). It stays SEALED unless enabled: true; enable it only during
   # the incident, then disable it and rotate the password (docs: guides/admin-access). Every login and every
   # request it makes is a high-severity audit event exported to your SIEM sinks.
-  breakGlass: {enabled: false, existingSecret: "", key: hash, user: breakglass}
+  # allowedCIDRs: comma-separated client CIDRs (after trustedProxyCIDRs) break-glass may be used from, e.g. the VPN or
+  # bastion range; elsewhere it answers 404. Empty = anywhere.
+  breakGlass: {enabled: false, existingSecret: "", key: hash, user: breakglass, allowedCIDRs: ""}
   # Microsoft Graph base URL for policy identity.groupsOverage: graph ("" = https://graph.microsoft.com/v1.0;
   # national clouds: https://graph.microsoft.us/v1.0, https://microsoftgraph.chinacloudapi.cn/v1.0).
   oidc: {entraGraphURL: ""}

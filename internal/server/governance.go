@@ -282,6 +282,9 @@ func (s *Server) getRolloutApprovals(w http.ResponseWriter, r *http.Request, _ P
 // When an approval rule covers the next step, the approver must hold one of
 // its groups. Audit-strict: no record, no approval.
 func (s *Server) postRolloutApprove(w http.ResponseWriter, r *http.Request, p Principal) {
+	if !s.requireHuman(w, r, p, "POST /api/v1/rollouts/{name}/approve") {
+		return
+	}
 	var in struct {
 		Ticket string `json:"ticket"`
 	}
@@ -322,7 +325,7 @@ func (s *Server) postRolloutApprove(w http.ResponseWriter, r *http.Request, p Pr
 		s.cfg.Log.Error("read rollout approvals", "rollout", ro.Name, "err", err)
 		apiErr(w, http.StatusServiceUnavailable, "state store unavailable")
 		return
-	} else if slices.ContainsFunc(as, func(a policy.Approval) bool { return sameUser(a.By, p.ID) }) {
+	} else if slices.ContainsFunc(as, func(a policy.Approval) bool { return p.is(a.By) }) {
 		apiErr(w, http.StatusConflict, "you already approved this step")
 		return
 	}
@@ -374,7 +377,7 @@ func (s *Server) recordApproval(w http.ResponseWriter, r *http.Request, p Princi
 			return nil, true
 		}
 	}
-	if slices.ContainsFunc(req.Approvals, func(a policy.Approval) bool { return sameUser(a.By, p.ID) }) {
+	if slices.ContainsFunc(req.Approvals, func(a policy.Approval) bool { return p.is(a.By) }) {
 		if q = org.Quorum(t, req.User, req.Ticket, req.Approvals); q == nil || q.Met {
 			return q, false
 		}

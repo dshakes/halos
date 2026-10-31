@@ -99,7 +99,7 @@ func (s *Server) verifyParent(ctx context.Context, raw, typ string, now time.Tim
 		if !ok {
 			return parentCred{sub: policy.Subject{ID: p.Sub}, via: "session"}, fmt.Errorf("%w: %w", errParentRefused, errDeprovisioned)
 		}
-		return parentCred{sub: policy.Subject{ID: p.Sub, Groups: g}, exp: time.Unix(p.Exp, 0), authTime: p.Iat / int64(time.Second), via: "session"}, nil
+		return parentCred{sub: policy.Subject{ID: p.Sub, Groups: g}, exp: s.sessionDeadline(p), authTime: p.Iat / int64(time.Second), via: "session"}, nil
 	case typ != tokenTypeJWT && typ != tokenTypeAccess:
 		return parentCred{}, fmt.Errorf("subject_token_type must be %s, or %s for a Halos credential", tokenTypeSession, tokenTypeJWT)
 	}

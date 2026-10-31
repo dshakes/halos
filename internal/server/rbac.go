@@ -193,6 +193,25 @@ func (s *Server) deny(w http.ResponseWriter, r *http.Request, p Principal, route
 	apiErr(w, http.StatusForbidden, string(need)+" permission required")
 }
 
+// requireHuman refuses (403, audited as authz.deny with need "human") a
+// service-account token or break-glass caller: filing, approving and denying
+// access requests and approving rollout steps are decisions by and about
+// people, and a person must not be able to count twice, or approve their
+// own change, through a credential they minted (ADR-0036).
+func (s *Server) requireHuman(w http.ResponseWriter, r *http.Request, p Principal, route string) bool {
+	if p.Kind == "" {
+		return true
+	}
+	s.metrics.deny(route)
+	d := map[string]string{"route": route, "method": r.Method, "need": "human", "kind": p.Kind}
+	if p.OnBehalfOf != "" {
+		d["onBehalfOf"] = p.OnBehalfOf
+	}
+	s.Audit(r.Context(), p.ID, "authz.deny", r.URL.Path, d)
+	apiErr(w, http.StatusForbidden, "this decision needs a person signed in to the console: a "+p.Kind+" cannot file, approve or deny requests or approve rollout steps")
+	return false
+}
+
 // routeMux records every registered pattern, and which went through s.route,
 // so tests can check routePerms against what is actually served and enforced.
 type routeMux struct {
