@@ -1,0 +1,76 @@
+name: load-fleet
+# Fleet-scale load of a real halo-server (test/load/fleet): thousands of simulated halod devices
+# enroll, poll the ring pointer, post status reports and fetch the signed kill list. Manual, or monthly;
+# never on pull requests. The default is the 10k-device scenario against file mode and a Postgres
+# service container. Numbers from a shared runner are an indication, not a benchmark: compare runs
+# of this workflow with each other, and read the machine line in the report.
+on:
+  schedule:
+    - cron: "43 4 1 * *"
+  workflow_dispatch:
+    inputs:
+      scenarios:
+        description: "space-separated <devices>x<scale> scenarios (scale x10 offers 10x the real request rate)"
+        default: "10000x1"
+      modes:
+        description: "file, pg, or both"
+        default: "file pg"
+      extra:
+        description: "extra generator flags (e.g. -ramp 120s -duration 300s -operators 2)"
+        default: "-operators 2"
+permissions:
+  contents: read
+concurrency:
+  group: load-fleet
+  cancel-in-progress: false
+jobs:
+  load-fleet:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: halos
+          POSTGRES_PASSWORD: loadfleet
+          POSTGRES_DB: halos
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U halos -d halos" --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with: {persist-credentials: false}
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with: {go-version-file: go.mod}
+      - name: Fleet load
+        shell: bash
+        env:
+          LOAD_FLEET_SCENARIOS: ${{ inputs.scenarios || '10000x1' }}
+          LOAD_FLEET_MODES: ${{ inputs.modes || 'file pg' }}
+          LOAD_FLEET_ARGS: ${{ inputs.extra || '-operators 2' }}
+          LOAD_FLEET_DATABASE_URL: postgres://halos:loadfleet@127.0.0.1:5432/halos?sslmode=disable
+          LOAD_FLEET_OUT: load-fleet-out
+        run: |
+          {
+            echo "machine: $(nproc) CPUs, $(awk '/MemTotal/ {printf "%.1f GB", $2/1048576}' /proc/meminfo) RAM, $(uname -sr), postgres:16-alpine service container"
+            echo "load average: $(cut -d' ' -f1-3 /proc/loadavg)"
+          } | tee machine.txt
+          make load-fleet 2>&1 | tee load-fleet.log
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '### Fleet load'
+            cat machine.txt || true
+            echo
+            cat load-fleet-out/summary.md || true
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: load-fleet-${{ github.run_id }}
+          path: |
+            load-fleet-out
+            machine.txt
+            load-fleet.log
