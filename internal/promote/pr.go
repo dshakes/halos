@@ -231,6 +231,9 @@ type PRRequest struct {
 	// CommitBody is an optional extra commit-message paragraph (e.g. the reason).
 	CommitBody string
 	Files      map[string][]byte
+	// Labels and Reviewers (usernames) are optional; empty adds none.
+	Labels    []string
+	Reviewers []string
 	// Edit, when set, re-applies the change to the committed (HEAD) version of
 	// each file, so uncommitted working-tree edits never ride into the PR.
 	// Files is then only the preview.
@@ -324,8 +327,24 @@ type PRFinder interface {
 // FindPR implements PRFinder with `gh pr list` (any state), matching the
 // marker exactly in the returned bodies: the search narrows, the check decides.
 func (g GHOpener) FindPR(ctx context.Context, dir, marker string) (string, bool, error) {
+	return g.findPR(ctx, dir, marker, "all")
+}
+
+// OpenPRFinder finds a pull request with marker that is still open. Callers
+// that dedupe a proposal (not a controller intent) use it, so a merged or
+// closed request never blocks a new one.
+type OpenPRFinder interface {
+	FindOpenPR(ctx context.Context, dir, marker string) (url string, found bool, err error)
+}
+
+// FindOpenPR implements OpenPRFinder with `gh pr list --state open`.
+func (g GHOpener) FindOpenPR(ctx context.Context, dir, marker string) (string, bool, error) {
+	return g.findPR(ctx, dir, marker, "open")
+}
+
+func (g GHOpener) findPR(ctx context.Context, dir, marker, state string) (string, bool, error) {
 	term := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(marker), "<!--"), "-->"))
-	out, err := g.run(ctx, dir, "gh", "pr", "list", "--state", "all", "--search", term+" in:body", "--json", "url,body", "--limit", "20")
+	out, err := g.run(ctx, dir, "gh", "pr", "list", "--state", state, "--search", term+" in:body", "--json", "url,body", "--limit", "20")
 	if err != nil {
 		return "", false, fmt.Errorf("promote: gh pr list: %w", err)
 	}
@@ -355,6 +374,12 @@ func (g GHOpener) OpenPR(ctx context.Context, r PRRequest) (string, error) {
 	args := []string{"pr", "create", "--title", r.Title, "--body", r.Body, "--head", branch}
 	if r.Base != "" {
 		args = append(args, "--base", r.Base)
+	}
+	for _, l := range r.Labels {
+		args = append(args, "--label", l)
+	}
+	for _, rv := range r.Reviewers {
+		args = append(args, "--reviewer", rv)
 	}
 	out, err := g.run(ctx, r.RepoDir, "gh", args...)
 	if err != nil {

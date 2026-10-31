@@ -160,7 +160,7 @@ halo-server -policy-dir /srv/policy -token-file fleet.token -data-dir /var/lib/h
   -notify-slack-url-file slack.url -metrics-listen 127.0.0.1:9100
 ```
 
-`--controller` requires `-clickhouse-url` and `-data-dir`. `-policy-repo-dir` must be a clone separate from `-policy-dir`; it may be the portal's `policyRepoDir` (one clone and lock for console proposals and controller PRs). It is hard-reset to `origin/<base>` before each PR. Without it, the controller still evaluates, kills and notifies but opens no PRs. PRs need `git` and an authenticated `gh`.
+`--controller` requires `-clickhouse-url` and `-data-dir`. `-policy-repo-dir` must be a clone separate from `-policy-dir`; it may be the portal's `policyRepoDir` (one clone and lock for console proposals and controller PRs). It is hard-reset to `origin/<base>` before each PR. Without it, the controller still evaluates, kills and notifies but opens no PRs. PRs need `git` and an authenticated `gh`, or `-forge gitlab|github` with `GITLAB_TOKEN` / `GITHUB_TOKEN` and optionally `-forge-base-url` (see [GitLab and GitHub Enterprise Server](/halos/guides/gitlab-and-ghes/)); with neither, the forge is autodetected from the clone's origin (`gitlab` if the host names it, else `gh`).
 
 As a one-shot (CI, cron):
 

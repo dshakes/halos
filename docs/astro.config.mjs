@@ -111,6 +111,7 @@ export default defineConfig({
               label: 'Roll out',
               items: [
                 'guides/reliable-upgrades',
+                'guides/gitlab-and-ghes',
                 'guides/cli-upgrade-ab',
                 'guides/model-upgrade-canary',
                 'guides/delivery-roi',

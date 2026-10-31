@@ -15,13 +15,14 @@ func (a *app) cmdMCP() *cobra.Command {
 	var dir, schemaDir, server, roiIDs, roiStore string
 	var writes, adminRead bool
 	var ch clickhouseFlags
+	var fg forgeFlags
 	serve := &cobra.Command{
 		Use:   "serve",
 		Short: "Serve Halos tools, resources and prompts over stdio MCP",
 		Long: "Serve Halos over stdio MCP. Read-only tools are always on. --allow-writes adds experiment " +
 			"and proposal tools (dry_run by default, reason required). --server (or HALO_SERVER) plus HALO_TOKEN (an admin service-account token) or an admin HALO_SESSION " +
 			"enables the fleet tools (kill switch, audit, devices). --admin-read lets admin_plan read the vendor consoles with " +
-			"HALO_MCP_ADMIN_<VENDOR>_TOKEN; without it admin_plan renders from policy only. --roi-identities enables roi_report (delivery ROI, read-only). No tool publishes releases, retags rings, merges or pushes.",
+			"HALO_MCP_ADMIN_<VENDOR>_TOKEN; without it admin_plan renders from policy only. --roi-identities enables roi_report (delivery ROI, read-only). Proposal PRs/MRs go to GitHub (gh CLI or API) or GitLab per --forge. No tool publishes releases, retags rings, merges or pushes.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			o := mcpserver.Options{PolicyDir: dir, AllowWrites: writes, SchemaDir: schemaDir, Version: version, Server: server, AdminRead: adminRead,
@@ -48,6 +49,7 @@ func (a *app) cmdMCP() *cobra.Command {
 	serve.Flags().StringVar(&ch.user, "user", "", "ClickHouse user (password from HALO_CLICKHOUSE_PASSWORD)")
 	serve.Flags().StringVar(&roiIDs, "roi-identities", "", "identity roster CSV (login,subject[,groups][,kind]); enables roi_report and the ROI section of promotion PRs")
 	serve.Flags().StringVar(&roiStore, "roi-store", "", "local JSONL store of PR outcomes (halo roi ingest --store); default: ClickHouse")
+	fg.add(serve)
 	c.AddCommand(serve, a.cmdMCPRegistry(), a.cmdMCPToken())
 	return c
 }

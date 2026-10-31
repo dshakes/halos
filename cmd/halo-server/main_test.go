@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/dshakes/halos/internal/controller"
+	"github.com/dshakes/halos/internal/promote"
 	"github.com/dshakes/halos/internal/server"
 )
 
@@ -133,6 +134,49 @@ func TestPolicyWriterSameCloneGuard(t *testing.T) {
 	}
 	if g := w.(*server.GitPolicyWriter); g.RepoDir != clone || g.ServedDir != served || g.Base != "trunk" {
 		t.Fatalf("%+v", g)
+	}
+}
+
+func TestForgeSelection(t *testing.T) {
+	root := t.TempDir()
+	served, clone := filepath.Join(root, "served"), filepath.Join(root, "clone")
+	for _, d := range []string{served, clone} {
+		if err := os.Mkdir(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Portal writer: policyForge picks the forge; a bad value fails at startup.
+	w, err := policyWriter(server.Portal{PolicyRepoDir: clone, PolicyForge: "gitlab", PolicyForgeBaseURL: "https://gitlab.corp/api/v4"}, served)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f, ok := w.(*server.GitPolicyWriter).Opener.(*promote.ForgeOpener); !ok || f.Kind != promote.ForgeGitLab || f.BaseURL != "https://gitlab.corp/api/v4" {
+		t.Fatalf("portal opener: %#v", w.(*server.GitPolicyWriter).Opener)
+	}
+	if _, err := policyWriter(server.Portal{PolicyRepoDir: clone, PolicyForge: "svn"}, served); err == nil || !strings.Contains(err.Error(), "policyForge") {
+		t.Fatalf("bad portal forge: %v", err)
+	}
+	// Controller writer: --forge / --forge-base-url.
+	o := options{policyDir: served, policyRepoDir: clone, policyRepoBase: "main", forge: "github", forgeBaseURL: "https://ghe.corp/api/v3"}
+	cw, err := controllerWriter(o, server.Portal{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f, ok := cw.(*server.GitPolicyWriter).Opener.(*promote.ForgeOpener); !ok || f.Kind != promote.ForgeGitHub || f.BaseURL != "https://ghe.corp/api/v3" {
+		t.Fatalf("controller opener: %#v", cw.(*server.GitPolicyWriter).Opener)
+	}
+	o.forge = "nope"
+	if _, err := controllerWriter(o, server.Portal{}, nil); err == nil || !strings.Contains(err.Error(), "--forge") {
+		t.Fatalf("bad --forge: %v", err)
+	}
+	// Default (no flags): autodetecting opener, so GitHub users are unchanged.
+	o.forge, o.forgeBaseURL = "", ""
+	cw, err = controllerWriter(o, server.Portal{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f := cw.(*server.GitPolicyWriter).Opener.(*promote.ForgeOpener); f.Kind != promote.ForgeAuto {
+		t.Fatalf("default kind %q", f.Kind)
 	}
 }
 

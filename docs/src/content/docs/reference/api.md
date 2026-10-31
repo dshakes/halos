@@ -3,7 +3,18 @@ title: halo-server API
 description: Every halo-server HTTP endpoint with its auth requirement, derived from the route registrations in internal/server.
 ---
 
-Routes are registered in `internal/server/server.go` (`Handler`). This page lists all of them. Errors are JSON `{"error": "..."}`; every response carries `X-Request-Id`, and `/api/` responses carry `Cache-Control: no-store`. Any other `/api/...` path is 404.
+Routes are registered in `internal/server/server.go` (`Handler`). This page lists all of them.
+
+## OpenAPI description
+
+The machine-readable contract is an OpenAPI 3.1 document: [`openapi.yaml`](/halos/openapi.yaml) on this site, `api/openapi.yaml` in the repository, and served by every `halo-server` at `GET /api/v1/openapi.yaml` (public and read-only: it describes routes, not data, and tools such as code generators and API gateways fetch it without credentials). It lists every route with its method, path and query parameters, auth schemes, request and response schemas derived from the Go types, status codes, and two extensions:
+
+- `x-halo-permission`: the [RBAC](/halos/adr/0015-rbac-roles-for-halo-server/) permission (`session`, `read`, `operate`, `approve`, `audit`, `admin`) the operation needs, taken from the server's route table. `x-halo-roles` maps each permission to the roles that hold it.
+- `x-halo-stability`: `stable` on every operation (see Stability below).
+
+The document is generated from the server source (`make openapi`, also run by `make docs-gen`) and `go test ./internal/server -run OpenAPI` fails when it drifts: a route registered without documentation, a permission that differs from the route table, a stale file, an example that no longer decodes into its Go type, a document that is not valid OpenAPI 3.1, or a handler that answers a status or body the document does not describe. The tables below add the prose; where they disagree with the document, the document is the tested one.
+
+**Stability.** Every operation is marked `x-halo-stability: stable` and falls under the HTTP API promise in the [support policy](/halos/reference/support-policy/): under `/api/v1` fields are added in minors and never removed or retyped. Error bodies are `{"error": "<message>"}`: match on the HTTP status, not on the message text.
 
 ## Auth levels
 
@@ -28,6 +39,7 @@ State-changing Session and Admin requests (anything but `GET`) are rejected with
 | Method and path | Auth | Purpose |
 |---|---|---|
 | `GET /healthz` | Public | Liveness: `ok` |
+| `GET /api/v1/openapi.yaml` | Public | This API as an OpenAPI 3.1 document |
 | `GET /auth/login` | Public | Start the OIDC authorization-code flow (PKCE) |
 | `GET /auth/callback` | Public | OIDC redirect target; sets the session cookie |
 | `POST /auth/logout` | Public | End the session |

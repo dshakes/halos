@@ -25,7 +25,9 @@ helm template halo deploy/helm/halos -f my-values.yaml | kubectl diff -f -   # r
 | `server.controller.clickhouse.existingSecret` | `username`, `password` | `--clickhouse-user` (via env) / `--clickhouse-password-file` |
 | `server.controller.notify.slack.existingSecret` | `url` | `--notify-slack-url-file` |
 | `server.controller.notify.webhook.existingSecret` | `url`, `secret` | `--notify-webhook-url-file` / `--notify-webhook-secret-file` |
-| `server.controller.policyRepo.ghToken.existingSecret` | `token` | `GH_TOKEN` for `gh` (PR opening) |
+| `server.controller.policyRepo.ghToken.existingSecret` | `token` | `GH_TOKEN` for `gh` or `forge: github` (PR opening) |
+| `server.controller.policyRepo.gitlabToken.existingSecret` | `token` | `GITLAB_TOKEN` (`api` scope) for `forge: gitlab` |
+| `server.controller.policyRepo.forge` / `forgeBaseURL` | | `--forge` (`gh`, `github`, `gitlab`; empty autodetects from origin) / `--forge-base-url` (GHES or self-managed GitLab API root) |
 | `policy.gitSync.auth.existingSecret` | `ssh`+`known_hosts` (ssh) or `password` (token) | git-sync |
 | `proxy.telemetry.tokenSecret.existingSecret` (defaults to `otel.gatewayToken.existingSecret`) | `token` | otel gateway-receiver bearer token -> halo-proxy `telemetry.tokenFile` (mounted at `/etc/halo-telemetry/token`); `proxy.telemetry.enabled=true` also sets `telemetry.otlpEndpoint` (default `http://<release>-otel:4319`) and opens proxy->otel:4319 in NetworkPolicy |
 | `proxy.telemetry.unitSaltSecret.existingSecret` | `unit-salt` | optional `--telemetry-unit-salt-file`: one shared `halo.unit` salt across proxy replicas |
@@ -87,7 +89,8 @@ OIDC issuer/audience live in the policy repo (halo-server) and `proxy.config.ide
   the action log in `--data-dir` prevents duplicate PRs). `policyRepo.enabled` shares the `/policy-writer/repo` clone above
   (`--policy-repo-dir`, separate from the served policy). The controller shells out to `git` and `gh`, so the halo-server image must
   contain both: set `server.controller.policyRepo.image` to an image that does. `gh pr create` against real GitHub is UNVERIFIED
-  (the UAT uses a recording `gh` stub).
+  (the UAT uses a recording `gh` stub). `policyRepo.forge: gitlab` (merge requests, `GITLAB_TOKEN` with the `api` scope) or `github`
+  (REST API) needs no `gh` in the image; the REST paths are UNVERIFIED against a real GitLab or GitHub Enterprise Server.
   Without `policyRepo`, the controller only evaluates, kills and notifies (no PRs).
 - Kill switch: `server.killSwitch.existingSecret` passes `--killswitch-key-file`/`--gateway-token-file`. `proxy.killSwitch.enabled` writes
   `killSwitch{url,tokenFile,pubkeyFile,interval}` into the proxy config; `url` defaults to the in-cluster halo-server Service (plain HTTP,

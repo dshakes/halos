@@ -58,7 +58,7 @@ This output came from the example repo run against a local stub npm registry and
 $ halo upgrade watch --every 6h --policy-dir .
 ```
 
-Run it in CI on a schedule, or as a long-running job with `gh` authenticated: PRs are opened through the GitHub CLI. Flags: `--config` (default `<policy-dir>/.halos/upgrade.yaml`), `--npm-registry` (a mirror), `--parallel` (eval trials), `--local` (evals on the host, testing only).
+Run it in CI on a schedule, or as a long-running job with `gh` authenticated: PRs are opened through the GitHub CLI by default, or as GitLab merge requests / through the GitHub API with `--forge gitlab|github` ([GitLab and GitHub Enterprise Server](/halos/guides/gitlab-and-ghes/)). Flags: `--forge`, `--forge-base-url`, `--config` (default `<policy-dir>/.halos/upgrade.yaml`), `--npm-registry` (a mirror), `--parallel` (eval trials), `--local` (evals on the host, testing only).
 
 ## Why this is safe to automate
 

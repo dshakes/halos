@@ -373,6 +373,7 @@
         "internal/harness/all",
         "internal/intent",
         "internal/policy",
+        "internal/promote",
         "internal/release"
       ]
     },
@@ -515,6 +516,12 @@
       "path": "internal/tools/gendocs",
       "imports": [
         "internal/docgen"
+      ]
+    },
+    {
+      "path": "internal/tools/genopenapi",
+      "imports": [
+        "internal/server"
       ]
     },
     {

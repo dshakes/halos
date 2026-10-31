@@ -141,6 +141,7 @@ func (a *app) cmdExp() *cobra.Command {
 	var pch clickhouseFlags
 	var psf serverFlags
 	var ring, rel, base, roiIDs string
+	var fg forgeFlags
 	var dry bool
 	prom := &cobra.Command{
 		Use: "promote <name>", Short: "Open a PR pointing --ring at --release (never merges); requires a promote verdict", Args: cobra.ExactArgs(1), Annotations: policyDirAnno,
@@ -201,6 +202,10 @@ func (a *app) cmdExp() *cobra.Command {
 			if roiIDs != "" {
 				section = a.roiSection(cmd.Context(), pch.client(), org, e, roiIDs)
 			}
+			op, err := fg.forge()
+			if err != nil {
+				return err
+			}
 			if dry {
 				fmt.Fprintf(a.out, "verdict: %s\n%s", rep.Verdict, change.Patch)
 				if section != "" {
@@ -208,7 +213,7 @@ func (a *app) cmdExp() *cobra.Command {
 				}
 				return nil
 			}
-			url, err := promote.OpenPR(cmd.Context(), promote.GHOpener{}, t, change, e, rep, base, section)
+			url, err := promote.OpenPR(cmd.Context(), op, t, change, e, rep, base, section)
 			if err != nil {
 				return err
 			}
@@ -217,6 +222,7 @@ func (a *app) cmdExp() *cobra.Command {
 	}
 	pch.add(prom)
 	psf.add(prom, "for the incident freeze (ADR-0030)")
+	fg.add(prom)
 	prom.Flags().StringVar(&ring, "ring", "", "ring to re-point (required)")
 	prom.Flags().StringVar(&rel, "release", "", "release digest to pin (required)")
 	prom.Flags().StringVar(&base, "base", "", "PR base branch")

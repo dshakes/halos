@@ -9,7 +9,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/dshakes/halos/internal/eval"
-	"github.com/dshakes/halos/internal/promote"
 	"github.com/dshakes/halos/internal/release"
 	"github.com/dshakes/halos/internal/upgrade"
 )
@@ -58,6 +57,7 @@ func (a *app) cmdUpgrade() *cobra.Command {
 	var cfgPath, npmURL string
 	var dryRun, local bool
 	var parallel int
+	var fg forgeFlags
 	var every time.Duration
 	watcher := func(cmd *cobra.Command) (*upgrade.Watcher, error) {
 		dir, err := policyDir(cmd, nil)
@@ -71,10 +71,14 @@ func (a *app) cmdUpgrade() *cobra.Command {
 		if err != nil {
 			return nil, err
 		}
+		op, err := fg.forge()
+		if err != nil {
+			return nil, err
+		}
 		w := &upgrade.Watcher{PolicyDir: dir, Config: cfg, DryRun: dryRun,
 			Registry: upgrade.NPM{URL: npmURL},
 			Verifier: upgrade.ArtifactVerifier{Resolver: release.ArtifactResolver{NPMRegistry: npmURL}},
-			PR:       promote.GHOpener{},
+			PR:       op,
 			Warn:     func(m string) { fmt.Fprintln(a.errw, "warning:", m) },
 		}
 		w.Eval = func(ctx context.Context, cand upgrade.Candidate) (*eval.Scorecard, error) {
@@ -138,6 +142,7 @@ func (a *app) cmdUpgrade() *cobra.Command {
 		sub.Flags().BoolVar(&dryRun, "dry-run", false, "only report candidates: no eval, no branch, no PR")
 		sub.Flags().BoolVar(&local, "local", false, "run evals on the host instead of Docker (no isolation; testing only)")
 		sub.Flags().IntVar(&parallel, "parallel", 2, "concurrent eval trials")
+		fg.add(sub)
 	}
 	watch.Flags().DurationVar(&every, "every", 6*time.Hour, "check interval")
 	c.AddCommand(check, watch, a.cmdUpgradeStart(), a.cmdUpgradePublish())
