@@ -116,7 +116,7 @@ func TestOnboardToolsFromEmptyDir(t *testing.T) {
 	if err != nil || vr["status"] != onboard.VerifyDryRun {
 		t.Fatalf("verify: %v %v", err, vr)
 	}
-	if vr, err = call(t, rw, "verify_harness", map[string]any{"harness": "claude-code"}); err != nil || vr["status"] != onboard.VerifySkipped {
+	if vr, err = call(t, rw, "verify_harness", map[string]any{"harness": "claude-code"}); err != nil || vr["status"] != onboard.VerifySkipped || summaryText(vr) != "verified 0 of 1 (1 skipped)" {
 		t.Fatalf("verify without credentials: %v %v", err, vr)
 	}
 	// A real run spawns the CLI and spends the human's credentials: read-only refuses it, --allow-writes runs it.
@@ -153,4 +153,11 @@ func TestOnboardCompanyTool(t *testing.T) {
 	if v, err := call(t, rw, "validate", nil); err != nil || v["ok"] != true {
 		t.Fatalf("generated repo does not validate: %v %v", err, v)
 	}
+}
+
+// summaryText is the "verified X of N" line of a verify_harness result.
+func summaryText(vr map[string]any) string {
+	s, _ := vr["summary"].(map[string]any)
+	t, _ := s["text"].(string)
+	return t
 }

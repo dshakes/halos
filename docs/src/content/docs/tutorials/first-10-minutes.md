@@ -65,12 +65,12 @@ That file is what `halod` writes on a laptop: bypass mode disabled (`permissions
 ## 5. Generate a dev signing key
 
 ```console
-$ halo keys generate --out keys --name dev
-private keys/dev.key (keep secret)
-public  keys/dev.pub
+$ halo keys generate --out /tmp/acme-keys --name dev
+private /tmp/acme-keys/dev.key (keep secret)
+public  /tmp/acme-keys/dev.pub
 ```
 
-Keep `dev.key` out of git. In production the key lives in CI or a KMS.
+The key goes outside the policy repo on purpose: `halo keys generate` refuses to write a private key inside a git work tree. In production the key lives in CI or a KMS.
 
 ## 6. Publish to a local registry
 
@@ -79,7 +79,7 @@ Port 5000 is often taken on macOS (AirPlay), so this maps the registry to 5055.
 ```console
 $ docker run -d --name halos-registry -p 5055:5000 registry:2
 $ halo release publish --ring ring0-team --release-version 0.1.0 \
-    --registry localhost:5055/acme/halos --key keys/dev.key --plain-http --no-artifacts
+    --registry localhost:5055/acme/halos --key /tmp/acme-keys/dev.key --plain-http --no-artifacts
 warning: --no-artifacts: halod will not install CLIs from this release unless allowShellInstall is set
 Signing ring ring0-team → version 0.1.0 (digest sha256:3743b2fd…, seq 1790824931)
 published localhost:5055/acme/halos tags v0.1.0, ring-ring0-team (sha256:3743b2fd…)

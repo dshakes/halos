@@ -123,17 +123,24 @@ func (s *srv) addOnboardTools(m *mcp.Server) {
 		})
 	mcp.AddTool(m, &mcp.Tool{Name: "verify_harness", Annotations: &mcp.ToolAnnotations{DestructiveHint: boolp(false), OpenWorldHint: boolp(true)},
 		Description: "Run one CLI headless (claude -p, codex exec, gemini -p, copilot -p, cursor-agent -p, opencode run) with a fixed prompt and check the reply. dry_run (default true) returns the command; false makes one short model call and, like every write, needs --allow-writes. Output is redacted."},
-		func(ctx context.Context, _ *mcp.CallToolRequest, in verifyIn) (*mcp.CallToolResult, onboard.VerifyResult, error) {
+		func(ctx context.Context, _ *mcp.CallToolRequest, in verifyIn) (*mcp.CallToolResult, verifyOut, error) {
 			// Spawning a CLI that spends the human's credentials is a side effect: same gate as the writes.
 			run, err := s.mayWrite(in.DryRun, shJoin("halo", "onboard", "verify", in.Harness))
 			if err != nil {
-				return nil, onboard.VerifyResult{}, err
+				return nil, verifyOut{}, err
 			}
-			return nil, onboard.Verify(ctx, s.env(), in.Harness, in.AssumeAuth, !run, 2*time.Minute), nil
+			r := onboard.Verify(ctx, s.env(), in.Harness, in.AssumeAuth, !run, 2*time.Minute)
+			return nil, verifyOut{VerifyResult: r, Summary: onboard.Summarize([]onboard.VerifyResult{r})}, nil
 		})
 	mcp.AddTool(m, &mcp.Tool{Name: "onboard_company", Annotations: write,
 		Description: "My-company path: generate the policy repo (halos.yaml, Helm values, IdP client, enrollment per delivery channel, CI, smoke eval, README of human steps) into the policy dir, validated. Only org is required: every other answer has a documented default (schema `default`), the dry run echoes what it assumed in `assumed`, and a real write is refused while any example.com placeholder (`placeholders`) is still assumed. tools, delivery and admin_groups also accept one string or name@version items. Refuses to overwrite differing files. Writes only with dry_run false and --allow-writes; never publishes, enrolls or pushes."},
 		s.onboardCompany)
+}
+
+// verifyOut is one round trip plus the same "verified X of N" summary the CLI prints.
+type verifyOut struct {
+	onboard.VerifyResult
+	Summary onboard.VerifySummary `json:"summary"`
 }
 
 func (in initPolicyIn) options() intent.InitOptions {
@@ -156,9 +163,7 @@ func (s *srv) initPolicy(ctx context.Context, _ *mcp.CallToolRequest, in initPol
 	e := s.env()
 	o := onboard.LocalOptions{Dir: s.dir, Init: in.options(), Ring: in.Ring, GOOS: or(e.GOOS, runtime.GOOS), Apply: w}
 	if len(o.Init.Tools) == 0 {
-		if o.Init.Tools = onboard.SuggestTools(onboard.Detect(ctx, e)); len(o.Init.Tools) == 0 {
-			o.Init.Tools = onboard.FallbackTools
-		}
+		o.Init.Tools, o.Warnings = onboard.AutoTools(onboard.Detect(ctx, e))
 	}
 	if o.Init.Provider == "" {
 		o.Init.Provider = onboard.SuggestProvider(e)
