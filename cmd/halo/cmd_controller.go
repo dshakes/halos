@@ -12,7 +12,6 @@ import (
 
 	"github.com/dshakes/halos/internal/controller"
 	"github.com/dshakes/halos/internal/policy"
-	"github.com/dshakes/halos/internal/promote"
 	"github.com/dshakes/halos/internal/rollout"
 	"github.com/dshakes/halos/internal/server"
 )
@@ -23,6 +22,7 @@ func (a *app) cmdController() *cobra.Command {
 	var dataDir, verdicts, base, slackFile, hookFile, secretFile string
 	var once, noPR, killServed bool
 	var interval time.Duration
+	var fg forgeFlags
 	run := &cobra.Command{
 		Use: "run", Short: "Evaluate running experiments and act on verdicts (never merges)", Args: cobra.NoArgs, Annotations: policyDirAnno,
 		Long: "Evaluates every running experiment from ClickHouse evidence, then drives active rollouts (state in\n" +
@@ -30,7 +30,7 @@ func (a *app) cmdController() *cobra.Command {
 			"<data-dir>/killswitch.jsonl (served to gateways when <data-dir> is halo-server's --data-dir), opens a\n" +
 			"PR pausing the experiment, notifies. Without --killswitch-served, messages say the kill is only recorded. promote/expired: opens a PR concluding it, notifies. Each action\n" +
 			"happens once per experiment run (<data-dir>/controller-state.jsonl). PRs are opened from the git\n" +
-			"checkout containing --policy-dir with gh. Run a single controller per data dir. Kills are also appended\n" +
+			"checkout containing --policy-dir with gh (or the GitHub/GitLab API: --forge). Run a single controller per data dir. Kills are also appended\n" +
 			"to <data-dir>/audit.jsonl (hash chain shared with halo-server): do not run this against a data dir\n" +
 			"a live halo-server is appending to (single writer); use the server's in-process controller there.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -97,7 +97,11 @@ func (a *app) cmdController() *cobra.Command {
 					"; gateways enforce only if halo-server serves this data dir with a kill key"
 			}
 			if !noPR {
-				ctrl.Writer = &controller.GitWriter{RepoDir: dir, Base: base, Opener: promote.GHOpener{}}
+				op, err := fg.forge()
+				if err != nil {
+					return err
+				}
+				ctrl.Writer = &controller.GitWriter{RepoDir: dir, Base: base, Opener: op}
 			}
 			if once {
 				if err := ctrl.Tick(cmd.Context()); err != nil {
@@ -110,6 +114,7 @@ func (a *app) cmdController() *cobra.Command {
 		},
 	}
 	ch.add(run)
+	fg.add(run)
 	f := run.Flags()
 	f.StringVar(&dataDir, "data-dir", "", "directory for controller-state.jsonl and killswitch.jsonl (required)")
 	f.StringVar(&verdicts, "verdicts-file", "", "upsert each verdict into this JSON array file read by halo-server")

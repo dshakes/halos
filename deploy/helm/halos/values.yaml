@@ -171,7 +171,7 @@ server:
       slack: {existingSecret: "", key: url}                    # --notify-slack-url-file
       webhook: {existingSecret: "", urlKey: url, secretKey: secret}   # --notify-webhook-url-file / -secret-file (X-Halo-Signature)
     # PR opening from ONE writable clone (/policy-writer/repo, shared with proposals; never the served policy dir), made by
-    # an init container running a real `git clone` (git-sync worktrees have no origin). Needs `git`, `sh`, `gh` (+ `ssh` for
+    # an init container running a real `git clone` (git-sync worktrees have no origin). Needs `git`, `sh`, `gh` (`gh` only for forge gh) (+ `ssh` for
     # ssh auth) IN THE halo-server IMAGE: set `image` to one that has them. UNVERIFIED against a real cluster.
     policyRepo:
       enabled: false
@@ -180,6 +180,14 @@ server:
       base: main                   # --policy-repo-base
       # gh auth: Secret key holding a GitHub token, exported as GH_TOKEN. Clone auth reuses policy.gitSync.auth.
       ghToken: {existingSecret: "", key: token}
+      # Where PRs/MRs are opened: "" = autodetect from the clone's origin (gh unless the host names gitlab), gh (gh CLI),
+      # github (REST API, token from ghToken), gitlab (REST API v4, token from gitlabToken). --forge
+      forge: ""
+      # REST API root for GitHub Enterprise Server (https://ghe.example.com/api/v3) or self-managed GitLab
+      # (https://gitlab.example.com/api/v4); empty = derived from the origin host. --forge-base-url
+      forgeBaseURL: ""
+      # GitLab: Secret key holding a token with the `api` scope, exported as GITLAB_TOKEN. forge gitlab needs no `gh` in the image.
+      gitlabToken: {existingSecret: "", key: token}
   persistence:
     enabled: true
     existingClaim: ""

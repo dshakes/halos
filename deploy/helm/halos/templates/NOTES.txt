@@ -23,6 +23,9 @@ Pre-create these Secrets (this chart never creates or reads secret values):
   - {{ . }} (keys {{ $.Values.server.controller.notify.webhook.urlKey }}, {{ $.Values.server.controller.notify.webhook.secretKey }}): webhook URL + HMAC secret
 {{- end }}
 {{- if .Values.server.controller.policyRepo.enabled }}
+{{- with .Values.server.controller.policyRepo.gitlabToken.existingSecret }}
+  - {{ . }} (key {{ $.Values.server.controller.policyRepo.gitlabToken.key }}): GitLab token (api scope) exported as GITLAB_TOKEN for merge requests
+{{- end }}
 {{- with .Values.server.controller.policyRepo.ghToken.existingSecret }}
   - {{ . }} (key {{ $.Values.server.controller.policyRepo.ghToken.key }}): GitHub token exported as GH_TOKEN for `gh`
 {{- end }}

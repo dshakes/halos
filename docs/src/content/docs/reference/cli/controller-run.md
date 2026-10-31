@@ -10,7 +10,7 @@ Evaluates every running experiment from ClickHouse evidence, then drives active 
 &lt;data-dir>/killswitch.jsonl (served to gateways when &lt;data-dir> is halo-server's --data-dir), opens a
 PR pausing the experiment, notifies. Without --killswitch-served, messages say the kill is only recorded. promote/expired: opens a PR concluding it, notifies. Each action
 happens once per experiment run (&lt;data-dir>/controller-state.jsonl). PRs are opened from the git
-checkout containing --policy-dir with gh. Run a single controller per data dir. Kills are also appended
+checkout containing --policy-dir with gh (or the GitHub/GitLab API: --forge). Run a single controller per data dir. Kills are also appended
 to &lt;data-dir>/audit.jsonl (hash chain shared with halo-server): do not run this against a data dir
 a live halo-server is appending to (single writer); use the server's in-process controller there.
 
@@ -28,6 +28,8 @@ halo controller run [flags]
 | `--clickhouse` |  | string |  | ClickHouse HTTP URL, e.g. http://localhost:8123 (required) |
 | `--data-dir` |  | string |  | directory for controller-state.jsonl and killswitch.jsonl (required) |
 | `--database` |  | string |  | ClickHouse database |
+| `--forge` |  | string |  | where to open the change request: gh\|github\|gitlab (default: autodetect from the origin remote; gh unless the host names gitlab); github/gitlab use the REST API with GITHUB_TOKEN/GH_TOKEN or GITLAB_TOKEN |
+| `--forge-base-url` |  | string |  | REST API root for GitHub Enterprise Server (https://ghe.example.com/api/v3) or self-managed GitLab (https://gitlab.example.com/api/v4); default derived from the origin remote |
 | `--interval` |  | duration | 5m0s | tick interval without --once |
 | `--killswitch-served` |  | bool | false | acknowledge that halo-server (with --killswitch-key-file) serves this --data-dir to gateways; without it, rollback messages say the kill is only recorded, not enforced |
 | `--no-pr` |  | bool | false | do not open PRs (verdicts, kills and notifications only) |

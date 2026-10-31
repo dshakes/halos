@@ -198,6 +198,7 @@ func (a *app) cmdRollout() *cobra.Command {
 
 	var reason, base string
 	var dry, force bool
+	var fg forgeFlags
 	var aev rolloutEvidence
 	advance := &cobra.Command{
 		Use: "advance <name>", Short: "Open a PR moving the rollout to its next step (or completing it); never merges", Args: cobra.ExactArgs(1), Annotations: policyDirAnno,
@@ -232,9 +233,13 @@ func (a *app) cmdRollout() *cobra.Command {
 				}
 				fmt.Fprintln(a.errw, a.yellow("warning:"), err)
 			}
+			op, err := fg.forge()
+			if err != nil {
+				return err
+			}
 			act, next := rollout.NextAction(r)
 			intro := fmt.Sprintf("Manual %s of rollout `%s`, from step `%s`.\n\n**Reason:** %s", act, r.Name, stepLabel(r), reason)
-			return a.rolloutPR(cmd, dir, org, r, act, next, intro, reason, base, dry, d)
+			return a.rolloutPR(cmd, op, dir, org, r, act, next, intro, reason, base, dry, d)
 		},
 	}
 	aev.add(advance)
@@ -259,11 +264,15 @@ func (a *app) cmdRollout() *cobra.Command {
 				if err != nil {
 					return err
 				}
+				op, err := fg.forge()
+				if err != nil {
+					return err
+				}
 				intro := fmt.Sprintf("Manual %s of rollout `%s` at step `%s`.\n\n**Reason:** %s", verb.act, r.Name, stepLabel(r), reason)
 				if verb.act == rollout.Rollback && r.Axis == policy.AxisTraffic && r.Experiment != "" {
 					intro += fmt.Sprintf("\n\nFor an immediate stop before this merges, kill experiment `%s` (halo-server: POST /api/v1/experiments/%s/kill).", r.Experiment, r.Experiment)
 				}
-				return a.rolloutPR(cmd, dir, org, r, verb.act, -1, intro, reason, base, dry, rollout.Decision{})
+				return a.rolloutPR(cmd, op, dir, org, r, verb.act, -1, intro, reason, base, dry, rollout.Decision{})
 			},
 		}
 		c.AddCommand(cmd)
@@ -274,6 +283,7 @@ func (a *app) cmdRollout() *cobra.Command {
 			f := sub.Flags()
 			f.StringVar(&reason, "reason", "", "why (required; recorded in the commit message and PR body)")
 			f.StringVar(&base, "base", "", "PR base branch")
+			fg.add(sub)
 			f.BoolVar(&dry, "dry-run", false, "print the patch instead of opening a PR")
 			if sub.Name() == "advance" {
 				f.BoolVar(&force, "force", false, "advance even though a gate failed")
@@ -348,7 +358,7 @@ func stepLabel(r *policy.Rollout) string {
 }
 
 // rolloutPR plans act and opens it as a PR (or prints the patch with --dry-run).
-func (a *app) rolloutPR(cmd *cobra.Command, dir string, org *policy.Org, r *policy.Rollout, act rollout.Action, next int, intro, reason, base string, dry bool, d rollout.Decision) error {
+func (a *app) rolloutPR(cmd *cobra.Command, op promote.PROpener, dir string, org *policy.Org, r *policy.Rollout, act rollout.Action, next int, intro, reason, base string, dry bool, d rollout.Decision) error {
 	ch, err := rollout.Plan(dir, org, r, act, next)
 	if err != nil {
 		return err
@@ -365,7 +375,7 @@ func (a *app) rolloutPR(cmd *cobra.Command, dir string, org *policy.Org, r *poli
 			}
 		})
 	}
-	url, err := promote.GHOpener{}.OpenPR(cmd.Context(), promote.PRRequest{
+	url, err := op.OpenPR(cmd.Context(), promote.PRRequest{
 		RepoDir: dir, Base: base, Branch: rollout.Branch(r, act, next), Title: rollout.Title(r, act, next),
 		Body: rollout.Body(intro, d, manual, ch.Patch), CommitBody: "Reason: " + reason, Files: ch.Files, Edit: ch.Edit,
 	})
