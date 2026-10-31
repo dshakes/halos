@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dshakes/halos/internal/bundle"
 	"github.com/dshakes/halos/internal/policy"
 )
 
@@ -83,7 +84,7 @@ func FuzzVerifyKillList(f *testing.F) {
 	pub := seed.Public().(ed25519.PublicKey)
 	signed := map[string]bool{} // payload||sig pairs produced by the real key
 	add := func(l KillList) {
-		env, err := SignKillList(seed, l)
+		env, err := SignKillList(context.Background(), bundle.Ed25519Signer{Key: seed}, l)
 		if err != nil {
 			f.Fatal(err)
 		}
@@ -101,7 +102,7 @@ func FuzzVerifyKillList(f *testing.F) {
 		if signIt {
 			sig = ed25519.Sign(seed, append([]byte(killDomain), payload...))
 		}
-		l, err := VerifyKillList(pub, KillEnvelope{Payload: payload, Signature: sig}, fuzzKillNow, DefaultKillMaxAge)
+		l, err := VerifyKillList(context.Background(), bundle.Ed25519Verifier{Key: pub}, KillEnvelope{Payload: payload, Signature: sig}, fuzzKillNow, DefaultKillMaxAge)
 		if err != nil {
 			return
 		}
@@ -136,7 +137,7 @@ func FuzzKillSwitchRefresh(f *testing.F) {
 	pub := seed.Public().(ed25519.PublicKey)
 	prev := KillList{Version: 1, Experiments: []string{"exp-a"}, IssuedAt: fuzzKillNow.Add(-time.Minute)}
 	envJSON := func(l KillList) []byte {
-		env, _ := SignKillList(seed, l)
+		env, _ := SignKillList(context.Background(), bundle.Ed25519Signer{Key: seed}, l)
 		b, _ := json.Marshal(env)
 		return b
 	}
@@ -149,7 +150,7 @@ func FuzzKillSwitchRefresh(f *testing.F) {
 	f.Add([]byte{})
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	f.Fuzz(func(t *testing.T, body []byte) {
-		k := &KillSwitch{URL: "https://halo.example/k", Token: "t", PubKey: pub, Log: log,
+		k := &KillSwitch{URL: "https://halo.example/k", Token: "t", PubKey: bundle.Ed25519Verifier{Key: pub}, Log: log,
 			Now: func() time.Time { return fuzzKillNow }, Client: &http.Client{Transport: bodyRT(body)}}
 		k.Restore(prev)
 		err := k.Refresh(context.Background())

@@ -23,7 +23,8 @@ halo release promote [flags]
 | `--cosign-keyless` |  | bool | false | cosign keyless (Fulcio+Rekor): uploads the release digest to the public transparency log |
 | `--expect-digest` |  | string |  | refuse unless --from-ring serves this release digest (sha256:...) |
 | `--from-ring` |  | string |  | source ring (required) |
-| `--key` |  | string |  | ed25519 private key PEM (create one with: halo keys generate) |
+| `--key` |  | string |  | ed25519 or ECDSA P-256 private key PEM (create one with: halo keys generate) |
+| `--key-uri` |  | string |  | signing key by URI instead of --key: file://PATH, awskms://KEY?region=R, exec:///SIGNER (see halo keys public) |
 | `--plain-http` |  | bool | false | use HTTP instead of HTTPS (local registries) |
 | `--policy-dir` |  | string |  | policy repo directory (default ".") |
 | `--registry` |  | string |  | registry repo, e.g. ghcr.io/acme/halos |

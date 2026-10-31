@@ -11,7 +11,6 @@ package bundle
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -51,29 +50,12 @@ func publish(ctx context.Context, dst oras.Target, rel *release.Release, s Signe
 	if rel.Manifest.Version == "" {
 		return ocispec.Descriptor{}, errors.New("bundle: release has no version")
 	}
-	if _, err := verifierFor(s); err != nil {
+	v, err := verifierFor(s)
+	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
 	if len(rings) > 0 && rel.Manifest.Org == "" {
 		return ocispec.Descriptor{}, errors.New("bundle: release has no org; ring pointers are org-scoped")
-	}
-	sig, err := s.Sign(ctx, rel.Digest)
-	if err != nil {
-		return ocispec.Descriptor{}, fmt.Errorf("bundle: sign %s: %w", rel.Digest, err)
-	}
-	ann := map[string]string{AnnSignature: base64.StdEncoding.EncodeToString(sig), AnnSigType: s.Type()}
-	// A fixed created stamp keeps the manifest content-addressed: oras otherwise
-	// stamps the push time, so an idempotent republish across a second boundary
-	// gets a new digest and trips the immutable-tag check.
-	ann[ocispec.AnnotationCreated] = "1970-01-01T00:00:00Z"
-	if ms, ok := s.(MultiSigner); ok {
-		for _, co := range ms[1:] {
-			cs, err := co.Sign(ctx, rel.Digest)
-			if err != nil {
-				return ocispec.Descriptor{}, fmt.Errorf("bundle: %s co-sign %s: %w", co.Type(), rel.Digest, err)
-			}
-			ann[AnnSignature+"."+co.Type()] = base64.StdEncoding.EncodeToString(cs)
-		}
 	}
 	mj, err := json.Marshal(rel.Manifest)
 	if err != nil {
@@ -84,6 +66,80 @@ func publish(ctx context.Context, dst oras.Target, rel *release.Release, s Signe
 	if layer.Digest.String() != rel.Digest {
 		return ocispec.Descriptor{}, fmt.Errorf("bundle: release digest %s != tar digest %s", rel.Digest, layer.Digest)
 	}
+	vt := VersionTag(rel.Manifest.Version)
+	if err := checkTag(vt); err != nil {
+		return ocispec.Descriptor{}, err
+	}
+	for _, r := range rings {
+		if err := checkTag(PointerTag(r)); err != nil {
+			return ocispec.Descriptor{}, err
+		}
+		if err := checkChannel(rel.Manifest, r); err != nil {
+			return ocispec.Descriptor{}, err
+		}
+	}
+	// ECDSA signatures are randomized, so re-signing the same release makes a
+	// new manifest that trips tag immutability: a v-tag already naming exactly
+	// this release (same config and layer) with a signature our key verifies
+	// is reused as-is instead.
+	desc, reused, err := alreadyPublished(ctx, dst, vt, cfg, layer, v)
+	if err != nil {
+		return ocispec.Descriptor{}, err
+	}
+	if !reused {
+		if desc, err = pushRelease(ctx, dst, s, rel, mj, cfg, layer, vt); err != nil {
+			return ocispec.Descriptor{}, err
+		}
+	}
+	if rel.Attestations != nil {
+		if err := pushAttestations(ctx, dst, desc, rel, s); err != nil {
+			return ocispec.Descriptor{}, err
+		}
+	}
+	for _, r := range rings {
+		if _, err := writePointer(ctx, dst, s, o, r, rel, desc); err != nil {
+			return ocispec.Descriptor{}, err
+		}
+	}
+	return desc, nil
+}
+
+// alreadyPublished reports whether tag vt names a halos release manifest
+// with exactly cfg and layer whose signature v verifies; it returns that
+// manifest. Anything else (absent, different, unverifiable) is false, and
+// pushRelease's immutability check decides.
+func alreadyPublished(ctx context.Context, dst oras.Target, vt string, cfg, layer ocispec.Descriptor, v Verifier) (ocispec.Descriptor, bool, error) {
+	cur, err := dst.Resolve(ctx, vt)
+	if errors.Is(err, errdef.ErrNotFound) {
+		return ocispec.Descriptor{}, false, nil
+	}
+	if err != nil {
+		return ocispec.Descriptor{}, false, fmt.Errorf("bundle: resolve %s: %w", vt, err)
+	}
+	m, err := fetchManifest(ctx, dst, cur)
+	if err != nil {
+		return ocispec.Descriptor{}, false, nil //nolint:nilerr // not reusable; pushRelease reports the conflict
+	}
+	if m.ArtifactType != ArtifactType || m.Config.Digest != cfg.Digest || len(m.Layers) != 1 ||
+		m.Layers[0].Digest != layer.Digest || m.Layers[0].Size != layer.Size || m.Layers[0].MediaType != LayerMediaType {
+		return ocispec.Descriptor{}, false, nil
+	}
+	if verifyManifest(ctx, m, v, layer.Digest.String()) != nil {
+		return ocispec.Descriptor{}, false, nil
+	}
+	return cur, true, nil
+}
+
+// pushRelease signs rel, pushes its blobs and manifest and tags it vt.
+func pushRelease(ctx context.Context, dst oras.Target, s Signer, rel *release.Release, mj []byte, cfg, layer ocispec.Descriptor, vt string) (ocispec.Descriptor, error) {
+	ann, err := signAnnotations(ctx, s, rel.Digest, false)
+	if err != nil {
+		return ocispec.Descriptor{}, fmt.Errorf("bundle: sign %s: %w", rel.Digest, err)
+	}
+	// A fixed created stamp keeps the manifest content-addressed: oras otherwise
+	// stamps the push time, so an idempotent republish across a second boundary
+	// gets a new digest and trips the immutable-tag check.
+	ann[ocispec.AnnotationCreated] = "1970-01-01T00:00:00Z"
 	for _, d := range []struct {
 		desc ocispec.Descriptor
 		data []byte
@@ -100,18 +156,6 @@ func publish(ctx context.Context, dst oras.Target, rel *release.Release, s Signe
 	if err != nil {
 		return ocispec.Descriptor{}, fmt.Errorf("bundle: pack manifest: %w", err)
 	}
-	vt := VersionTag(rel.Manifest.Version)
-	if err := checkTag(vt); err != nil {
-		return ocispec.Descriptor{}, err
-	}
-	for _, r := range rings {
-		if err := checkTag(PointerTag(r)); err != nil {
-			return ocispec.Descriptor{}, err
-		}
-		if err := checkChannel(rel.Manifest, r); err != nil {
-			return ocispec.Descriptor{}, err
-		}
-	}
 	if cur, err := dst.Resolve(ctx, vt); err == nil && cur.Digest != desc.Digest {
 		return ocispec.Descriptor{}, fmt.Errorf("bundle: tag %s already points at %s; release tags are immutable", vt, cur.Digest)
 	} else if err != nil && !errors.Is(err, errdef.ErrNotFound) {
@@ -119,16 +163,6 @@ func publish(ctx context.Context, dst oras.Target, rel *release.Release, s Signe
 	}
 	if err := dst.Tag(ctx, desc, vt); err != nil {
 		return ocispec.Descriptor{}, fmt.Errorf("bundle: tag %s: %w", vt, err)
-	}
-	if rel.Attestations != nil {
-		if err := pushAttestations(ctx, dst, desc, rel, s); err != nil {
-			return ocispec.Descriptor{}, err
-		}
-	}
-	for _, r := range rings {
-		if _, err := writePointer(ctx, dst, s, o, r, rel, desc); err != nil {
-			return ocispec.Descriptor{}, err
-		}
 	}
 	return desc, nil
 }

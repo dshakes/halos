@@ -51,7 +51,7 @@ func (s *Server) registry() (oras.ReadOnlyTarget, bundle.Verifier, error) {
 	if pt.Registry == "" || pt.PubKeyPEM == "" {
 		return nil, nil, errors.New("registry or public key not configured in portal config")
 	}
-	v, err := bundle.ParseEd25519Verifier([]byte(pt.PubKeyPEM))
+	v, err := bundle.ParseVerifier([]byte(pt.PubKeyPEM))
 	if err != nil {
 		return nil, nil, err
 	}

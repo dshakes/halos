@@ -107,7 +107,7 @@ func TestCloudWebhook(t *testing.T) {
 		code                int
 	}{
 		{"unsigned", "workflow_run", "", running, http.StatusUnauthorized},
-		{"wrong secret", "workflow_run", "other", running, http.StatusUnauthorized},
+		{"wrong secret", "workflow_run", "other-secret-0123456789", running, http.StatusUnauthorized},
 		{"ping", "ping", webhookSecret, []byte(`{"zen":"x"}`), http.StatusAccepted},
 		{"other workflow", "workflow_run", webhookSecret, runEvent(1, ".github/workflows/ci.yml", "in_progress", "", "x", "2026-01-01T00:00:00Z"), http.StatusAccepted},
 		{"malformed", "workflow_run", webhookSecret, []byte(`{}`), http.StatusBadRequest},
@@ -225,7 +225,7 @@ func TestCloudWebhookOffWithoutSecret(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = s.Close() }()
-	if w := deliver(s.Handler(), "workflow_run", []byte(`{}`), "x"); w.Code != http.StatusNotFound {
+	if w := deliver(s.Handler(), "workflow_run", []byte(`{}`), "any-secret-0123456789"); w.Code != http.StatusNotFound {
 		t.Fatalf("code %d", w.Code)
 	}
 }

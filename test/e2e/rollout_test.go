@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -401,7 +402,7 @@ func killList(t *testing.T, base, keys string) []string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	list, err := gateway.VerifyKillList(v.Key, env, time.Now(), time.Minute)
+	list, err := gateway.VerifyKillList(context.Background(), v, env, time.Now(), time.Minute)
 	if err != nil {
 		t.Fatalf("kill list: %v", err)
 	}

@@ -8,7 +8,6 @@ import (
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -103,12 +102,16 @@ type sealed struct {
 // KeyID names a key in sealed rows: first 8 bytes of sha256(key), hex.
 func KeyID(key []byte) string { h := sha256.Sum256(key); return hex.EncodeToString(h[:8]) }
 
+// newGCM is AES-GCM with a random 96-bit nonce prepended to the ciphertext
+// (nonce || ciphertext || tag, the row format since sealing began). The
+// nonce is generated inside the AEAD, which GODEBUG=fips140=only requires:
+// it refuses Seal with a caller-supplied GCM nonce.
 func newGCM(key []byte) (cipher.AEAD, error) {
 	b, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, fmt.Errorf("shadow: pair key: %w", err)
 	}
-	return cipher.NewGCM(b)
+	return cipher.NewGCMWithRandomNonce(b)
 }
 
 // ReadKeyFile loads a base64 pair key file, the -pair-key-file format.
@@ -143,10 +146,10 @@ func DecodePair(line []byte, keys ...[]byte) (Pair, error) {
 		if err != nil {
 			return p, err
 		}
-		if len(s.Enc) < g.NonceSize() {
+		if len(s.Enc) < 12+g.Overhead() { // nonce || tag at least
 			return p, fmt.Errorf("shadow: pair %s: short ciphertext", s.ID)
 		}
-		pt, err := g.Open(nil, s.Enc[:g.NonceSize()], s.Enc[g.NonceSize():], []byte(s.ID))
+		pt, err := g.Open(nil, nil, s.Enc, []byte(s.ID))
 		if err != nil {
 			return p, fmt.Errorf("shadow: pair %s: decrypt: %w", s.ID, err)
 		}
@@ -186,11 +189,7 @@ func (s sealer) row(p Pair) ([]byte, error) {
 	if s.gcm == nil {
 		return b, nil
 	}
-	nonce := make([]byte, s.gcm.NonceSize())
-	if _, err := rand.Read(nonce); err != nil {
-		return nil, fmt.Errorf("shadow: pair %s nonce: %w", p.ID, err)
-	}
-	if b, err = json.Marshal(sealed{ID: p.ID, Time: p.Time, KID: s.kid, Enc: s.gcm.Seal(nonce, nonce, b, []byte(p.ID))}); err != nil {
+	if b, err = json.Marshal(sealed{ID: p.ID, Time: p.Time, KID: s.kid, Enc: s.gcm.Seal(nil, nil, b, []byte(p.ID))}); err != nil {
 		return nil, fmt.Errorf("shadow: marshal sealed pair %s: %w", p.ID, err)
 	}
 	return b, nil

@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -145,7 +146,9 @@ func TestParseJWKS(t *testing.T) {
 	edPub, _, _ := ed25519.GenerateKey(rand.Reader)
 	ec, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	rs, _ := rsa.GenerateKey(rand.Reader, 2048)
-	small, _ := rsa.GenerateKey(rand.Reader, 1024)
+	// a 1024-bit modulus without generating a key: GODEBUG=fips140=only refuses
+	// RSA keys under 2048 bits, and the parser must reject it either way
+	small := &rsa.PrivateKey{PublicKey: rsa.PublicKey{N: new(big.Int).Rsh(rs.N, 1024), E: 65537}}
 	pt, err := ec.PublicKey.Bytes() // 0x04 || X || Y
 	if err != nil {
 		t.Fatal(err)

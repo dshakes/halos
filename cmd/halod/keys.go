@@ -1,9 +1,6 @@
 package main
 
 import (
-	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -15,25 +12,13 @@ import (
 	"github.com/dshakes/halos/internal/gateway"
 )
 
-// keyring accepts a release signed by any one of its ed25519 keys.
-type keyring []bundle.Ed25519Verifier
+// keyring accepts a release signed by any one of its keys (ed25519 or ECDSA
+// P-256, ADR-0038), each checked under its own algorithm only.
+type keyring = bundle.Keyring
 
-func (keyring) Type() string { return "ed25519" }
-
-func (k keyring) Verify(ctx context.Context, digest string, sig []byte) error {
-	for _, v := range k {
-		if v.Verify(ctx, digest, sig) == nil {
-			return nil
-		}
-	}
-	return fmt.Errorf("halod: signature matches none of the %d trusted release keys", len(k))
-}
-
-// keyFingerprint is "sha256:<hex>" of the raw 32-byte ed25519 public key.
-func keyFingerprint(v bundle.Ed25519Verifier) string {
-	h := sha256.Sum256(v.Key)
-	return "sha256:" + hex.EncodeToString(h[:])
-}
+// keyFingerprint is bundle.KeyID: "sha256:<hex>" of the raw 32-byte ed25519
+// public key (unchanged), or of the PKIX DER for ECDSA P-256.
+func keyFingerprint(v bundle.Verifier) string { return bundle.KeyID(v) }
 
 // loadKeyring parses every configured key, drops revoked ones and fails if
 // none is left. It returns the fingerprints it trusts, for the startup log.
@@ -48,7 +33,7 @@ func loadKeyring(cfg Config) (keyring, []string, error) {
 		if err != nil {
 			return nil, nil, fmt.Errorf("read pubkey: %w", err)
 		}
-		v, err := bundle.ParseEd25519Verifier(pem)
+		v, err := bundle.ParseVerifier(pem)
 		if err != nil {
 			return nil, nil, fmt.Errorf("pubkey %s: %w", f, err)
 		}
@@ -73,12 +58,12 @@ func loadKillSwitch(cfg Config, log *slog.Logger) (*gateway.KillSwitch, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read killSwitch.pubkey: %w", err)
 	}
-	v, err := bundle.ParseEd25519Verifier(pem)
+	v, err := bundle.ParseVerifier(pem)
 	if err != nil {
 		return nil, fmt.Errorf("killSwitch.pubkey %s: %w", cfg.KillSwitch.PubKey, err)
 	}
 	iv, _ := cfg.KillIntervalD() // validated by LoadConfig
-	ks, err := gateway.NewKillSwitch(cfg.KillSwitch.URL, cfg.DeviceToken, v.Key, iv, log, false)
+	ks, err := gateway.NewKillSwitch(cfg.KillSwitch.URL, cfg.DeviceToken, v, iv, log, false)
 	if err != nil {
 		return nil, fmt.Errorf("halod: %w", err)
 	}

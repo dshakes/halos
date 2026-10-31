@@ -165,7 +165,7 @@ func verifySigV4(r *http.Request, creds aws.CredentialsProvider) error {
 
 func TestTransportSignsForFakeBedrock(t *testing.T) {
 	release := make(chan struct{})
-	creds := credentials.NewStaticCredentialsProvider("AKID", "SECRET", "SESSION")
+	creds := credentials.NewStaticCredentialsProvider("AKID", "SECRET-wJalrXUtnFEMI-K7MDENG-EXAMPLE", "SESSION")
 	srv := fakeBedrock(t, creds, release)
 	client := &http.Client{Transport: (&Bedrock{Credentials: creds}).Transport(http.DefaultTransport)}
 
@@ -228,7 +228,7 @@ func TestTransportPassThroughAndMissingCreds(t *testing.T) {
 
 func TestDefaultChainFromEnv(t *testing.T) {
 	t.Setenv("AWS_ACCESS_KEY_ID", "AKIDENV")
-	t.Setenv("AWS_SECRET_ACCESS_KEY", "SECRETENV")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "SECRETENV-wJalrXUtnFEMI-K7MDENG-EXAMPLE")
 	t.Setenv("AWS_SESSION_TOKEN", "")
 	t.Setenv("AWS_PROFILE", "")
 	t.Setenv("AWS_CONFIG_FILE", t.TempDir()+"/none")

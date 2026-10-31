@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/dshakes/halos/internal/bundle"
 	"github.com/dshakes/halos/internal/policy"
 )
 
@@ -30,7 +31,7 @@ func togglesServer(t *testing.T, admin bool) (*Server, http.Handler, *recOpener)
 	}}
 	s, err := New(Config{
 		PolicyDir: "../../examples/acme-corp", Token: tok, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
-		DevUser: "alice@test", DevAdmin: admin, KillKey: priv, GatewayToken: gwTok, Writer: w,
+		DevUser: "alice@test", DevAdmin: admin, KillKey: bundle.Ed25519Signer{Key: priv}, GatewayToken: gwTok, Writer: w,
 	})
 	if err != nil {
 		t.Fatal(err)

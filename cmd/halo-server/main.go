@@ -31,6 +31,7 @@ import (
 	"github.com/dshakes/halos/internal/pgstore"
 	"github.com/dshakes/halos/internal/promote"
 	"github.com/dshakes/halos/internal/server"
+	"github.com/dshakes/halos/internal/signer"
 	"github.com/dshakes/halos/internal/vendoradmin"
 )
 
@@ -59,7 +60,7 @@ type options struct {
 	controller                                                     bool
 	interval                                                       time.Duration
 	chURL, chDB, chUser, chPasswordFile                            string
-	killKeyFile, gatewayTokenFile                                  string
+	killKeyFile, killKeyURI, gatewayTokenFile                      string
 	gatewayCapTokenFiles                                           [5]string // killswitch, posture, budget, directory, dlp (gatewayCapFlags order)
 	gatewayDLPTokensDir                                            string    // one file per gateway: name = gateway, content = its DLP token
 	workloadKeyFile                                                string
@@ -116,7 +117,8 @@ func parseFlags(args []string) (options, error) {
 	fs.StringVar(&o.chDB, "clickhouse-database", "", "ClickHouse database")
 	fs.StringVar(&o.chUser, "clickhouse-user", "", "ClickHouse user")
 	fs.StringVar(&o.chPasswordFile, "clickhouse-password-file", "", "file holding the ClickHouse password")
-	fs.StringVar(&o.killKeyFile, "killswitch-key-file", "", "ed25519 PKCS#8 PEM private key signing the gateway kill list (halo keys generate --name killswitch)")
+	fs.StringVar(&o.killKeyFile, "killswitch-key-file", "", "ed25519 or ECDSA P-256 PKCS#8 PEM private key signing the gateway kill list (halo keys generate --name killswitch)")
+	fs.StringVar(&o.killKeyURI, "killswitch-key-uri", "", "kill-list signing key by URI instead of --killswitch-key-file: file://PATH, awskms://KEY?region=R or exec:///SIGNER (ADR-0038)")
 	fs.StringVar(&o.gatewayTokenFile, "gateway-token-file", "", "file holding the shared bearer token gateways use for /api/v1/gateway/killswitch, /posture, /budget/* and /directory (each overridable below)")
 	for i, name := range gatewayCapFlags {
 		fs.StringVar(&o.gatewayCapTokenFiles[i], "gateway-"+name+"-token-file", "", "file holding the only bearer token /api/v1/gateway/"+name+" accepts (recommended; overrides --gateway-token-file for it)")
@@ -188,8 +190,11 @@ func parseFlags(args []string) (options, error) {
 	if o.breakGlassEnabled && strings.TrimSpace(o.breakGlassCIDRs) == "" {
 		return o, errors.New("--breakglass-enabled requires --breakglass-allowed-cidrs (the VPN or bastion range): without it anyone can lock break-glass with failed logins")
 	}
-	if o.killKeyFile != "" && o.gatewayTokenFile == "" && o.gatewayCapTokenFiles[0] == "" { // a gateway token alone serves the posture and budget endpoints
-		return o, errors.New("--killswitch-key-file needs --gateway-token-file or --gateway-killswitch-token-file")
+	if o.killKeyFile != "" && o.killKeyURI != "" {
+		return o, errors.New("use only one of --killswitch-key-file and --killswitch-key-uri")
+	}
+	if (o.killKeyFile != "" || o.killKeyURI != "") && o.gatewayTokenFile == "" && o.gatewayCapTokenFiles[0] == "" { // a gateway token alone serves the posture and budget endpoints
+		return o, errors.New("--killswitch-key-file / --killswitch-key-uri needs --gateway-token-file or --gateway-killswitch-token-file")
 	}
 	if o.postureMaxAge < time.Minute {
 		return o, errors.New("--posture-max-age must be at least 1m")
@@ -213,8 +218,8 @@ func parseFlags(args []string) (options, error) {
 	if o.scimTokenHashFile != "" && !durable {
 		return o, errors.New("--scim-token-sha256-file requires --data-dir or --database-url-file (the provisioned directory must survive a restart)")
 	}
-	if o.killKeyFile != "" && !durable {
-		return o, errors.New("--killswitch-key-file requires --data-dir or --database-url-file (kills must survive a restart)")
+	if (o.killKeyFile != "" || o.killKeyURI != "") && !durable {
+		return o, errors.New("--killswitch-key-file / --killswitch-key-uri requires --data-dir or --database-url-file (kills must survive a restart)")
 	}
 	if o.controller {
 		switch {
@@ -592,17 +597,23 @@ func run(ctx context.Context, args []string) error {
 			return err
 		}
 	}
-	var killKey ed25519.PrivateKey
-	if o.killKeyFile != "" {
+	var killKey bundle.Signer
+	switch { // parseFlags refused both at once
+	case o.killKeyFile != "":
 		b, err := os.ReadFile(o.killKeyFile)
 		if err != nil {
 			return fmt.Errorf("--killswitch-key-file: %w", err)
 		}
-		sig, err := bundle.ParseEd25519Signer(b)
-		if err != nil {
+		if killKey, err = bundle.ParseSigner(b); err != nil {
 			return fmt.Errorf("--killswitch-key-file: %w", err)
 		}
-		killKey = sig.Key
+	case o.killKeyURI != "":
+		ks, err := signer.Open(ctx, o.killKeyURI, signer.Options{})
+		if err != nil {
+			return fmt.Errorf("--killswitch-key-uri: %w", err)
+		}
+		killKey = ks
+		slog.Info("kill list signed by external key", "backend", signer.Scheme(o.killKeyURI), "alg", ks.Type(), "keyId", bundle.KeyID(ks.Verifier()))
 	}
 	var workloadKey ed25519.PrivateKey
 	if o.workloadKeyFile != "" {
@@ -824,7 +835,7 @@ func newController(o options, portal server.Portal, portalWriter server.PolicyWr
 	if kills != nil {
 		c.Kill, c.Kills = controller.KillFunc(srv.KillExperiment), kills
 	} else {
-		slog.Warn("--controller without --killswitch-key-file: rollbacks are NOT enforced until the pause PR merges")
+		slog.Warn("--controller without --killswitch-key-file or --killswitch-key-uri: rollbacks are NOT enforced until the pause PR merges")
 	}
 	if o.dataDir != "" { // HA: opened per leadership term, fenced by the lease (leadController)
 		if c.State, err = controller.OpenStateLog(o.dataDir); err != nil {

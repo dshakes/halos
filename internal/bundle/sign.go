@@ -2,6 +2,7 @@ package bundle
 
 import (
 	"context"
+	"crypto"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/x509"
@@ -26,6 +27,15 @@ type Verifier interface {
 	Verify(ctx context.Context, digest string, sig []byte) error
 }
 
+// KeySigner is a Signer that knows the public key its signatures verify
+// with: the native algorithms (ed25519, ECDSA P-256) held in a file, a KMS or
+// an external signer (internal/signer). Only a KeySigner can be the primary
+// signer of a release, because halod verifies the primary signature.
+type KeySigner interface {
+	Signer
+	Verifier() Verifier
+}
+
 // ---- ed25519 (default; offline) ----
 
 // Ed25519Signer signs with an ed25519 key.
@@ -34,15 +44,26 @@ type Ed25519Signer struct{ Key ed25519.PrivateKey }
 // Ed25519Verifier verifies with an ed25519 public key.
 type Ed25519Verifier struct{ Key ed25519.PublicKey }
 
-func (Ed25519Signer) Type() string   { return "ed25519" }
-func (Ed25519Verifier) Type() string { return "ed25519" }
+func (Ed25519Signer) Type() string   { return AlgEd25519 }
+func (Ed25519Verifier) Type() string { return AlgEd25519 }
+
+// Verifier is s's public half.
+func (s Ed25519Signer) Verifier() Verifier {
+	return Ed25519Verifier{Key: s.Key.Public().(ed25519.PublicKey)}
+}
+
+// PublicKey returns the ed25519 public key.
+func (v Ed25519Verifier) PublicKey() crypto.PublicKey { return v.Key }
 
 func (s Ed25519Signer) Sign(_ context.Context, digest string) ([]byte, error) {
+	if len(s.Key) != ed25519.PrivateKeySize {
+		return nil, errors.New("bundle: ed25519 signer has no private key")
+	}
 	return ed25519.Sign(s.Key, []byte(digest)), nil
 }
 
 func (v Ed25519Verifier) Verify(_ context.Context, digest string, sig []byte) error {
-	if !ed25519.Verify(v.Key, []byte(digest), sig) {
+	if len(v.Key) != ed25519.PublicKeySize || !ed25519.Verify(v.Key, []byte(digest), sig) {
 		return errors.New("bundle: ed25519 signature invalid")
 	}
 	return nil

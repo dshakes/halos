@@ -222,10 +222,10 @@ func (c Config) killPoller(kong kongAPI) (k *gateway.KillSwitch, misconfigured b
 		return e.k, false
 	}
 	if e.badErr == nil || e.badFP != fp {
-		v, err := bundle.ParseEd25519Verifier([]byte(pub))
+		v, err := bundle.ParseVerifier([]byte(pub))
 		var nk *gateway.KillSwitch
 		if err == nil {
-			nk, err = gateway.NewKillSwitch(c.KillswitchURL, tok, v.Key, 0, nil, c.KillswitchAllowInsecure)
+			nk, err = gateway.NewKillSwitch(c.KillswitchURL, tok, v, 0, nil, c.KillswitchAllowInsecure)
 		}
 		if err == nil {
 			if e.cancel != nil {

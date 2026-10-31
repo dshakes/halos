@@ -2,11 +2,11 @@ package bundle
 
 import (
 	"context"
-	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/opencontainers/go-digest"
@@ -57,9 +57,11 @@ func pointerStatement(payload []byte) string {
 	return pointerDomain + digest.FromBytes(payload).String()
 }
 
-// MultiSigner signs with its first signer (the one halod verifies; must be
-// ed25519) and records every other signer (e.g. Cosign) as a co-signature on
-// the release manifest.
+// MultiSigner signs with its first signer (the one halod verifies; must be a
+// KeySigner: ed25519 or ECDSA P-256) and records every other signer as a
+// co-signature on the release manifest: Cosign, or a second native key while
+// rotating between keys or algorithms (a halod that only trusts the old key
+// verifies the co-signature; ring pointers carry native co-signatures too).
 type MultiSigner []Signer
 
 func (m MultiSigner) Type() string {
@@ -76,19 +78,63 @@ func (m MultiSigner) Sign(ctx context.Context, d string) ([]byte, error) {
 	return m[0].Sign(ctx, d)
 }
 
-// verifierFor derives the ed25519 verifier from s. Publishing requires an
-// ed25519 primary signer because halod can only verify ed25519 (it never shells
-// out to cosign as root); cosign may be added as a co-signer via MultiSigner.
+// verifierFor derives the primary signer's verifier from s. Publishing
+// requires a KeySigner primary (ed25519 or ECDSA P-256, from a file, KMS or
+// external signer) because halod verifies only those natively (it never
+// shells out to cosign as root); cosign may be added as a co-signer via
+// MultiSigner.
 func verifierFor(s Signer) (Verifier, error) {
 	switch t := s.(type) {
-	case Ed25519Signer:
-		return Ed25519Verifier{Key: t.Key.Public().(ed25519.PublicKey)}, nil
 	case MultiSigner:
 		if len(t) > 0 {
 			return verifierFor(t[0])
 		}
+	case KeySigner:
+		if v := t.Verifier(); v != nil && slices.Contains(Algorithms, v.Type()) && v.Type() == t.Type() {
+			return v, nil
+		}
 	}
-	return nil, fmt.Errorf("bundle: primary signer must be ed25519 (got %q); halod cannot verify cosign-only releases, add cosign as a co-signer instead", s.Type())
+	if s == nil {
+		return nil, errors.New("bundle: no signer")
+	}
+	return nil, fmt.Errorf("bundle: primary signer must be ed25519 or ecdsa-p256-sha256 (got %q); halod cannot verify cosign-only releases, add cosign as a co-signer instead", s.Type())
+}
+
+// signAnnotations signs msg with s and returns the OCI manifest annotations
+// holding the primary signature, its algorithm and key id, and one
+// co-signature per further MultiSigner signer (only those of a native
+// algorithm when nativeOnly: ring pointers never shell out to cosign).
+func signAnnotations(ctx context.Context, s Signer, msg string, nativeOnly bool) (map[string]string, error) {
+	v, err := verifierFor(s)
+	if err != nil {
+		return nil, err
+	}
+	sig, err := s.Sign(ctx, msg)
+	if err != nil {
+		return nil, err
+	}
+	ann := map[string]string{AnnSignature: base64.StdEncoding.EncodeToString(sig), AnnSigType: s.Type()}
+	if id := KeyID(v); id != "" {
+		ann[AnnSigKeyID] = id
+	}
+	ms, ok := s.(MultiSigner)
+	if !ok {
+		return ann, nil
+	}
+	for _, co := range ms[1:] {
+		if nativeOnly && !slices.Contains(Algorithms, co.Type()) {
+			continue
+		}
+		if co.Type() == s.Type() {
+			return nil, fmt.Errorf("%s co-signer has the primary signer's algorithm; co-sign with another algorithm (one signature per algorithm)", co.Type())
+		}
+		cs, err := co.Sign(ctx, msg)
+		if err != nil {
+			return nil, fmt.Errorf("%s co-sign: %w", co.Type(), err)
+		}
+		ann[AnnSignature+"."+co.Type()] = base64.StdEncoding.EncodeToString(cs)
+	}
+	return ann, nil
 }
 
 // ReadPointer fetches and verifies ring's pointer. found=false (nil error)
@@ -114,15 +160,11 @@ func ReadPointer(ctx context.Context, src oras.ReadOnlyTarget, ring string, v Ve
 	if m.Config.Size > maxPointerPayloadSize {
 		return p, true, fmt.Errorf("bundle: pointer payload %d bytes exceeds %d", m.Config.Size, maxPointerPayloadSize)
 	}
-	sig, err := signatureFor(m, v)
-	if err != nil {
-		return p, true, fmt.Errorf("bundle: pointer %s: %w", ring, err)
-	}
 	payload, err := content.FetchAll(ctx, src, m.Config) // size already capped; verifies digest
 	if err != nil {
 		return p, true, fmt.Errorf("bundle: fetch pointer payload: %w", err)
 	}
-	if err := v.Verify(ctx, pointerStatement(payload), sig); err != nil {
+	if err := verifyManifest(ctx, m, v, pointerStatement(payload)); err != nil {
 		return p, true, fmt.Errorf("bundle: verify pointer %s: %w", ring, err)
 	}
 	if err := json.Unmarshal(payload, &p); err != nil {
@@ -270,7 +312,7 @@ func writePointer(ctx context.Context, t oras.Target, s Signer, o PointerOptions
 	if err != nil {
 		return Pointer{}, err
 	}
-	sig, err := s.Sign(ctx, pointerStatement(payload))
+	ann, err := signAnnotations(ctx, s, pointerStatement(payload), true)
 	if err != nil {
 		return Pointer{}, fmt.Errorf("bundle: sign pointer %s: %w", ring, err)
 	}
@@ -280,7 +322,7 @@ func writePointer(ctx context.Context, t oras.Target, s Signer, o PointerOptions
 	}
 	pd, err := oras.PackManifest(ctx, t, oras.PackManifestVersion1_1, PointerArtifactType, oras.PackManifestOptions{
 		ConfigDescriptor:    &cfg,
-		ManifestAnnotations: map[string]string{AnnSignature: base64.StdEncoding.EncodeToString(sig), AnnSigType: s.Type()},
+		ManifestAnnotations: ann,
 	})
 	if err != nil {
 		return Pointer{}, fmt.Errorf("bundle: pack pointer: %w", err)
@@ -444,21 +486,41 @@ func fetchManifest(ctx context.Context, src oras.ReadOnlyTarget, d ocispec.Descr
 	return m, nil
 }
 
-// signatureFor picks the signature matching v's type: the primary one, or a
-// co-signature stored under AnnSignature+"."+type.
-func signatureFor(m ocispec.Manifest, v Verifier) ([]byte, error) {
-	enc := m.Annotations[AnnSignature+"."+v.Type()]
-	if enc == "" {
-		if t := m.Annotations[AnnSigType]; t != v.Type() {
-			return nil, fmt.Errorf("signature type %q, verifier expects %q", t, v.Type())
+// verifyManifest checks that m carries a signature over msg that v accepts:
+// the primary one (algorithm in AnnSigType) or a co-signature stored under
+// AnnSignature+"."+algorithm, for each algorithm v accepts. Every candidate
+// is verified as its recorded algorithm only (VerifyAs); one that verifies
+// is enough. A manifest with no signature of an accepted algorithm is
+// refused before any verification.
+func verifyManifest(ctx context.Context, m ocispec.Manifest, v Verifier, msg string) error {
+	type cand struct{ alg, enc string }
+	var cands []cand
+	algs := accepted(v)
+	if t := m.Annotations[AnnSigType]; t != "" && slices.Contains(algs, t) {
+		cands = append(cands, cand{t, m.Annotations[AnnSignature]})
+	}
+	for _, a := range algs {
+		if enc, ok := m.Annotations[AnnSignature+"."+a]; ok {
+			cands = append(cands, cand{a, enc})
 		}
-		enc = m.Annotations[AnnSignature]
 	}
-	sig, err := base64.StdEncoding.DecodeString(enc)
-	if err != nil || len(sig) == 0 {
-		return nil, errors.New("missing or malformed signature")
+	if len(cands) == 0 {
+		return fmt.Errorf("signature type %q, verifier expects %q", m.Annotations[AnnSigType], v.Type())
 	}
-	return sig, nil
+	var errs []error
+	for _, c := range cands {
+		sig, err := base64.StdEncoding.DecodeString(c.enc)
+		if err != nil || len(sig) == 0 {
+			errs = append(errs, fmt.Errorf("%s: missing or malformed signature", c.alg))
+			continue
+		}
+		if err := VerifyAs(ctx, v, c.alg, msg, sig); err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		return nil
+	}
+	return errors.Join(errs...)
 }
 
 // fetchRelease verifies the signature over the layer digest named in the
@@ -472,15 +534,11 @@ func fetchRelease(ctx context.Context, src oras.ReadOnlyTarget, md ocispec.Descr
 	if m.ArtifactType != ArtifactType || len(m.Layers) != 1 || m.Layers[0].MediaType != LayerMediaType {
 		return nil, fmt.Errorf("bundle: %s is not a halos release (artifactType %q)", md.Digest, m.ArtifactType)
 	}
-	sig, err := signatureFor(m, v)
-	if err != nil {
-		return nil, fmt.Errorf("bundle: release %s: %w", md.Digest, err)
-	}
 	layer := m.Layers[0]
 	if err := layer.Digest.Validate(); err != nil {
 		return nil, fmt.Errorf("bundle: layer digest: %w", err)
 	}
-	if err := v.Verify(ctx, layer.Digest.String(), sig); err != nil {
+	if err := verifyManifest(ctx, m, v, layer.Digest.String()); err != nil {
 		return nil, fmt.Errorf("bundle: verify %s: %w", md.Digest, err)
 	}
 	if layer.Size <= 0 || layer.Size > maxLayer {

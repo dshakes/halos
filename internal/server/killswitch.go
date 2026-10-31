@@ -4,15 +4,16 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
-	"crypto/x509"
-	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
+	"time"
 
+	"github.com/dshakes/halos/internal/bundle"
 	"github.com/dshakes/halos/internal/controller"
 	"github.com/dshakes/halos/internal/gateway"
 	"github.com/dshakes/halos/internal/policy"
@@ -155,7 +156,7 @@ func (s *Server) getGatewayKillswitch(w http.ResponseWriter, r *http.Request) {
 	if !s.gatewayAuth(w, r, capKillswitch) {
 		return
 	}
-	s.writeKillList(w)
+	s.writeKillList(r.Context(), w)
 }
 
 // gatewayCap is one capability a gateway bearer token grants on halo-server.
@@ -232,11 +233,11 @@ func (s *Server) getFleetKillswitch(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.deviceAuth(w, r); !ok {
 		return
 	}
-	s.writeKillList(w)
+	s.writeKillList(r.Context(), w)
 }
 
 // writeKillList signs and writes the current kill list.
-func (s *Server) writeKillList(w http.ResponseWriter) {
+func (s *Server) writeKillList(ctx context.Context, w http.ResponseWriter) {
 	recs, version, err := s.kills.Killed()
 	if err != nil {
 		s.cfg.Log.Error("read killswitch", "err", err)
@@ -251,7 +252,7 @@ func (s *Server) writeKillList(w http.ResponseWriter) {
 		}
 		l.Experiments = append(l.Experiments, rec.Experiment)
 	}
-	env, err := gateway.SignKillList(s.cfg.KillKey, l)
+	env, err := s.killSig.sign(ctx, s.cfg.KillKey, l)
 	if err != nil {
 		s.cfg.Log.Error("sign killswitch", "err", err)
 		apiErr(w, http.StatusInternalServerError, "sign failed")
@@ -260,16 +261,62 @@ func (s *Server) writeKillList(w http.ResponseWriter) {
 	writeJSON(w, http.StatusOK, env)
 }
 
+// killSigTTL is how long a remotely signed (KMS, external signer) kill list
+// is served again unchanged. Every gateway and device polls every few
+// seconds; one KMS Sign per poll would hit KMS request quotas and make the
+// kill switch depend on KMS latency. It is far below the pollers' max age
+// (gateway.DefaultKillMaxAge), and a kill or unkill changes the list, which
+// is signed at once.
+const killSigTTL = 30 * time.Second
+
+// killSigCache holds the last remotely signed envelope. In-process keys are
+// not cached: they sign every response, as before.
+type killSigCache struct {
+	mu   sync.Mutex
+	list gateway.KillList // as signed (IssuedAt included)
+	env  gateway.KillEnvelope
+}
+
+// remoteSigner is implemented by internal/signer's KMS and exec backends.
+type remoteSigner interface{ Remote() bool }
+
+func (c *killSigCache) sign(ctx context.Context, k bundle.Signer, l gateway.KillList) (gateway.KillEnvelope, error) {
+	if rs, ok := k.(remoteSigner); !ok || !rs.Remote() {
+		return gateway.SignKillList(ctx, k, l)
+	}
+	c.mu.Lock() // held across the sign: concurrent polls wait for one KMS call
+	defer c.mu.Unlock()
+	same := c.env.Signature != nil && c.list.Version == l.Version &&
+		slices.Equal(c.list.Experiments, l.Experiments) && slices.Equal(c.list.Toggles, l.Toggles)
+	if same && l.IssuedAt.Sub(c.list.IssuedAt) < killSigTTL && !l.IssuedAt.Before(c.list.IssuedAt) {
+		return c.env, nil
+	}
+	if !l.IssuedAt.After(c.list.IssuedAt) { // pollers need a strictly newer list for any change
+		l.IssuedAt = c.list.IssuedAt.Add(time.Nanosecond)
+	}
+	env, err := gateway.SignKillList(ctx, k, l)
+	if err != nil {
+		return env, err
+	}
+	c.list, c.env = l, env
+	return env, nil
+}
+
 // killPubPEM is the PKIX PEM of the kill-list verification key ("" if none).
 func (s *Server) killPubPEM() string {
-	if s.cfg.KillKey == nil {
+	ks, ok := s.cfg.KillKey.(bundle.KeySigner)
+	if !ok {
 		return ""
 	}
-	b, err := x509.MarshalPKIXPublicKey(s.cfg.KillKey.Public())
-	if err != nil { // an ed25519 key always marshals
+	pv, ok := ks.Verifier().(bundle.PublicKeyVerifier)
+	if !ok {
 		return ""
 	}
-	return string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: b}))
+	b, err := bundle.MarshalPublicKeyPEM(pv)
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }
 
 // killswitchPub serves the kill-list public key for enrollment (public, like release.pub).

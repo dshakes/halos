@@ -22,7 +22,7 @@ type Options struct {
 	Registry    string
 	Org         string // defaults to rel.Manifest.Org when rel is given
 	Ring        string // defaults to rel.Manifest.Ring when rel is given
-	PubKeyPEM   string // release ed25519 public key, PKIX PEM, embedded inline
+	PubKeyPEM   string // release public key (ed25519 or ECDSA P-256), PKIX PEM, embedded inline
 	HalodSHA256 string // hex sha256 of halod, or "amd64=<hex>,arm64=<hex>"
 }
 

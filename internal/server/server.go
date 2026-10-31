@@ -20,6 +20,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/dshakes/halos/internal/bundle"
 	"github.com/dshakes/halos/internal/cloudagents"
 	"github.com/dshakes/halos/internal/controller"
 	"github.com/dshakes/halos/internal/harness"
@@ -60,8 +61,10 @@ type Config struct {
 	// /api/v1/gateway/killswitch is served only when both KillKey (signs the
 	// list) and GatewayToken (gateways' bearer token) are set; GET
 	// /api/v1/fleet/killswitch (device token) whenever KillKey is set.
-	KillStore    *controller.KillStore
-	KillKey      ed25519.PrivateKey
+	KillStore *controller.KillStore
+	// KillKey signs the kill list: a file key, or a KMS / external signer
+	// (internal/signer, ADR-0038), whose signatures are cached briefly.
+	KillKey      bundle.Signer
 	GatewayToken string
 	// Optional per-capability gateway tokens. When one is set it is the only
 	// token that capability accepts (the shared GatewayToken no longer does);
@@ -151,6 +154,7 @@ type Server struct {
 	relFetch      pointerFetch  // ring pointer reader; swapped in tests
 	relChannels   channelsFetch // ring release -> experiment channels; swapped in tests
 	kills         *controller.KillStore
+	killSig       killSigCache
 	gwSums        map[gatewayCap][32]byte // sha256 of the token each enabled gateway capability accepts
 	dlpGateways   []namedSum              // per-gateway DLP tokens (GatewayDLPTokens), hashed
 	scim          *scimService            // nil = SCIM off

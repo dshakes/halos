@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dshakes/halos/internal/bundle"
 	"github.com/dshakes/halos/internal/policy"
 )
 
@@ -105,7 +106,7 @@ func TestKillSwitchNeverFollowsRedirects(t *testing.T) {
 		http.Redirect(w, r, other.URL+"/steal", http.StatusTemporaryRedirect)
 	}))
 	defer redir.Close()
-	k, err := NewKillSwitch(redir.URL, "gw-token-0123456789", pub, 0, slog.New(slog.NewTextHandler(io.Discard, nil)), false)
+	k, err := NewKillSwitch(redir.URL, "gw-token-0123456789", bundle.Ed25519Verifier{Key: pub}, 0, slog.New(slog.NewTextHandler(io.Discard, nil)), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,13 +126,13 @@ func TestKillsDoNotExpire(t *testing.T) {
 	ks := &killServer{}
 	srv := httptest.NewServer(ks)
 	defer srv.Close()
-	k, err := NewKillSwitch(srv.URL, "gw-token", pub, 0, slog.New(slog.NewTextHandler(io.Discard, nil)), false)
+	k, err := NewKillSwitch(srv.URL, "gw-token", bundle.Ed25519Verifier{Key: pub}, 0, slog.New(slog.NewTextHandler(io.Discard, nil)), false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	clock := now
 	k.Now = func() time.Time { return clock }
-	env, _ := SignKillList(priv, KillList{Version: 1, Experiments: []string{"sonnet-canary"}, IssuedAt: now})
+	env, _ := SignKillList(context.Background(), bundle.Ed25519Signer{Key: priv}, KillList{Version: 1, Experiments: []string{"sonnet-canary"}, IssuedAt: now})
 	ks.set(http.StatusOK, env)
 	if err := k.Refresh(context.Background()); err != nil {
 		t.Fatal(err)

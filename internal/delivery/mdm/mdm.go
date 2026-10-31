@@ -6,7 +6,6 @@ package mdm
 
 import (
 	"bytes"
-	"crypto/ed25519"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/json"
@@ -18,6 +17,7 @@ import (
 
 	"howett.net/plist"
 
+	"github.com/dshakes/halos/internal/bundle"
 	"github.com/dshakes/halos/internal/release"
 )
 
@@ -33,7 +33,7 @@ type HalodOptions struct {
 	Registry    string
 	Org         string // must equal the org in the signed release; written as org:
 	Ring        string
-	PubKeyPEM   string            // release ed25519 public key (PKIX PEM), embedded inline; never downloaded
+	PubKeyPEM   string            // release public key (PKIX PEM, ed25519 or ECDSA P-256), embedded inline; never downloaded
 	DownloadURL string            // https only; {os}/{arch} substituted
 	HalodSHA256 map[string]string // "<os>/<arch>" -> hex sha256 of the halod binary, e.g. "darwin/arm64"
 }
@@ -79,8 +79,11 @@ func (o HalodOptions) validate(oses ...string) (pemText string, err error) {
 		return "", fmt.Errorf("mdm: PubKeyPEM must be exactly one PUBLIC KEY PEM block")
 	}
 	k, perr := x509.ParsePKIXPublicKey(blk.Bytes)
-	if _, ok := k.(ed25519.PublicKey); perr != nil || !ok {
-		return "", fmt.Errorf("mdm: PubKeyPEM is not an ed25519 public key")
+	if perr != nil {
+		return "", fmt.Errorf("mdm: PubKeyPEM: %w", perr)
+	}
+	if _, verr := bundle.VerifierFor(k); verr != nil { // the algorithms halod verifies (ADR-0038)
+		return "", fmt.Errorf("mdm: PubKeyPEM is not an ed25519 or ECDSA P-256 public key: %w", verr)
 	}
 	for _, os := range oses {
 		for _, arch := range []string{"amd64", "arm64"} {

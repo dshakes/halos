@@ -203,6 +203,13 @@ jobs:
             cosign verify --certificate-identity "$IDENTITY" --certificate-oidc-issuer "$ISSUER" "ghcr.io/dshakes/$img:$VERSION" >/dev/null
             echo "verified ghcr.io/dshakes/$img:$VERSION"
           done
+          for img in halo-server halo-proxy halo-shadow; do # FIPS 140-3 variants (ADR-0038)
+            cosign verify --certificate-identity "$IDENTITY" --certificate-oidc-issuer "$ISSUER" "ghcr.io/dshakes/$img:$VERSION-fips" >/dev/null
+            echo "verified ghcr.io/dshakes/$img:$VERSION-fips"
+          done
+      - name: FIPS archive is listed in checksums.txt
+        working-directory: ${{ runner.temp }}
+        run: grep -qE " \*?halod_fips_${VERSION}_linux_amd64\.tar\.gz$" checksums.txt
       - name: Helm chart (OCI) signature, version and default images
         run: |
           set -euo pipefail

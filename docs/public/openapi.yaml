@@ -6196,6 +6196,10 @@ components:
         - signature
       type: object
       properties:
+        alg:
+          type: string
+        keyId:
+          type: string
         payload:
           type: string
           contentEncoding: base64
