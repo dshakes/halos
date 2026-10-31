@@ -24,7 +24,7 @@ halo cloud-agents kill [flags]
 | `--name` |  | string |  | the user id, ring or experiment |
 | `--reason` |  | string |  | why (required; recorded in the audit log) |
 | `--scope` |  | string | user | user \| ring \| experiment |
-| `--server` |  | string |  | halo-server base URL (or HALO_SERVER) ; session from HALO_SESSION |
+| `--server` |  | string |  | halo-server base URL (or HALO_SERVER) ; credential from HALO_TOKEN or HALO_SESSION |
 
 ## Global flags
 

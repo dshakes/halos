@@ -29,7 +29,7 @@ halo cloud-agents list [flags]
 | `--github-token-env` |  | string | HALO_CLOUD_GITHUB_TOKEN | environment variable holding the github API credential |
 | `--github-token-file` |  | string |  | file holding the github API credential (read once, never logged) |
 | `--policy-dir` |  | string |  | policy repo directory (default ".") |
-| `--server` |  | string |  | halo-server base URL (or HALO_SERVER) for its inventory; session from HALO_SESSION |
+| `--server` |  | string |  | halo-server base URL (or HALO_SERVER) for its inventory; credential from HALO_TOKEN or HALO_SESSION |
 | `--since` |  | duration | 24h0m0s | direct reads: tasks created this recently (GitHub filters by day) |
 
 ## Global flags

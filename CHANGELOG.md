@@ -4,6 +4,22 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added
+
+- Service-account API tokens for halo-server ([ADR-0036](https://dshakes.github.io/halos/adr/0036-admin-api-credentials-break-glass-and-session-policy/)): `halo service-token create|list|revoke` and `/api/v1/service-tokens`. A token (`halo_sat_` + 80 hex digits, for secret scanners) holds one role no stronger than its creator's, always expires (`--service-token-max-ttl`, default 90 days), is stored only as SHA-256, revocable alone on every replica, and audited as `service-account:<name>:<id>`. Only an interactive admin session can create one. The CLI's server-backed commands and `halo mcp serve --server` read `HALO_TOKEN`, which wins over `HALO_SESSION`. Postgres: migration 4 adds `halo_service_tokens` (run `halo-server migrate`); `halo-server import` copies a data dir's tokens.
+- Break-glass local admin: `halo-server breakglass-hash` (PBKDF2-HMAC-SHA256), `--breakglass-hash-file`, `--breakglass-user`, `--breakglass-enabled` (Helm `server.breakGlass`). Sealed unless enabled; `POST /auth/breakglass` gives a fixed 30-minute admin session; every login, failure and request is a high-severity audit entry, and a login whose audit entry cannot be written is refused. SIEM export marks high-severity entries (OCSF severity High, syslog critical). Runbook: Admin access guide.
+- Console session policy: `--session-ttl` (default 12h, unchanged) and a sliding `--session-idle-timeout` (default 1h; 0 turns it off), Helm `server.session`.
+- Policy `identity.groupsOverage` (`deny` default, or `graph` to read groups from Microsoft Graph, `--entra-graph-url` for national clouds) and `identity.requireAcr` / `identity.requireAmr` for the console login. Okta and Entra ID setup guides.
+
+### Changed
+
+- A console session now ends after an hour without a request. A `HALO_SESSION` copied from a browser stops working an hour after the browser last used it: move automation to `HALO_TOKEN`, or set `--session-idle-timeout=0`.
+
+### Security
+
+- An Entra ID login whose token signals groups overage (`_claim_names` / `hasgroups`) logged in with no groups, silently dropping the user's roles. It is now refused with a clear, audited error (`login.denied`), or resolved from Graph with `identity.groupsOverage: graph`.
+- IdP logins whose user id starts with `service-account:` or `breakglass:` are refused, so audit attribution cannot be spoofed. Invalid `identity` hardening fields make halo-server refuse the policy at load.
+
 ## [0.4.1] - 2026-10-30
 
 ### Fixed

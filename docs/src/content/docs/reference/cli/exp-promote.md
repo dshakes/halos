@@ -23,7 +23,7 @@ halo exp promote <name> [flags]
 | `--release` |  | string |  | release digest to pin (required) |
 | `--ring` |  | string |  | ring to re-point (required) |
 | `--roi-identities` |  | string |  | identity roster CSV: add the delivery ROI (halo roi report) to the PR body; informational only |
-| `--server` |  | string |  | halo-server base URL (or HALO_SERVER) for the incident freeze (ADR-0030); session from HALO_SESSION |
+| `--server` |  | string |  | halo-server base URL (or HALO_SERVER) for the incident freeze (ADR-0030); credential from HALO_TOKEN or HALO_SESSION |
 | `--user` |  | string |  | ClickHouse user (password from HALO_CLICKHOUSE_PASSWORD) |
 
 ## Global flags

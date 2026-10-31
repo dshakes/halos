@@ -10,7 +10,7 @@ Routes are registered in `internal/server/server.go` (`Handler`). This page list
 | Level | Credential | Failure |
 |---|---|---|
 | **Public** | None. `POST /api/v1/enroll` takes a one-time enrollment token in the body | |
-| **Session** | Signed-in developer: the session cookie from OIDC login | 401 `login required` |
+| **Session** | Signed-in developer: the session cookie from OIDC login (ends after `--session-idle-timeout` without a request and at `--session-ttl`), or a service-account token, `Authorization: Bearer halo_sat_...`, holding one role ([ADR-0036](/halos/adr/0036-admin-api-credentials-break-glass-and-session-policy/)) | 401 `login required`; a token: 401 `invalid service token` or `service token expired`, 429 after repeated failures, 503 if the store is unavailable |
 | **Admin** | Session whose groups intersect `identity.adminGroups` in policy (recomputed from current policy on every request) | 403 `admin role required` |
 | **Fleet or device token** | `Authorization: Bearer` with the shared fleet token (`--token-file`) or a per-device token | 401, or 429 after repeated failures |
 | **Device token** | Per-device bearer token from enrollment | 401, or 429 |
@@ -31,6 +31,7 @@ State-changing Session and Admin requests (anything but `GET`) are rejected with
 | `GET /auth/login` | Public | Start the OIDC authorization-code flow (PKCE) |
 | `GET /auth/callback` | Public | OIDC redirect target; sets the session cookie |
 | `POST /auth/logout` | Public | End the session |
+| `POST /auth/breakglass` | Public (password in the body) | Break-glass local admin login `{"user","password"}`: a 30-minute admin session for `breakglass:<user>`. 404 unless `--breakglass-enabled`; 401 bad credentials; 429 after repeated failures or while two attempts are running; 500 if the audit append fails (no session). Audited at high severity: `breakglass.login`, `breakglass.login.failed`, and `breakglass.request` for every request the session makes |
 
 ### Fleet and devices
 
@@ -45,6 +46,9 @@ State-changing Session and Admin requests (anything but `GET`) are rejected with
 | `POST /api/v1/users/{id}/revoke-sessions` | Admin | Invalidate a user's console sessions everywhere. Audited |
 | `POST /api/v1/revocations` | Admin | Revoke a halo-server credential ([ADR-0026](/halos/adr/0026-per-credential-revocation/)). Body: exactly one of `jti` (1-128 of `A-Z a-z 0-9 - _`; kills the credential and every credential exchanged from it) and `subject` (`agent:<name>`, `workload:<subject>` or a human id; kills every credential issued at or before the revocation, anywhere in a chain; a human id also revokes their sessions), plus `reason` (required, at most 1000 characters). Returns the revocation with `revokedBefore` (subjects) and `expires`. 400 for an invalid body, 409 at 10,000 active revocations for a new key, 503 if the store is unavailable (nothing revoked), 500 if the audit append fails (the revocation holds). Audited as `credential.revoke`. `halo agents revoke` |
 | `GET /api/v1/revocations` | Admin | Active revocations with who, why and when. `halo agents revocations` |
+| `POST /api/v1/service-tokens` | Admin, interactive session only | Create a service-account token `{"name","role","ttl","description","owner"}`: 201 with `token` (shown once) and `serviceToken`. The role may not exceed the caller's; `ttl` 1h to `--service-token-max-ttl` (default and maximum, 90 days). 403 for a token or break-glass caller, 409 at 1,000 active tokens, 500 if the audit append fails (the token is revoked and not returned). Audited as `service-token.create`. `halo service-token create` |
+| `GET /api/v1/service-tokens` | Admin | Every token's id, principal, name, role, owner, creator, expiry and revocation; never the secret. `halo service-token list` |
+| `POST /api/v1/service-tokens/{id}/revoke` | Admin | Revoke `{"reason"}`; holds on every replica at the token's next request. Audited as `service-token.revoke`. `halo service-token revoke` |
 
 ### Releases and audit
 

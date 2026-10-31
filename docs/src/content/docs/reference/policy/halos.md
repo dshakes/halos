@@ -263,7 +263,12 @@ Generated from `schemas/halos.schema.json`; do not edit. Nested fields use dotte
 | `identity.audience` | string |  |  |  |  | Audience expected in gateway bearer tokens; defaults to clientID. |
 | `identity.clientID` | string |  |  |  |  | OAuth client id used by the portal. |
 | `identity.groupsClaim` | string |  |  |  |  | JWT claim holding the user's groups (default "groups"). |
+| `identity.groupsOverage` |  |  |  | deny, graph |  | Console login when the ID token says the user's groups did not fit (Entra ID groups overage: _claim_names / hasgroups): deny (default) refuses the login with a clear error; graph reads them from Microsoft Graph /me/getMemberObjects with the login's access token (ADR-0036). |
 | `identity.issuer` | string |  |  |  | format uri | OIDC issuer URL; discovery is fetched from &lt;issuer>/.well-known/openid-configuration. |
+| `identity.requireAcr` | array of string |  |  |  |  | Console login only: the ID token's acr must be one of these (sent as acr_values), e.g. Okta urn:okta:loa:2fa:any. |
+| `identity.requireAcr[]` | string |  |  |  | pattern ^\S&#123;1,256}$ |  |
+| `identity.requireAmr` | array of string |  |  |  |  | Console login only: the ID token's amr must contain at least one of these, e.g. [mfa]. |
+| `identity.requireAmr[]` | string |  |  |  | pattern ^\S&#123;1,256}$ |  |
 | `identity.roles` | object |  |  |  |  | halo-server roles (ADR-0015): IdP groups per role. A user holds every role any of their groups maps to. |
 | `identity.roles.admin` | array of string |  |  |  |  | Everything, including devices, sessions and toggle proposals. Same as adminGroups. |
 | `identity.roles.admin[]` | string |  |  |  | minLength 1 |  |

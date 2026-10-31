@@ -15,7 +15,7 @@ halo sessions show <id|session-id> [flags]
 
 | Flag | Shorthand | Type | Default | Description |
 |---|---|---|---|---|
-| `--server` |  | string |  | halo-server base URL (or HALO_SERVER); the session cookie comes from HALO_SESSION (audit role) |
+| `--server` |  | string |  | halo-server base URL (or HALO_SERVER); the credential comes from HALO_TOKEN or HALO_SESSION (audit role) |
 
 ## Global flags
 

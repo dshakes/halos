@@ -15,7 +15,7 @@ halo rollout approve <name> [flags]
 
 | Flag | Shorthand | Type | Default | Description |
 |---|---|---|---|---|
-| `--server` |  | string |  | halo-server base URL (or HALO_SERVER) ; session from HALO_SESSION |
+| `--server` |  | string |  | halo-server base URL (or HALO_SERVER) ; credential from HALO_TOKEN or HALO_SESSION |
 | `--ticket` |  | string |  | change ticket reference (e.g. CHG0012345), when an approval rule requires one |
 
 ## Global flags

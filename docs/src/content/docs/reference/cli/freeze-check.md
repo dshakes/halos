@@ -27,7 +27,7 @@ halo freeze check [flags]
 | `--event` |  | string |  | GitHub event payload ($GITHUB_EVENT_PATH; pull_request or merge_group): windows from the base branch, rollbacks from the diff |
 | `--policy-dir` |  | string |  | policy repo directory (default ".") |
 | `--ring` |  | string |  | only this ring (default: every ring) |
-| `--server` |  | string |  | halo-server base URL (or HALO_SERVER) to include the incident freeze; session from HALO_SESSION |
+| `--server` |  | string |  | halo-server base URL (or HALO_SERVER) to include the incident freeze; credential from HALO_TOKEN or HALO_SESSION |
 
 ## Global flags
 

@@ -32,7 +32,7 @@ halo plan [flags]
 | `--registry` |  | string |  | registry repo, e.g. ghcr.io/acme/halos |
 | `--release-version` |  | string | 0.0.0-dev | release version label |
 | `--ring` |  | string |  | ring to plan (default: every ring) |
-| `--server` |  | string |  | halo-server base URL (or HALO_SERVER) for the impact preview over the enrolled fleet; session from HALO_SESSION |
+| `--server` |  | string |  | halo-server base URL (or HALO_SERVER) for the impact preview over the enrolled fleet; credential from HALO_TOKEN or HALO_SESSION |
 
 ## Global flags
 
