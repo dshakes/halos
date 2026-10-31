@@ -182,7 +182,7 @@ func TestDecryptPairs(t *testing.T) {
 	if err := os.WriteFile(mixed, append(sealedRows, []byte(`{"id":"injected","experiment":"x"}`+"\n")...), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := decryptPairs([]string{"-pair-key-file", keyFile, mixed}, io.Discard); err == nil || !strings.Contains(err.Error(), "plaintext") {
+	if err := decryptPairs([]string{"-pair-key-file", keyFile, mixed}, io.Discard); err == nil || !strings.Contains(err.Error(), "plaintext") || !strings.Contains(err.Error(), "-allow-plaintext-pairs") {
 		t.Fatalf("plaintext row in a sealed store: %v", err)
 	}
 	out.Reset()

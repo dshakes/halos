@@ -79,6 +79,35 @@ func TestEvalHarvest(t *testing.T) {
 	}
 }
 
+// R5: an unsealed row in a sealed store is refused, and the error names the
+// MCP argument (not the CLI flag); allow_plaintext_pairs: true migrates, and
+// the copy-paste command carries the CLI flag.
+func TestEvalHarvestPlaintextRows(t *testing.T) {
+	dir := t.TempDir()
+	key := []byte("0123456789abcdef0123456789abcdef")
+	if err := os.WriteFile(filepath.Join(dir, "pair.key"), []byte(base64.StdEncoding.EncodeToString(key)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	row := `{"id":"p1","experiment":"exp","protocol":"anthropic-messages","request":{"model":"m","messages":[{"role":"user","content":"hi"}]}}` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "pairs.jsonl"), []byte(row), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ro := connect(t, Options{PolicyDir: dir})
+	args := map[string]any{"pairs": "pairs.jsonl", "pair_key_files": []string{"pair.key"}}
+	_, err := call(t, ro, "eval_harvest", args)
+	if err == nil || !strings.Contains(err.Error(), "allow_plaintext_pairs") || strings.Contains(err.Error(), "--allow-plaintext-pairs") {
+		t.Fatalf("plaintext row, default: %v", err)
+	}
+	args["allow_plaintext_pairs"] = true
+	out, err := call(t, ro, "eval_harvest", args)
+	if err != nil {
+		t.Fatalf("migration: %v", err)
+	}
+	if cmd, _ := out["command"].(string); !strings.Contains(cmd, "--allow-plaintext-pairs") {
+		t.Fatalf("command lacks the CLI flag: %q", cmd)
+	}
+}
+
 // The preview's copy-paste command must survive a POSIX shell intact: every
 // interpolated value is quoted, so a pattern or path cannot inject a command.
 func TestEvalHarvestCommandIsShellQuoted(t *testing.T) {

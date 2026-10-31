@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 
@@ -36,19 +37,20 @@ func (s *srv) policyFile(rel, def string) (string, error) {
 }
 
 type harvestIn struct {
-	Pairs          string   `json:"pairs" jsonschema:"halo-shadow pair store (JSONL): absolute, or relative to the policy dir"`
-	PairKeyFiles   []string `json:"pair_key_files,omitempty" jsonschema:"base64 pair key FILES (current and retired); paths only, never key values"`
-	Out            string   `json:"out,omitempty" jsonschema:"suite directory under the policy dir (default evals/steps)"`
-	Experiment     string   `json:"experiment,omitempty" jsonschema:"only this experiment"`
-	Select         []string `json:"select,omitempty" jsonschema:"diverged, invalid-call, premature-stop, judge-loss, sample (default the first three)"`
-	History        string   `json:"history,omitempty" jsonschema:"halo eval online history JSONL (judge scores for judge-loss)"`
-	JudgeLoss      float64  `json:"judge_loss,omitempty" jsonschema:"judge-loss threshold, control minus candidate score (default 0.2)"`
-	PerDepth       int      `json:"per_depth,omitempty" jsonschema:"sample: steps per depth bucket (default 5)"`
-	Seed           uint64   `json:"seed,omitempty" jsonschema:"sampling seed"`
-	RedactPatterns []string `json:"redact_patterns,omitempty" jsonschema:"extra RE2 regexes to redact"`
-	KeepFields     []string `json:"keep_fields,omitempty" jsonschema:"extra top-level request fields to keep"`
-	DryRun         *bool    `json:"dry_run,omitempty" jsonschema:"default true: select and redact, return the summary, write nothing; false writes the cases (needs --allow-writes)"`
-	Reason         string   `json:"reason,omitempty" jsonschema:"why this harvest; required when dry_run is false"`
+	Pairs               string   `json:"pairs" jsonschema:"halo-shadow pair store (JSONL): absolute, or relative to the policy dir"`
+	PairKeyFiles        []string `json:"pair_key_files,omitempty" jsonschema:"base64 pair key FILES (current and retired); paths only, never key values"`
+	AllowPlaintextPairs bool     `json:"allow_plaintext_pairs,omitempty" jsonschema:"with pair_key_files, also read unsealed rows written before sealing was turned on (migration only; default false: such rows are refused)"`
+	Out                 string   `json:"out,omitempty" jsonschema:"suite directory under the policy dir (default evals/steps)"`
+	Experiment          string   `json:"experiment,omitempty" jsonschema:"only this experiment"`
+	Select              []string `json:"select,omitempty" jsonschema:"diverged, invalid-call, premature-stop, judge-loss, sample (default the first three)"`
+	History             string   `json:"history,omitempty" jsonschema:"halo eval online history JSONL (judge scores for judge-loss)"`
+	JudgeLoss           float64  `json:"judge_loss,omitempty" jsonschema:"judge-loss threshold, control minus candidate score (default 0.2)"`
+	PerDepth            int      `json:"per_depth,omitempty" jsonschema:"sample: steps per depth bucket (default 5)"`
+	Seed                uint64   `json:"seed,omitempty" jsonschema:"sampling seed"`
+	RedactPatterns      []string `json:"redact_patterns,omitempty" jsonschema:"extra RE2 regexes to redact"`
+	KeepFields          []string `json:"keep_fields,omitempty" jsonschema:"extra top-level request fields to keep"`
+	DryRun              *bool    `json:"dry_run,omitempty" jsonschema:"default true: select and redact, return the summary, write nothing; false writes the cases (needs --allow-writes)"`
+	Reason              string   `json:"reason,omitempty" jsonschema:"why this harvest; required when dry_run is false"`
 }
 
 type harvestOut struct {
@@ -119,6 +121,9 @@ func (s *srv) evalHarvest(ctx context.Context, _ *mcp.CallToolRequest, in harves
 		keys = append(keys, k)
 		args = append(args, "--pair-key-file", s.abs(f))
 	}
+	if in.AllowPlaintextPairs {
+		args = append(args, "--allow-plaintext-pairs")
+	}
 	if o.Redactor, err = eval.NewRedactor(in.RedactPatterns, in.KeepFields); err != nil {
 		return nil, out, err
 	}
@@ -148,7 +153,10 @@ func (s *srv) evalHarvest(ctx context.Context, _ *mcp.CallToolRequest, in harves
 	if err != nil {
 		return nil, out, err
 	}
-	res, err := eval.Harvest(ctx, eval.FilePairs{Path: s.abs(in.Pairs), Keys: keys}, o)
+	res, err := eval.Harvest(ctx, eval.FilePairs{Path: s.abs(in.Pairs), Keys: keys, AllowPlaintext: in.AllowPlaintextPairs}, o)
+	if errors.Is(err, shadow.ErrPlaintextRow) {
+		return nil, out, fmt.Errorf("%w: rows written before pair keys were configured are read only with allow_plaintext_pairs: true (migration; otherwise the row may be injected)", err)
+	}
 	if err != nil {
 		return nil, out, err
 	}

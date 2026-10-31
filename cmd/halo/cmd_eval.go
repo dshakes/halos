@@ -142,7 +142,7 @@ func (a *app) cmdEvalOnline() *cobra.Command {
 				Judge: j, Rubric: r, Sample: sample, Seed: seed, Experiment: experiment, Skip: skip, AgentSkip: agentSkip, ControlNames: controls,
 			})
 			if err != nil {
-				return err
+				return plaintextPairsHint(err)
 			}
 			if otlp != "" {
 				x := &eval.OTLPExporter{URL: otlp}
@@ -236,7 +236,7 @@ func (a *app) cmdEvalHarvest() *cobra.Command {
 			o.Experiment, o.Select = experiment, sel
 			res, err := eval.Harvest(cmd.Context(), eval.FilePairs{Path: pairs, Keys: keys, AllowPlaintext: allowPlain}, o)
 			if err != nil {
-				return err
+				return plaintextPairsHint(err)
 			}
 			if !dry {
 				if err := eval.WriteStepCases(out, res.Cases); err != nil {

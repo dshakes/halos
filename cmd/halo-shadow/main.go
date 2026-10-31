@@ -225,6 +225,9 @@ func decryptPairs(args []string, w io.Writer) error {
 			decode = shadow.DecodePairAllowPlaintext
 		}
 		p, err := decode(sc.Bytes(), keys...)
+		if errors.Is(err, shadow.ErrPlaintextRow) {
+			return fmt.Errorf("halo-shadow: decrypt-pairs line %d: %w: pass -allow-plaintext-pairs to read rows written before pair keys were configured (migration)", n, err)
+		}
 		if err != nil {
 			return fmt.Errorf("halo-shadow: decrypt-pairs line %d: %w", n, err)
 		}

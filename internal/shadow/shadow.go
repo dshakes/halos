@@ -131,8 +131,8 @@ func ReadKeyFile(path string) ([]byte, error) {
 // configured. Whoever can write the store could otherwise inject unsealed
 // rows into a store that is supposed to be encrypted; reading rows written
 // before sealing was turned on needs the explicit migration switch
-// (DecodePairAllowPlaintext, --allow-plaintext-pairs).
-var ErrPlaintextRow = errors.New("shadow: plaintext pair row in a sealed store (rows written before pair keys were configured need --allow-plaintext-pairs)")
+// (DecodePairAllowPlaintext); each front end names its own switch.
+var ErrPlaintextRow = errors.New("shadow: plaintext pair row in a sealed store")
 
 // DecodePair reads one JSONL row, decrypting it with keys (by key id) when
 // sealed. With no keys it reads plaintext rows; with keys it refuses them
