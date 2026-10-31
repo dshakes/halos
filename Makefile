@@ -54,6 +54,12 @@ feature-test:
 docs-gen:
 	go run ./internal/tools/gendocs --out docs/src/content/docs/reference
 
+# Regenerate the Grafana alert provisioning from the chart's Prometheus rules and copy the dashboards into the chart
+# (go test ./internal/obsassets fails when they drift).
+.PHONY: obs-assets
+obs-assets:
+	go run ./internal/tools/obsassets
+
 # Whole stack on Docker (console + mock OIDC, proxy, shadow, mock models, obs), seeded from examples/acme-corp.
 demo:
 	./scripts/demo.sh
@@ -70,6 +76,12 @@ demo-e2e:
 .PHONY: uat-clis
 uat-clis:
 	./scripts/uat-clis.sh
+
+# Disaster-recovery drill on a throwaway kind cluster (halos-dr): HA chart on Postgres, write state, pg_dump, destroy
+# the database, restore, assert. `scripts/uat-dr.sh local` runs the same assertions without Kubernetes.
+.PHONY: uat-dr
+uat-dr:
+	./scripts/uat-dr.sh
 
 # Helm chart UAT on a throwaway kind cluster (halos-uat): user stories end to end,
 # report in test/uat/REPORT.md (Docker, kind, kubectl, helm). UAT_KEEP=1 keeps the cluster.
