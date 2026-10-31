@@ -134,6 +134,10 @@ export default defineConfig({
           ],
         },
         {
+          label: 'Compliance',
+          items: ['compliance/control-mapping', 'compliance/data-flow-and-pii', 'compliance/security-overview'],
+        },
+        {
           label: 'Reference',
           items: [
             {

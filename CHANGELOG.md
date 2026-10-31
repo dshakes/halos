@@ -4,6 +4,10 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added
+
+- Compliance docs: a control mapping (SOC 2, ISO/IEC 27001:2022, NIST SSDF and SLSA, EU AI Act) to the code and evidence Halos produces, a data-flow and PII inventory with retention defaults, and a security overview with known gaps. No certification is claimed.
+
 ### Fixed
 
 - `halo onboard local` (and the MCP `init_policy` tool) failed with exit 2 when `cursor-agent` was installed: autodetect copied its date-style version (`2026.04.17-787b533`) into `halos.yaml` and validation rejects anything but an exact semver. A CLI whose version is not a semver is now left out of the autodetected pins with a warning that names it and the `--tools name@x.y.z` flag; any remaining validation failure also prints that hint instead of only the validator errors.
