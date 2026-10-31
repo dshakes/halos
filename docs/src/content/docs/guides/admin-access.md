@@ -75,7 +75,7 @@ server:
 
 Without Helm: `--breakglass-hash-file=/path/bg-hash --breakglass-allowed-cidrs=10.8.0.0/16 [--breakglass-user=breakglass]`. The hash is PBKDF2-HMAC-SHA256 with 600,000 iterations; passwords under 16 characters are refused.
 
-`allowedCIDRs` is **required** to enable break-glass: halo-server refuses to start, and the chart to render, without it. Set it to your VPN or bastion range. From anywhere else break-glass answers 404 as if sealed, before the password is read, and an existing break-glass session is refused, so outside attackers can neither guess the password nor trip the lockout. Do not use `0.0.0.0/0` or another very broad range (broader than /8, or /32 for IPv6): it re-opens the lockout denial of service, and halo-server warns about it at startup.
+`allowedCIDRs` is **required** to enable break-glass: halo-server refuses to start, and the chart to render, without it. Set it to your VPN or bastion range. From anywhere else break-glass answers 404 as if sealed, before the password is read, and an existing break-glass session is refused, so outside attackers can neither guess the password nor trip the lockout. Ranges broader than IPv4 /8 or IPv6 /32 (`0.0.0.0/0`, `::/0`) are refused by halo-server and the chart: they would let almost anyone spend the failure budget and keep break-glass locked. IPv4 /8 to /15 and IPv6 /32 to /47 are accepted with a startup warning; prefer the narrowest VPN or bastion range.
 
 Twenty failed logins within 15 minutes from allowed addresses, on any replica, lock break-glass on every replica for 15 minutes; a correct password is refused while locked. The lockout is audited once as `breakglass.lockout` (high severity). An admin signed in through SSO lifts it without the locked path:
 

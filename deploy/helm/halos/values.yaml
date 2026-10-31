@@ -99,7 +99,7 @@ server:
   # request it makes is a high-severity audit event exported to your SIEM sinks.
   # allowedCIDRs: comma-separated client CIDRs (after trustedProxyCIDRs) break-glass may be used from, e.g. the VPN or
   # bastion range; elsewhere it answers 404. REQUIRED when enabled (the chart refuses to render without it): it keeps
-  # outsiders from locking break-glass with failed logins. Never 0.0.0.0/0 (warned at startup). An SSO admin lifts a
+  # outsiders from locking break-glass with failed logins. Ranges broader than IPv4 /8 or IPv6 /32 are refused; /8-/15 (IPv6 /32-/47) warn. An SSO admin lifts a
   # lockout with POST /api/v1/breakglass/unlock.
   breakGlass: {enabled: false, existingSecret: "", key: hash, user: breakglass, allowedCIDRs: ""}
   # Microsoft Graph base URL for policy identity.groupsOverage: graph ("" = https://graph.microsoft.com/v1.0;
