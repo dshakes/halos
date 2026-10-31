@@ -24,6 +24,8 @@ halo rollout advance <name> [flags]
 | `--database` |  | string |  | ClickHouse database |
 | `--dry-run` |  | bool | false | print the patch instead of opening a PR |
 | `--force` |  | bool | false | advance even though a gate failed |
+| `--forge` |  | string |  | where to open the change request: gh\|github\|gitlab (default: autodetect from the origin remote; gh unless the host names gitlab); github/gitlab use the REST API with GITHUB_TOKEN/GH_TOKEN or GITLAB_TOKEN |
+| `--forge-base-url` |  | string |  | REST API root for GitHub Enterprise Server (https://ghe.example.com/api/v3) or self-managed GitLab (https://gitlab.example.com/api/v4); default derived from the origin remote |
 | `--policy-dir` |  | string |  | policy repo directory (default ".") |
 | `--reason` |  | string |  | why (required; recorded in the commit message and PR body) |
 | `--server` |  | string |  | halo-server base URL (or HALO_SERVER) for the incident freeze and step approvals (ADR-0030); credential from HALO_TOKEN or HALO_SESSION |

@@ -2,9 +2,12 @@ package mcpserver
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -193,7 +196,7 @@ func (s *srv) openPR(ctx context.Context, branch, title, body, reason, base stri
 	if err != nil {
 		return writeOut{}, err
 	}
-	url, err := s.prOpener().OpenPR(ctx, promote.PRRequest{RepoDir: s.dir, Base: base, Branch: branch, Title: title,
+	url, err := openIdempotent(ctx, s.prOpener(), promote.PRRequest{RepoDir: s.dir, Base: base, Branch: branch, Title: title,
 		Body: "**Reason:** " + reason + "\n\n" + body, CommitBody: "Reason: " + reason, Files: files, Edit: edit})
 	if err != nil {
 		return writeOut{}, err
@@ -311,7 +314,62 @@ type reasonOpener struct {
 func (r reasonOpener) OpenPR(ctx context.Context, req promote.PRRequest) (string, error) {
 	req.Body = "**Reason:** " + r.reason + "\n\n" + req.Body
 	req.CommitBody = "Reason: " + r.reason
-	return r.gh.OpenPR(ctx, req)
+	return openIdempotent(ctx, r.gh, req)
+}
+
+// FindOpenPR implements promote.OpenPRFinder by delegating; nothing found when
+// the wrapped opener cannot search.
+func (r reasonOpener) FindOpenPR(ctx context.Context, dir, marker string) (string, bool, error) {
+	if f, ok := r.gh.(promote.OpenPRFinder); ok {
+		return f.FindOpenPR(ctx, dir, marker)
+	}
+	return "", false, nil
+}
+
+// FindPR implements promote.PRFinder by delegating; it reports nothing found
+// when the wrapped opener cannot search.
+func (r reasonOpener) FindPR(ctx context.Context, dir, marker string) (string, bool, error) {
+	if f, ok := r.gh.(promote.PRFinder); ok {
+		return f.FindPR(ctx, dir, marker)
+	}
+	return "", false, nil
+}
+
+// proposeMarker identifies a proposal by what it would change (branch, title
+// and file contents), not by its reason text, so proposing the same change
+// twice maps to the same pull or merge request.
+func proposeMarker(req promote.PRRequest) string {
+	h := sha256.New()
+	fmt.Fprintf(h, "%s\n%s\n", req.Branch, req.Title)
+	names := make([]string, 0, len(req.Files))
+	for n := range req.Files {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		fmt.Fprintf(h, "%s\x00%d\x00", n, len(req.Files[n]))
+		h.Write(req.Files[n])
+	}
+	return "<!-- halos:propose=" + hex.EncodeToString(h.Sum(nil))[:32] + " -->"
+}
+
+// openIdempotent opens the request with a marker in its body. When the opener
+// can search for open requests (promote.OpenPRFinder), an open request with
+// the same marker is returned instead of opening a second one. Merged and
+// closed requests never match: a reverted change can be proposed again.
+func openIdempotent(ctx context.Context, op promote.PROpener, req promote.PRRequest) (string, error) {
+	marker := proposeMarker(req)
+	if f, ok := op.(promote.OpenPRFinder); ok {
+		url, found, err := f.FindOpenPR(ctx, req.RepoDir, marker)
+		if err != nil {
+			return "", err
+		}
+		if found {
+			return url, nil
+		}
+	}
+	req.Body += "\n\n" + marker + "\n"
+	return op.OpenPR(ctx, req)
 }
 
 func (s *srv) proposeRollback(ctx context.Context, _ *mcp.CallToolRequest, in rollbackIn) (*mcp.CallToolResult, writeOut, error) {

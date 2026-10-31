@@ -109,6 +109,7 @@ The rule is rendered only when the cluster serves `monitoring.coreos.com/v1` `Pr
 | `HaloPolicyRefused` | page | halos-control-plane | a policy with security validation errors (unpinned workload rule, unit loosening) was refused; the last good policy is serving, see the 'policy refused' log line |
 | `HaloControllerStalled` | ticket | halos-controller | no controller tick in 20m (default interval 5m) |
 | `HaloControllerErrors` | ticket | halos-controller | controller errors: ClickHouse, policy clone, PR, kill or notify failing; rollbacks may not be enforced |
+| `HaloControllerNotifyFailing` | ticket | halos-controller | {{ $labels.sink }}: notifications failing after retries; a rollback or page may not have reached anyone (check the webhook URL, routing key or outage) |
 | `HaloNoControllerLeader` | page | halos-ha | HA: no halo-server replica holds the controller lease for 2m (Postgres down or every replica failing to renew); rollbacks are not being acted on |
 | `HaloTwoControllerLeaders` | page | halos-ha | HA: two replicas report leadership for 1m; fenced writes keep state safe, but check clock and network health |
 | `HaloDatabaseErrors` | page | halos-ha | HA: Postgres statements failing on halo-server/halo-shadow; replicas go unready and device auth answers 503 |

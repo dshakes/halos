@@ -47,6 +47,10 @@ type Portal struct {
 	PolicyRepoDir string `json:"policyRepoDir"`
 	PolicySubdir  string `json:"policySubdir"`
 	PolicyBase    string `json:"policyBase"`
+	// PolicyForge (gh|github|gitlab; empty = autodetect from the clone's origin) and PolicyForgeBaseURL
+	// (GitHub Enterprise Server / self-managed GitLab API root) choose where the writer opens its PRs/MRs.
+	PolicyForge        string `json:"policyForge"`
+	PolicyForgeBaseURL string `json:"policyForgeBaseURL"`
 	// SupportURL is where developers go when something breaks (a Slack channel, a ticket queue); shown on the kiosk.
 	SupportURL string `json:"supportURL"`
 	// Secrets are referenced by file path so they never sit in the JSON itself.

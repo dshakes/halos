@@ -875,6 +875,48 @@ groups:
           summary: 'controller errors: ClickHouse, policy clone, PR, kill or notify failing; rollbacks may not be enforced'
         labels:
           severity: ticket
+      - uid: halos-HaloControllerNotifyFailing
+        title: HaloControllerNotifyFailing
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: (sum by (sink) (increase(halo_controller_notifications_total{result="error"}[30m])) > 2) * 0 + 1
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              expression: A
+              reducer: last
+              refId: B
+              settings:
+                mode: dropNN
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 0
+                    type: gt
+              expression: B
+              refId: C
+              type: threshold
+        noDataState: OK
+        execErrState: Error
+        for: 0s
+        annotations:
+          summary: '{{ $labels.sink }}: notifications failing after retries; a rollback or page may not have reached anyone (check the webhook URL, routing key or outage)'
+        labels:
+          severity: ticket
   - orgId: 1
     name: halos-ha
     folder: Halos

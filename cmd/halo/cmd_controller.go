@@ -12,7 +12,6 @@ import (
 
 	"github.com/dshakes/halos/internal/controller"
 	"github.com/dshakes/halos/internal/policy"
-	"github.com/dshakes/halos/internal/promote"
 	"github.com/dshakes/halos/internal/rollout"
 	"github.com/dshakes/halos/internal/server"
 )
@@ -20,9 +19,11 @@ import (
 func (a *app) cmdController() *cobra.Command {
 	c := &cobra.Command{Use: "controller", Short: "Automated experiment loop (evaluate, kill on rollback, PRs, notify)"}
 	var ch clickhouseFlags
-	var dataDir, verdicts, base, slackFile, hookFile, secretFile string
+	var dataDir, verdicts, base string
+	var notify controller.NotifyConfig
 	var once, noPR, killServed bool
 	var interval time.Duration
+	var fg forgeFlags
 	run := &cobra.Command{
 		Use: "run", Short: "Evaluate running experiments and act on verdicts (never merges)", Args: cobra.NoArgs, Annotations: policyDirAnno,
 		Long: "Evaluates every running experiment from ClickHouse evidence, then drives active rollouts (state in\n" +
@@ -30,7 +31,7 @@ func (a *app) cmdController() *cobra.Command {
 			"<data-dir>/killswitch.jsonl (served to gateways when <data-dir> is halo-server's --data-dir), opens a\n" +
 			"PR pausing the experiment, notifies. Without --killswitch-served, messages say the kill is only recorded. promote/expired: opens a PR concluding it, notifies. Each action\n" +
 			"happens once per experiment run (<data-dir>/controller-state.jsonl). PRs are opened from the git\n" +
-			"checkout containing --policy-dir with gh. Run a single controller per data dir. Kills are also appended\n" +
+			"checkout containing --policy-dir with gh (or the GitHub/GitLab API: --forge). Run a single controller per data dir. Kills are also appended\n" +
 			"to <data-dir>/audit.jsonl (hash chain shared with halo-server): do not run this against a data dir\n" +
 			"a live halo-server is appending to (single writer); use the server's in-process controller there.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -41,7 +42,8 @@ func (a *app) cmdController() *cobra.Command {
 			if !once && interval < time.Minute {
 				return errors.New("--interval must be at least 1m")
 			}
-			notifiers, err := controller.NotifiersFromFiles(slackFile, hookFile, secretFile)
+			notify.Retry = controller.DefaultRetry
+			notifiers, err := notify.Build()
 			if err != nil {
 				return err
 			}
@@ -97,7 +99,11 @@ func (a *app) cmdController() *cobra.Command {
 					"; gateways enforce only if halo-server serves this data dir with a kill key"
 			}
 			if !noPR {
-				ctrl.Writer = &controller.GitWriter{RepoDir: dir, Base: base, Opener: promote.GHOpener{}}
+				op, err := fg.forge()
+				if err != nil {
+					return err
+				}
+				ctrl.Writer = &controller.GitWriter{RepoDir: dir, Base: base, Opener: op}
 			}
 			if once {
 				if err := ctrl.Tick(cmd.Context()); err != nil {
@@ -110,13 +116,12 @@ func (a *app) cmdController() *cobra.Command {
 		},
 	}
 	ch.add(run)
+	fg.add(run)
 	f := run.Flags()
 	f.StringVar(&dataDir, "data-dir", "", "directory for controller-state.jsonl and killswitch.jsonl (required)")
 	f.StringVar(&verdicts, "verdicts-file", "", "upsert each verdict into this JSON array file read by halo-server")
 	f.StringVar(&base, "base", "", "PR base branch")
-	f.StringVar(&slackFile, "notify-slack-url-file", "", "file holding a Slack incoming-webhook URL")
-	f.StringVar(&hookFile, "notify-webhook-url-file", "", "file holding a generic webhook URL")
-	f.StringVar(&secretFile, "notify-webhook-secret-file", "", "file holding the webhook HMAC-SHA256 secret (X-Halo-Signature)")
+	controller.NotifyFlags(f, &notify)
 	f.BoolVar(&once, "once", false, "run a single tick and exit (CI/cron); non-zero exit if any experiment failed")
 	f.BoolVar(&noPR, "no-pr", false, "do not open PRs (verdicts, kills and notifications only)")
 	f.DurationVar(&interval, "interval", 5*time.Minute, "tick interval without --once")
