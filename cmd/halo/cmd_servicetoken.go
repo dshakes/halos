@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/dshakes/halos/internal/policy"
 	"github.com/dshakes/halos/internal/server"
 )
 
@@ -31,15 +33,24 @@ func (a *app) cmdServiceToken() *cobra.Command {
 func (a *app) cmdServiceTokenCreate() *cobra.Command {
 	var srv string
 	var in server.CreateServiceTokenRequest
+	var rings, units []string
 	c := &cobra.Command{
 		Use:   "create",
 		Short: "Create a service-account token; it is printed once and never again",
 		Long: "Prints the token once: store it in your secret manager right away and pass it to automation as HALO_TOKEN. " +
-			"The role is one of " + strings.Join(server.Roles, ", ") + " and may not exceed your own; --ttl defaults to the server's maximum (90 days unless configured).",
+			"The role is one of " + strings.Join(server.Roles, ", ") + " and may not exceed your own; --ttl defaults to the server's maximum (90 days unless configured). " +
+			"--scope-ring and --scope-unit bound the role to those rings and units (ADR-0037); the scope must be within your own admin grants. Without them the token is global.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if in.Name == "" || in.Role == "" {
 				return errors.New("--name and --role are required")
+			}
+			if len(rings) > 0 || len(units) > 0 { // ADR-0037: absent is global
+				b, err := json.Marshal(policy.RoleScope{Rings: rings, Units: units})
+				if err != nil {
+					return err
+				}
+				in.Scope = b
 			}
 			cred, err := adminSession(&srv)
 			if err != nil {
@@ -62,6 +73,8 @@ func (a *app) cmdServiceTokenCreate() *cobra.Command {
 	c.Flags().StringVar(&in.TTL, "ttl", "", "lifetime as a duration, e.g. 720h (default and maximum: the server's --service-token-max-ttl)")
 	c.Flags().StringVar(&in.Description, "description", "", "what the token is for")
 	c.Flags().StringVar(&in.Owner, "owner", "", "the team or person accountable for it")
+	c.Flags().StringSliceVar(&rings, "scope-ring", nil, "bound the role to these rings (repeatable or comma-separated)")
+	c.Flags().StringSliceVar(&units, "scope-unit", nil, "bound the role to these units and their descendants (repeatable or comma-separated)")
 	return c
 }
 
@@ -84,9 +97,9 @@ func (a *app) cmdServiceTokenList() *cobra.Command {
 					return
 				}
 				tw := tabwriter.NewWriter(a.out, 0, 2, 2, ' ', 0)
-				fmt.Fprintln(tw, "ID\tNAME\tROLE\tSTATUS\tEXPIRES\tOWNER\tCREATED BY")
+				fmt.Fprintln(tw, "ID\tNAME\tROLE\tSCOPE\tSTATUS\tEXPIRES\tOWNER\tCREATED BY")
 				for _, t := range out.Tokens {
-					fmt.Fprintln(tw, termSafe(strings.Join([]string{t.ID, t.Name, t.Role, tokenStatus(t), t.ExpiresAt.Format(time.RFC3339), dash(t.Owner != "", t.Owner), t.CreatedBy}, "\t")))
+					fmt.Fprintln(tw, termSafe(strings.Join([]string{t.ID, t.Name, t.Role, t.Scope.String(), tokenStatus(t), t.ExpiresAt.Format(time.RFC3339), dash(t.Owner != "", t.Owner), t.CreatedBy}, "\t")))
 				}
 				_ = tw.Flush() // stdout
 			})
@@ -131,5 +144,5 @@ func tokenStatus(t server.ServiceTokenInfo) string {
 }
 
 func tokenLine(t server.ServiceTokenInfo) string {
-	return termSafe(fmt.Sprintf("%s %s (%s, role %s, %s until %s)", t.ID, t.Name, t.Principal, t.Role, tokenStatus(t), t.ExpiresAt.Format(time.RFC3339)))
+	return termSafe(fmt.Sprintf("%s %s (%s, role %s over %s, %s until %s)", t.ID, t.Name, t.Principal, t.Role, t.Scope, tokenStatus(t), t.ExpiresAt.Format(time.RFC3339)))
 }

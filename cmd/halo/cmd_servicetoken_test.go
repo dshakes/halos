@@ -59,6 +59,30 @@ func TestServiceTokenCLI(t *testing.T) {
 	}
 }
 
+// TestServiceTokenCLIScope: --scope-ring and --scope-unit mint a scoped
+// token (ADR-0037); list shows the scope; an unknown ring is refused.
+func TestServiceTokenCLIScope(t *testing.T) {
+	s, err := server.New(server.Config{PolicyDir: example, Token: "t", DevUser: "ops@acme.example", DevAdmin: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	srv := httptest.NewServer(s.Handler())
+	t.Cleanup(srv.Close)
+	t.Setenv("HALO_TOKEN", "")
+	t.Setenv("HALO_SESSION", "sess")
+	code, _, errs := halo(t, "service-token", "create", "--server", srv.URL, "--name", "pay-canary", "--role", "viewer", "--scope-ring", "ring1-canary", "--scope-unit", "payments")
+	if code != 0 || !strings.Contains(errs, "role viewer over rings=ring1-canary units=payments") {
+		t.Fatalf("create: %d %s", code, errs)
+	}
+	if code, out, _ := halo(t, "service-token", "list", "--server", srv.URL); code != 0 || !strings.Contains(out, "rings=ring1-canary units=payments") {
+		t.Fatalf("list: %d %s", code, out)
+	}
+	if code, _, errs := halo(t, "service-token", "create", "--server", srv.URL, "--name", "bad", "--role", "viewer", "--scope-ring", "ring9"); code == 0 || !strings.Contains(errs, "ring9") {
+		t.Fatalf("unknown ring: %d %s", code, errs)
+	}
+}
+
 // TestHaloTokenTransport: HALO_TOKEN goes out as a bearer token and wins over
 // HALO_SESSION; HALO_SESSION alone is the cookie, as before.
 func TestHaloTokenTransport(t *testing.T) {

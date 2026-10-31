@@ -7,6 +7,8 @@ date: 2026-10-21
 
 # ADR-0015: RBAC roles for halo-server
 
+> **Amended 2026-10-31.** A role may now be held over a scope of rings and units: `identity.roleBindings` and a per-route resource table ([ADR-0037](/halos/adr/0037-scoped-role-bindings/)). `identity.roles` and `adminGroups` stay global and mean exactly what this record says.
+
 ## Context and problem statement
 
 `halo-server` had two kinds of user: a developer (self-service) and an admin (`identity.adminGroups`), and every privileged route checked the same `admin` flag. Regulated organisations need segregation of duties: the people who can kill an experiment should not automatically approve access requests, and the people who review the audit log should not be able to change what it records. The single flag forces them to make everyone who needs any of that an admin. How does `halo-server` grant narrower authority without making the authorization surface harder to review?

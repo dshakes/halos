@@ -7,6 +7,8 @@ date: 2026-10-30
 
 # ADR-0036: Admin API credentials, break-glass and session policy
 
+> **Amended 2026-10-31.** A service token may carry a scope of rings and units, within its creator's admin grants and role permissions; a scoped admin manages only tokens within their scope. Break-glass stays a global admin ([ADR-0037](/halos/adr/0037-scoped-role-bindings/)).
+
 - Status: accepted
 - Date: 2026-10-30
 

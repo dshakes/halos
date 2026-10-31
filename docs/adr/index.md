@@ -47,3 +47,4 @@ Decisions that shape Halos. New ADRs use [MADR](https://adr.github.io/madr/): co
 | [0036](/halos/adr/0036-admin-api-credentials-break-glass-and-session-policy/) | Admin API credentials, break-glass and session policy: role-bound expiring service-account tokens, a sealed and loudly audited break-glass admin, absolute and idle session timeouts, no silent no-roles login on Entra groups overage, optional acr/amr |
 
 The canonical files live in `docs/adr/` in the repository; the docs build copies them into the site.
+| [0037](/halos/adr/0037-scoped-role-bindings/) | Scoped role bindings: halo-server roles over rings and units, a per-route resource table, filtered lists, deny on unknown scope, scoped service tokens and quorum approvals; global roles unchanged |
