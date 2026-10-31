@@ -28,7 +28,7 @@ import (
 type serverFlags struct{ url string }
 
 func (f *serverFlags) add(c *cobra.Command, use string) {
-	c.Flags().StringVar(&f.url, "server", "", "halo-server base URL (or HALO_SERVER) "+use+"; session from HALO_SESSION")
+	c.Flags().StringVar(&f.url, "server", "", "halo-server base URL (or HALO_SERVER) "+use+"; credential from HALO_TOKEN or HALO_SESSION")
 }
 
 // resolve returns the server and session, both "" when neither is set.
@@ -37,12 +37,12 @@ func (f *serverFlags) resolve() (string, string, error) {
 	if srv == "" {
 		srv = os.Getenv("HALO_SERVER")
 	}
-	session := strings.TrimSpace(os.Getenv("HALO_SESSION"))
+	session := strings.TrimSpace(serverCredential())
 	if srv == "" && session == "" {
 		return "", "", nil
 	}
 	if srv == "" || session == "" {
-		return "", "", errors.New("set --server (or HALO_SERVER) and HALO_SESSION (a halo_session cookie value) together")
+		return "", "", errors.New("set --server (or HALO_SERVER) and HALO_TOKEN or HALO_SESSION (a halo_session cookie value) together")
 	}
 	return srv, session, nil
 }
@@ -67,7 +67,7 @@ func sessionJSON(ctx context.Context, srv, session, method, path string, in, out
 		return fmt.Errorf("%s %s: %w", method, path, err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.AddCookie(&http.Cookie{Name: "halo_session", Value: session}) //nolint:gosec // outgoing request cookie; Secure/HttpOnly only apply to Set-Cookie
+	authorize(req, session)
 	cl := &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	resp, err := cl.Do(req)
 	if err != nil {
@@ -154,7 +154,7 @@ func (a *app) cmdFreeze() *cobra.Command {
 					return err
 				}
 				if srv == "" {
-					return errors.New("set --server (or HALO_SERVER) and HALO_SESSION (an admin halo_session cookie value)")
+					return errors.New("set --server (or HALO_SERVER) and HALO_TOKEN or HALO_SESSION (an admin halo_session cookie value)")
 				}
 				var res map[string]any
 				if err := sessionJSON(cmd.Context(), srv, session, http.MethodPost, "/api/v1/freeze", map[string]any{"frozen": on, "reason": reason}, &res); err != nil {

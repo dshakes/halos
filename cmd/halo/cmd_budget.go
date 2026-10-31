@@ -32,9 +32,9 @@ func (a *app) cmdBudgetStatus() *cobra.Command {
 			if srv == "" {
 				srv = os.Getenv("HALO_SERVER")
 			}
-			session := os.Getenv("HALO_SESSION")
+			session := serverCredential()
 			if srv == "" || session == "" {
-				return errors.New("set --server (or HALO_SERVER) and HALO_SESSION (an admin halo_session cookie value)")
+				return errors.New("set --server (or HALO_SERVER) and HALO_TOKEN or HALO_SESSION (an admin halo_session cookie value)")
 			}
 			res, err := getBudgets(cmd.Context(), http.DefaultClient, srv, session, name, key)
 			if err != nil {
@@ -101,7 +101,7 @@ func getBudgets(ctx context.Context, hc *http.Client, srv, session, name, key st
 	if err != nil {
 		return out, fmt.Errorf("budget status: %w", err)
 	}
-	req.AddCookie(&http.Cookie{Name: "halo_session", Value: session}) //nolint:gosec // outgoing request cookie; Secure/HttpOnly only apply to Set-Cookie
+	authorize(req, session)
 	cl := *hc
 	cl.Timeout = 15 * time.Second
 	cl.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
