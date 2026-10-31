@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/dshakes/halos/internal/policy"
+	"github.com/dshakes/halos/internal/storage"
 )
 
 // policyHolder loads the policy dir and reloads it when any file's mtime/size
@@ -18,6 +19,13 @@ import (
 type policyHolder struct {
 	dir string
 	log *slog.Logger
+
+	// sigs coalesces the per-request directory walk: concurrent reads share one
+	// walk that started after the latest of them arrived (so a file changed
+	// before a request is seen by it), and the walk runs outside mu.
+	sigs    storage.Coalescer
+	sigMu   sync.Mutex
+	lastSig string
 
 	mu sync.Mutex
 	// org is the policy in effect: good, or good narrowed by a refused
@@ -62,15 +70,34 @@ func dirSig(dir string) string {
 	return fmt.Sprint(latest.UnixNano(), "/", n, "/", size)
 }
 
+// currentSig is dirSig(p.dir) as of a walk that began after this call did. A
+// request walking the tree alone costs a ReadDir and an lstat per file under
+// the holder's lock, which capped every route that reads the policy (ring
+// lookups, enrollment, launch) at one walk at a time.
+func (p *policyHolder) currentSig() string {
+	_ = p.sigs.Do(func() error {
+		s := dirSig(p.dir)
+		p.sigMu.Lock()
+		p.lastSig = s
+		p.sigMu.Unlock()
+		return nil
+	})
+	// A later walk may have replaced lastSig by now; it began after this call too.
+	p.sigMu.Lock()
+	defer p.sigMu.Unlock()
+	return p.lastSig
+}
+
 // Get returns the current org (nil + error if the dir has never loaded).
 // A failed reload keeps serving the last good policy and returns its error.
 // A policy refused for security validation errors still removes workload
 // rules (policy.TightenWorkloads): the rules in effect become the last good
 // policy's rules that the refused one still has unchanged.
 func (p *policyHolder) Get() (*policy.Org, PolicyView, error) {
+	sig := p.currentSig()
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if sig := dirSig(p.dir); p.force || sig != p.sig || p.org == nil && p.err == nil {
+	if p.force || sig != p.sig || p.org == nil && p.err == nil {
 		p.force, p.sig = false, sig
 		org, err := policy.Load(p.dir)
 		if err == nil {
