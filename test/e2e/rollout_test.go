@@ -182,6 +182,9 @@ func (r *rolloutRepo) push(t *testing.T, msg string) {
 	r.mainAt = git(t, r.origin, "rev-parse", "main")
 }
 
+// prs returns the completed gh calls. The fake writes a call's arguments and
+// then its newline in two appends, so a call still in flight shows as a
+// partial (often empty) last line; only newline-terminated lines count.
 func (r rolloutRepo) prs(t *testing.T) []string {
 	t.Helper()
 	b, err := os.ReadFile(r.ghLog)
@@ -190,7 +193,8 @@ func (r rolloutRepo) prs(t *testing.T) []string {
 	} else if err != nil {
 		t.Fatal(err)
 	}
-	return strings.Split(strings.TrimSpace(string(b)), "\n")
+	lines := strings.Split(string(b), "\n")
+	return lines[:len(lines)-1]
 }
 
 // TestRollout drives a real `halo controller run --once` over a live rollout.
@@ -421,5 +425,25 @@ func halted(t *testing.T, base string) {
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&view); err != nil || view.State.Halted != "rollback" || view.State.HaltSource != "gateway" {
 		t.Fatalf("rollout view %+v: %v", view, err)
+	}
+}
+
+// TestPRsIgnoresInFlightCall: a gh call still writing (arguments appended,
+// newline not yet) is not counted, so waitFor never sees an empty call.
+func TestPRsIgnoresInFlightCall(t *testing.T) {
+	r := rolloutRepo{ghLog: filepath.Join(t.TempDir(), "gh.log")}
+	for _, tc := range []struct {
+		log  string
+		want []string
+	}{
+		{"", nil},
+		{"pr create --head a", nil},
+		{"pr create --head a \n", []string{"pr create --head a "}},
+		{"pr create --head a \npr create --he", []string{"pr create --head a "}},
+	} {
+		writeFile(t, r.ghLog, tc.log)
+		if got := r.prs(t); len(got) != len(tc.want) || (len(got) > 0 && got[0] != tc.want[0]) {
+			t.Errorf("prs(%q) = %q, want %q", tc.log, got, tc.want)
+		}
 	}
 }
