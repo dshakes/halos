@@ -39,7 +39,7 @@
 
 ```sh
 brew install dshakes/tap/halo      # other installs below
-halo quickstart                    # the whole stack in Docker, about a minute
+halo quickstart                    # the whole stack in Docker, about a minute with a warm Docker cache, 2 to 3 minutes cold
 halo doctor && halo onboard local  # or pin and manage the CLIs on this machine
 halo onboard company               # or: policy repo, gateway, IdP, fleet, first PR
 ```
@@ -86,7 +86,7 @@ A change is a pull request:
   <img src="assets/how-it-works-light.svg" alt="Platform team: policy repo, pull request, CI checks, human merge, signed release. Fleet: rings point at releases; halod applies them on every machine and the gateway routes models; developers keep running their CLI as usual." width="880">
 </picture>
 
-[`examples/simple`](examples/simple) is the one-file version and [`examples/acme-corp`](examples/acme-corp) the full one; `make demo` runs it locally; `halo quickstart` is the same stack (55 s warm, 86 s with a cold build cache, on an arm64 laptop with Docker Desktop 28). Codespaces is UNVERIFIED: CI builds the dev container, but the demo has not been run in a real Codespace. More: [how Halos works](https://dshakes.github.io/halos/concepts/how-it-works/).
+[`examples/simple`](examples/simple) is the one-file version and [`examples/acme-corp`](examples/acme-corp) the full one; `make demo` runs it locally; `halo quickstart` is the same stack (about a minute with a warm Docker cache, 2 to 3 minutes cold; one cold run on an arm64 laptop with Docker Desktop took 2:31). Codespaces is UNVERIFIED: CI builds the dev container, but the demo has not been run in a real Codespace. More: [how Halos works](https://dshakes.github.io/halos/concepts/how-it-works/).
 
 ## Every rollout technique, as code
 

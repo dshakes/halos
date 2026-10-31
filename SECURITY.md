@@ -18,6 +18,14 @@ Include the affected component and version (`halo version`), reproduction steps 
 
 There is no bug bounty.
 
+## Published advisories
+
+All advisories: <https://github.com/dshakes/halos/security/advisories>.
+
+| Advisory | Severity | Affected | Fixed in |
+|---|---|---|---|
+| [GHSA-gx2h-qc6w-fg9r](https://github.com/dshakes/halos/security/advisories/GHSA-gx2h-qc6w-fg9r): Claude Code bypass-permissions lock was not applied | medium | releases built with `halo` < 0.4.0 | 0.4.0 |
+
 ## Supported versions
 
 Pre-1.0 (policy API `halos.dev/v1`, stable): security fixes go to `main` and ship in the next release of the latest minor line only.

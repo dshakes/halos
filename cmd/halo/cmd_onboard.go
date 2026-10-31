@@ -131,9 +131,7 @@ func (a *app) cmdOnboardLocal() *cobra.Command {
 				return err
 			}
 			if len(o.Init.Tools) == 0 {
-				if o.Init.Tools = onboard.SuggestTools(onboard.Detect(cmd.Context(), e)); len(o.Init.Tools) == 0 {
-					o.Init.Tools = onboard.FallbackTools
-				}
+				o.Init.Tools, o.Warnings = onboard.AutoTools(onboard.Detect(cmd.Context(), e))
 			}
 			if o.Init.Models, err = splitKV(models, "=", "--model"); err != nil {
 				return err
@@ -180,11 +178,17 @@ func (a *app) printLocal(r *onboard.LocalResult) {
 	for _, n := range r.Policy.Notes {
 		fmt.Fprintln(a.out, a.yellow("note:"), n)
 	}
+	for _, w := range r.Warnings {
+		fmt.Fprintln(a.out, a.yellow("warning:"), w)
+	}
 	for _, i := range r.Issues {
 		fmt.Fprintln(a.out, i)
 	}
 	if !r.Valid {
 		fmt.Fprintln(a.out, a.red("policy does not validate"))
+		for _, n := range r.Next {
+			fmt.Fprintln(a.out, a.bold("next:"), n)
+		}
 		return
 	}
 	fmt.Fprintln(a.out, a.green("OK")+": policy valid")
@@ -326,7 +330,8 @@ func (a *app) cmdOnboardVerify() *cobra.Command {
 		Short: "Run each installed CLI headless (claude -p, codex exec, gemini -p, copilot -p, cursor-agent -p, opencode run) and check the reply",
 		Long: "One short model call per CLI, through whatever endpoint its config points at. Skipped when the CLI\n" +
 			"is missing or no credential variable is set; a CLI that is logged in (OAuth, keychain) needs\n" +
-			"--assume-auth because halo cannot see that. Output is redacted.",
+			"--assume-auth because halo cannot see that. Output is redacted. Ends with `verified X of N`.\n" +
+			"Exit codes: 0 at least one CLI verified and none failed; 1 a CLI failed; 3 nothing verified (all skipped).",
 		Annotations: policyDirAnno,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			e := onboard.System()
@@ -347,6 +352,7 @@ func (a *app) cmdOnboardVerify() *cobra.Command {
 				failed = failed || r.Status == onboard.VerifyFail
 				rs = append(rs, r)
 			}
+			sum := onboard.Summarize(rs)
 			if err := a.emit(rs, func() {
 				for _, r := range rs {
 					st := map[string]string{onboard.VerifyPass: a.green("pass"), onboard.VerifyFail: a.red("FAIL"),
@@ -356,11 +362,16 @@ func (a *app) cmdOnboardVerify() *cobra.Command {
 						fmt.Fprintf(a.out, "     > %s\n", strings.ReplaceAll(r.Output, "\n", "\n     > "))
 					}
 				}
+				fmt.Fprintln(a.out, sum.Text)
 			}); err != nil {
 				return err
 			}
-			if failed {
+			switch {
+			case failed:
 				return &exitErr{code: exitError}
+			case sum.Verified == 0 && !dry:
+				fmt.Fprintln(a.errw, "nothing was verified: every CLI was skipped (see the reasons above); export its credential or pass --assume-auth")
+				return &exitErr{code: exitUnverified}
 			}
 			return nil
 		},
