@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -125,8 +126,8 @@ func (s *Server) toggleKills() (map[string]ToggleKill, error) {
 }
 
 // listToggles (admin): GET /api/v1/toggles.
-func (s *Server) listToggles(w http.ResponseWriter, _ *http.Request, p Principal) {
-	org, _, err := s.pol.Get()
+func (s *Server) listToggles(w http.ResponseWriter, r *http.Request, p Principal) {
+	org, err := s.reqPolicy(r)
 	if org == nil {
 		s.policyUnavailable(w, err)
 		return
@@ -157,8 +158,13 @@ type TogglePreview struct {
 // getToggle (admin): GET /api/v1/toggles/{name}[?user=&ring=&groups=a,b]: the
 // toggle, its kill/audit history, and (with user) the evaluation and rule trace
 // from internal/toggle, the code the gateway, halod and `halo toggle eval` run.
-func (s *Server) getToggle(w http.ResponseWriter, r *http.Request, _ Principal) {
-	org, _, err := s.pol.Get()
+//
+// A reader without a global read grant (ADR-0037) may preview only
+// themselves (with their own groups), or a subject in a ring they read
+// (ring given). An unknown ring answers like an out-of-scope one, and the
+// preview never names a ring the reader does not cover.
+func (s *Server) getToggle(w http.ResponseWriter, r *http.Request, p Principal) {
+	org, err := s.reqPolicy(r)
 	if org == nil {
 		s.policyUnavailable(w, err)
 		return
@@ -196,6 +202,22 @@ func (s *Server) getToggle(w http.ResponseWriter, r *http.Request, _ Principal) 
 			}
 		}
 		sub := toggle.Subject{ID: user, Groups: groups, Ring: r.URL.Query().Get("ring")}
+		f := newReadFilter(p, permRead)
+		if !f.all {
+			const route = "GET /api/v1/toggles/{name}?user=<preview>"
+			switch {
+			case sub.Ring != "":
+				if ringByName(org, sub.Ring) == nil || !p.canOn(permRead, policy.RingResource(sub.Ring)) {
+					s.denyScope(w, r, p, route, permRead, scopeWhyOutside, nil)
+					return
+				}
+			case sameUser(user, p.ID):
+				sub.Groups = p.Groups // their own groups: no simulating someone else's
+			default:
+				s.denyScope(w, r, p, route, permRead, scopeWhyOutside, nil)
+				return
+			}
+		}
 		if sub.Ring == "" { // same resolution as the gateway
 			if ring := org.ResolveRing(policy.Subject{ID: user, Groups: groups}); ring != nil {
 				sub.Ring = ring.Name
@@ -206,6 +228,16 @@ func (s *Server) getToggle(w http.ResponseWriter, r *http.Request, _ Principal) 
 		}
 		_, killed := kills[name]
 		resp.Preview = &TogglePreview{Subject: sub, Decision: toggle.Eval(t.Name, t.Default, t.Rules, sub, killed)}
+		if !f.all && sub.Ring != "" && !p.canOn(permRead, policy.RingResource(sub.Ring)) {
+			// Their own ring, outside what they read: not named, in the trace either.
+			hide := strings.NewReplacer(strconv.Quote(sub.Ring), `"(not shown)"`)
+			d := &resp.Preview.Decision
+			d.Why = hide.Replace(d.Why)
+			for i := range d.Trace {
+				d.Trace[i] = hide.Replace(d.Trace[i])
+			}
+			resp.Preview.Subject.Ring = ""
+		}
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

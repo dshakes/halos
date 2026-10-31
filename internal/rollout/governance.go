@@ -52,17 +52,27 @@ func Target(org *policy.Org, r *policy.Rollout, from int) policy.ChangeTarget {
 // for the alias in org, hashed: editing any of them after an approval
 // invalidates it.
 func ApprovalKey(org *policy.Org, r *policy.Rollout) string {
+	// Rings (ADR-0037 review) are what the approval was given for: the rings
+	// the next step enters and the backing experiment's rings. Retargeting the
+	// step or the experiment to other rings is a new change, so an approval,
+	// scoped or not, stops counting everywhere the key is read (this server,
+	// older replicas and every client that asks it for approvals).
 	change := struct {
 		Release, Alias, Experiment string
 		Route                      *policy.ModelRoute `json:",omitempty"`
-	}{r.Change.Release, r.Change.Alias, r.Experiment, nil}
+		Rings                      []string
+	}{r.Change.Release, r.Change.Alias, r.Experiment, nil, nil}
+	rings := slices.Clone(Target(org, r, r.StepIndex(r.Step)).Rings)
 	if e := findExp(org, r.Experiment); e != nil {
+		rings = append(rings, e.Rings...)
 		if _, t, ok := e.Arms(); ok {
 			if rt, ok := t.Routes[r.Change.Alias]; ok {
 				change.Route = &rt
 			}
 		}
 	}
+	slices.Sort(rings)
+	change.Rings = slices.Compact(rings)
 	b, _ := json.Marshal(change) // strings and a plain struct: cannot fail
 	sum := sha256.Sum256(b)
 	return r.Name + "/" + cmp.Or(r.Step, "-") + "/" + hex.EncodeToString(sum[:16])
@@ -90,7 +100,10 @@ func (g Governance) Apply(org *policy.Org, r *policy.Rollout, st State, ev *Evid
 	ev.Quorum = org.QuorumFor(&res, t, g.Requester, ticket, g.Approvals)
 	// A scoped approval (ADR-0037) whose scope does not cover the step's
 	// rings satisfies no plain approval gate either.
-	if ev.Quorum == nil && slices.ContainsFunc(g.Approvals, func(a policy.Approval) bool { return a.ScopeCovers(&res) }) {
+	// The requester's own approval satisfies nothing (separation of duties), as in a quorum.
+	if ev.Quorum == nil && slices.ContainsFunc(g.Approvals, func(a policy.Approval) bool {
+		return a.ScopeCovers(&res) && (g.Requester == "" || policy.CanonicalUser(a.By) != policy.CanonicalUser(g.Requester))
+	}) {
 		ev.Approved = true
 	}
 }

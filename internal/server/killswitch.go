@@ -73,7 +73,7 @@ func (s *Server) killHandler(kill bool, kind string) authedHandler {
 			apiErr(w, http.StatusBadRequest, "invalid "+kind+" name")
 			return
 		}
-		org, _, err := s.pol.Get()
+		org, err := s.reqPolicy(r) // the snapshot the scope check used
 		if org == nil {
 			s.policyUnavailable(w, err)
 			return
@@ -122,7 +122,7 @@ func (s *Server) killHandler(kill bool, kind string) authedHandler {
 }
 
 // getKills (admin): active kills with who/when/why.
-func (s *Server) getKills(w http.ResponseWriter, _ *http.Request, p Principal) {
+func (s *Server) getKills(w http.ResponseWriter, r *http.Request, p Principal) {
 	recs, version, err := s.kills.Killed()
 	if err != nil {
 		s.cfg.Log.Error("read killswitch", "err", err)
@@ -132,7 +132,7 @@ func (s *Server) getKills(w http.ResponseWriter, _ *http.Request, p Principal) {
 	if f := newReadFilter(p, permRead); !f.all {
 		// Scoped readers (ADR-0037) see kills of the experiments and toggles in
 		// their scope; a kill of a name no longer in policy has no scope.
-		org, oerr := s.org()
+		org, oerr := s.reqPolicy(r)
 		recs = slices.DeleteFunc(slices.Clone(recs), func(k controller.KillRecord) bool {
 			if oerr != nil {
 				return true

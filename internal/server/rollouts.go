@@ -60,7 +60,7 @@ func (s *Server) listRollouts(w http.ResponseWriter, r *http.Request, p Principa
 		return
 	}
 	if f := newReadFilter(p, permRead); !f.all { // scoped readers (ADR-0037): rollouts wholly in scope
-		org, err := s.org()
+		org, err := s.reqPolicy(r)
 		out = slices.DeleteFunc(out, func(v RolloutView) bool {
 			if err != nil {
 				return true

@@ -788,13 +788,13 @@ func (s *Server) experiments(w http.ResponseWriter) ([]ExperimentDetail, bool) {
 	return out, true
 }
 
-func (s *Server) listExperiments(w http.ResponseWriter, _ *http.Request, p Principal) {
+func (s *Server) listExperiments(w http.ResponseWriter, r *http.Request, p Principal) {
 	out, ok := s.experiments(w)
 	if !ok {
 		return
 	}
 	if f := newReadFilter(p, permRead); !f.all {
-		org, err := s.org()
+		org, err := s.reqPolicy(r)
 		out = slices.DeleteFunc(out, func(e ExperimentDetail) bool {
 			if err != nil {
 				return true

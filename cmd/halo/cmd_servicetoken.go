@@ -60,6 +60,17 @@ func (a *app) cmdServiceTokenCreate() *cobra.Command {
 			if err := sessionJSON(cmd.Context(), srv, cred, http.MethodPost, "/api/v1/service-tokens", in, &out); err != nil {
 				return fmt.Errorf("service-token create: %w", err)
 			}
+			// A server that does not know scopes (before ADR-0037) ignores the
+			// field and mints a global token. Never hand that out: revoke it
+			// at once and fail, in every output mode.
+			if want := (policy.RoleScope{Rings: rings, Units: units}); !sameScopeSet(want, out.ServiceToken.Scope) {
+				rerr := sessionJSON(cmd.Context(), srv, cred, http.MethodPost, "/api/v1/service-tokens/"+url.PathEscape(out.ServiceToken.ID)+"/revoke",
+					server.RevokeServiceTokenRequest{Reason: "created with scope " + out.ServiceToken.Scope.String() + ", requested " + want.String() + ": revoked by halo"}, &server.ServiceTokenInfo{})
+				if rerr != nil {
+					return fmt.Errorf("service-token create: the server applied scope %s, not %s, and revoking token %s failed (revoke it now): %w", out.ServiceToken.Scope, want, out.ServiceToken.ID, rerr)
+				}
+				return fmt.Errorf("service-token create: the server applied scope %s, not %s (is halo-server older than ADR-0037?); token %s was revoked", out.ServiceToken.Scope, want, out.ServiceToken.ID)
+			}
 			return a.emit(out, func() {
 				fmt.Fprintln(a.out, out.Token)
 				fmt.Fprintln(a.errw, a.yellow("store this token now: it is not shown again."), "Use it as HALO_TOKEN.")
@@ -132,6 +143,9 @@ func (a *app) cmdServiceTokenRevoke() *cobra.Command {
 	c.Flags().StringVar(&reason, "reason", "", "why; recorded in the audit log (required)")
 	return c
 }
+
+// sameScopeSet compares scopes as sets (the server may reorder).
+func sameScopeSet(a, b policy.RoleScope) bool { return a.String() == b.String() }
 
 func tokenStatus(t server.ServiceTokenInfo) string {
 	switch {

@@ -179,14 +179,15 @@ func (s *Server) postRequest(w http.ResponseWriter, r *http.Request, p Principal
 			return
 		}
 	}
-	if err := org.CheckTicket(target, in.Ticket); err != nil {
-		apiErr(w, http.StatusUnprocessableEntity, err.Error())
-		return
-	}
 	req := &Request{ID: randB64(9), User: p.ID, Kind: in.Kind, Item: in.Item, Justification: strings.TrimSpace(in.Justification), Status: StatusPending, CreatedAt: s.cfg.Now().UTC(),
 		Ticket: in.Ticket, Target: &target}
 	if ring := org.ResolveRing(p.subject()); ring != nil {
 		req.Ring = ring.Name
+	}
+	// The rules that will judge the decision decide the ticket: what approving it changes.
+	if err := org.CheckTicket(requestTarget(org, req), in.Ticket); err != nil {
+		apiErr(w, http.StatusUnprocessableEntity, err.Error())
+		return
 	}
 	l := s.reqs
 	l.mu.Lock()
@@ -259,9 +260,9 @@ func (s *Server) releasePending(req *Request) {
 
 // listRequests: developers see their own; approvers see everyone's, or with
 // scoped approve grants (ADR-0037) the ones they could decide.
-func (s *Server) listRequests(w http.ResponseWriter, _ *http.Request, p Principal) {
+func (s *Server) listRequests(w http.ResponseWriter, r *http.Request, p Principal) {
 	f := newReadFilter(p, permApprove)
-	org, _, _ := s.pol.Get()
+	org, _ := s.reqPolicy(r)
 	writeJSON(w, http.StatusOK, s.reqs.list(func(r *Request) bool {
 		if sameUser(r.User, p.ID) || f.all {
 			return true
@@ -386,7 +387,7 @@ func (s *Server) decide(approve bool) authedHandler {
 		snap := *req
 		l.mu.Unlock()
 
-		org, _, _ := s.pol.Get()
+		org, _ := s.reqPolicy(r) // the snapshot the scope check and the approval used
 		var pr string
 		var err error
 		switch {

@@ -181,6 +181,36 @@ func TestRoleBindingValidation(t *testing.T) {
 	}
 }
 
+// TestProfileReach (review M1): an edit to a profile reaches rings on it, on
+// any profile extending it, and the rings of experiments with a variant on one.
+func TestProfileReach(t *testing.T) {
+	o := &Org{
+		Profiles: map[string]*Profile{
+			"base": {Meta: Meta{Name: "base"}}, "eng": {Meta: Meta{Name: "eng"}, Extends: "base"},
+			"eng-next": {Meta: Meta{Name: "eng-next"}, Extends: "eng"}, "other": {Meta: Meta{Name: "other"}},
+			"broken": {Meta: Meta{Name: "broken"}, Extends: "missing"},
+		},
+		Rings: []*Ring{
+			{Meta: Meta{Name: "r0"}, Profile: "eng-next"}, {Meta: Meta{Name: "r1"}, Profile: "eng"},
+			{Meta: Meta{Name: "r2"}, Profile: "other"}, {Meta: Meta{Name: "r3"}, Profile: "other"}, {Meta: Meta{Name: "r4"}, Profile: "broken"},
+		},
+		Experiments: []*Experiment{{Meta: Meta{Name: "e"}, Rings: []string{"r2"}, Variants: []Variant{{Name: "c", Control: true}, {Name: "t", Profile: "eng-next"}}}},
+	}
+	for _, c := range []struct {
+		profile string
+		want    []string
+	}{
+		{"eng-next", []string{"r0", "r2", "r4"}},  // its ring, the experiment's ring, and the unresolvable chain (fail closed)
+		{"eng", []string{"r0", "r1", "r2", "r4"}}, // eng-next extends eng
+		{"base", []string{"r0", "r1", "r2", "r4"}},
+		{"other", []string{"r2", "r3", "r4"}},
+	} {
+		if got := o.ProfileReach(c.profile); !slices.Equal(got, c.want) {
+			t.Errorf("ProfileReach(%s) = %v, want %v", c.profile, got, c.want)
+		}
+	}
+}
+
 // TestQuorumScoped: a scoped approval counts only for changes its scope covers.
 func TestQuorumScoped(t *testing.T) {
 	o := govOrg(&Governance{Approvals: []ApprovalRule{{Name: "two", Scope: ChangeScope{Rings: []string{"ring1"}}, Quorum: 2, Groups: []string{"leads"}}}})

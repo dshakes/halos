@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -80,6 +81,35 @@ func TestServiceTokenCLIScope(t *testing.T) {
 	}
 	if code, _, errs := halo(t, "service-token", "create", "--server", srv.URL, "--name", "bad", "--role", "viewer", "--scope-ring", "ring9"); code == 0 || !strings.Contains(errs, "ring9") {
 		t.Fatalf("unknown ring: %d %s", code, errs)
+	}
+}
+
+// TestServiceTokenCLIScopeIgnored: a server that ignores scope (before
+// ADR-0037) mints a global token; halo revokes it at once and fails, in text
+// and JSON output alike, and never prints the token.
+func TestServiceTokenCLIScopeIgnored(t *testing.T) {
+	for _, output := range []string{"text", "json"} {
+		t.Run(output, func(t *testing.T) {
+			var revoked []string
+			old := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.Method == "POST" && r.URL.Path == "/api/v1/service-tokens":
+					_, _ = io.WriteString(w, `{"token":"halo_sat_secretsecret","serviceToken":{"id":"0123456789abcdef","name":"x","role":"viewer"}}`)
+				case r.Method == "POST" && r.URL.Path == "/api/v1/service-tokens/0123456789abcdef/revoke":
+					revoked = append(revoked, r.URL.Path)
+					_, _ = io.WriteString(w, `{"id":"0123456789abcdef","revoked":true}`)
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			t.Cleanup(old.Close)
+			t.Setenv("HALO_TOKEN", "")
+			t.Setenv("HALO_SESSION", "sess")
+			code, out, errs := halo(t, "service-token", "create", "--server", old.URL, "--name", "x", "--role", "viewer", "--scope-unit", "payments", "--output", output)
+			if code == 0 || len(revoked) != 1 || strings.Contains(out, "secretsecret") || !strings.Contains(errs, "was revoked") {
+				t.Fatalf("%d revoked=%v out=%q err=%q", code, revoked, out, errs)
+			}
+		})
 	}
 }
 

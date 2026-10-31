@@ -135,6 +135,17 @@ func TestGovernanceApply(t *testing.T) {
 			t.Errorf("scoped approval over %s: approved=%v, want %v", c.scope, ev.Approved, c.want)
 		}
 	}
+	// (c) The requester's own approval satisfies no plain gate either.
+	for _, c := range []struct {
+		by   string
+		want bool
+	}{{"Bo@X", false}, {"al@x", true}} {
+		ev = Evidence{}
+		Governance{Requester: "bo@x", Approvals: []policy.Approval{{By: c.by}}}.Apply(org, r, at(0, t0), &ev, sat)
+		if ev.Approved != c.want {
+			t.Errorf("approval by %s, requested by bo@x: approved=%v, want %v", c.by, ev.Approved, c.want)
+		}
+	}
 }
 
 // TestApprovalKeyChangesWithStepAndChange: approvals never carry over to
@@ -169,6 +180,9 @@ func TestApprovalKeyChangesWithStepAndChange(t *testing.T) {
 		{"treatment upstream", func(o *policy.Org, _ *policy.Rollout) {
 			o.Experiments[0].Variants[1].Routes["opus"] = policy.ModelRoute{Upstream: "elsewhere", Model: "opus-5-5"}
 		}},
+		// ADR-0037 review (L3): retargeting is a new change, for every reader of the key.
+		{"next step's rings", func(_ *policy.Org, r *policy.Rollout) { r.Steps[0].Ring = "ga" }},
+		{"experiment's rings", func(o *policy.Org, _ *policy.Rollout) { o.Experiments[0].Rings = []string{"canary", "ga"} }},
 	}
 	for _, e := range edits {
 		t.Run(e.name, func(t *testing.T) {

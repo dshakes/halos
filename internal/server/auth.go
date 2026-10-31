@@ -38,7 +38,7 @@ type Principal struct {
 	ID     string   `json:"id"`
 	Groups []string `json:"groups"`
 	Roles  []string `json:"roles"`
-	Admin  bool     `json:"admin"` // holds RoleAdmin; kept for API clients that predate roles
+	Admin  bool     `json:"admin"` // holds RoleAdmin globally (a scoped admin shows in Bindings only, ADR-0037); kept for API clients that predate roles
 	// Kind is empty for a human console session, else KindServiceAccount or
 	// KindBreakGlass (ADR-0036).
 	Kind string `json:"kind,omitempty"`
@@ -74,7 +74,7 @@ func grantPrincipal(id string, groups []string, grants []policy.Grant) Principal
 	if roles == nil {
 		roles = []string{}
 	}
-	return Principal{ID: id, Groups: groups, Roles: roles, Admin: slices.Contains(roles, RoleAdmin), Bindings: grants}
+	return Principal{ID: id, Groups: groups, Roles: roles, Admin: slices.ContainsFunc(grants, func(g policy.Grant) bool { return g.Role == RoleAdmin && g.Scope.Global() }), Bindings: grants}
 }
 
 func (p Principal) subject() policy.Subject { return policy.Subject{ID: p.ID, Groups: p.Groups} }

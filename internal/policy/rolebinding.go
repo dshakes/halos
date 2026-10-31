@@ -158,6 +158,37 @@ func (o *Org) SubjectResource(s Subject) Resource {
 	return r
 }
 
+// ProfileReach is every ring an edit to profile name reaches: each ring whose
+// profile is name or extends it (at any depth), and every ring of each
+// experiment with a variant whose profile does. A chain that does not
+// resolve counts as reaching (fail closed). Ring order follows o.Rings.
+func (o *Org) ProfileReach(name string) []string {
+	uses := func(p string) bool {
+		chain, err := o.profileChain(p)
+		return err != nil || slices.ContainsFunc(chain, func(x *Profile) bool { return x.Name == name })
+	}
+	hit := map[string]bool{}
+	for _, r := range o.Rings {
+		if uses(r.Profile) {
+			hit[r.Name] = true
+		}
+	}
+	for _, e := range o.Experiments {
+		if slices.ContainsFunc(e.Variants, func(v Variant) bool { return v.Profile != "" && uses(v.Profile) }) {
+			for _, r := range e.Rings {
+				hit[r] = true
+			}
+		}
+	}
+	var out []string
+	for _, r := range o.Rings {
+		if hit[r.Name] {
+			out = append(out, r.Name)
+		}
+	}
+	return out
+}
+
 // Grant is one console role a subject holds over a scope, and the policy
 // field it comes from (for /me, `halo whoami` and audit entries).
 type Grant struct {

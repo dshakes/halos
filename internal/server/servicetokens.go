@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"crypto/rand"
@@ -188,9 +189,14 @@ type serviceTokenRecord struct {
 	// empty and holds ScopedRole over Scope instead: a binary from before
 	// ADR-0037 ignores Scope, so it must find no role it knows and refuse
 	// the token rather than treat it as global (mixed-version rollout).
-	Role         string           `json:"role"`
-	ScopedRole   string           `json:"scopedRole,omitempty"`
-	Scope        policy.RoleScope `json:"scope,omitzero"`
+	Role       string           `json:"role"`
+	ScopedRole string           `json:"scopedRole,omitempty"`
+	Scope      policy.RoleScope `json:"scope,omitzero"`
+	// CreatorScope is the scope of the creator's admin grant that allowed
+	// Scope (ADR-0037). Both are names, resolved against current policy on
+	// every use: a token whose scope a later policy puts outside it (a unit
+	// moved to another parent) is refused. Absent = global.
+	CreatorScope policy.RoleScope `json:"creatorScope,omitzero"`
 	Description  string           `json:"description,omitempty"`
 	Owner        string           `json:"owner,omitempty"`
 	CreatedBy    string           `json:"createdBy"`
@@ -384,6 +390,18 @@ func (s *Server) serviceTokenAuth(w http.ResponseWriter, r *http.Request, tok st
 		return Principal{}, false
 	}
 	role, _ := rec.role() // checked by lookupServiceToken
+	if !rec.Scope.Global() {
+		org, _, _ := s.pol.Get()
+		if org == nil || !org.ScopeWithin(rec.Scope, rec.CreatorScope) {
+			s.metrics.authFailure("service_token", "scope")
+			s.Audit(r.Context(), serviceAccountID(rec.Name, t.ID), "authz.deny", r.URL.Path, map[string]string{
+				"method": r.Method, "need": "token scope within its creator's grant", "scope": rec.Scope.String(),
+				"creatorScope": rec.CreatorScope.String(), "onBehalfOf": rec.CreatedBy,
+			})
+			apiErr(w, http.StatusForbidden, "this token's scope is no longer within the grant of the admin who created it under current policy: mint a new one")
+			return Principal{}, false
+		}
+	}
 	p := grantPrincipal(serviceAccountID(rec.Name, t.ID), nil, []policy.Grant{{Role: role, Scope: rec.Scope, Source: "service-token"}})
 	p.OnBehalfOf = rec.CreatedBy
 	p.Kind = KindServiceAccount
@@ -417,16 +435,20 @@ func grantWithin(org *policy.Org, role string, scope policy.RoleScope, p Princip
 
 // tokenScope decodes a create request's scope strictly (an unknown key is an
 // error: a typo must not mint a global token) and checks every ring and unit
-// against current policy. Absent or {} is global.
+// against current policy. Absent is global; a scope that is present must name
+// a ring or a unit: {}, null or empty lists are refused, never global.
 func (s *Server) tokenScope(raw json.RawMessage) (policy.RoleScope, error) {
 	var sc policy.RoleScope
-	if len(raw) == 0 || string(raw) == "null" {
+	if len(raw) == 0 {
 		return sc, nil
 	}
-	dec := json.NewDecoder(strings.NewReader(string(raw)))
+	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&sc); err != nil {
 		return sc, fmt.Errorf(`scope must be {"rings": [...], "units": [...]}: %w`, err)
+	}
+	if sc.Global() {
+		return sc, errors.New("scope names no ring or unit: omit it for a global token")
 	}
 	org, _, _ := s.pol.Get()
 	if org == nil && !sc.Global() {
@@ -448,6 +470,47 @@ func (s *Server) tokenScope(raw json.RawMessage) (policy.RoleScope, error) {
 	return sc, nil
 }
 
+// createTokenFields are CreateServiceTokenRequest's JSON keys, exactly.
+var createTokenFields = []string{"name", "role", "scope", "description", "owner", "ttl"}
+
+// exactKeys refuses a JSON object with a key outside allowed, a key that
+// differs from one only by case (encoding/json would accept it), or a
+// repeated key (encoding/json keeps the last): a proxy, an audit trail and
+// this server must all read the same request. nested lists the allowed keys
+// of object-valued fields.
+func exactKeys(raw []byte, allowed []string, nested map[string][]string) error {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
+		return errors.New("want a JSON object")
+	}
+	seen := map[string]bool{}
+	for dec.More() {
+		t, err := dec.Token()
+		if err != nil {
+			return err
+		}
+		k, _ := t.(string)
+		switch {
+		case !slices.Contains(allowed, k):
+			return fmt.Errorf("unknown field %q (want %s)", k, strings.Join(allowed, ", "))
+		case seen[k]:
+			return fmt.Errorf("field %q given twice", k)
+		}
+		seen[k] = true
+		var v json.RawMessage
+		if err := dec.Decode(&v); err != nil {
+			return err
+		}
+		if sub, ok := nested[k]; ok {
+			if err := exactKeys(v, sub, nil); err != nil {
+				return fmt.Errorf("%s: %w", k, err)
+			}
+		}
+	}
+	_, err := dec.Token()
+	return err
+}
+
 // validTokenText reports whether s fits a description or owner field.
 func validTokenText(s string) bool {
 	return len(s) <= maxServiceTokenText && strings.IndexFunc(s, func(r rune) bool { return unicode.IsControl(r) }) < 0
@@ -463,8 +526,21 @@ func (s *Server) createServiceToken(w http.ResponseWriter, r *http.Request, p Pr
 		apiErr(w, http.StatusForbidden, "service tokens are created from an interactive admin session, not a "+p.Kind)
 		return
 	}
+	var raw json.RawMessage
+	if err := decodeBody(w, r, 4096, &raw); err != nil {
+		apiErr(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	// Strict (ADR-0037 review): exact keys, once each; a misspelt or repeated
+	// field never falls back to a default, least of all a global scope.
 	var in CreateServiceTokenRequest
-	if err := decodeBody(w, r, 4096, &in); err != nil {
+	if err := exactKeys(raw, createTokenFields, map[string][]string{"scope": {"rings", "units"}}); err != nil {
+		apiErr(w, http.StatusBadRequest, "invalid request: "+err.Error())
+		return
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&in); err != nil {
 		apiErr(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -522,6 +598,7 @@ func (s *Server) createServiceToken(w http.ResponseWriter, r *http.Request, p Pr
 	}
 	rec := newTokenRecord(in.Role, scope)
 	rec.Name, rec.Description, rec.Owner, rec.CreatedBy, rec.CreatedAt = in.Name, in.Description, in.Owner, p.ID, now.UTC()
+	rec.CreatorScope = adminGrant.Scope
 	recb, _ := json.Marshal(rec) // plain struct: cannot fail
 	r = withAuthz(r, p, adminGrant)
 	row := pgstore.ServiceToken{ID: id, Hash: hashServiceToken(tok), Expires: now.Add(ttl).UTC().Truncate(time.Microsecond), Record: recb}

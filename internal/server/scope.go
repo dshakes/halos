@@ -86,7 +86,7 @@ var routeScopes = map[string]scopeRule{
 	"GET /api/v1/freeze":             filtered(),
 	"GET /api/v1/cloud-agents":       global("cloud agent tasks are keyed by vendor repo and user, not ring or unit"),
 
-	"GET /api/v1/rollouts/{name}/approvals": byPath((*Server).rolloutStepResourceByName),
+	"GET /api/v1/rollouts/{name}/approvals": byPath((*Server).rolloutResourceByName), // scoped as the rollout itself
 
 	"POST /api/v1/experiments/{name}/status": byPath((*Server).experimentResourceByName),
 	"POST /api/v1/experiments/{name}/kill":   byPath((*Server).experimentResourceByName),
@@ -131,6 +131,9 @@ var errNoResource = errors.New("resource not found")
 func (s *Server) authorizeScope(w http.ResponseWriter, r *http.Request, p Principal, pattern string, need perm) (*http.Request, bool) {
 	if need == permSession {
 		return r, true
+	}
+	if org, _, _ := s.pol.Get(); org != nil {
+		r = withPolicy(r, org) // one snapshot for the check and the handler
 	}
 	if g, ok := p.globalGrant(need); ok {
 		return withAuthz(r, p, g), true // global: no lookup, exactly the pre-ADR-0037 behaviour
@@ -268,6 +271,24 @@ func authzDetails(ctx context.Context, actor string, details map[string]string) 
 
 // ---- resources ----
 
+// policyKey carries the policy snapshot a request was authorized under.
+type policyKey struct{}
+
+// withPolicy pins org as r's policy: the scope check and the handler then
+// read the same snapshot, so a reload between them cannot let a handler act
+// on a resource the check never saw (ADR-0037 review).
+func withPolicy(r *http.Request, org *policy.Org) *http.Request {
+	return r.WithContext(context.WithValue(r.Context(), policyKey{}, org))
+}
+
+// reqPolicy is the policy r was authorized under, else the current one.
+func (s *Server) reqPolicy(r *http.Request) (*policy.Org, error) {
+	if org, ok := r.Context().Value(policyKey{}).(*policy.Org); ok && org != nil {
+		return org, nil
+	}
+	return s.org()
+}
+
 func (s *Server) org() (*policy.Org, error) {
 	org, _, err := s.pol.Get()
 	if org == nil {
@@ -287,7 +308,7 @@ func experimentResource(org *policy.Org, name string) (policy.Resource, error) {
 }
 
 func (s *Server) experimentResourceByName(r *http.Request) (policy.Resource, error) {
-	org, err := s.org()
+	org, err := s.reqPolicy(r)
 	if err != nil {
 		return policy.Resource{}, err
 	}
@@ -317,7 +338,7 @@ func toggleResource(org *policy.Org, name string) (policy.Resource, error) {
 }
 
 func (s *Server) toggleResourceByName(r *http.Request) (policy.Resource, error) {
-	org, err := s.org()
+	org, err := s.reqPolicy(r)
 	if err != nil {
 		return policy.Resource{}, err
 	}
@@ -347,7 +368,7 @@ func findRolloutIn(org *policy.Org, name string) *policy.Rollout {
 }
 
 func (s *Server) rolloutResourceByName(r *http.Request) (policy.Resource, error) {
-	org, err := s.org()
+	org, err := s.reqPolicy(r)
 	if err != nil {
 		return policy.Resource{}, err
 	}
@@ -361,7 +382,7 @@ func (s *Server) rolloutResourceByName(r *http.Request) (policy.Resource, error)
 // rolloutStepResourceByName: what approving the rollout's next step touches
 // (the rings it enters), the same resource QuorumFor counts approvals against.
 func (s *Server) rolloutStepResourceByName(r *http.Request) (policy.Resource, error) {
-	org, err := s.org()
+	org, err := s.reqPolicy(r)
 	if err != nil {
 		return policy.Resource{}, err
 	}
@@ -384,7 +405,7 @@ func (s *Server) deviceResource(org *policy.Org, d Device) (policy.Resource, err
 }
 
 func (s *Server) deviceResourceByID(r *http.Request) (policy.Resource, error) {
-	org, err := s.org()
+	org, err := s.reqPolicy(r)
 	if err != nil {
 		return policy.Resource{}, err
 	}
@@ -399,8 +420,9 @@ func (s *Server) deviceResourceByID(r *http.Request) (policy.Resource, error) {
 // of it (never the decision's body):
 //   - ring-opt-in adds the requester to the requested ring: their ring when
 //     filed and that ring, their unit chain;
-//   - mcp-server adds the server to their ring's profile, which every ring
-//     on that profile, and every unit, shares;
+//   - mcp-server adds the server to their ring's profile, which reaches every
+//     ring whose profile is it or extends it, every ring of an experiment
+//     with a variant on such a profile, and every unit (mcpReach);
 //   - anything else has no automatic change, so its reach is unknown: global only.
 func requestResource(org *policy.Org, req *Request) (policy.Resource, error) {
 	switch req.Kind {
@@ -417,15 +439,9 @@ func requestResource(org *policy.Org, req *Request) (policy.Resource, error) {
 		}
 		return res, nil
 	case "mcp-server":
-		ring := ringByName(org, req.Ring)
-		if ring == nil {
-			return policy.Resource{}, errors.New("requester's ring is unknown")
-		}
-		var rings []string
-		for _, rg := range org.Rings {
-			if rg.Profile == ring.Profile {
-				rings = append(rings, rg.Name)
-			}
+		rings, err := mcpReach(org, req)
+		if err != nil {
+			return policy.Resource{}, err
 		}
 		return policy.RingResource(rings...), nil
 	default:
@@ -433,8 +449,18 @@ func requestResource(org *policy.Org, req *Request) (policy.Resource, error) {
 	}
 }
 
+// mcpReach is the rings approving an mcp-server request reaches: the
+// GitPolicyWriter adds the server to the requester's ring's profile.
+func mcpReach(org *policy.Org, req *Request) ([]string, error) {
+	ring := ringByName(org, req.Ring)
+	if ring == nil {
+		return nil, errors.New("requester's ring is unknown")
+	}
+	return org.ProfileReach(ring.Profile), nil
+}
+
 func (s *Server) requestResourceByID(r *http.Request) (policy.Resource, error) {
-	org, err := s.org()
+	org, err := s.reqPolicy(r)
 	if err != nil {
 		return policy.Resource{}, err
 	}

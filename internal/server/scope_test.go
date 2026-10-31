@@ -53,6 +53,15 @@ const scopedBindings = `  roleBindings:
     - role: viewer
       groups: [g-pay-canary-view]
       scope: {rings: [ring1-canary], units: [payments]}
+    - role: approver
+      groups: [g-123-appr]
+      scope: {rings: [ring1-canary, ring2-early, ring3-ga]}
+    - role: approver
+      groups: [g-r0-appr]
+      scope: {rings: [ring0-harness-team]}
+    - role: viewer
+      groups: [g-r0-view]
+      scope: {rings: [ring0-harness-team]}
 `
 
 // scopedGovernance: two approvals from the listed groups for canary changes.
@@ -608,7 +617,14 @@ func TestScopedServiceTokens(t *testing.T) {
 		{"unit admin: admin over own unit", payAdmin, `{"name":"pay-admin","role":"admin","scope":{"units":["payments"]}}`, 201},
 		{"unit admin: own unit narrowed to a ring", payAdmin, `{"name":"pay-canary","role":"operator","scope":{"units":["payments"],"rings":["ring1-canary"]}}`, 201},
 		{"unit admin: global token", payAdmin, `{"name":"g","role":"viewer"}`, 403},
-		{"unit admin: empty scope is global", payAdmin, `{"name":"g","role":"viewer","scope":{}}`, 403},
+		{"empty scope is refused, never global", admin, `{"name":"g","role":"viewer","scope":{}}`, 400},
+		{"null scope is refused", admin, `{"name":"g","role":"viewer","scope":null}`, 400},
+		{"empty scope lists are refused", admin, `{"name":"g","role":"viewer","scope":{"rings":[],"units":[]}}`, 400},
+		{"case-variant key is refused", admin, `{"name":"g","role":"viewer","Scope":{"rings":["ring1-canary"]}}`, 400},
+		{"case-variant scope key is refused", admin, `{"name":"g","role":"viewer","scope":{"Rings":["ring1-canary"]}}`, 400},
+		{"repeated scope (last would be global) is refused", payAdmin, `{"name":"g","role":"viewer","scope":{"units":["payments"]},"scope":{"rings":[]}}`, 400},
+		{"repeated key inside scope is refused", admin, `{"name":"g","role":"viewer","scope":{"units":["payments"],"units":[]}}`, 400},
+		{"unknown top-level key is refused", admin, `{"name":"g","role":"viewer","scopes":{"units":["payments"]}}`, 400},
 		{"unit admin: a ring without the unit", payAdmin, `{"name":"r","role":"viewer","scope":{"rings":["ring1-canary"]}}`, 403},
 		{"misspelt scope key is refused, never global", admin, `{"name":"typo","role":"viewer","scope":{"ring":["ring1-canary"]}}`, 400},
 		{"unknown ring", admin, `{"name":"x","role":"viewer","scope":{"rings":["ring9"]}}`, 400},

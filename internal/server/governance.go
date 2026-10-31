@@ -255,8 +255,9 @@ func (s *Server) rolloutApprovals(org *policy.Org, ro *policy.Rollout) (RolloutA
 	return out, nil
 }
 
-func (s *Server) findRollout(w http.ResponseWriter, name string) (*policy.Org, *policy.Rollout) {
-	org, _, err := s.pol.Get()
+// findRollout looks name up in the policy r was authorized under.
+func (s *Server) findRollout(w http.ResponseWriter, r *http.Request, name string) (*policy.Org, *policy.Rollout) {
+	org, err := s.reqPolicy(r)
 	if org == nil {
 		s.policyUnavailable(w, err)
 		return nil, nil
@@ -271,7 +272,7 @@ func (s *Server) findRollout(w http.ResponseWriter, name string) (*policy.Org, *
 }
 
 func (s *Server) getRolloutApprovals(w http.ResponseWriter, r *http.Request, _ Principal) {
-	org, ro := s.findRollout(w, r.PathValue("name"))
+	org, ro := s.findRollout(w, r, r.PathValue("name"))
 	if ro == nil {
 		return
 	}
@@ -305,7 +306,7 @@ func (s *Server) postRolloutApprove(w http.ResponseWriter, r *http.Request, p Pr
 			return
 		}
 	}
-	org, ro := s.findRollout(w, r.PathValue("name"))
+	org, ro := s.findRollout(w, r, r.PathValue("name"))
 	if ro == nil {
 		return
 	}
@@ -367,7 +368,7 @@ type decisionView struct {
 // approved before while the quorum is still short, or the audit failed. A
 // repeat approval of a met quorum (a retry after a failed PR) adds nothing.
 func (s *Server) recordApproval(w http.ResponseWriter, r *http.Request, p Principal, req *Request) (q *policy.QuorumResult, done bool) {
-	org, _, err := s.pol.Get()
+	org, err := s.reqPolicy(r)
 	if org == nil {
 		s.policyUnavailable(w, err)
 		return nil, true
@@ -410,15 +411,42 @@ func quorumFor(org *policy.Org, t policy.ChangeTarget, req *Request) *policy.Quo
 	return org.QuorumFor(res, t, req.User, req.Ticket, req.Approvals)
 }
 
-// requestTarget is what approving req changes. Requests filed before
-// ADR-0030 carry none: their ring and every unit (fail closed).
+// requestTarget is what approving req changes, for approval rules and
+// freeze windows: the requester's ring and unit chain when filed (requests
+// filed before ADR-0030 carry none: their ring and every unit, fail closed),
+// plus what the approval edits. An opt-in adds the requested ring. An MCP
+// server lands in a profile, so it reaches every ring of mcpReach and every
+// unit; when that cannot be computed, every ring.
 func requestTarget(org *policy.Org, req *Request) policy.ChangeTarget {
+	var t policy.ChangeTarget
 	if req.Target != nil {
-		return *req.Target
+		t = policy.ChangeTarget{Rings: slices.Clone(req.Target.Rings), Units: slices.Clone(req.Target.Units)}
+	} else {
+		var rings []string
+		if req.Ring != "" {
+			rings = []string{req.Ring}
+		}
+		t = org.RingTarget(rings...)
 	}
-	var rings []string
-	if req.Ring != "" {
-		rings = []string{req.Ring}
+	add := func(rings ...string) {
+		for _, r := range rings {
+			if !slices.Contains(t.Rings, r) {
+				t.Rings = append(t.Rings, r)
+			}
+		}
 	}
-	return org.RingTarget(rings...)
+	switch req.Kind {
+	case "ring-opt-in":
+		add(req.Item)
+	case "mcp-server":
+		reach, err := mcpReach(org, req)
+		if err != nil {
+			for _, r := range org.Rings {
+				reach = append(reach, r.Name)
+			}
+		}
+		add(reach...)
+		t.Units = org.RingTarget().Units // a profile is shared by every unit's members
+	}
+	return t
 }

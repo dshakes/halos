@@ -473,10 +473,10 @@ func (s *Server) getFleetRing(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ring": ring.Name, "subject": dev.UserID, "groups": dev.Groups})
 }
 
-func (s *Server) listDevices(w http.ResponseWriter, _ *http.Request, p Principal) {
+func (s *Server) listDevices(w http.ResponseWriter, r *http.Request, p Principal) {
 	all := s.devices.list()
 	if f := newReadFilter(p, permRead); !f.all {
-		org, err := s.org()
+		org, err := s.reqPolicy(r)
 		all = slices.DeleteFunc(all, func(d Device) bool {
 			if err != nil {
 				return true

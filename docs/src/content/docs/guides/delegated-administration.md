@@ -51,7 +51,7 @@ A grant covers a resource only when the resource lies wholly inside the scope.
 | `rings: [ring1-canary], units: [payments]` | Payments members' devices in ring1-canary. Not experiments: they run for every unit's members |
 | No scope | Everything the role allows, as `identity.roles` |
 
-Some routes are global only: the policy snapshot, budgets, cloud agents, the audit log and session ledger, credential and per-user session revocation, toggle proposals, the incident freeze and break-glass unlock. Scoped callers get a 403 there. An `mcp-server` access request edits a profile that several rings share, so only an approver covering all of them, or a global one, can decide it. Requests of kinds with no automatic change are global only.
+Some routes are global only: the policy snapshot, budgets, cloud agents, the audit log and session ledger, credential and per-user session revocation, toggle proposals, the incident freeze and break-glass unlock. Scoped callers get a 403 there. An `mcp-server` access request edits the requester's ring's profile, which also reaches every ring on a profile that extends it and every ring of an experiment with a variant on one, so only an approver covering all of those rings, or a global one, can decide it. Requests of kinds with no automatic change are global only.
 
 Lists (fleet, devices, releases, experiments, rollouts, toggles, kill list, freeze, requests, service tokens) show only what you cover, with counts computed from that. A resource you do not cover and one that does not exist answer the same 403.
 
@@ -86,6 +86,12 @@ The scope must be within one of your admin grants, and each permission of the ro
 
 Approving needs an approve grant covering what the decision changes: a rollout step's rings, or the requester's rings and unit. With an approval rule ([change governance](/halos/guides/change-governance/)), a scoped approval counts toward the quorum only while its scope covers the change; if the step is later edited to enter a ring outside it, the approval stops counting. Approvers must still hold one of the rule's groups.
 
+A toggle's "who gets it?" preview is limited the same way: without a global read grant you can preview yourself, or a user in a ring you read (`ring` given).
+
+A scoped token keeps the scope of the admin grant that allowed it. If a later policy puts the token's scope outside it (a unit moved to another parent), the token is refused until you mint a new one.
+
 ## Upgrading
 
-Upgrade every halo-server replica before adding the first `roleBindings` entry. An older binary refuses such a policy (and keeps its last good one), refuses scoped tokens, and counts scoped approvals for no approval rule; it would still count one toward a plain approval gate.
+Before adding the first `roleBindings` entry, upgrade to the first release with ADR-0037: every halo-server replica, the `halo` CLI, `halo mcp serve` and any standalone `halo controller run`. An older halo-server refuses such a policy (and keeps its last good one), refuses scoped tokens and counts scoped approvals for no approval rule; an older halo-server, CLI or MCP server would still count a scoped approval toward a step's plain approval gate. An older halo-server also ignores a token's `scope` and mints a global token: `halo service-token create --scope-*` notices, revokes it and fails.
+
+Rollout-step approvals are keyed by the rings they approve (the next step's and the experiment's) from this release on, so approvals pending at the upgrade must be given again.
