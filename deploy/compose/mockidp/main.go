@@ -41,7 +41,11 @@ func main() {
 	iss.URL = issuer
 	log.Printf("mockidp issuer=%s audience=%s", issuer, aud) //nolint:gosec // dev mock logging its own env config
 	h := handler(iss, aud, strings.TrimRight(os.Getenv("PUBLIC_URL"), "/"))
-	log.Fatal((&http.Server{Addr: ":8080", Handler: h, ReadHeaderTimeout: 10 * time.Second}).ListenAndServe())
+	addr := os.Getenv("LISTEN") // default :8080, as compose expects
+	if addr == "" {
+		addr = ":8080"
+	}
+	log.Fatal((&http.Server{Addr: addr, Handler: h, ReadHeaderTimeout: 10 * time.Second}).ListenAndServe())
 }
 
 // handler serves the issuer, the demo login (/authorize) and GET /token.
