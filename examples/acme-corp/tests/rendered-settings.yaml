@@ -1,0 +1,54 @@
+# yaml-language-server: $schema=../../../schemas/policytest.schema.json
+# What each cohort's devices receive: key paths into the rendered config files.
+apiVersion: halos.dev/v1
+kind: PolicyTest
+name: rendered-settings
+description: The security posture every ring ships, and the ring stamp in the config.
+cases:
+  - name: GA claude-code is sandboxed and cannot bypass permissions
+    identity: {user: dev0@acme.example}
+    expect:
+      ring: ring3-ga
+      settings:
+        claude-code:
+          permissions.defaultMode: default
+          permissions.disableBypassPermissionsMode: disable
+          sandbox.enabled: true
+          sandbox.allowUnsandboxedCommands: false
+          env.ANTHROPIC_BASE_URL: https://ai.acme.example
+          allowManagedHooksOnly: true
+
+  - name: GA codex keeps approvals on and the gateway as its provider
+    identity: {user: dev0@acme.example}
+    os: darwin
+    expect:
+      settings:
+        codex:
+          approval_policy: on-request
+          sandbox_mode: workspace-write
+          model_providers.halos.http_headers.x-halo-ring: ring3-ga
+          dangerouslyBypass: null # absent: the key must never appear
+
+  - name: harness team gets the same locks on its own profile
+    identity: {user: pat@acme.example, groups: [ai-platform]}
+    expect:
+      settings:
+        claude-code:
+          permissions.disableBypassPermissionsMode: disable
+          sandbox.enabled: true
+
+  # A client-axis experiment serves its own release: the pin follows the variant.
+  - name: ring1 control arm stays on the current Claude Code pin
+    identity: {user: dev5@acme.example}
+    expect:
+      settings:
+        claude-code:
+          requiredMinimumVersion: 2.1.280
+
+  - name: ring1 cli-next arm is pinned to the newer Claude Code
+    identity: {user: dev380@acme.example}
+    expect:
+      variants: {claude-cli-2.1.3xx-ab: cli-next}
+      settings:
+        claude-code:
+          requiredMinimumVersion: 2.1.312
