@@ -22,7 +22,7 @@ Before finishing: `gofmt -l .` empty, `go build ./... && go vet ./... && go test
 - `cmd/halo` CLI (cobra). `cmd/halod` fleet agent. `cmd/halo-server` API + console. `cmd/halo-shadow` shadow mirror. `cmd/halo-kong` gateway plugin.
 - `internal/policy` types, loader, validation, ring/experiment resolution.
 - `internal/harness/{claudecode,codex,gemini,copilot,cursor,opencode}` adapters: render config + capability matrix.
-- `internal/release` build/diff of release bundles; `internal/bundle` OCI push/pull + signing.
+- `internal/release` build/diff of release bundles; `internal/bundle` OCI push/pull + signing. `internal/signer` signing keys by URI (ADR-0038): `file://`, `awskms://`, `exec://` external signers.
 - `internal/assign` deterministic hashing. `internal/gateway`, `internal/identity`, `internal/server`, `internal/shadow`.
 - `internal/a2a` A2A AgentCard fetch, canonical digest and signature checks.
 - `internal/eval` replay evals + scorecards. `internal/stats` mSPRT/bootstrap. `internal/promote` verdicts, promotion/rollback plans, PRs/MRs (`forge.go`: gh CLI, GitHub REST, GitLab REST v4; never merges).

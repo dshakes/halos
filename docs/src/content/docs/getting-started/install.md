@@ -129,12 +129,14 @@ halo --help
 
 `halo version` prints `halo <version> (commit ..., built ...)` and `halo --help` lists `validate`, `release`, `exp`, `eval`, `export`, `gateway`, `mcp` and more. Other checks the repo runs: `make test` (`go test -race ./...`), `make lint`, `make vuln`.
 
+For FIPS 140-3 deployments, `make build-fips` builds the same binaries against Go's FIPS module into `bin/fips/`; releases ship them as `*_fips_*` archives and `:<version>-fips` images ([FIPS 140-3 builds](/halos/guides/fips/)).
+
 ## What you need around them
 
 | Need | Used for | Notes |
 |---|---|---|
 | An OCI registry | Releases and signed ring pointers | Any registry ORAS can push to. A local `registry:2` works with `--plain-http` |
-| An ed25519 signing key | `halo release publish/promote/refresh`, `halo rollback` | `halo keys generate` (written to your per-user config directory; never into a git work tree without `--force`). The primary signer must be ed25519 because `halod` verifies only ed25519. cosign (key, KMS or keyless) can be added as a co-signature with `--cosign-key` / `--cosign-keyless` |
+| A signing key (ed25519 or ECDSA P-256) | `halo release publish/promote/refresh`, `halo rollback` | `halo keys generate` (written to your per-user config directory; never into a git work tree without `--force`), or a KMS or HSM key with `--key-uri` ([key management](/halos/guides/key-management/)). The primary signer must be ed25519 or ECDSA P-256 because `halod` verifies only those. cosign (key, KMS or keyless) can be added as a co-signature with `--cosign-key` / `--cosign-keyless` |
 | An OIDC provider | Portal login, gateway JWT verification, enrollment | Any compliant IdP (Okta, Entra ID, Google, Keycloak, Ping, Auth0). Set in `halos.yaml` under `identity` |
 | A gateway (optional) | Traffic plane | `halo-proxy` runs with or without Kong, LiteLLM, Envoy, nginx or AWS API Gateway. See [stack-agnostic](/halos/concepts/stack-agnostic/) |
 | ClickHouse + OTEL collector (optional) | Experiment analysis | `halo telemetry collector-config` generates the collector config; schema in `deploy/observability/clickhouse/schema.sql` |
@@ -148,7 +150,7 @@ halo --help
 
 ## Signing
 
-See [security model](/halos/concepts/security-model/) and [production deployment](/halos/guides/production-deployment/) for key handling and pointer refresh.
+See [security model](/halos/concepts/security-model/) and [production deployment](/halos/guides/production-deployment/) for key handling and pointer refresh, and [signing keys in a KMS or HSM](/halos/guides/key-management/) to keep the key in AWS KMS or an HSM.
 
 ## Check
 

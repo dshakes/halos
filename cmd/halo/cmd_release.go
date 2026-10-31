@@ -33,6 +33,7 @@ type regFlags struct {
 	registry       string
 	plainHTTP      bool
 	key, keyURI    string
+	coKeyURI       string
 	cosign, pubkey string
 	keyless        bool
 }
@@ -43,6 +44,7 @@ func (r *regFlags) add(c *cobra.Command, sign, verify bool) {
 	if sign {
 		c.Flags().StringVar(&r.key, "key", "", "ed25519 or ECDSA P-256 private key PEM (create one with: halo keys generate)")
 		c.Flags().StringVar(&r.keyURI, "key-uri", "", "signing key by URI instead of --key: file://PATH, awskms://KEY?region=R, exec:///SIGNER (see halo keys public)")
+		c.Flags().StringVar(&r.coKeyURI, "co-key-uri", "", "second key (other algorithm) that co-signs releases and pointers while rotating, so halods that trust only it keep verifying")
 		c.Flags().StringVar(&r.cosign, "cosign-key", "", "cosign key reference (file or KMS URI); co-signs alongside --key")
 		c.Flags().BoolVar(&r.keyless, "cosign-keyless", false, "cosign keyless (Fulcio+Rekor): uploads the release digest to the public transparency log")
 	}
@@ -124,10 +126,24 @@ func (r *regFlags) signer(ctx context.Context) (bundle.Signer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("signing key: %w", err)
 	}
-	if r.cosign == "" && !r.keyless {
+	ms := bundle.MultiSigner{ks}
+	if r.coKeyURI != "" {
+		co, err := signer.Open(ctx, r.coKeyURI, signer.Options{})
+		if err != nil {
+			return nil, fmt.Errorf("--co-key-uri: %w", err)
+		}
+		if co.Type() == ks.Type() {
+			return nil, fmt.Errorf("--co-key-uri is %s like the signing key: a co-signing key must use the other algorithm (halods read one signature per algorithm)", co.Type())
+		}
+		ms = append(ms, co)
+	}
+	if r.cosign != "" || r.keyless {
+		ms = append(ms, bundle.Cosign{Key: r.cosign, Keyless: r.keyless})
+	}
+	if len(ms) == 1 {
 		return ks, nil
 	}
-	return bundle.MultiSigner{ks, bundle.Cosign{Key: r.cosign, Keyless: r.keyless}}, nil
+	return ms, nil
 }
 
 func (r *regFlags) verifier() (bundle.Verifier, error) {

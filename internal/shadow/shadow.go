@@ -189,7 +189,7 @@ func (s sealer) row(p Pair) ([]byte, error) {
 	if s.gcm == nil {
 		return b, nil
 	}
-	if b, err = json.Marshal(sealed{ID: p.ID, Time: p.Time, KID: s.kid, Enc: s.gcm.Seal(nil, nil, b, []byte(p.ID))}); err != nil {
+	if b, err = json.Marshal(sealed{ID: p.ID, Time: p.Time, KID: s.kid, Enc: s.gcm.Seal(nil, nil, b, []byte(p.ID))}); err != nil { //nolint:gosec // G407 false positive: NewGCMWithRandomNonce draws the nonce itself and requires nil
 		return nil, fmt.Errorf("shadow: marshal sealed pair %s: %w", p.ID, err)
 	}
 	return b, nil

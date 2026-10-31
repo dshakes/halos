@@ -90,3 +90,49 @@ func TestReleaseKeyURI(t *testing.T) {
 		}
 	}
 }
+
+// --co-key-uri: an ECDSA (KMS-style) primary co-signed by the old ed25519 key;
+// halods trusting either key verify; a same-algorithm co-key is refused.
+func TestReleaseCoKeyURI(t *testing.T) {
+	ex := buildable(t)
+	store := memory.New()
+	old := dialRegistry
+	dialRegistry = func(string, bool) (oras.Target, error) { return store, nil }
+	t.Cleanup(func() { dialRegistry = old })
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	dir := t.TempDir()
+	if code, _, errs := halo(t, "keys", "generate", "--out", dir, "--name", "old"); code != 0 {
+		t.Fatalf("keys: %s", errs)
+	}
+	k, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, _ := x509.MarshalPKCS8PrivateKey(k)
+	newKey := filepath.Join(dir, "new.key")
+	if err := os.WriteFile(newKey, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reg := "registry.test/acme/halos"
+	if code, _, errs := halo(t, "release", "publish", "--no-artifacts", ex, "--ring", "ring3-ga", "--release-version", "1.0.0",
+		"--registry", reg, "--key-uri", "file://"+newKey, "--co-key-uri", "file://"+filepath.Join(dir, "old.key")); code != 0 {
+		t.Fatalf("publish: %d %s", code, errs)
+	}
+	oldPub, err := os.ReadFile(filepath.Join(dir, "old.pub"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ov, err := bundle.ParseVerifier(oldPub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, v := range map[string]bundle.Verifier{"old ed25519 key": ov, "new ecdsa key": bundle.ECDSAVerifier{Key: &k.PublicKey}} {
+		if _, _, err := bundle.PullRing(context.Background(), store, v, bundle.RingOptions{Org: "acme-corp", Ring: "ring3-ga", Now: time.Now()}); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+	if code, _, e := halo(t, "release", "publish", "--no-artifacts", ex, "--ring", "ring3-ga", "--release-version", "1.0.1",
+		"--registry", reg, "--key-uri", "file://"+newKey, "--co-key-uri", "file://"+newKey); code == 0 || !strings.Contains(e, "other algorithm") {
+		t.Fatalf("same-algorithm co-key: %d %s", code, e)
+	}
+}

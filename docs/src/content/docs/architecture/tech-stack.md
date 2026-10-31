@@ -69,7 +69,7 @@ Most of the core is the Go standard library:
 | `github.com/opencontainers/go-digest` | `v1.0.0` | Content digests for blobs and pointer statements. | `internal/bundle`, `internal/supplychain` |
 <!-- /check -->
 
-Signing itself uses the standard library: ed25519 primary signatures in [`internal/bundle/sign.go`](https://github.com/dshakes/halos/blob/main/internal/bundle/sign.go). cosign is an optional co-signer, called as an external `cosign sign-blob` process ([`internal/bundle/sign.go:103-190`](https://github.com/dshakes/halos/blob/main/internal/bundle/sign.go#L103-L190)); it is not a Go dependency.
+Signing itself uses the standard library: ed25519 or ECDSA P-256 primary signatures in [`internal/bundle/sign.go`](https://github.com/dshakes/halos/blob/main/internal/bundle/sign.go) and [`keys.go`](https://github.com/dshakes/halos/blob/main/internal/bundle/keys.go); AWS KMS through its JSON API with the AWS SDK core already used for Bedrock, and external signers as a subprocess ([`internal/signer`](https://github.com/dshakes/halos/tree/main/internal/signer)). cosign is an optional co-signer, called as an external `cosign sign-blob` process ([`internal/bundle/sign.go:103-190`](https://github.com/dshakes/halos/blob/main/internal/bundle/sign.go#L103-L190)); it is not a Go dependency.
 
 ### Identity
 

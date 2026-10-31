@@ -13,6 +13,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -374,4 +375,54 @@ func manifestAt(t *testing.T, store oras.ReadOnlyTarget, tag string) ocispec.Man
 func sha256Hex(b []byte) string {
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:])
+}
+
+// legacySignatureFor is signatureFor exactly as halod shipped it before
+// ADR-0038 (co-signature of the verifier's type first, else the primary if
+// its type matches): what a not-yet-upgraded halod runs.
+func legacySignatureFor(m ocispec.Manifest, v Verifier) ([]byte, error) {
+	enc := m.Annotations[AnnSignature+"."+v.Type()]
+	if enc == "" {
+		if t := m.Annotations[AnnSigType]; t != v.Type() {
+			return nil, fmt.Errorf("signature type %q, verifier expects %q", t, v.Type())
+		}
+		enc = m.Annotations[AnnSignature]
+	}
+	return base64.StdEncoding.DecodeString(enc)
+}
+
+// A not-yet-upgraded halod trusting only the old ed25519 key verifies a
+// release and pointer whose primary signature is ECDSA (KMS) and which the
+// old key co-signs.
+func TestPreADR0038HalodVerifiesCoSigned(t *testing.T) {
+	ctx := context.Background()
+	cs, _ := ecKeys(t)
+	es, ev := keys(t)
+	store := memory.New()
+	rel := mkRel(t, "1", "r")
+	if _, err := Publish(ctx, store, rel, MultiSigner{cs, es}, "r"); err != nil {
+		t.Fatal(err)
+	}
+	m := manifestAt(t, store, "v1")
+	sig, err := legacySignatureFor(m, ev)
+	if err != nil || ev.Verify(ctx, m.Layers[0].Digest.String(), sig) != nil {
+		t.Fatalf("old halod on the release: %v", err)
+	}
+	pm := manifestAt(t, store, PointerTag("r"))
+	payload, err := content.FetchAll(ctx, store, pm.Config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	psig, err := legacySignatureFor(pm, ev)
+	if err != nil || ev.Verify(ctx, pointerStatement(payload), psig) != nil {
+		t.Fatalf("old halod on the pointer: %v", err)
+	}
+	// without the co-signature an old halod refuses the ECDSA release
+	solo := memory.New()
+	if _, err := Publish(ctx, solo, rel, cs, "r"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacySignatureFor(manifestAt(t, solo, "v1"), ev); err == nil {
+		t.Fatal("old halod accepted an ECDSA-only release")
+	}
 }

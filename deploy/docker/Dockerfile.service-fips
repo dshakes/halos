@@ -2,7 +2,7 @@
 # Dockerfile.service; the binaries are built with GOFIPS140=v1.0.0 (Go's
 # frozen FIPS module), so the module runs its self-tests at start and
 # fips140=on is the default. Set GODEBUG=fips140=only on the container to
-# also refuse every non-approved algorithm (docs: operate/fips).
+# also refuse every non-approved algorithm (docs: guides/fips).
 #   BINARY: halo-server | halo-proxy | halo-shadow
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 ARG TARGETPLATFORM

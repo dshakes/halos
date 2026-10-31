@@ -26,6 +26,7 @@ halo upgrade start <tool> <version> [flags]
 |---|---|---|---|---|
 | `--adopt-existing` |  | bool | false | trust pointers the registry already serves that the state file has no record of (first run, or an evicted CI cache); without it such a pointer is refused unless --expect-digest names it |
 | `--baseline` |  | string |  | override: rollback digest (default: the release the GA ring's signed pointer serves) |
+| `--co-key-uri` |  | string |  | second key (other algorithm) that co-signs releases and pointers while rotating, so halods that trust only it keep verifying |
 | `--cosign-key` |  | string |  | cosign key reference (file or KMS URI); co-signs alongside --key |
 | `--cosign-keyless` |  | bool | false | cosign keyless (Fulcio+Rekor): uploads the release digest to the public transparency log |
 | `--dry-run` |  | bool | false | print the diff instead of writing (nothing is published) |

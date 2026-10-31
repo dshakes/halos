@@ -45,6 +45,7 @@ Decisions that shape Halos. New ADRs use [MADR](https://adr.github.io/madr/): co
 | [0034](/halos/adr/0034-cloud-agent-governance/) | Cloud agent governance: SHA-pinned rendered workflows, an identity-mapped task inventory from HMAC-verified webhooks and vendor APIs, kill fan-out and reversible over-limit pauses |
 | [0035](/halos/adr/0035-policy-copilot/) | Policy copilot: the model drafts, Halos' validator, plan, impact and stats verify, a human approves; schema-checked output, capped spend, offline mode |
 | [0036](/halos/adr/0036-admin-api-credentials-break-glass-and-session-policy/) | Admin API credentials, break-glass and session policy: role-bound expiring service-account tokens, a sealed and loudly audited break-glass admin, absolute and idle session timeouts, no silent no-roles login on Entra groups overage, optional acr/amr |
+| [0038](/halos/adr/0038-external-key-management-and-fips-builds/) | External key management and FIPS builds: release and kill-switch keys by URI (file, AWS KMS, external signer), ECDSA P-256 verified next to ed25519 with the algorithm bound per signature, FIPS 140-3 builds on Go's module tested in fips140=only |
 
 The canonical files live in `docs/adr/` in the repository; the docs build copies them into the site.
 | [0037](/halos/adr/0037-scoped-role-bindings/) | Scoped role bindings: halo-server roles over rings and units, a per-route resource table, filtered lists, deny on unknown scope, scoped service tokens and quorum approvals; global roles unchanged |
