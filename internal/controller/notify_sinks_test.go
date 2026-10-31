@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"net/http"
@@ -699,5 +700,30 @@ func TestPagerDutyDefaultsDoNotPageInformationalEvents(t *testing.T) {
 	}
 	if srv.calls() != 5 {
 		t.Fatalf("paging events delivered: %d, want 5", srv.calls())
+	}
+}
+
+// halo-server (stdlib flag) and `halo controller run` (pflag) share one set of
+// flags through NotifyFlags.
+func TestNotifyFlags(t *testing.T) {
+	fs := flag.NewFlagSet("t", flag.ContinueOnError)
+	var c NotifyConfig
+	NotifyFlags(fs, &c)
+	args := []string{
+		"--notify-slack-url-file=a", "--notify-slack-events=experiment.rollback",
+		"--notify-teams-url-file=b", "--notify-teams-events=all",
+		"--notify-webhook-url-file=c", "--notify-webhook-secret-file=d", "--notify-webhook-events=all,resolved",
+		"--notify-pagerduty-routing-key-file=e", "--notify-pagerduty-url=https://events.eu.pagerduty.com/v2/enqueue", "--notify-pagerduty-events=resolved",
+	}
+	if err := fs.Parse(args); err != nil {
+		t.Fatal(err)
+	}
+	want := NotifyConfig{
+		SlackURLFile: "a", SlackEvents: "experiment.rollback", TeamsURLFile: "b", TeamsEvents: "all",
+		WebhookURLFile: "c", WebhookSecretFile: "d", WebhookEvents: "all,resolved",
+		PagerDutyRoutingKeyFile: "e", PagerDutyURL: "https://events.eu.pagerduty.com/v2/enqueue", PagerDutyEvents: "resolved",
+	}
+	if fmt.Sprintf("%+v", c) != fmt.Sprintf("%+v", want) {
+		t.Fatalf("config = %+v", c)
 	}
 }

@@ -145,6 +145,11 @@ groups:
         labels: {severity: ticket}
         annotations:
           summary: "controller errors: ClickHouse, policy clone, PR, kill or notify failing; rollbacks may not be enforced"
+      - alert: HaloControllerNotifyFailing
+        expr: sum by (sink) (increase(halo_controller_notifications_total{result="error"}[30m])) > 2
+        labels: {severity: ticket}
+        annotations:
+          summary: "{{ $labels.sink }}: notifications failing after retries; a rollback or page may not have reached anyone (check the webhook URL, routing key or outage)"
 
   - name: halos-ha
     rules:

@@ -102,8 +102,11 @@ retried on later ticks without re-posting to the others.
 | `--policy-repo-subdir` | | Policy root inside the clone. |
 | `--policy-repo-base` | `main` | PR base branch. |
 | `--notify-slack-url-file` | | Slack incoming-webhook URL. Posts `{text, blocks}`. |
+| `--notify-teams-url-file` | | Microsoft Teams Workflows (Power Automate) webhook URL. Posts an Adaptive Card; retired Office 365 connector URLs are refused. |
 | `--notify-webhook-url-file` | | Generic webhook URL. Posts the JSON event. |
 | `--notify-webhook-secret-file` | | HMAC-SHA256 secret. Adds `X-Halo-Timestamp: <unix s>` and `X-Halo-Signature: sha256=<hex HMAC(secret, timestamp + "." + body)>`. Receivers must verify it and reject timestamps more than 5 minutes off (Go and Python snippets: docs site, CLI reference, "Verifying the webhook signature"). |
+| `--notify-pagerduty-routing-key-file`, `--notify-pagerduty-url` | | PagerDuty Events API v2 routing key (file) and endpoint (default `https://events.pagerduty.com/v2/enqueue`; EU: `events.eu.pagerduty.com`). Pages only on rollbacks, kill-switch holds and paused rollouts, and resolves when they clear. |
+| `--notify-{slack,teams,webhook,pagerduty}-events` | per sink | Comma-separated event kinds that sink delivers (`all`; `resolved` for webhook and PagerDuty). Guide: docs site, "Notifications". |
 | `--metrics-listen` | off | Serves `/metrics` with `halo_server_audit_rotate_errors_total`, the `halo_server_audit_forward_*` export series (with sinks) and, with `--controller`, `halo_controller_ticks_total`, `halo_controller_verdicts_total{verdict}` and `halo_controller_errors_total`. Unauthenticated, so keep it internal. |
 
 Webhook URLs are secrets. They are read from files and never logged.
