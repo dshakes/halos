@@ -116,6 +116,7 @@ func (s *srv) addReadTools(m *mcp.Server) {
 	mcp.AddTool(m, &mcp.Tool{Name: "harness_matrix", Description: "Capability matrix of registered harness adapters.", Annotations: readOnly}, s.harnessMatrix)
 	mcp.AddTool(m, &mcp.Tool{Name: "explain_release_diff", Description: "Diff two release.tar files and summarise per-harness version changes.", Annotations: readOnly}, s.explainDiff)
 	mcp.AddTool(m, &mcp.Tool{Name: "eval_scorecard", Description: "Read an eval scorecard JSON file produced by `halo eval run --output json`.", Annotations: readOnly}, s.evalScorecard)
+	s.addPolicyTestTool(m)
 	s.addEvalTools(m)
 	s.addToggleReadTools(m)
 	s.addRolloutReadTools(m)
