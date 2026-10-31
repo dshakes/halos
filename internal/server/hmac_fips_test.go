@@ -2,13 +2,36 @@ package server
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
+	"github.com/dshakes/halos/internal/controller"
 	"github.com/dshakes/halos/internal/hmackey/hmackeytest"
 )
+
+// The audit forwarder's send is guarded too: a sink built with a short
+// secret returns controller.ErrUnusableKey in FIPS mode, never a panic in
+// the forwarder goroutine, and sends nothing.
+func TestAuditSinkSendShortSecretGuard(t *testing.T) {
+	defer hmackeytest.SetFIPS(true)()
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { hits.Add(1) }))
+	defer srv.Close()
+	h := &httpSink{kind: sinkWebhook, url: srv.URL, format: fmtNative, hdr: http.Header{}, secret: []byte("k"), client: srv.Client()}
+	if err := h.send(context.Background(), nil); !errors.Is(err, controller.ErrUnusableKey) {
+		t.Fatalf("send with a short secret: %v", err)
+	}
+	if hits.Load() != 0 {
+		t.Fatal("sent with an unusable secret")
+	}
+}
 
 // ADR-0038: HMAC secrets Go's FIPS module would panic on (the GitHub cloud
 // webhook secret, an audit-export webhook hmacSecret) refuse to start in

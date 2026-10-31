@@ -362,8 +362,12 @@ func (h *httpSink) send(ctx context.Context, evs []auditEvent) error {
 			now = h.now
 		}
 		ts := now().Unix()
+		sig, err := controller.SignChecked(h.secret, ts, body) // an error, never a panic in the forwarder goroutine
+		if err != nil {
+			return fmt.Errorf("%s: %w", h.kind, err)
+		}
 		req.Header.Set(controller.TimestampHeader, strconv.FormatInt(ts, 10))
-		req.Header.Set(controller.SignatureHeader, controller.Sign(h.secret, ts, body))
+		req.Header.Set(controller.SignatureHeader, sig)
 	}
 	resp, err := h.client.Do(req)
 	if err != nil {
