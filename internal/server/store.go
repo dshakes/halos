@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -65,6 +67,35 @@ func (h Host) key() string {
 		return "device:" + h.Device
 	}
 	return "host:" + h.Hostname
+}
+
+// shareWith makes h refer to prev's copy of every value they have in common.
+// A device reports the same hostname, ring, digest, harness versions and drift
+// every cycle, and each report arrives as freshly decoded strings and maps; the
+// MaxHistory-deep history otherwise held 50 copies of them (about 46 KB per
+// device, 450 MB at 10000 devices). Values are never mutated after Put, so
+// sharing is safe.
+func (h *Host) shareWith(prev Host) {
+	same := func(dst *string, src string) {
+		if *dst == src {
+			*dst = src
+		}
+	}
+	same(&h.Hostname, prev.Hostname)
+	same(&h.User, prev.User)
+	same(&h.Device, prev.Device)
+	same(&h.Ring, prev.Ring)
+	same(&h.Digest, prev.Digest)
+	same(&h.LastError, prev.LastError)
+	same(&h.ErrorCode, prev.ErrorCode)
+	same(&h.Experiment, prev.Experiment)
+	same(&h.Variant, prev.Variant)
+	if maps.Equal(h.Harnesses, prev.Harnesses) {
+		h.Harnesses = prev.Harnesses
+	}
+	if slices.Equal(h.Drift, prev.Drift) {
+		h.Drift = prev.Drift
+	}
 }
 
 // logStore is an in-memory map persisted as an append-only JSONL log.
@@ -145,8 +176,11 @@ func (s *logStore) Put(h Host) error {
 			return err // not stored in memory either: caller returns 500, halod retries
 		}
 	}
-	s.hosts[h.key()] = h
 	key := h.key()
+	if hh := s.hist[key]; len(hh) > 0 {
+		h.shareWith(hh[len(hh)-1])
+	}
+	s.hosts[key] = h
 	s.hist[key] = append(s.hist[key], h)
 	if len(s.hist[key]) > MaxHistory {
 		s.hist[key] = append([]Host(nil), s.hist[key][len(s.hist[key])-MaxHistory:]...) // copy so the dropped head can be collected
