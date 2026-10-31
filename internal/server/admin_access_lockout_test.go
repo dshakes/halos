@@ -129,7 +129,7 @@ func TestBreakGlassLockoutAcrossReplicas(t *testing.T) {
 		})
 	}
 	a, b := mk(), mk()
-	shared.MemKV.Now = func() time.Time { return *a.now }
+	shared.Now = func() time.Time { return *a.now }
 	a.breakGlassFrom("198.51.100.1", "breakglass", "wrong but long enough password")
 	b.breakGlassFrom("198.51.100.2", "breakglass", "wrong but long enough password")
 	a.breakGlassFrom("198.51.100.3", "breakglass", "wrong but long enough password") // third, on a: crosses
