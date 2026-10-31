@@ -85,6 +85,10 @@ Never delete or move the tag: installers, attestations and image signatures are 
 Signatures and attestations stay valid: they prove where the artifacts came from, not that they are
 fit to use. Withdrawn means not offered, not unsigned. Ship the fix as a new version; never reuse one.
 
+## Helm chart (OCI)
+
+The release job pushes `oci://ghcr.io/<owner>/charts/halos:<version>` and signs it keyless (the `verify` job checks it). A new ghcr.io package starts **private**: after the first release that includes it, a maintainer makes `charts/halos` public (package settings, change visibility) and links it to the repository, or `helm install oci://...` fails for adopters. The chart rolls back like the images: install the previous `--version`.
+
 ## Known issue
 
 `goreleaser check` reports `brews` as deprecated (exit 2) in GoReleaser v2. The release is
