@@ -87,6 +87,20 @@ server:
   fleetToken: {existingSecret: halos-fleet-token, key: token}
   sessionKey: {existingSecret: halos-session, key: session-key}
   oidcClientSecret: {existingSecret: "", key: client-secret}
+  # Console sessions (ADR-0036): absolute lifetime from login (--session-ttl, 5m..168h) and a sliding idle
+  # timeout (--session-idle-timeout, >= 1m and <= ttl; "0" turns it off). Automation should use a service-account
+  # token (HALO_TOKEN, `halo service-token create`), which neither times out idle nor depends on a browser.
+  session: {ttl: 12h, idleTimeout: 1h}
+  # Service-account API tokens: longest lifetime, and the default (--service-token-max-ttl, 1h..8760h).
+  serviceTokens: {maxTTL: 2160h}
+  # Break-glass local admin (ADR-0036), for an IdP outage. existingSecret holds the password hash under `key`
+  # (`halo-server breakglass-hash` < password-file). It stays SEALED unless enabled: true; enable it only during
+  # the incident, then disable it and rotate the password (docs: guides/admin-access). Every login and every
+  # request it makes is a high-severity audit event exported to your SIEM sinks.
+  breakGlass: {enabled: false, existingSecret: "", key: hash, user: breakglass}
+  # Microsoft Graph base URL for policy identity.groupsOverage: graph ("" = https://graph.microsoft.com/v1.0;
+  # national clouds: https://graph.microsoft.us/v1.0, https://microsoftgraph.chinacloudapi.cn/v1.0).
+  oidc: {entraGraphURL: ""}
   # Portal JSON (--portal-config): baseURL, registry, halodURL, halodSHA256, launchers ...
   # sessionKeyFile / oidcClientSecretFile are injected from the Secrets above.
   portal:

@@ -10,6 +10,10 @@ server:
   policySubdir: policy
   killSwitch: {existingSecret: halos-killswitch}
   metrics: {enabled: true}
+  session: {ttl: 8h, idleTimeout: 30m}
+  serviceTokens: {maxTTL: 720h}
+  breakGlass: {enabled: false, existingSecret: halos-breakglass}
+  oidc: {entraGraphURL: "https://graph.microsoft.us/v1.0"}
   audit:
     rotation: {maxBytes: 67108864, maxAgeSeconds: 86400}
     export:
