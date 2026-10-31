@@ -12,7 +12,7 @@ What a version number covers, and what breaking means for each surface:
 | Surface | Compatibility promise |
 |---|---|
 | CLI commands and flags (`halo`, `halod`) | Minor releases add; only a major release removes or changes meaning. Deprecated flags keep working for one minor release and print a warning |
-| HTTP API (`/api/v1/...`) | Path-versioned. Fields are added in minors; a field is never removed or retyped under `/v1`. The [OpenAPI description](/halos/openapi.yaml) is the contract; operations it marks `x-halo-stability: experimental` (the console's policy, rollout, release, request and launcher views, listed in the [API reference](/halos/reference/api/)) are excluded and may change in a minor with a CHANGELOG note |
+| HTTP API (`/api/v1/...`) | Path-versioned. Fields are added in minors; a field is never removed or retyped under `/v1` |
 | Policy files (`apiVersion: halos.dev/v1`) | Stable: every kind and field is frozen; fields are only added. A deprecated field warns for at least one minor and is removed only in `halos.dev/v2`. `halos.dev/v1alpha1` still loads with a warning until v2. Details in [Compatibility](/halos/reference/compatibility/) |
 | Release bundles and ring pointers | `schemaVersion: 1` (`internal/release/release.go:60`). A reader refuses a schema it does not know (`release.go:274`) and keeps last-good; a new schema version is a major release |
 | Kill list, fleet report and mirror payloads | Fields only ever added. `halo-shadow` decodes mirror jobs strictly (`internal/shadow/server.go`), which is why it upgrades before `halo-proxy` (below) |

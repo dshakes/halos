@@ -150,9 +150,8 @@ func openAPIDoc() (map[string]any, error) {
 				"Generated from the server's Go source (`make openapi`); a test fails when it drifts from the routes, RBAC table or response types. " +
 				"Errors are `{\"error\": \"...\"}` with the HTTP status carrying the meaning; the token endpoint and SCIM use their RFCs' error bodies. " +
 				"Every response carries `X-Request-Id`. API responses carry `Cache-Control: no-store`.\n\n" +
-				"Stability: operations marked `x-halo-stability: stable` follow the HTTP API promise in the support policy " +
-				"(fields are added in minors, never removed or retyped under `/api/v1`). `experimental` operations back the web console " +
-				"or expose policy-shaped documents and may change in a minor release with a CHANGELOG note.\n\n" +
+				"Stability: every operation is `x-halo-stability: stable` and follows the HTTP API promise in the support policy " +
+				"(fields are added in minors, never removed or retyped under `/api/v1`).\n\n" +
 				"Authorization: `x-halo-permission` names the RBAC permission a session-authenticated operation needs; " +
 				"`x-halo-roles` (top level) lists the roles that hold each permission.",
 			"license": map[string]any{"name": "Apache-2.0", "identifier": "Apache-2.0"},
@@ -297,7 +296,6 @@ type apiOp struct {
 	route, id, tag, summary string
 	desc                    string
 	auth                    authKind
-	experimental            bool
 	query                   []query
 	req                     *body
 	reqOptional             bool
@@ -332,11 +330,7 @@ func (o apiOp) operation(g *schemaGen) map[string]any {
 	if desc != "" {
 		op["description"] = desc
 	}
-	if o.experimental {
-		op["x-halo-stability"] = "experimental"
-	} else {
-		op["x-halo-stability"] = "stable"
-	}
+	op["x-halo-stability"] = "stable"
 	op["security"] = o.auth.security()
 
 	var params []any

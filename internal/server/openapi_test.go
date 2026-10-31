@@ -136,7 +136,7 @@ func TestOpenAPIPermissions(t *testing.T) {
 		if guarded != (len(sec) == 2 && secName(sec[0]) == "sessionCookie" && secName(sec[1]) == "serviceToken") {
 			t.Errorf("%s: security %v does not match routePerms membership (%v)", route, sec, guarded)
 		}
-		if st := op["x-halo-stability"]; st != "stable" && st != "experimental" {
+		if st := op["x-halo-stability"]; st != "stable" {
 			t.Errorf("%s: x-halo-stability %v", route, st)
 		}
 	}
@@ -210,7 +210,7 @@ func TestOpenAPIExamples(t *testing.T) {
 			ex, ct, has := exampleOf(obj)
 			typed := (b.typ != nil || len(b.one) > 0) && strings.Contains(cmpOr(b.ct, "application/json"), "json")
 			if !has {
-				if typed && !o.experimental && !isLoose(b.typ) {
+				if typed && !isLoose(b.typ) && !slices.Contains(noExample, route) {
 					t.Errorf("%s %s: stable operations need an example", route, what)
 				}
 				return
@@ -265,6 +265,15 @@ func TestOpenAPIExamples(t *testing.T) {
 	if n < 40 {
 		t.Fatalf("only %d examples checked; the walk is broken", n)
 	}
+}
+
+// noExample lists operations whose bodies embed policy or controller documents
+// too large to maintain by hand as examples. TestOpenAPILiveConformance
+// validates their real responses against the schema instead.
+var noExample = []string{
+	"GET /api/v1/experiments", "GET /api/v1/experiments/{name}", "GET /api/v1/freeze", "GET /api/v1/harnesses", "GET /api/v1/policy",
+	"GET /api/v1/rollouts", "GET /api/v1/rollouts/{name}", "GET /api/v1/rollouts/{name}/approvals", "GET /api/v1/toggles/{name}",
+	"POST /api/v1/rollouts/{name}/approve",
 }
 
 // isLoose: bodies whose schema is deliberately open (maps of any), where an
@@ -426,33 +435,75 @@ func TestOpenAPIServed(t *testing.T) {
 // carry the operation's own example, so a request body that stops decoding
 // shows up as an undocumented 400. This is what pins the hand-written wire
 // shapes (openapi_ops.go) to the handlers.
+//
+// Two passes: the first only reads, on a server with no data beyond one
+// enrolled device, so every empty list must encode as [] and never null;
+// the second runs every operation, mutations included (SCIM objects are
+// created before they are read, replaced and deleted).
 func TestOpenAPILiveConformance(t *testing.T) {
 	_, doc := loadSpec(t)
 	sc := specCompiler(t, doc)
-	_, killKey, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	const gw = "gateway-token-0123456789-0123456789-0123456789"
-	e := newEnv(t, func(c *Config) { c.KillKey = killKey; c.GatewayToken = gw })
-	org, _, err := e.s.pol.Get()
-	if err != nil || org == nil {
-		t.Fatalf("policy: %v", err)
-	}
-	names := map[string]string{"experiments": org.Experiments[0].Name, "toggles": org.Toggles[0].Name, "rollouts": org.Rollouts[0].Name}
-
 	ops := specOps(t, doc)
 	routes := make([]string, 0, len(ops))
 	for r := range ops {
 		routes = append(routes, r)
 	}
-	sort.Strings(routes)
+	rank := map[string]int{"GET": 1, "PUT": 2, "PATCH": 3, "DELETE": 4}
+	sort.Slice(routes, func(i, j int) bool {
+		mi, _, _ := strings.Cut(routes[i], " ")
+		mj, _, _ := strings.Cut(routes[j], " ")
+		if rank[mi] != rank[mj] {
+			return rank[mi] < rank[mj]
+		}
+		return routes[i] < routes[j]
+	})
+	for _, pass := range []struct {
+		name     string
+		readOnly bool
+		min2xx   int
+	}{{"empty state, reads only", true, 40}, {"all operations", false, 70}} {
+		t.Run(pass.name, func(t *testing.T) {
+			liveWalk(t, doc, sc, ops, routes, pass.readOnly, pass.min2xx)
+		})
+	}
+}
+
+func liveWalk(t *testing.T, doc map[string]any, sc *jsonschema.Compiler, ops map[string]map[string]any, routes []string, readOnly bool, min2xx int) {
+	_, killKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const gw = "gateway-token-0123456789-0123456789-0123456789"
+	e := newEnv(t, func(c *Config) {
+		c.KillKey, c.GatewayToken, c.SCIMTokenSHA256 = killKey, gw, []string{sha256Hex(scimTok)}
+	})
+	org, _, err := e.s.pol.Get()
+	if err != nil || org == nil {
+		t.Fatalf("policy: %v", err)
+	}
+	devTok, device, err := e.s.devices.mint(dev, *e.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := map[string]string{"experiments": org.Experiments[0].Name, "toggles": org.Toggles[0].Name, "rollouts": org.Rollouts[0].Name}
+	// Provision the device's user, or the device is refused ("not provisioned") once SCIM is on.
+	if w := e.scim("POST", "/scim/v2/Users", `{"schemas":["urn:ietf:params:scim:schemas:core:2.0:User"],"userName":"`+dev.ID+`","active":true}`); w.Code != http.StatusCreated {
+		t.Fatalf("provision %s: %d %s", dev.ID, w.Code, w.Body.String())
+	}
+	ids := map[string]string{"/scim/v2/Users/": "x", "/scim/v2/Groups/": "x", "/api/v1/devices/": device.ID,
+		"/scim/v2/ResourceTypes/": "User", "/scim/v2/Schemas/": "urn:ietf:params:scim:schemas:core:2.0:User"}
 	hits := map[string][]int{}
 	for _, route := range routes {
 		op := ops[route]
 		method, path, _ := strings.Cut(route, " ")
+		if readOnly && method != "GET" {
+			continue
+		}
 		for _, kind := range []string{"experiments", "toggles", "rollouts"} {
 			path = strings.Replace(path, "/"+kind+"/{name}", "/"+kind+"/"+names[kind], 1)
+		}
+		for prefix, id := range ids {
+			path = strings.Replace(path, prefix+"{id}", prefix+id, 1)
 		}
 		path = strings.NewReplacer("{id}", "x", "{launcher}", "laptop", "{name}", "x").Replace(path)
 		payload, ct := "", "application/json"
@@ -468,11 +519,14 @@ func TestOpenAPILiveConformance(t *testing.T) {
 				payload = "{}"
 			}
 		}
+		if route == "POST /api/v1/requests" { // the example names a ring the fixture may not offer as opt-in
+			payload = `{"kind":"ring-opt-in","item":"` + optInRing(t, e) + `","justification":"please"}`
+		}
 		if q, _ := op["parameters"].([]any); q != nil {
 			vals := url.Values{}
 			for _, p := range q {
 				pm := p.(map[string]any)
-				if pm["in"] == "query" && pm["required"] == true {
+				if pm["in"] == "query" && (pm["required"] == true || pm["name"] == "subject") {
 					vals.Set(pm["name"].(string), "dev@acme.example")
 				}
 			}
@@ -490,19 +544,39 @@ func TestOpenAPILiveConformance(t *testing.T) {
 			r.Header.Set("Authorization", "Bearer "+gw)
 		case len(sec) == 2 && secName(sec[0]) == "fleetToken":
 			r.Header.Set("Authorization", "Bearer "+tok)
+		case len(sec) == 1 && secName(sec[0]) == "deviceToken":
+			r.Header.Set("Authorization", "Bearer "+devTok)
+		case len(sec) == 1 && secName(sec[0]) == "scimToken":
+			r.Header.Set("Authorization", "Bearer "+scimTok)
 		}
 		w := httptest.NewRecorder()
 		e.h.ServeHTTP(w, r)
 
 		resps, _ := op["responses"].(map[string]any)
-		resp, ok := resps[strconv.Itoa(w.Code)].(map[string]any)
+		code := strconv.Itoa(w.Code)
+		resp, ok := resps[code].(map[string]any)
 		if !ok {
 			t.Errorf("%s answered %d, which the spec does not list (%v): %.200s", route, w.Code, keys(resps), w.Body.String())
 			continue
 		}
 		hits[route] = append(hits[route], w.Code)
-		if rf, isRef := resp["$ref"].(string); isRef { // components/responses/*
-			resp, _ = lookup(doc, rf).(map[string]any)
+		if w.Code >= 400 && strings.HasPrefix(path, "/scim/v2/") && method == "POST" {
+			t.Logf("DEBUG %s %d %s", route, w.Code, w.Body.String())
+		}
+		if method == "POST" && w.Code == http.StatusCreated { // later operations on {id} use what this one made
+			var created struct {
+				ID           string
+				ServiceToken struct{ ID string }
+			}
+			_ = json.Unmarshal(w.Body.Bytes(), &created)
+			ids[path+"/"] = cmpOr(created.ID, created.ServiceToken.ID)
+		}
+		loc := func(c string) string { return schemaPtr(route, "responses/"+code, c) }
+		if ref, isRef := resp["$ref"].(string); isRef { // components/responses/*
+			resp, _ = lookup(doc, ref).(map[string]any)
+			loc = func(c string) string {
+				return specURL + "#" + (&url.URL{Fragment: strings.TrimPrefix(ref, "#") + "/content/" + ptrEsc.Replace(c) + "/schema"}).EscapedFragment()
+			}
 		}
 		content, _ := resp["content"].(map[string]any)
 		for c := range content {
@@ -514,22 +588,21 @@ func TestOpenAPILiveConformance(t *testing.T) {
 				t.Errorf("%s %d: body is not JSON: %v: %.200s", route, w.Code, err, w.Body.String())
 				continue
 			}
-			loc := schemaPtr(route, "responses/"+strconv.Itoa(w.Code), c)
-			if _, direct := resps[strconv.Itoa(w.Code)].(map[string]any)["$ref"]; direct {
-				loc = specURL + "#" + (&url.URL{Fragment: strings.TrimPrefix(resps[strconv.Itoa(w.Code)].(map[string]any)["$ref"].(string), "#") + "/content/" + ptrEsc.Replace(c) + "/schema"}).EscapedFragment()
-			}
-			validateAt(t, sc, loc, body, route+" "+strconv.Itoa(w.Code)+" body")
+			validateAt(t, sc, loc(c), body, route+" "+code+" body")
 		}
 	}
 	ok2xx := 0
-	for _, codes := range hits {
+	for _, route := range routes {
+		codes := hits[route]
 		if slices.ContainsFunc(codes, func(c int) bool { return c/100 == 2 }) {
 			ok2xx++
+		} else if len(codes) > 0 {
+			t.Logf("no success response: %s answered %v", route, codes)
 		}
 	}
-	t.Logf("%d of %d operations answered a 2xx; the rest answered a documented error", ok2xx, len(routes))
-	if ok2xx < 30 {
-		t.Errorf("only %d operations reached a success response: the fixtures are too thin to test the schemas", ok2xx)
+	t.Logf("%d of %d operations answered a 2xx; the rest answered a documented error", ok2xx, len(hits))
+	if ok2xx < min2xx {
+		t.Errorf("only %d operations reached a success response (want %d): the fixtures are too thin to test the schemas", ok2xx, min2xx)
 	}
 }
 

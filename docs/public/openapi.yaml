@@ -10,7 +10,7 @@ info:
 
     Generated from the server's Go source (`make openapi`); a test fails when it drifts from the routes, RBAC table or response types. Errors are `{"error": "..."}` with the HTTP status carrying the meaning; the token endpoint and SCIM use their RFCs' error bodies. Every response carries `X-Request-Id`. API responses carry `Cache-Control: no-store`.
 
-    Stability: operations marked `x-halo-stability: stable` follow the HTTP API promise in the support policy (fields are added in minors, never removed or retyped under `/api/v1`). `experimental` operations back the web console or expose policy-shaped documents and may change in a minor release with a CHANGELOG note.
+    Stability: every operation is `x-halo-stability: stable` and follows the HTTP API promise in the support policy (fields are added in minors, never removed or retyped under `/api/v1`).
 
     Authorization: `x-halo-permission` names the RBAC permission a session-authenticated operation needs; `x-halo-roles` (top level) lists the roles that hold each permission.
   license:
@@ -301,7 +301,7 @@ paths:
       summary: Optional features and the caller's permissions
       description: Requires the `session` permission.
       x-halo-permission: session
-      x-halo-stability: experimental
+      x-halo-stability: stable
       security:
         - sessionCookie: []
         - serviceToken: []
@@ -331,7 +331,7 @@ paths:
       summary: What the caller may request
       description: Requires the `session` permission.
       x-halo-permission: session
-      x-halo-stability: experimental
+      x-halo-stability: stable
       security:
         - sessionCookie: []
         - serviceToken: []
@@ -364,7 +364,7 @@ paths:
       summary: Cloud agent tasks and policy alerts
       description: Requires the `read` permission.
       x-halo-permission: read
-      x-halo-stability: experimental
+      x-halo-stability: stable
       security:
         - sessionCookie: []
         - serviceToken: []
@@ -415,7 +415,7 @@ paths:
 
         Requires the `operate` permission.
       x-halo-permission: operate
-      x-halo-stability: experimental
+      x-halo-stability: stable
       security:
         - sessionCookie: []
         - serviceToken: []
@@ -721,7 +721,7 @@ paths:
       summary: Experiments with status and latest verdict
       description: Requires the `read` permission.
       x-halo-permission: read
-      x-halo-stability: experimental
+      x-halo-stability: stable
       security:
         - sessionCookie: []
         - serviceToken: []
@@ -752,7 +752,7 @@ paths:
       summary: One experiment
       description: Requires the `read` permission.
       x-halo-permission: read
-      x-halo-stability: experimental
+      x-halo-stability: stable
       security:
         - sessionCookie: []
         - serviceToken: []
@@ -878,7 +878,7 @@ paths:
 
         Requires the `operate` permission.
       x-halo-permission: operate
-      x-halo-stability: experimental
+      x-halo-stability: stable
       security:
         - sessionCookie: []
         - serviceToken: []
@@ -1208,7 +1208,7 @@ paths:
       summary: Incident freeze and each ring's freeze windows
       description: Requires the `read` permission.
       x-halo-permission: read
-      x-halo-stability: experimental
+      x-halo-stability: stable
       security:
         - sessionCookie: []
         - serviceToken: []
@@ -1638,7 +1638,7 @@ paths:
       summary: Harness capability matrix
       description: Requires the `session` permission.
       x-halo-permission: session
-      x-halo-stability: experimental
+      x-halo-stability: stable
       security:
         - sessionCookie: []
         - serviceToken: []
@@ -1700,7 +1700,7 @@ paths:
 
         Requires the `session` permission.
       x-halo-permission: session
-      x-halo-stability: experimental
+      x-halo-stability: stable
       security:
         - sessionCookie: []
         - serviceToken: []
@@ -1751,7 +1751,7 @@ paths:
       summary: The caller, their ring and what they may do
       description: Requires the `session` permission.
       x-halo-permission: session
-      x-halo-stability: experimental
+      x-halo-stability: stable
       security:
         - sessionCookie: []
         - serviceToken: []
@@ -1792,7 +1792,7 @@ paths:
       summary: The caller's enrolled devices and posture
       description: Requires the `session` permission.
       x-halo-permission: session
-      x-halo-stability: experimental
+      x-halo-stability: stable
       security:
         - sessionCookie: []
         - serviceToken: []
@@ -1840,7 +1840,7 @@ paths:
 
         Requires the `read` permission.
       x-halo-permission: read
-      x-halo-stability: experimental
+      x-halo-stability: stable
       security:
         - sessionCookie: []
         - serviceToken: []
@@ -1872,7 +1872,7 @@ paths:
 
         Requires the `read` permission.
       x-halo-permission: read
-      x-halo-stability: experimental
+      x-halo-stability: stable
       security:
         - sessionCookie: []
         - serviceToken: []
@@ -1899,7 +1899,7 @@ paths:
       summary: List access requests
       description: Requires the `session` permission. Everyone's requests need `approve`; otherwise only the caller's own are returned.
       x-halo-permission: session
-      x-halo-stability: experimental
+      x-halo-stability: stable
       security:
         - sessionCookie: []
         - serviceToken: []
@@ -1924,7 +1924,7 @@ paths:
       summary: Ask for access
       description: 'Requires the `session` permission. Needs a person: a service token or break-glass session gets 403 (audited as authz.deny with need `human`).'
       x-halo-permission: session
-      x-halo-stability: experimental
+      x-halo-stability: stable
       security:
         - sessionCookie: []
         - serviceToken: []
@@ -1945,6 +1945,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Request'
+              example:
+                createdAt: "2026-01-02T03:04:05Z"
+                id: r1
+                item: ring1-ga
+                justification: I want the new model
+                kind: ring-opt-in
+                status: pending
+                user: dev@acme.example
         "400":
           description: Invalid JSON.
           content:
@@ -1990,7 +1998,7 @@ paths:
 
         Requires the `approve` permission.
       x-halo-permission: approve
-      x-halo-stability: experimental
+      x-halo-stability: stable
       security:
         - sessionCookie: []
         - serviceToken: []
@@ -2008,12 +2016,28 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/decisionView'
+              example:
+                createdAt: "2026-01-02T03:04:05Z"
+                id: r1
+                item: ring1-ga
+                justification: I want the new model
+                kind: ring-opt-in
+                status: approved
+                user: dev@acme.example
         "202":
           description: Recorded; the quorum is not met yet.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/decisionView'
+              example:
+                createdAt: "2026-01-02T03:04:05Z"
+                id: r1
+                item: ring1-ga
+                justification: I want the new model
+                kind: ring-opt-in
+                status: pending
+                user: dev@acme.example
         "401":
           $ref: '#/components/responses/Unauthorized'
         "403":
@@ -2056,7 +2080,7 @@ paths:
       summary: Deny an access request
       description: Requires the `approve` permission.
       x-halo-permission: approve
-      x-halo-stability: experimental
+      x-halo-stability: stable
       security:
         - sessionCookie: []
         - serviceToken: []
@@ -2074,6 +2098,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/decisionView'
+              example:
+                createdAt: "2026-01-02T03:04:05Z"
+                id: r1
+                item: ring1-ga
+                justification: I want the new model
+                kind: ring-opt-in
+                status: denied
+                user: dev@acme.example
         "401":
           $ref: '#/components/responses/Unauthorized'
         "403":
@@ -2206,7 +2238,7 @@ paths:
       summary: Rollouts with controller state
       description: Requires the `read` permission.
       x-halo-permission: read
-      x-halo-stability: experimental
+      x-halo-stability: stable
       security:
         - sessionCookie: []
         - serviceToken: []
@@ -2237,7 +2269,7 @@ paths:
       summary: One rollout
       description: Requires the `read` permission.
       x-halo-permission: read
-      x-halo-stability: experimental
+      x-halo-stability: stable
       security:
         - sessionCookie: []
         - serviceToken: []
@@ -2279,7 +2311,7 @@ paths:
       summary: Approvals for a rollout's live step
       description: Requires the `read` permission.
       x-halo-permission: read
-      x-halo-stability: experimental
+      x-halo-stability: stable
       security:
         - sessionCookie: []
         - serviceToken: []
@@ -2324,7 +2356,7 @@ paths:
 
         Requires the `approve` permission. Approval rules narrow this to their groups, in the handler.
       x-halo-permission: approve
-      x-halo-stability: experimental
+      x-halo-stability: stable
       security:
         - sessionCookie: []
         - serviceToken: []
@@ -2751,7 +2783,7 @@ paths:
       summary: Feature toggles with live kill state
       description: Requires the `read` permission.
       x-halo-permission: read
-      x-halo-stability: experimental
+      x-halo-stability: stable
       security:
         - sessionCookie: []
         - serviceToken: []
@@ -2789,7 +2821,7 @@ paths:
       summary: One toggle, its history and an optional evaluation
       description: Requires the `read` permission.
       x-halo-permission: read
-      x-halo-stability: experimental
+      x-halo-stability: stable
       security:
         - sessionCookie: []
         - serviceToken: []
@@ -2939,7 +2971,7 @@ paths:
 
         Requires the `admin` permission.
       x-halo-permission: admin
-      x-halo-stability: experimental
+      x-halo-stability: stable
       security:
         - sessionCookie: []
         - serviceToken: []
@@ -3184,7 +3216,7 @@ paths:
       summary: Ring and variants for a user
       description: Requires the `session` permission. Without `read`, only the caller's own id is accepted (403 otherwise, audited).
       x-halo-permission: session
-      x-halo-stability: experimental
+      x-halo-stability: stable
       security:
         - sessionCookie: []
         - serviceToken: []
@@ -3595,6 +3627,10 @@ paths:
             schema:
               type: object
               additionalProperties: {}
+            example:
+              displayName: new-group
+              schemas:
+                - urn:ietf:params:scim:schemas:core:2.0:Group
       responses:
         "201":
           description: Created
@@ -3695,6 +3731,10 @@ paths:
             schema:
               type: object
               additionalProperties: {}
+            example:
+              displayName: new-group
+              schemas:
+                - urn:ietf:params:scim:schemas:core:2.0:Group
       responses:
         "200":
           description: OK
@@ -3760,6 +3800,13 @@ paths:
             schema:
               type: object
               additionalProperties: {}
+            example:
+              Operations:
+                - op: replace
+                  path: displayName
+                  value: Renamed
+              schemas:
+                - urn:ietf:params:scim:api:messages:2.0:PatchOp
       responses:
         "200":
           description: OK
@@ -4100,6 +4147,11 @@ paths:
             schema:
               type: object
               additionalProperties: {}
+            example:
+              active: true
+              schemas:
+                - urn:ietf:params:scim:schemas:core:2.0:User
+              userName: new@acme.example
       responses:
         "201":
           description: Created
@@ -4200,6 +4252,11 @@ paths:
             schema:
               type: object
               additionalProperties: {}
+            example:
+              active: true
+              schemas:
+                - urn:ietf:params:scim:schemas:core:2.0:User
+              userName: new@acme.example
       responses:
         "200":
           description: OK
@@ -4265,6 +4322,13 @@ paths:
             schema:
               type: object
               additionalProperties: {}
+            example:
+              Operations:
+                - op: replace
+                  path: displayName
+                  value: Renamed
+              schemas:
+                - urn:ietf:params:scim:api:messages:2.0:PatchOp
       responses:
         "200":
           description: OK

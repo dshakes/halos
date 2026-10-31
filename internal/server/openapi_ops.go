@@ -246,40 +246,40 @@ var coreOps = []apiOp{
 // sessionOps are the routes in routePerms: a session cookie or service token, and a permission.
 var sessionOps = []apiOp{
 	// ---- identity of the caller ----
-	{route: "GET /api/v1/capabilities", id: "getCapabilities", tag: "Portal", summary: "Optional features and the caller's permissions", experimental: true,
+	{route: "GET /api/v1/capabilities", id: "getCapabilities", tag: "Portal", summary: "Optional features and the caller's permissions",
 		ok: jsonOK(Capabilities{}, `{"killSwitch":true,"roles":["operator"],"permissions":["read","operate"]}`)},
-	{route: "GET /api/v1/harnesses", id: "getHarnesses", tag: "Portal", summary: "Harness capability matrix", experimental: true,
+	{route: "GET /api/v1/harnesses", id: "getHarnesses", tag: "Portal", summary: "Harness capability matrix",
 		ok: jsonOK(map[string][]harness.Capability{}, "")},
-	{route: "GET /api/v1/whoami", id: "getWhoAmI", tag: "Portal", summary: "Ring and variants for a user", experimental: true,
+	{route: "GET /api/v1/whoami", id: "getWhoAmI", tag: "Portal", summary: "Ring and variants for a user",
 		note:  "Without `read`, only the caller's own id is accepted (403 otherwise, audited).",
 		query: []query{{name: "user", desc: "The user id, at most 256 characters.", required: true}, {name: "groups", desc: "Comma-separated groups to evaluate (read permission only; otherwise the caller's own)."}},
 		ok:    jsonOK(WhoAmI{}, `{"user":"dev@acme.example","groups":[],"ring":"ring1-ga","assignments":[]}`),
 		errs:  errMap(400, "user required.", 503, msgPolicy)},
-	{route: "GET /api/v1/me", id: "getMe", tag: "Portal", summary: "The caller, their ring and what they may do", experimental: true,
+	{route: "GET /api/v1/me", id: "getMe", tag: "Portal", summary: "The caller, their ring and what they may do",
 		ok: jsonOK(Me{}, `{"id":"dev@acme.example","groups":[],"roles":[],"admin":false,"permissions":[],"ring":"","variants":[],"selfService":false,"launchers":[],"requestable":[],"optInRings":[]}`), errs: errMap(503, msgPolicy)},
-	{route: "GET /api/v1/me/devices", id: "getMyDevices", tag: "Portal", summary: "The caller's enrolled devices and posture", experimental: true,
+	{route: "GET /api/v1/me/devices", id: "getMyDevices", tag: "Portal", summary: "The caller's enrolled devices and posture",
 		ok: jsonOK(MyDevices{}, `{"devices":[],"posture":{"compliant":true}}`)},
-	{route: "GET /api/v1/catalog", id: "getCatalog", tag: "Portal", summary: "What the caller may request", experimental: true,
+	{route: "GET /api/v1/catalog", id: "getCatalog", tag: "Portal", summary: "What the caller may request",
 		ok: jsonOK(Catalog{}, `{"harnesses":[],"launchers":[],"items":[]}`), errs: errMap(403, "Self-service is disabled.", 503, msgPolicy)},
-	{route: "POST /api/v1/launch/{launcher}", id: "postLaunch", tag: "Portal", summary: "Launcher output", experimental: true,
+	{route: "POST /api/v1/launch/{launcher}", id: "postLaunch", tag: "Portal", summary: "Launcher output",
 		desc: "devcontainer: a snippet; codespaces and coder: a URL; laptop: a single-use enrollment token with bash and PowerShell one-liners.",
 		ok:   jsonOK(Launch{}, `{"launcher":"codespaces","url":"https://github.com/codespaces/new?ref=ring1-ga"}`),
 		errs: errMap(403, "Self-service is disabled.", 404, "Launcher not available.", 409, "Not assigned to a ring, or the launcher is not configured.", 503, msgStore)},
-	{route: "POST /api/v1/requests", id: "postRequest", tag: "Portal", summary: "Ask for access", experimental: true,
+	{route: "POST /api/v1/requests", id: "postRequest", tag: "Portal", summary: "Ask for access",
 		note: "Needs a person: a service token or break-glass session gets 403 (audited as authz.deny with need `human`).",
 		req:  &body{typ: requestCreate{}, example: `{"kind":"ring-opt-in","item":"ring1-ga","justification":"I want the new model"}`},
-		ok:   []res{{code: 201, body: body{typ: Request{}}}},
+		ok:   []res{{code: 201, body: body{typ: Request{}, example: `{"id":"r1","user":"dev@acme.example","kind":"ring-opt-in","item":"ring1-ga","justification":"I want the new model","status":"pending","createdAt":"2026-01-02T03:04:05Z"}`}}},
 		errs: errMap(400, "Invalid JSON.", 403, "Self-service is disabled, or the caller is not a person.", 409, "A pending request for this already exists.", 422, "Invalid request, or a change ticket is required.", 500, "Store failed.", 503, msgStore)},
-	{route: "GET /api/v1/requests", id: "listRequests", tag: "Portal", summary: "List access requests", experimental: true,
+	{route: "GET /api/v1/requests", id: "listRequests", tag: "Portal", summary: "List access requests",
 		note: "Everyone's requests need `approve`; otherwise only the caller's own are returned.",
 		ok:   jsonOK([]Request{}, `[]`)},
-	{route: "POST /api/v1/requests/{id}/approve", id: "approveRequest", tag: "Portal", summary: "Approve an access request", experimental: true,
+	{route: "POST /api/v1/requests/{id}/approve", id: "approveRequest", tag: "Portal", summary: "Approve an access request",
 		desc: "Opens a policy-repo pull request; nothing merges. Approval rules (ADR-0030) can require several approvers: 202 while the quorum is not met. A person only.",
-		ok:   []res{{code: 200, body: body{typ: decisionView{}}}, {code: 202, body: body{typ: decisionView{}, desc: "Recorded; the quorum is not met yet."}}},
+		ok:   []res{{code: 200, body: body{typ: decisionView{}, example: `{"id":"r1","user":"dev@acme.example","kind":"ring-opt-in","item":"ring1-ga","justification":"I want the new model","status":"approved","createdAt":"2026-01-02T03:04:05Z"}`}}, {code: 202, body: body{typ: decisionView{}, desc: "Recorded; the quorum is not met yet.", example: `{"id":"r1","user":"dev@acme.example","kind":"ring-opt-in","item":"ring1-ga","justification":"I want the new model","status":"pending","createdAt":"2026-01-02T03:04:05Z"}`}}},
 		errs: errMap(403, "Not a person, not an approver for this request, or the requester's own request.", 404, "Request not found.", 409, "Already decided, being decided, or already approved by this caller.",
 			500, "The decision could not be stored or audited.", 502, "Could not open the policy PR.", 503, msgStore)},
-	{route: "POST /api/v1/requests/{id}/deny", id: "denyRequest", tag: "Portal", summary: "Deny an access request", experimental: true,
-		ok:   []res{{code: 200, body: body{typ: decisionView{}}}},
+	{route: "POST /api/v1/requests/{id}/deny", id: "denyRequest", tag: "Portal", summary: "Deny an access request",
+		ok:   []res{{code: 200, body: body{typ: decisionView{}, example: `{"id":"r1","user":"dev@acme.example","kind":"ring-opt-in","item":"ring1-ga","justification":"I want the new model","status":"denied","createdAt":"2026-01-02T03:04:05Z"}`}}},
 		errs: errMap(403, "Not a person, or the requester's own request.", 404, "Request not found.", 409, "Already decided or being decided.", 500, "The decision could not be stored or audited.", 503, msgStore)},
 
 	// ---- fleet, devices, releases ----
@@ -292,7 +292,7 @@ var sessionOps = []apiOp{
 		errs: errMap(404, "Device not found.", 500, "Store failed, or "+msgAudit+" The revocation holds.")},
 	{route: "POST /api/v1/users/{id}/revoke-sessions", id: "revokeUserSessions", tag: "Devices", summary: "Sign a user out everywhere", ok: noBody(204, "Revoked. Audited as session.revoke."),
 		errs: errMap(500, "Store failed, or "+msgAudit+" The revocation holds.")},
-	{route: "GET /api/v1/releases", id: "getReleases", tag: "Releases", summary: "Ring pointers, convergence and drift", experimental: true,
+	{route: "GET /api/v1/releases", id: "getReleases", tag: "Releases", summary: "Ring pointers, convergence and drift",
 		desc: "Per ring: the signature-verified pointer read from the registry, convergence of reporting devices and drift. Cached 30 seconds; if the registry is unreachable the last verified state is returned with `stale`.",
 		ok:   jsonOK(ReleasesResponse{}, `{"rings":[],"stale":false,"registry":"ghcr.io/acme/rel"}`)},
 
@@ -318,34 +318,34 @@ var sessionOps = []apiOp{
 		errs: errMap(400, "Invalid body or record; nothing stored.", 500, msgAudit+" Some records may be stored.")},
 
 	// ---- policy, experiments, toggles, rollouts ----
-	{route: "GET /api/v1/policy", id: "getPolicy", tag: "Policy", summary: "The loaded policy", experimental: true,
+	{route: "GET /api/v1/policy", id: "getPolicy", tag: "Policy", summary: "The loaded policy",
 		desc: "A console view of the policy; sets `X-Policy-Stale: 1` when serving the last good policy after a failed reload.",
 		ok:   jsonOK(PolicyView{}, ""), errs: errMap(503, msgPolicy)},
-	{route: "GET /api/v1/experiments", id: "listExperiments", tag: "Policy", summary: "Experiments with status and latest verdict", experimental: true,
+	{route: "GET /api/v1/experiments", id: "listExperiments", tag: "Policy", summary: "Experiments with status and latest verdict",
 		ok: jsonOK([]ExperimentDetail{}, ""), errs: errMap(503, msgPolicy)},
-	{route: "GET /api/v1/experiments/{name}", id: "getExperiment", tag: "Policy", summary: "One experiment", experimental: true,
+	{route: "GET /api/v1/experiments/{name}", id: "getExperiment", tag: "Policy", summary: "One experiment",
 		ok: jsonOK(ExperimentDetail{}, ""), errs: errMap(404, "Experiment not found.", 503, msgPolicy)},
-	{route: "POST /api/v1/experiments/{name}/status", id: "setExperimentStatus", tag: "Policy", summary: "Propose a status change", experimental: true,
+	{route: "POST /api/v1/experiments/{name}/status", id: "setExperimentStatus", tag: "Policy", summary: "Propose a status change",
 		desc: "Opens a policy-repo pull request; nothing changes until a human merges. Audited as experiment.status.",
 		req:  &body{typ: statusRequest{}, example: `{"status":"paused"}`}, ok: jsonOK(prResult{}, `{"prURL":"https://git.example/pr/1"}`),
 		errs: errMap(404, "Experiment not found.", 409, "Already in that status.", 422, "status must be one of running, paused, concluded.", 500, msgAudit+" The PR was opened.",
 			501, "No policy writer is configured (portal policyRepoDir).", 503, msgPolicy)},
-	{route: "GET /api/v1/toggles", id: "listToggles", tag: "Policy", summary: "Feature toggles with live kill state", experimental: true,
+	{route: "GET /api/v1/toggles", id: "listToggles", tag: "Policy", summary: "Feature toggles with live kill state",
 		ok: jsonOK(togglesResponse{}, `{"toggles":[],"killEnabled":false}`), errs: errMap(500, "Kill switch unreadable.", 503, msgPolicy)},
-	{route: "GET /api/v1/toggles/{name}", id: "getToggle", tag: "Policy", summary: "One toggle, its history and an optional evaluation", experimental: true,
+	{route: "GET /api/v1/toggles/{name}", id: "getToggle", tag: "Policy", summary: "One toggle, its history and an optional evaluation",
 		query: []query{{name: "user", desc: "Evaluate the toggle for this user; adds `preview`."}, {name: "ring", desc: "The ring to evaluate in (resolved from the user when omitted)."}, {name: "groups", desc: "Comma-separated groups."}},
 		ok:    jsonOK(toggleDetail{}, ""), errs: errMap(404, "Toggle not found.", 422, "Unknown ring.", 500, "Kill switch or audit log unreadable.", 503, msgPolicy)},
-	{route: "POST /api/v1/toggles/{name}/propose", id: "proposeToggleChange", tag: "Policy", summary: "Propose a toggle change", experimental: true,
+	{route: "POST /api/v1/toggles/{name}/propose", id: "proposeToggleChange", tag: "Policy", summary: "Propose a toggle change",
 		desc: "Validated against the guardrails first; opens a policy-repo pull request, nothing merges. Audited as toggle.propose.",
 		req:  &body{typ: toggleProposal{}, example: `{"reason":"widen to ring1","default":false}`}, ok: jsonOK(prResult{}, `{"prURL":"https://git.example/pr/2"}`),
 		errs: errMap(400, "Invalid JSON.", 404, "Toggle not found.", 422, "Reason missing, or an invalid or no-op change.", 500, msgAudit+" The PR was opened.", 501, "No policy writer is configured.", 503, msgPolicy)},
-	{route: "GET /api/v1/rollouts", id: "listRollouts", tag: "Policy", summary: "Rollouts with controller state", experimental: true,
+	{route: "GET /api/v1/rollouts", id: "listRollouts", tag: "Policy", summary: "Rollouts with controller state",
 		ok: jsonOK([]RolloutView{}, ""), errs: errMap(503, msgPolicy)},
-	{route: "GET /api/v1/rollouts/{name}", id: "getRollout", tag: "Policy", summary: "One rollout", experimental: true,
+	{route: "GET /api/v1/rollouts/{name}", id: "getRollout", tag: "Policy", summary: "One rollout",
 		ok: jsonOK(RolloutView{}, ""), errs: errMap(404, "Rollout not found.", 503, msgPolicy)},
-	{route: "GET /api/v1/rollouts/{name}/approvals", id: "getRolloutApprovals", tag: "Governance", summary: "Approvals for a rollout's live step", experimental: true,
+	{route: "GET /api/v1/rollouts/{name}/approvals", id: "getRolloutApprovals", tag: "Governance", summary: "Approvals for a rollout's live step",
 		ok: jsonOK(RolloutApprovals{}, ""), errs: errMap(404, "Rollout not found.", 503, msgStore)},
-	{route: "POST /api/v1/rollouts/{name}/approve", id: "approveRolloutStep", tag: "Governance", summary: "Approve advancing a rollout", experimental: true,
+	{route: "POST /api/v1/rollouts/{name}/approve", id: "approveRolloutStep", tag: "Governance", summary: "Approve advancing a rollout",
 		desc: "A person only. When an approval rule covers the next step the approver must hold one of its groups. Audit-strict: no record, no approval.",
 		note: "Approval rules narrow this to their groups, in the handler.",
 		req:  &body{typ: ticketRequest{}, example: `{"ticket":"CHG0012345"}`}, reqOptional: true, ok: jsonOK(RolloutApprovals{}, ""),
@@ -369,7 +369,7 @@ var sessionOps = []apiOp{
 	{route: "POST /api/v1/toggles/{name}/unkill", id: "unkillToggle", tag: "Kill switch", summary: "Lift a toggle kill",
 		req: &body{typ: reasonRequest{}, example: `{}`}, reqOptional: true, ok: jsonOK(toggleKillResult{}, `{"toggle":"new-hook","killed":false,"changed":false}`),
 		errs: errMap(400, "Invalid JSON or name.", 422, "Reason too long.", 500, "Store failed, or "+msgAudit, 501, "The kill switch is not configured.", 503, msgPolicy)},
-	{route: "GET /api/v1/freeze", id: "getFreeze", tag: "Governance", summary: "Incident freeze and each ring's freeze windows", experimental: true,
+	{route: "GET /api/v1/freeze", id: "getFreeze", tag: "Governance", summary: "Incident freeze and each ring's freeze windows",
 		ok: jsonOK(FreezeView{}, ""), errs: errMap(500, "Freeze state unreadable.", 503, msgPolicy)},
 	{route: "POST /api/v1/freeze", id: "setFreeze", tag: "Governance", summary: "Set or lift the incident freeze",
 		desc: "Rollbacks and the kill switch are never frozen. Audit-strict: a freeze whose record fails stays set; a lift whose record fails is reverted.",
@@ -380,10 +380,10 @@ var sessionOps = []apiOp{
 	{route: "GET /api/v1/budgets", id: "getBudgets", tag: "Budgets", summary: "Every budget counter with spend in its current window",
 		query: []query{{name: "budget", desc: "Exact-match budget name."}, {name: "key", desc: "Exact-match counter key, for example user:alice@acme.com."}},
 		ok:    jsonOK(BudgetsResponse{}, `{"budgets":[],"at":"2026-01-02T03:04:05Z"}`), errs: errMap(503, "Budget store unavailable, or no policy.")},
-	{route: "GET /api/v1/cloud-agents", id: "getCloudAgents", tag: "Cloud agents", summary: "Cloud agent tasks and policy alerts", experimental: true,
+	{route: "GET /api/v1/cloud-agents", id: "getCloudAgents", tag: "Cloud agents", summary: "Cloud agent tasks and policy alerts",
 		query: []query{{name: "active", desc: "true keeps queued and running tasks only.", typ: "boolean"}},
 		ok:    jsonOK(CloudAgentsView{}, `{"tasks":[],"alerts":[],"configured":{"cursor":false,"github":false,"githubWebhook":false}}`), errs: errMap(500, "Audit log unreadable.", 503, msgPolicy)},
-	{route: "POST /api/v1/cloud-agents/kill", id: "killCloudAgents", tag: "Cloud agents", summary: "Cancel the active cloud tasks of a user, ring or experiment", experimental: true,
+	{route: "POST /api/v1/cloud-agents/kill", id: "killCloudAgents", tag: "Cloud agents", summary: "Cancel the active cloud tasks of a user, ring or experiment",
 		desc: "`dryRun` defaults to true (plan only). A real run is audited before any vendor call and each result after.",
 		req:  &body{typ: CloudKillRequest{}, example: `{"scope":"user","name":"dev@acme.example","reason":"leaked credential"}`}, ok: jsonOK(CloudKillResponse{}, `{"dryRun":true,"actions":[],"unattributed":0,"next_steps":[]}`),
 		errs: errMap(400, "Invalid JSON, or an unknown scope or name.", 422, "A reason is required (at most 500 characters).", 500, "Audit log unreadable, or "+msgAudit, 503, msgPolicy)},
@@ -420,7 +420,7 @@ var sessionOps = []apiOp{
 var scimOps = func() []apiOp {
 	var out []apiOp
 	scimErrs := errMap(401, "Invalid SCIM token.", 404, "SCIM is not enabled, or unknown endpoint.", 429, "Too many failed authentications.")
-	add := func(route, id, summary string, query []query, req bool, code int, typ any, extra map[int]string) {
+	add := func(route, id, summary string, query []query, example string, code int, typ any, extra map[int]string) {
 		errs := map[int]string{}
 		for k, v := range scimErrs {
 			errs[k] = v
@@ -429,8 +429,8 @@ var scimOps = func() []apiOp {
 			errs[k] = v
 		}
 		o := apiOp{route: route, id: id, tag: "SCIM", summary: summary, auth: authSCIM, errKind: "ScimError", query: query, errs: errs}
-		if req {
-			o.req = &body{ct: "application/scim+json", typ: map[string]any{}}
+		if example != "" {
+			o.req = &body{ct: "application/scim+json", typ: map[string]any{}, example: example}
 		}
 		if typ != nil {
 			o.ok = []res{{code: code, body: body{ct: "application/scim+json", typ: typ}}}
@@ -446,7 +446,7 @@ var scimOps = func() []apiOp {
 		{"GET /scim/v2/Schemas", "scimSchemas", "SCIM schemas"},
 		{"GET /scim/v2/Schemas/{id}", "scimSchema", "One SCIM schema"},
 	} {
-		add(d.route, d.id, d.summary, nil, false, http.StatusOK, map[string]any{}, errMap(404, "Unknown id or SCIM not enabled."))
+		add(d.route, d.id, d.summary, nil, "", http.StatusOK, map[string]any{}, errMap(404, "Unknown id or SCIM not enabled."))
 	}
 	list := []query{
 		{name: "filter", desc: "`attr eq \"value\"` only: userName, externalId or id on users; displayName, externalId or id on groups."},
@@ -454,14 +454,18 @@ var scimOps = func() []apiOp {
 		{name: "count", desc: "Page size, at most 1000.", typ: "integer", min: 0, max: 1000},
 		{name: "excludedAttributes", desc: "`members` omits group members."},
 	}
-	for _, k := range []struct{ plural, noun string }{{"Users", "user"}, {"Groups", "group"}} {
+	const patch = `{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[{"op":"replace","path":"displayName","value":"Renamed"}]}`
+	for _, k := range []struct{ plural, noun, res string }{
+		{"Users", "user", `{"schemas":["urn:ietf:params:scim:schemas:core:2.0:User"],"userName":"new@acme.example","active":true}`},
+		{"Groups", "group", `{"schemas":["urn:ietf:params:scim:schemas:core:2.0:Group"],"displayName":"new-group"}`},
+	} {
 		base := "/scim/v2/" + k.plural
-		add("GET "+base, "scimList"+k.plural, "List "+k.noun+"s", list, false, 200, scimListDoc{}, nil)
-		add("POST "+base, "scimCreate"+k.plural, "Create a "+k.noun, nil, true, 201, scimResourceDoc{}, errMap(400, "Invalid resource.", 409, "uniqueness: userName or displayName is taken."))
-		add("GET "+base+"/{id}", "scimGet"+k.plural, "Read a "+k.noun, nil, false, 200, scimResourceDoc{}, nil)
-		add("PUT "+base+"/{id}", "scimReplace"+k.plural, "Replace a "+k.noun, nil, true, 200, scimResourceDoc{}, errMap(400, "Invalid resource.", 409, "uniqueness.", 412, "If-Match does not match."))
-		add("PATCH "+base+"/{id}", "scimPatch"+k.plural, "Patch a "+k.noun, nil, true, 200, scimResourceDoc{}, errMap(400, "Invalid patch.", 412, "If-Match does not match."))
-		add("DELETE "+base+"/{id}", "scimDelete"+k.plural, "Delete a "+k.noun, nil, false, 204, nil, errMap(412, "If-Match does not match."))
+		add("GET "+base, "scimList"+k.plural, "List "+k.noun+"s", list, "", 200, scimListDoc{}, nil)
+		add("POST "+base, "scimCreate"+k.plural, "Create a "+k.noun, nil, k.res, 201, scimResourceDoc{}, errMap(400, "Invalid resource.", 409, "uniqueness: userName or displayName is taken."))
+		add("GET "+base+"/{id}", "scimGet"+k.plural, "Read a "+k.noun, nil, "", 200, scimResourceDoc{}, nil)
+		add("PUT "+base+"/{id}", "scimReplace"+k.plural, "Replace a "+k.noun, nil, k.res, 200, scimResourceDoc{}, errMap(400, "Invalid resource.", 409, "uniqueness.", 412, "If-Match does not match."))
+		add("PATCH "+base+"/{id}", "scimPatch"+k.plural, "Patch a "+k.noun, nil, patch, 200, scimResourceDoc{}, errMap(400, "Invalid patch.", 412, "If-Match does not match."))
+		add("DELETE "+base+"/{id}", "scimDelete"+k.plural, "Delete a "+k.noun, nil, "", 204, nil, errMap(412, "If-Match does not match."))
 	}
 	return out
 }()
