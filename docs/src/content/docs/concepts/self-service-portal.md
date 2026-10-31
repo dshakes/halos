@@ -98,7 +98,7 @@ A developer submits `POST /api/v1/requests` with a `kind`, an `item` and a justi
 | `mcp-server` | PR appending the catalog server to the requester's ring profile. **This applies to everyone on that profile, not only the requester**, and the PR says so |
 | `model`, `harness` | Approval is recorded; no automatic patch exists, so a human makes the change |
 
-The PR is opened on a branch `halos/request-<id>` from a **dedicated clone** of the policy repo (`policyRepoDir`), never the directory the server is serving, and it is never merged. Requires `git` and `gh` on the server. If no writer is configured, approvals are recorded and need a manual policy change.
+The PR is opened on a branch `halos/request-<id>` from a **dedicated clone** of the policy repo (`policyRepoDir`), never the directory the server is serving, and it is never merged. Requires `git` on the server, and `gh` unless the portal config sets `policyForge` to `gitlab` or `github` (REST API with `GITLAB_TOKEN` or `GITHUB_TOKEN`/`GH_TOKEN`; `policyForgeBaseURL` for self-managed hosts, see [GitLab and GitHub Enterprise Server](/halos/guides/gitlab-and-ghes/)). If no writer is configured, approvals are recorded and need a manual policy change.
 
 ## Operator console
 

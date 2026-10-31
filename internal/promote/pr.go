@@ -231,6 +231,9 @@ type PRRequest struct {
 	// CommitBody is an optional extra commit-message paragraph (e.g. the reason).
 	CommitBody string
 	Files      map[string][]byte
+	// Labels and Reviewers (usernames) are optional; empty adds none.
+	Labels    []string
+	Reviewers []string
 	// Edit, when set, re-applies the change to the committed (HEAD) version of
 	// each file, so uncommitted working-tree edits never ride into the PR.
 	// Files is then only the preview.
@@ -355,6 +358,12 @@ func (g GHOpener) OpenPR(ctx context.Context, r PRRequest) (string, error) {
 	args := []string{"pr", "create", "--title", r.Title, "--body", r.Body, "--head", branch}
 	if r.Base != "" {
 		args = append(args, "--base", r.Base)
+	}
+	for _, l := range r.Labels {
+		args = append(args, "--label", l)
+	}
+	for _, rv := range r.Reviewers {
+		args = append(args, "--reviewer", rv)
 	}
 	out, err := g.run(ctx, r.RepoDir, "gh", args...)
 	if err != nil {

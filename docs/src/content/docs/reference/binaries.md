@@ -59,7 +59,7 @@ Generates a collector with two OTLP receivers so experiment evidence can be trus
 
 ### `halo controller run`
 
-Evaluates every running experiment from ClickHouse evidence on a timer (or once) and acts. `rollback` trips the kill switch in `<data-dir>/killswitch.jsonl`, opens a PR pausing the experiment and notifies. `promote` and `expired` open a PR concluding it and notify. Each action happens once per experiment run, recorded in `<data-dir>/controller-state.jsonl`. PRs are opened with `gh` from the git checkout containing `--policy-dir`. **Run a single controller per data dir.** Concepts: [experiments](/halos/concepts/experiments/#the-controller-loop).
+Evaluates every running experiment from ClickHouse evidence on a timer (or once) and acts. `rollback` trips the kill switch in `<data-dir>/killswitch.jsonl`, opens a PR pausing the experiment and notifies. `promote` and `expired` open a PR concluding it and notify. Each action happens once per experiment run, recorded in `<data-dir>/controller-state.jsonl`. PRs are opened from the git checkout containing `--policy-dir` with `gh`, or as GitLab merge requests / through the GitHub API with `--forge` ([GitLab and GitHub Enterprise Server](/halos/guides/gitlab-and-ghes/)). **Run a single controller per data dir.** Concepts: [experiments](/halos/concepts/experiments/#the-controller-loop).
 
 | Flag | Default | Purpose |
 |---|---|---|
@@ -239,6 +239,7 @@ Flags (Go style, single or double dash):
 | `-clickhouse-url`, `-clickhouse-database`, `-clickhouse-user`, `-clickhouse-password-file` | | Evidence source |
 | `-policy-repo-dir` | | **Dedicated** clone the controller opens PRs from (hard-reset to `origin/<base>` before each PR). Must not be or overlap `-policy-dir`. May be the portal's `policyRepoDir` (then console and controller share that clone and its lock; subdir/base must match the portal's). Without it, no PRs are opened |
 | `-policy-repo-subdir`, `-policy-repo-base` | (root), `main` | Policy root inside that clone; PR base branch |
+| `-forge`, `-forge-base-url` | autodetect | Where PRs/MRs are opened: `gh`, `github` (REST, `GITHUB_TOKEN`/`GH_TOKEN`) or `gitlab` (REST v4, `GITLAB_TOKEN`); default `gitlab` if the clone's origin host names it, else `gh`. `-forge-base-url` sets the GitHub Enterprise Server or self-managed GitLab API root. Also the default for the portal writer (portal `policyForge` / `policyForgeBaseURL` override). [Guide](/halos/guides/gitlab-and-ghes/) |
 | `-notify-slack-url-file`, `-notify-webhook-url-file`, `-notify-webhook-secret-file` | | Controller notifications; the secret signs generic webhook bodies (`X-Halo-Timestamp` plus `X-Halo-Signature`, [verification](#verifying-the-webhook-signature)) |
 | `-metrics-listen` | off | Address serving the controller's `/metrics`. **Unauthenticated**: keep it internal |
 | `-scim-token-sha256-file` | | Enables [SCIM 2.0 provisioning](/halos/guides/scim-provisioning/) at `/scim/v2`. File with the hex SHA-256 of each accepted SCIM bearer token, one per line (two while rotating; `#` comments allowed). Requires `-data-dir` |
