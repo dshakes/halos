@@ -67,7 +67,7 @@ func (h *httpAPI) do(ctx context.Context, op, method, path string, body, out any
 		// net/http errors quote the URL, never headers.
 		return nil, fmt.Errorf("promote: %s: %w", op, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, forgeMaxBody))
 	if err != nil {
 		return nil, fmt.Errorf("promote: %s: read response: %w", op, err)
