@@ -244,7 +244,13 @@ func (k *KillSwitch) refresh(ctx context.Context) error {
 // toggles (Version is informational and differs between replicas). b must
 // be a list actually held (non-zero IssuedAt).
 func sameKills(a, b KillList) bool {
-	return !b.IssuedAt.IsZero() && slices.Equal(a.Experiments, b.Experiments) && slices.Equal(a.Toggles, b.Toggles)
+	return !b.IssuedAt.IsZero() && sameSet(a.Experiments, b.Experiments) && sameSet(a.Toggles, b.Toggles)
+}
+
+// sameSet compares names as sets: order and repeats do not matter (replicas
+// need not list them in the same order).
+func sameSet(a, b []string) bool {
+	return slices.Equal(slices.Compact(slices.Sorted(slices.Values(a))), slices.Compact(slices.Sorted(slices.Values(b))))
 }
 
 // set installs l as the current list; callers hold k.mu.

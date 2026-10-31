@@ -324,7 +324,19 @@ func TestKillSwitchSameEnvelope(t *testing.T) {
 	if err := k.Refresh(ctx); err != nil || !k.Killed().IssuedAt.Equal(now) {
 		t.Fatalf("older list with the same kills: err=%v held issuedAt %v", err, k.Killed().IssuedAt)
 	}
+	// Info (d): the same kills in another order (and with a repeat) are the same set.
+	k.Restore(KillList{Version: 3, Experiments: []string{"a", "b"}, Toggles: []string{"t1", "t2"}, IssuedAt: now.Add(time.Second)})
+	k.Now = func() time.Time { return now.Add(time.Second) }
+	reordered, _ := SignKillList(ctx, bundle.Ed25519Signer{Key: priv}, KillList{Version: 4, Experiments: []string{"b", "a", "b"}, Toggles: []string{"t2", "t1"}, IssuedAt: now})
+	ks.set(http.StatusOK, reordered)
+	if err := k.Refresh(ctx); err != nil || !slices.Equal(k.Killed().Experiments, []string{"a", "b"}) {
+		t.Fatalf("same kills, other order: err=%v list=%v", err, k.Killed())
+	}
+	if !sameSet([]string{"x", "y"}, []string{"y", "x", "x"}) || sameSet([]string{"x"}, []string{"x", "y"}) {
+		t.Fatal("sameSet")
+	}
 	// ...but an older list with different kills still fails and changes nothing.
+	k.Restore(KillList{Version: 1, Experiments: []string{"a"}, IssuedAt: now.Add(2 * time.Second)})
 	older, _ := SignKillList(ctx, bundle.Ed25519Signer{Key: priv}, KillList{Version: 1, Experiments: []string{}, IssuedAt: now.Add(-2 * time.Second)})
 	ks.set(http.StatusOK, older)
 	if err := k.Refresh(ctx); err == nil || !slices.Equal(k.Killed().Experiments, []string{"a"}) {

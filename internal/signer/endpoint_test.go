@@ -2,6 +2,24 @@ package signer
 
 import "testing"
 
+// Info (c): non-ASCII KMS hosts are refused, including ones Unicode case
+// folding would turn into an allowed ASCII host.
+func TestKMSEndpointNonASCII(t *testing.T) {
+	for _, raw := range []string{
+		"https://Kms.us-east-1.amazonaws.com/", // KELVIN SIGN: ToLower gives "kms..."
+		"https://kms.us-east-1.amazonaws.com。/",
+		"https://kms.us-east-1.amazonaws.cöm/",
+		"https://kms.us-east-1.аmazonaws.com/", // Cyrillic a
+	} {
+		if err := checkKMSEndpoint(raw, "us-east-1"); err == nil {
+			t.Errorf("%q accepted", raw)
+		}
+	}
+	if err := checkKMSEndpoint("https://KMS.US-EAST-1.AMAZONAWS.COM/", "us-east-1"); err != nil {
+		t.Errorf("upper-case ASCII host: %v", err)
+	}
+}
+
 // Info (a): FIPS builds default to the KMS FIPS endpoint unless fips=false
 // is explicit; an endpoint override must be a KMS host of the signing region.
 func TestKMSEndpointSelection(t *testing.T) {

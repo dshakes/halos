@@ -138,6 +138,13 @@ func checkKMSEndpoint(raw, region string) error {
 	if u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" || (u.Path != "" && u.Path != "/") {
 		return fmt.Errorf("signer: awskms endpoint %q must be scheme://host[:port][/] only", raw)
 	}
+	// ASCII only, checked before lower-casing: Unicode case folding maps
+	// some non-ASCII letters to ASCII (U+212A KELVIN SIGN lowers to "k").
+	for i := 0; i < len(u.Hostname()); i++ {
+		if c := u.Hostname()[i]; c >= 0x80 || c < 0x21 {
+			return fmt.Errorf("signer: awskms endpoint host %q is not plain ASCII (use the punycode form of an internationalised name)", u.Hostname())
+		}
+	}
 	host := strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")
 	if ip := net.ParseIP(host); host == "localhost" || (ip != nil && ip.IsLoopback()) {
 		if u.Scheme == "http" || u.Scheme == "https" {
