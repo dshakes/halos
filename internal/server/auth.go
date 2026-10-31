@@ -38,13 +38,16 @@ type Principal struct {
 	ID     string   `json:"id"`
 	Groups []string `json:"groups"`
 	Roles  []string `json:"roles"`
-	Admin  bool     `json:"admin"` // holds RoleAdmin; kept for API clients that predate roles
+	Admin  bool     `json:"admin"` // holds RoleAdmin globally (a scoped admin shows in Bindings only, ADR-0037); kept for API clients that predate roles
 	// Kind is empty for a human console session, else KindServiceAccount or
 	// KindBreakGlass (ADR-0036).
 	Kind string `json:"kind,omitempty"`
 	// OnBehalfOf is the human who created a service token: separation-of-
 	// duties checks treat the token as that person (ADR-0036).
 	OnBehalfOf string `json:"onBehalfOf,omitempty"`
+	// Bindings are the roles p holds and over which scope (ADR-0037); Roles
+	// is their distinct role names. Authorization reads Bindings only.
+	Bindings []policy.Grant `json:"bindings"`
 }
 
 // is reports whether p is user, or acts on user's behalf: every
@@ -53,11 +56,25 @@ func (p Principal) is(user string) bool {
 	return sameUser(user, p.ID) || (p.OnBehalfOf != "" && sameUser(user, p.OnBehalfOf))
 }
 
+// newPrincipal holds roles globally (dev flags, break-glass, tests).
 func newPrincipal(id string, groups, roles []string) Principal {
+	p := grantPrincipal(id, groups, globalGrants(roles, "roles"))
+	if roles != nil {
+		p.Roles = roles // as given: --dev-insecure-roles order is shown as configured
+	}
+	return p
+}
+
+// grantPrincipal holds exactly grants.
+func grantPrincipal(id string, groups []string, grants []policy.Grant) Principal {
+	if grants == nil {
+		grants = []policy.Grant{}
+	}
+	roles := grantRoles(grants)
 	if roles == nil {
 		roles = []string{}
 	}
-	return Principal{ID: id, Groups: groups, Roles: roles, Admin: slices.Contains(roles, RoleAdmin)}
+	return Principal{ID: id, Groups: groups, Roles: roles, Admin: slices.ContainsFunc(grants, func(g policy.Grant) bool { return g.Role == RoleAdmin && g.Scope.Global() }), Bindings: grants}
 }
 
 func (p Principal) subject() policy.Subject { return policy.Subject{ID: p.ID, Groups: p.Groups} }
@@ -124,12 +141,15 @@ func (s *Server) setCookie(w http.ResponseWriter, name, val, path string, ttl ti
 
 // ---- principal resolution and role gates ----
 
-func (s *Server) roles(groups []string) []string {
+// grants is what user, holding groups, is granted by current policy:
+// identity.roles and adminGroups globally, identity.roleBindings over their
+// scopes (ADR-0037). No policy, no grants.
+func (s *Server) grants(user string, groups []string) []policy.Grant {
 	org, _, _ := s.pol.Get()
 	if org == nil {
 		return nil
 	}
-	return rolesFor(org.Identity, groups)
+	return org.Identity.Grants(policy.Subject{ID: user, Groups: groups})
 }
 
 func (s *Server) principal(r *http.Request) (Principal, bool) {
@@ -172,7 +192,7 @@ func (s *Server) sessionPrincipal(r *http.Request) (Principal, cookiePayload, bo
 		return Principal{}, cookiePayload{}, false
 	}
 	// Roles are recomputed from current policy and directory groups rather than trusted from the cookie.
-	return newPrincipal(p.Sub, g, s.roles(g)), p, true
+	return grantPrincipal(p.Sub, g, s.grants(p.Sub, g)), p, true
 }
 
 // authenticate resolves the caller of a console/API route: a service-account
@@ -376,7 +396,7 @@ func principalFromClaims(claims map[string]any, id policy.Identity) (Principal, 
 	if err != nil {
 		return Principal{}, err
 	}
-	return newPrincipal(sub.ID, sub.Groups, rolesFor(id, sub.Groups)), nil
+	return grantPrincipal(sub.ID, sub.Groups, id.Grants(policy.Subject{ID: sub.ID, Groups: sub.Groups})), nil
 }
 
 func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
@@ -476,7 +496,7 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 			deny("groups_graph", http.StatusServiceUnavailable, "your group memberships could not be read from Microsoft Graph; try again or ask an admin to check the app's Graph permissions", err)
 			return
 		}
-		p = newPrincipal(p.ID, gs, rolesFor(id, gs))
+		p = grantPrincipal(p.ID, gs, id.Grants(policy.Subject{ID: p.ID, Groups: gs}))
 	}
 	g, provisioned := s.directoryGroups(p.ID, p.Groups)
 	if !provisioned {
@@ -484,7 +504,7 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Directory groups may differ from the token's: roles follow the groups in force.
-	p = newPrincipal(p.ID, g, rolesFor(id, g))
+	p = grantPrincipal(p.ID, g, id.Grants(policy.Subject{ID: p.ID, Groups: g}))
 	org, _, _ := s.pol.Get()
 	now := s.cfg.Now()
 	exp := now.Add(s.session.TTL)

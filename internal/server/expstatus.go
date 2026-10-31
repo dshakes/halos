@@ -24,7 +24,7 @@ func (s *Server) postExperimentStatus(w http.ResponseWriter, r *http.Request, p 
 		return
 	}
 	name := r.PathValue("name")
-	exps, ok := s.experiments(w)
+	exps, ok := s.experiments(w, r)
 	if !ok {
 		return
 	}
@@ -37,7 +37,7 @@ func (s *Server) postExperimentStatus(w http.ResponseWriter, r *http.Request, p 
 		apiErr(w, http.StatusConflict, "experiment is already "+in.Status)
 		return
 	}
-	org, _, _ := s.pol.Get()
+	org, _ := s.reqPolicy(r)
 	if org == nil {
 		apiErr(w, http.StatusServiceUnavailable, "policy not loaded")
 		return

@@ -140,7 +140,21 @@ func (a *app) cmdWhoami() *cobra.Command {
 				Ring        string       `json:"ring"`
 				Profile     string       `json:"profile"`
 				Experiments []assignment `json:"experiments"`
-			}{User: user, Groups: sub.Groups, Experiments: []assignment{}}
+				// ConsoleRoles are the halo-server roles the user holds and
+				// over which scope (ADR-0015, ADR-0037), from identity.
+				ConsoleRoles []policy.Grant `json:"consoleRoles"`
+			}{User: user, Groups: sub.Groups, Experiments: []assignment{}, ConsoleRoles: org.Identity.Grants(sub)}
+			if res.ConsoleRoles == nil {
+				res.ConsoleRoles = []policy.Grant{}
+			}
+			printRoles := func() {
+				if len(res.ConsoleRoles) == 0 {
+					fmt.Fprintln(a.out, "console  (no halo-server role)")
+				}
+				for _, g := range res.ConsoleRoles {
+					fmt.Fprintf(a.out, "console  %s over %s (%s)\n", g.Role, g.Scope, g.Source)
+				}
+			}
 			ring := org.ResolveRing(sub)
 			if ring != nil {
 				res.Ring, res.Profile = ring.Name, ring.Profile
@@ -156,6 +170,7 @@ func (a *app) cmdWhoami() *cobra.Command {
 			return a.emit(res, func() {
 				if ring == nil {
 					fmt.Fprintf(a.out, "%s: no ring matches\n", user)
+					printRoles()
 					return
 				}
 				fmt.Fprintf(a.out, "user     %s\nring     %s\nprofile  %s\n", user, a.bold(res.Ring), res.Profile)
@@ -165,6 +180,7 @@ func (a *app) cmdWhoami() *cobra.Command {
 				for _, x := range res.Experiments {
 					fmt.Fprintf(a.out, "variant  %s = %s\n", x.Experiment, x.Variant)
 				}
+				printRoles()
 			})
 		},
 	}

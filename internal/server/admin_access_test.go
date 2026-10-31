@@ -151,7 +151,7 @@ func TestServiceTokenCreateValidation(t *testing.T) {
 		{"unknown role", `{"name":"x","role":"root"}`, 400},
 		{"bad name", `{"name":"Bad Name","role":"viewer"}`, 400},
 		{"control chars", `{"name":"x","role":"viewer","owner":"a\u0007b"}`, 400},
-		{"unknown field", `{"name":"x","role":"viewer","scopes":["*"]}`, 201}, // tolerated, ignored
+		{"unknown field", `{"name":"x","role":"viewer","scopes":["*"]}`, 400}, // refused since ADR-0037: a typo must never mint a default
 		{"trailing data", `{"name":"x","role":"viewer"}{}`, 400},
 	} {
 		t.Run(c.name, func(t *testing.T) {

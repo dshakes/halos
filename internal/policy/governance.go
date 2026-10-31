@@ -330,6 +330,40 @@ type Approval struct {
 	Groups []string  `json:"groups,omitempty"`
 	At     time.Time `json:"at"`
 	Ticket string    `json:"ticket,omitempty"`
+	// Scopes are the scopes of the approver's scoped approve bindings when
+	// they approved (ADR-0037). nil means a global approver: every approval
+	// recorded before ADR-0037 was global. A scoped approval counts only for
+	// a change one of them covers (QuorumFor).
+	Scopes []RoleScope `json:"scopes,omitempty"`
+	// ScopedGroups replaces Groups on a scoped approval (ScopedApproval): a
+	// binary from before ADR-0037 ignores Scopes, so it must see no groups
+	// and count the approval for no rule, rather than count it as global.
+	ScopedGroups []string `json:"scopedGroups,omitempty"`
+}
+
+// ScopedApproval is an approval by by, holding groups, under scoped approve
+// bindings with scopes (nil scopes: a global approval).
+func ScopedApproval(by string, groups []string, at time.Time, ticket string, scopes []RoleScope) Approval {
+	a := Approval{By: by, At: at, Ticket: ticket}
+	if scopes == nil {
+		a.Groups = slices.Clone(groups)
+		return a
+	}
+	a.Scopes, a.ScopedGroups = slices.Clone(scopes), slices.Clone(groups)
+	if len(a.Scopes) == 0 {
+		// Empty would be omitted from JSON and read back as global: record a
+		// scope that covers nothing instead (ScopeCovers skips global entries).
+		a.Scopes = []RoleScope{{}}
+	}
+	return a
+}
+
+// approverGroups is the groups a held when approving.
+func (a Approval) approverGroups() []string {
+	if a.Scopes != nil {
+		return a.ScopedGroups
+	}
+	return a.Groups
 }
 
 // RuleResult is one approval rule's state for a change.
@@ -425,8 +459,16 @@ func ticketOK(pattern, ticket string) bool {
 // every rule covering target; nil when none does. The requester's own
 // approval and repeat approvals never count, and an approver counts for a
 // rule only while holding one of its groups. ticket is the change's ticket
-// reference ("" = none).
+// reference ("" = none). Scoped approvals never count here: use QuorumFor
+// with what the change touches.
 func (o *Org) Quorum(target ChangeTarget, requester, ticket string, approvals []Approval) *QuorumResult {
+	return o.QuorumFor(nil, target, requester, ticket, approvals)
+}
+
+// QuorumFor is Quorum for a change that touches res (ADR-0037): an approval
+// made under scoped approve bindings counts only when one of its scopes
+// covers res, and never when res is nil (unknown reach, fail closed).
+func (o *Org) QuorumFor(res *Resource, target ChangeTarget, requester, ticket string, approvals []Approval) *QuorumResult {
 	rules := o.ApprovalRules(target)
 	if len(rules) == 0 {
 		return nil
@@ -439,6 +481,8 @@ func (o *Org) Quorum(target ChangeTarget, requester, ticket string, approvals []
 		switch {
 		case requester != "" && id == CanonicalUser(requester):
 			q.Ignored = append(q.Ignored, a.By+": requested the change (separation of duties)")
+		case !a.ScopeCovers(res):
+			q.Ignored = append(q.Ignored, a.By+": approve scope does not cover this change (ADR-0037)")
 		case seen[id]:
 			q.Ignored = append(q.Ignored, a.By+": already approved")
 		default:
@@ -455,7 +499,7 @@ func (o *Org) Quorum(target ChangeTarget, requester, ticket string, approvals []
 		for _, a := range valid {
 			var gs []string
 			for _, g := range r.Groups {
-				if slices.Contains(a.Groups, g) {
+				if slices.Contains(a.approverGroups(), g) {
 					gs = append(gs, g)
 				}
 			}
@@ -473,6 +517,16 @@ func (o *Org) Quorum(target ChangeTarget, requester, ticket string, approvals []
 		q.Rules = append(q.Rules, rr)
 	}
 	return q
+}
+
+// ScopeCovers reports whether a counts for a change touching res: a global
+// approval (Scopes nil) always does, a scoped one when one of its scopes
+// covers res.
+func (a Approval) ScopeCovers(res *Resource) bool {
+	if a.Scopes == nil {
+		return true
+	}
+	return res != nil && slices.ContainsFunc(a.Scopes, func(s RoleScope) bool { return !s.Global() && s.Covers(*res) })
 }
 
 // distinctMatch is the largest set of approvers that can each stand for a

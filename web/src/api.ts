@@ -173,7 +173,8 @@ export type Me = z.infer<typeof Me>;
 const Catalog = z.object({
   harnesses: arr(z.object({ name: z.string(), version: z.string() })),
   launchers: arr(z.string()),
-  items: arr(z.object({ kind: z.string(), item: z.string(), desc: z.string().optional() })),
+  // ticket: patterns a change ticket must match to request the item (ADR-0030 approval rules); absent = none.
+  items: arr(z.object({ kind: z.string(), item: z.string(), desc: z.string().optional(), ticket: arr(z.string()) })),
 });
 
 const Launch = z.object({
@@ -230,7 +231,7 @@ export const useLaunch = () => useMutation({ mutationFn: (launcher: string) => c
 export function useCreateRequest() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (b: { kind: string; item: string; justification: string }) => call("POST", "/api/v1/requests", AccessRequest, b),
+    mutationFn: (b: { kind: string; item: string; justification: string; ticket?: string }) => call("POST", "/api/v1/requests", AccessRequest, b),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["requests"] }),
   });
 }

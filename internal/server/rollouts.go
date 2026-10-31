@@ -1,9 +1,9 @@
 package server
 
 import (
-	"context"
 	"net/http"
 	"path/filepath"
+	"slices"
 
 	"github.com/dshakes/halos/internal/policy"
 	"github.com/dshakes/halos/internal/rollout"
@@ -31,8 +31,10 @@ func (s *Server) rolloutStates() rollout.StateStore {
 	return nil
 }
 
-func (s *Server) rollouts(ctx context.Context, w http.ResponseWriter) ([]RolloutView, bool) {
-	org, _, err := s.pol.Get()
+// rollouts renders from the policy snapshot r was authorized under.
+func (s *Server) rollouts(w http.ResponseWriter, r *http.Request) ([]RolloutView, bool) {
+	ctx := r.Context()
+	org, err := s.reqPolicy(r)
 	if org == nil {
 		s.policyUnavailable(w, err)
 		return nil, false
@@ -53,14 +55,26 @@ func (s *Server) rollouts(ctx context.Context, w http.ResponseWriter) ([]Rollout
 	return out, true
 }
 
-func (s *Server) listRollouts(w http.ResponseWriter, r *http.Request, _ Principal) {
-	if out, ok := s.rollouts(r.Context(), w); ok {
-		writeJSON(w, http.StatusOK, out)
+func (s *Server) listRollouts(w http.ResponseWriter, r *http.Request, p Principal) {
+	out, ok := s.rollouts(w, r)
+	if !ok {
+		return
 	}
+	if f := newReadFilter(p, permRead); !f.all { // scoped readers (ADR-0037): rollouts wholly in scope
+		org, err := s.reqPolicy(r)
+		out = slices.DeleteFunc(out, func(v RolloutView) bool {
+			if err != nil {
+				return true
+			}
+			ro := findRolloutIn(org, v.Rollout.Name)
+			return ro == nil || !f.ok(rolloutResource(org, ro), nil)
+		})
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) getRollout(w http.ResponseWriter, r *http.Request, _ Principal) {
-	out, ok := s.rollouts(r.Context(), w)
+	out, ok := s.rollouts(w, r)
 	if !ok {
 		return
 	}

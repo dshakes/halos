@@ -131,7 +131,7 @@ export default defineConfig({
             },
             {
               label: 'Operate',
-              items: ['guides/production-deployment', 'guides/operations', 'guides/backup-and-restore', 'guides/air-gapped-install', 'guides/admin-access', 'guides/sso-entra', 'guides/sso-okta', 'guides/siem-export', 'guides/notifications', 'guides/session-ledger', 'guides/scim-provisioning', 'guides/vendor-admin-sync', 'guides/change-governance', 'guides/new-harness-adapter'],
+              items: ['guides/production-deployment', 'guides/operations', 'guides/backup-and-restore', 'guides/air-gapped-install', 'guides/admin-access', 'guides/delegated-administration', 'guides/sso-entra', 'guides/sso-okta', 'guides/siem-export', 'guides/notifications', 'guides/session-ledger', 'guides/scim-provisioning', 'guides/vendor-admin-sync', 'guides/change-governance', 'guides/new-harness-adapter'],
             },
           ],
         },
