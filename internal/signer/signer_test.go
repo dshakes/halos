@@ -15,9 +15,11 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -151,7 +153,7 @@ func execURI(t *testing.T, keyPath, mode string, extra string) string {
 	}
 	t.Setenv("HALOS_SIGNER_FAKE_KEY", keyPath)
 	t.Setenv("HALOS_SIGNER_FAKE_MODE", mode)
-	return "exec://" + exe + "?key=test-key" + extra
+	return ExecURI(exe, url.Values{"key": {"test-key"}}) + extra
 }
 
 // ---- fake KMS ----
@@ -532,13 +534,16 @@ func TestExecFailures(t *testing.T) {
 
 // A shell-script signer: the protocol needs nothing but stdin/stdout.
 func TestExecScriptSigner(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a #!/bin/sh script; Windows runs the Go fake signer in TestConformance")
+	}
 	dir := t.TempDir()
 	script := filepath.Join(dir, "signer.sh")
 	body := "#!/bin/sh\ncat >/dev/null\necho '{\"protocol\":\"halos.signer.v1\",\"error\":\"pkcs11: token not present\"}'\n"
 	if err := os.WriteFile(script, []byte(body), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Open(context.Background(), "exec://"+script, Options{}); err == nil || !strings.Contains(err.Error(), "token not present") {
+	if _, err := Open(context.Background(), ExecURI(script, nil), Options{}); err == nil || !strings.Contains(err.Error(), "token not present") {
 		t.Fatalf("script error: %v", err)
 	}
 }
@@ -559,7 +564,7 @@ func TestParseExecURI(t *testing.T) {
 		{uri: "exec:///usr/bin/s?key=a&key=b", err: "more than once"},
 	}
 	for _, tt := range tests {
-		e, err := parseExecURI(tt.uri)
+		e, err := parseExecURIFor(tt.uri, "linux")
 		if tt.err != "" {
 			if err == nil || !strings.Contains(err.Error(), tt.err) {
 				t.Errorf("%s: got %v want %q", tt.uri, err, tt.err)

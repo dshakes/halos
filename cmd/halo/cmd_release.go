@@ -513,7 +513,8 @@ func (a *app) cmdKeysPublic() *cobra.Command {
 			"  file://PATH (or PATH)                 PKCS#8 PEM ed25519 or ECDSA P-256 private key\n" +
 			"  awskms://KEY[?region=R&fips=true]     AWS KMS SIGN_VERIFY key, ECC_NIST_P256 or ECC_NIST_EDWARDS25519;\n" +
 			"                                        KEY is a key id, key ARN, alias/<name> or alias ARN; needs kms:GetPublicKey\n" +
-			"  exec:///ABS/PATH[?arg=A&key=ID]       external signer (halos.signer.v1 JSON protocol over stdin/stdout)",
+			"  exec:///ABS/PATH[?arg=A&key=ID]       external signer (halos.signer.v1 JSON protocol over stdin/stdout);\n" +
+			"                                        on Windows exec:///C:/path/to/signer.exe",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if uri == "" {

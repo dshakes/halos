@@ -61,7 +61,7 @@ Regulated buyers ask for two things this blocks:
 |---|---|
 | `file://PATH`, `PATH` | PKCS#8 PEM, ed25519 or ECDSA P-256 (today's default) |
 | `awskms://KEY?region=&fips=&endpoint=` | KMS `ECC_NIST_P256` (`ECDSA_SHA_256`, `MessageType=DIGEST`) or `ECC_NIST_EDWARDS25519` (`ED25519_SHA_512`, `RAW`) |
-| `exec:///ABS/PATH?arg=&key=&timeout=` | `halos.signer.v1` external signer |
+| `exec:///ABS/PATH?arg=&key=&timeout=` (Unix), `exec:///C:/path/to/signer.exe?...` (Windows, file-URI style) | `halos.signer.v1` external signer; a host component and UNC paths are refused |
 
 Remote backends fetch the public key once, check that `KeyUsage` is `SIGN_VERIFY` and the key spec maps to a native algorithm, and **verify every signature they return** before Halos uses it. An alias is resolved to its key ARN once, and `Sign` names the ARN. KMS endpoints must be https on an AWS domain or loopback. `exec://` runs without a shell, inherits the environment (PINs go there, not in arguments), is bounded by a timeout and a 64 KiB output cap, and rejects unknown response fields and trailing output.
 

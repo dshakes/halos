@@ -9,6 +9,13 @@ import (
 	"syscall"
 )
 
+// isPathVar reports whether name is the search path variable.
+func isPathVar(name string) bool { return name == "PATH" }
+
+// baseEnvVar is the minimal environment every signer gets besides
+// HALOS_SIGNER_* and env= names.
+func baseEnvVar(name string) bool { return name == "HOME" }
+
 // killProcessGroup starts the signer in its own process group and, on
 // timeout or cancellation, kills the whole group: an HSM helper the signer
 // spawned cannot outlive it holding the key session.

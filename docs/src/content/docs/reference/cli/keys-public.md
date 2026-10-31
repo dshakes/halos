@@ -10,7 +10,8 @@ Opens the key the URI names and prints its public key as PKIX PEM, plus its algo
   file://PATH (or PATH)                 PKCS#8 PEM ed25519 or ECDSA P-256 private key
   awskms://KEY[?region=R&fips=true]     AWS KMS SIGN_VERIFY key, ECC_NIST_P256 or ECC_NIST_EDWARDS25519;
                                         KEY is a key id, key ARN, alias/<name> or alias ARN; needs kms:GetPublicKey
-  exec:///ABS/PATH[?arg=A&key=ID]       external signer (halos.signer.v1 JSON protocol over stdin/stdout)
+  exec:///ABS/PATH[?arg=A&key=ID]       external signer (halos.signer.v1 JSON protocol over stdin/stdout);
+                                        on Windows exec:///C:/path/to/signer.exe
 
 ## Usage
 

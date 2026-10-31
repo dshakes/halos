@@ -13,8 +13,10 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -88,19 +90,44 @@ type execSigner struct {
 	log     *slog.Logger
 }
 
-func parseExecURI(uri string) (execSigner, error) {
+// execURIForms is the error hint naming both accepted forms.
+const execURIForms = "exec:///absolute/path on Unix, exec:///C:/path/to/signer.exe on Windows"
+
+// windowsDriveRE matches the URL path of a Windows drive path: "/C:/..." or
+// "/C:\..." (the leading slash is the file-URI convention).
+var windowsDriveRE = regexp.MustCompile(`^/[A-Za-z]:[/\\]`)
+
+func parseExecURI(uri string) (execSigner, error) { return parseExecURIFor(uri, runtime.GOOS) }
+
+// parseExecURIFor parses an exec URI for the operating system goos (a
+// parameter so both forms are tested everywhere). Unix: exec:///abs/path.
+// Windows, file-URI style: exec:///C:/path/to/signer.exe (forward slashes,
+// or backslashes written %5C). A host component (exec://C:..., where a
+// Windows path was pasted after exec://) and UNC paths (exec:////server/share,
+// a share others can write to) are refused with the correct form.
+func parseExecURIFor(uri, goos string) (execSigner, error) {
 	var e execSigner
+	rest, ok := strings.CutPrefix(uri, "exec://")
+	if !ok || !strings.HasPrefix(rest, "/") {
+		return e, fmt.Errorf("signer: exec URI must be %s (three slashes, no host)", execURIForms)
+	}
 	u, err := url.Parse(uri)
 	if err != nil {
-		return e, fmt.Errorf("signer: exec URI: %w", err)
+		return e, fmt.Errorf("signer: exec URI (%s): %w", execURIForms, err)
 	}
 	if u.Host != "" || u.User != nil || u.Fragment != "" || u.Opaque != "" {
-		return e, fmt.Errorf("signer: exec URI must be exec:///absolute/path[?arg=...] (got host %q)", u.Host)
+		return e, fmt.Errorf("signer: exec URI must be %s (got host %q)", execURIForms, u.Host)
 	}
-	if !filepath.IsAbs(u.Path) || filepath.Clean(u.Path) != u.Path || strings.ContainsRune(u.Path, 0) {
+	if strings.ContainsRune(u.Path, 0) {
 		return e, fmt.Errorf("signer: exec signer path %q must be absolute and clean", u.Path)
 	}
-	e.path, e.timeout = u.Path, DefaultTimeout
+	if strings.HasPrefix(u.Path, "//") || strings.HasPrefix(u.Path, `/\`) {
+		return e, errors.New("signer: exec signer on a UNC network path is refused (a share others can write to could swap it): copy it to a local disk and use " + execURIForms)
+	}
+	if e.path, err = execPathFor(u.Path, goos); err != nil {
+		return e, err
+	}
+	e.timeout = DefaultTimeout
 	for name, vals := range u.Query() {
 		switch name {
 		case "arg":
@@ -137,6 +164,45 @@ func parseExecURI(uri string) (execSigner, error) {
 	}
 	// url.Query keeps repeated args in order, which is what the command sees.
 	return e, nil
+}
+
+// execPathFor turns an exec URI's (unescaped) URL path into a native path
+// for goos, refusing a path that is not absolute and clean there.
+func execPathFor(p, goos string) (string, error) {
+	if windowsDriveRE.MatchString(p) {
+		if goos != "windows" {
+			return "", fmt.Errorf("signer: exec signer path %q is a Windows drive path; on %s use exec:///absolute/path", p, goos)
+		}
+		w := strings.ReplaceAll(p[1:], "/", `\`) // C:\path\to\signer.exe
+		for _, seg := range strings.Split(w[3:], `\`) {
+			if seg == "" || seg == "." || seg == ".." || strings.ContainsAny(seg, `:*?"<>|`) {
+				return "", fmt.Errorf("signer: exec signer path %q must be absolute and clean (%s)", w, execURIForms)
+			}
+		}
+		return w, nil
+	}
+	if goos == "windows" {
+		return "", fmt.Errorf("signer: exec signer path %q has no drive letter; on Windows use exec:///C:/path/to/signer.exe", p)
+	}
+	if !path.IsAbs(p) || path.Clean(p) != p || strings.Contains(p, `\`) {
+		return "", fmt.Errorf("signer: exec signer path %q must be absolute and clean (%s)", p, execURIForms)
+	}
+	return p, nil
+}
+
+// ExecURI builds the exec:// URI for the signer at the native path p with
+// query q (arg, env, key, sha256, timeout; nil for none): exec:///abs/path
+// on Unix, exec:///C:/path/to/signer.exe for a Windows drive path. Use it
+// rather than concatenating "exec://"+p, which is wrong on Windows.
+func ExecURI(p string, q url.Values) string {
+	if len(p) >= 3 && windowsDriveRE.MatchString("/"+p[:3]) { // C:\ or C:/
+		p = "/" + strings.ReplaceAll(p, `\`, "/")
+	}
+	u := url.URL{Scheme: "exec", Path: p}
+	if len(q) > 0 {
+		u.RawQuery = q.Encode()
+	}
+	return u.String()
 }
 
 func openExec(ctx context.Context, uri string, log *slog.Logger) (bundle.KeySigner, error) {
@@ -237,11 +303,11 @@ func checkSignerBinary(path, want string) error {
 func (e execSigner) signerEnv() []string {
 	var out []string
 	for _, kv := range os.Environ() {
-		name, _, _ := strings.Cut(kv, "=")
+		name, val, _ := strings.Cut(kv, "=")
 		switch {
-		case name == "PATH":
-			out = append(out, "PATH="+absolutePath(kv[len("PATH="):]))
-		case name == "HOME" || strings.HasPrefix(name, ExecEnvPrefix) || slices.Contains(e.env, name):
+		case isPathVar(name): // "PATH"; "Path" on Windows
+			out = append(out, name+"="+absolutePath(val))
+		case baseEnvVar(name) || strings.HasPrefix(name, ExecEnvPrefix) || slices.Contains(e.env, name):
 			out = append(out, kv)
 		}
 	}

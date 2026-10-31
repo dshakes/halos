@@ -20,7 +20,7 @@ Signing commands take `--key PATH` (a PEM file, as before) or `--key-uri URI` (`
 |---|---|
 | `file://PATH` or `PATH` | PKCS#8 PEM private key, ed25519 or ECDSA P-256 |
 | `awskms://KEY[?region=R&fips=true&endpoint=URL]` | AWS KMS. `KEY` is a key id, key ARN, multi-Region key id, `alias/NAME` or alias ARN |
-| `exec:///ABS/PATH[?arg=A&arg=B&env=NAME&key=ID&sha256=HEX&timeout=30s]` | An external signer program ([protocol](#external-signers)) |
+| `exec:///ABS/PATH[?arg=A&arg=B&env=NAME&key=ID&sha256=HEX&timeout=30s]` (Unix)<br>`exec:///C:/path/to/signer.exe[?...]` (Windows) | An external signer program ([protocol](#external-signers)) |
 
 Remote backends fetch the public key once when they open, and Halos verifies every signature they return against it before using it. A KMS or HSM that signs with the wrong key, algorithm or encoding fails at signing time, not on the fleet.
 
@@ -58,7 +58,15 @@ Halos talks to KMS through its JSON API with the AWS SDK's credential chain and 
 
 ## External signers
 
-`exec://` runs a program you provide, once per operation, with no shell. Halos writes one JSON request to its stdin, closes it, and reads one JSON response from stdout. Exit 0 with no `error` field is success.
+`exec://` runs a program you provide, once per operation, with no shell. The URI always has three slashes and no host, like a `file://` URI:
+
+| OS | Form | Example |
+|---|---|---|
+| Linux, macOS | `exec:///absolute/path` | `exec:///usr/local/bin/halos-pkcs11-signer?key=slot0` |
+| Windows | `exec:///C:/path/to/signer.exe` (drive letter after the third slash; `/` or `%5C` as separators; spaces as `%20`) | `exec:///C:/Program%20Files/Halos/halos-signer.exe?key=slot0` |
+
+Pasting a Windows path straight after `exec://` (`exec://C:\...`) is refused with the correct form. UNC paths (`exec:////server/share/signer.exe`) are refused: a network share others can write to could swap the signer. Copy it to a local disk.
+ Halos writes one JSON request to its stdin, closes it, and reads one JSON response from stdout. Exit 0 with no `error` field is success.
 
 - **Environment:** only `PATH` (absolute entries only: empty, `.` and relative entries are dropped), `HOME`, every `HALOS_SIGNER_*` variable, and the variables named with `env=` (repeatable, for example `env=PKCS11_PIN`). Nothing else from Halos' environment (cloud credentials, `HALO_TOKEN`) reaches the program. Pass PINs and tokens this way, never in the URI: arguments show in `ps`.
 - **stderr** is logged at debug level, truncated to 512 bytes, and never appears in an error message (it may carry a PIN or a key handle).

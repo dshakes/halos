@@ -118,7 +118,7 @@ func TestExecSignerBinaryPermissions(t *testing.T) {
 		{link, "writable"},
 		{filepath.Join(dir, "missing.sh"), "no such file"},
 	} {
-		_, err := Open(context.Background(), "exec://"+tc.path, Options{})
+		_, err := Open(context.Background(), ExecURI(tc.path, nil), Options{})
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: %v, want %q", filepath.Base(tc.path), err, tc.want)
 		}

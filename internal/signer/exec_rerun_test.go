@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -102,7 +103,7 @@ func TestExecSignerAncestorDirectories(t *testing.T) {
 		{group, "not sticky"},
 		{sticky, "ran"},
 	} {
-		if _, err := Open(context.Background(), "exec://"+tc.path, Options{}); err == nil || !strings.Contains(err.Error(), tc.want) {
+		if _, err := Open(context.Background(), ExecURI(tc.path, nil), Options{}); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: %v, want %q", filepath.Base(filepath.Dir(tc.path)), err, tc.want)
 		}
 	}
@@ -115,7 +116,7 @@ func TestExecSignerSwapAfterOpen(t *testing.T) {
 	key := fakeKey(t)
 	t.Setenv("HALOS_SIGNER_FAKE_KEY", key)
 	t.Setenv("HALOS_SIGNER_FAKE_MODE", "")
-	s, err := Open(context.Background(), "exec://"+bin, Options{})
+	s, err := Open(context.Background(), ExecURI(bin, nil), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,10 +139,10 @@ func TestExecSignerSHA256Pin(t *testing.T) {
 	t.Setenv("HALOS_SIGNER_FAKE_KEY", key)
 	t.Setenv("HALOS_SIGNER_FAKE_MODE", "")
 	wrong := strings.Repeat("0", 64)
-	if _, err := Open(context.Background(), "exec://"+bin+"?sha256="+wrong, Options{}); err == nil || !strings.Contains(err.Error(), "sha256") {
+	if _, err := Open(context.Background(), ExecURI(bin, url.Values{"sha256": {wrong}}), Options{}); err == nil || !strings.Contains(err.Error(), "sha256") {
 		t.Fatalf("wrong pin: %v", err)
 	}
-	s, err := Open(context.Background(), "exec://"+bin+"?sha256="+sum, Options{})
+	s, err := Open(context.Background(), ExecURI(bin, url.Values{"sha256": {sum}}), Options{})
 	if err != nil {
 		t.Fatalf("right pin: %v", err)
 	}
