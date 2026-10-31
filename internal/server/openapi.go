@@ -317,7 +317,6 @@ var braceRE = regexp.MustCompile(`\{([a-zA-Z]+)\}`)
 
 func (o apiOp) operation(g *schemaGen) map[string]any {
 	_, path, _ := strings.Cut(o.route, " ")
-	method, _, _ := strings.Cut(o.route, " ")
 	op := map[string]any{"operationId": o.id, "summary": o.summary, "tags": []any{o.tag}}
 	desc := o.desc
 	if need, guarded := routePerms[o.route]; guarded {
@@ -403,7 +402,6 @@ func (o apiOp) operation(g *schemaGen) map[string]any {
 		responses["429"] = map[string]any{"$ref": "#/components/responses/TooManyRequests"}
 	}
 	op["responses"] = responses
-	_ = method
 	return op
 }
 

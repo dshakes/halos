@@ -133,7 +133,7 @@ func (g *schemaGen) structSchema(t reflect.Type) map[string]any {
 func (g *schemaGen) fields(t reflect.Type, props map[string]any, required *[]string) {
 	for i := range t.NumField() {
 		f := t.Field(i)
-		tag, hasTag := f.Tag.Lookup("json")
+		tag := f.Tag.Get("json")
 		if tag == "-" {
 			continue
 		}
@@ -154,7 +154,6 @@ func (g *schemaGen) fields(t reflect.Type, props map[string]any, required *[]str
 		if name == "" {
 			name = f.Name
 		}
-		_ = hasTag
 		optional := strings.Contains(opts, "omitempty") || strings.Contains(opts, "omitzero")
 		s := g.schema(f.Type)
 		if strings.Contains(opts, "string") && f.Type.Kind() != reflect.String {
