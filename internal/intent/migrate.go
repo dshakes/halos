@@ -21,7 +21,7 @@ import (
 // spliced byte for byte (yamledit), so comments, formatting, quoting and the
 // other documents of a file are untouched. A repo already on v1 yields an
 // empty Change, so running it twice is a no-op. It walks the files the loader
-// reads (*.yaml/*.yml, halos.yaml included, dot-directories skipped).
+// reads (*.yaml/*.yml, halos.yaml included, dot-directories and tests/ skipped).
 func Migrate(dir string) (*Change, error) {
 	c := newChange(dir)
 	walkRoot := dir // like policy.Load: walk a symlinked root's target
@@ -35,6 +35,9 @@ func Migrate(dir string) (*Change, error) {
 		if d.IsDir() {
 			if p != walkRoot && strings.HasPrefix(d.Name(), ".") {
 				return filepath.SkipDir
+			}
+			if p == filepath.Join(walkRoot, policy.TestsDir) {
+				return filepath.SkipDir // PolicyTest documents are not policy and have no v1alpha1 form
 			}
 			return nil
 		}
