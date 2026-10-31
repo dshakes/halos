@@ -256,4 +256,5 @@ Every file `halo-server` writes, what losing each one costs, and the restore pro
 - [ ] `halo-proxy` is unreachable except through your ingress or gateway; if you use `trusted_header`, the CIDR pin is set
 - [ ] `--dev-insecure-*` flags are not present anywhere
 - [ ] `identity.roles` separates operators, approvers and auditors; `adminGroups` / `roles.admin` hold only the platform owners
+- [ ] Fill in your questionnaires and privacy review from the [compliance pages](/halos/compliance/security-overview/): [control mapping](/halos/compliance/control-mapping/) and [data flow and PII inventory](/halos/compliance/data-flow-and-pii/); set retention where the inventory says unbounded
 - [ ] Read the [threat model](/halos/reference/threat-model/) and the **UNVERIFIED** items in the [README](https://github.com/dshakes/halos#status)
