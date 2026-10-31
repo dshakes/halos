@@ -16,8 +16,6 @@ The document is generated from the server source (`make openapi`, also run by `m
 
 **Stability.** Every operation is marked `x-halo-stability: stable` and falls under the HTTP API promise in the [support policy](/halos/reference/support-policy/): under `/api/v1` fields are added in minors and never removed or retyped. Error bodies are `{"error": "<message>"}`: match on the HTTP status, not on the message text.
 
-> **TODO (needs a human decision, not yet policy):** the console's views of policy, rollouts, releases, requests, launchers, `me`, `whoami`, catalog, capabilities and the harness matrix embed policy-shaped documents, which makes the blanket promise expensive to keep for them. One option is to mark those operations `x-halo-stability: experimental` and exclude them from the promise in the support policy, with a CHANGELOG note on change. Until the maintainers decide, nothing is experimental.
-
 ## Auth levels
 
 | Level | Credential | Failure |
