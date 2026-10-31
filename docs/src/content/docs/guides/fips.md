@@ -49,7 +49,7 @@ Shadow pairs used to be sealed with a nonce chosen outside the AEAD, which `fips
 
 ## Operator requirements in fips140=only
 
-The module refuses HMAC keys shorter than 112 bits (14 bytes) by panicking inside `hmac.New`. Halos checks every operator-supplied HMAC key when it loads its config. In FIPS mode (`crypto/fips140.Enabled()`, which is true in every FIPS build) a shorter key **refuses to start**, naming the setting; outside FIPS mode it only logs a warning, so existing deployments keep running. Keys are never stretched or hashed: receivers such as GitHub compute the HMAC with the raw secret.
+The module refuses HMAC keys shorter than 112 bits (14 bytes) by panicking inside `hmac.New`. Halos checks every operator-supplied HMAC key when it loads its config. In FIPS mode (`crypto/fips140.Enabled()`: `GODEBUG=fips140=on` or `only`, so every FIPS build by default) a shorter key **refuses to start**, naming the setting; outside FIPS mode it only logs a warning, so existing deployments keep running. Keys are never stretched or hashed: receivers such as GitHub compute the HMAC with the raw secret.
 
 | Key | Setting named in the error |
 |---|---|

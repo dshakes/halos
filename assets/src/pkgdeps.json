@@ -313,6 +313,18 @@
     },
     {
       "path": "internal/hmackey",
+      "imports": [
+        "internal/hmackey/internal/fipsmode"
+      ]
+    },
+    {
+      "path": "internal/hmackey/hmackeytest",
+      "imports": [
+        "internal/hmackey/internal/fipsmode"
+      ]
+    },
+    {
+      "path": "internal/hmackey/internal/fipsmode",
       "imports": []
     },
     {

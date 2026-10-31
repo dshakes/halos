@@ -20,7 +20,7 @@ Signing commands take `--key PATH` (a PEM file, as before) or `--key-uri URI` (`
 |---|---|
 | `file://PATH` or `PATH` | PKCS#8 PEM private key, ed25519 or ECDSA P-256 |
 | `awskms://KEY[?region=R&fips=true&endpoint=URL]` | AWS KMS. `KEY` is a key id, key ARN, multi-Region key id, `alias/NAME` or alias ARN |
-| `exec:///ABS/PATH[?arg=A&arg=B&env=NAME&key=ID&timeout=30s]` | An external signer program ([protocol](#external-signers)) |
+| `exec:///ABS/PATH[?arg=A&arg=B&env=NAME&key=ID&sha256=HEX&timeout=30s]` | An external signer program ([protocol](#external-signers)) |
 
 Remote backends fetch the public key once when they open, and Halos verifies every signature they return against it before using it. A KMS or HSM that signs with the wrong key, algorithm or encoding fails at signing time, not on the fleet.
 
@@ -60,10 +60,11 @@ Halos talks to KMS through its JSON API with the AWS SDK's credential chain and 
 
 `exec://` runs a program you provide, once per operation, with no shell. Halos writes one JSON request to its stdin, closes it, and reads one JSON response from stdout. Exit 0 with no `error` field is success.
 
-- **Environment:** only `PATH`, `HOME`, every `HALOS_SIGNER_*` variable, and the variables named with `env=` (repeatable, for example `env=PKCS11_PIN`). Nothing else from Halos' environment (cloud credentials, `HALO_TOKEN`) reaches the program. Pass PINs and tokens this way, never in the URI: arguments show in `ps`.
+- **Environment:** only `PATH` (absolute entries only: empty, `.` and relative entries are dropped), `HOME`, every `HALOS_SIGNER_*` variable, and the variables named with `env=` (repeatable, for example `env=PKCS11_PIN`). Nothing else from Halos' environment (cloud credentials, `HALO_TOKEN`) reaches the program. Pass PINs and tokens this way, never in the URI: arguments show in `ps`.
 - **stderr** is logged at debug level, truncated to 512 bytes, and never appears in an error message (it may carry a PIN or a key handle).
-- **Timeout:** 30 seconds by default (`timeout=` up to 10m). On timeout or cancellation the program's whole process group is killed (Unix), so a helper it spawned cannot keep the key session open. On Windows only the program itself is killed.
-- **The binary** (and, for a symlink, its target) must be owned by root or the user running Halos and must not be group- or world-writable; otherwise it is refused before it runs. On Windows this check does not apply: install the signer where only administrators can write.
+- **Working directory:** `/` on Unix (the signer's own directory on Windows), never wherever Halos was started.
+- **Timeout:** 30 seconds by default (`timeout=` up to 10m). The program's whole process group is killed when it exits, normally or not, and on timeout or cancellation (Unix), so a helper it spawned or backgrounded cannot keep the key session open. On Windows only the program itself is killed.
+- **The binary**, its symlink target and **every ancestor directory** of the target must be owned by root or the user running Halos and must not be group- or world-writable (a sticky directory such as `/tmp` is allowed). The check runs **before every run**, not only at startup, so a binary or directory changed later is refused at the next signature. `sha256=<64 hex>` pins the binary's digest, also checked before every run. A swap between the check and the exec is not prevented; keep the signer in a root-owned directory. On Windows the ownership and mode checks do not apply (the `sha256=` pin does): install the signer where only administrators can write.
 - Output is capped at 64 KiB.
 
 Protocol `halos.signer.v1`:

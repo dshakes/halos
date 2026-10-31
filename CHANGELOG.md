@@ -58,6 +58,10 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ### Security
 
+- `exec://` signers are re-checked before every run: the binary, its symlink target and every ancestor directory (owned by root or the current user, not group- or world-writable unless sticky), plus an optional `sha256=` pin. They run in `/` with absolute `PATH` entries only, and their process group is killed after every exit, so a backgrounded helper cannot outlive them.
+- A hanging remote kill-list signer costs one in-flight call: polls for other lists share one pending slot (newest list) instead of starting a call each.
+- `awskms://` `endpoint=` hosts must be plain ASCII (checked before case folding).
+- MCP `eval_harvest` gains `allow_plaintext_pairs` (default false); the plaintext-row error names the switch of the front end that hit it.
 - Shadow pair stores: with pair keys configured, an unsealed (plaintext) row is now refused when read by `halo eval online|harvest`, the MCP eval tools and `halo-shadow decrypt-pairs`, so a row injected by anyone with write access to the store cannot pass as sealed. Stores that hold rows written before sealing was turned on: pass `--allow-plaintext-pairs` (`-allow-plaintext-pairs` for `halo-shadow`) once to read them, off by default.
 - FIPS builds refuse to start with an HMAC key Go's FIPS module would panic on (under 14 bytes): `halo-proxy` `telemetry.unitSalt`, `--notify-webhook-secret-file`, `--audit-config` `hmacSecret`, `--cloud-webhook-secret-file`. The error names the setting. Standard builds log a warning and keep running. The GitHub webhook verifier never panics on such a key.
 - `awskms://` `endpoint=` must be a KMS host (`kms[-fips].<region>.amazonaws.com[.cn]`, `kms[-fips].<region>.api.aws`, `vpce-*.kms.<region>.vpce.amazonaws.com`) of the SigV4 signing region, or loopback; other AWS hosts (API Gateway, S3) are refused. FIPS builds use the `kms-fips` endpoint unless `fips=false`.
