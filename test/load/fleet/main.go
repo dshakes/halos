@@ -239,7 +239,7 @@ func run(c config) error {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			rng := rand.New(rand.NewPCG(uint64(i), 0x6861))
+			rng := rand.New(rand.NewPCG(uint64(i), 0x6861)) //nolint:gosec // jitter, not security
 			// Arrive uniformly across the ramp.
 			if !sleep(ctx, time.Duration(rng.Float64()*float64(c.ramp))) {
 				return
@@ -295,7 +295,7 @@ func run(c config) error {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			rng := rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), 1))
+			rng := rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), 1)) //nolint:gosec // jitter, not security
 			for sleep(ctx, time.Duration(rng.Float64()*float64(c.opEvery))) {
 				for _, p := range []string{"/api/v1/fleet", "/api/v1/devices"} {
 					if resp, err := shared.Get(c.server + p); err == nil {
@@ -437,7 +437,7 @@ func (d *device) cycle(ctx context.Context) {
 	d.seq++
 	rep := server.Report{
 		Time: time.Now().UTC(), Hostname: d.host, User: d.user, Ring: d.ring,
-		Digest:    fmt.Sprintf("sha256:%064x", uint64(d.seq)*0x9e3779b97f4a7c15),
+		Digest:    fmt.Sprintf("sha256:%064x", uint64(d.seq)*0x9e3779b97f4a7c15), //nolint:gosec // a counter, never negative
 		Harnesses: map[string]server.HarnessStatus{"claude-code": {Want: "2.1.0", Installed: "2.1.0"}, "codex": {Want: "0.9.0", Installed: "0.9.0"}},
 		Drift:     []string{},
 	}
@@ -545,7 +545,7 @@ func phaseOf(s *stats, secs float64) phaseReport {
 		p.Endpoints = append(p.Endpoints, epReportRow{Endpoint: name, Requests: ok + bad, Errors: bad,
 			ErrorRate: float64(bad) / float64(ok+bad), RPS: float64(ok+bad) / max(secs, 1e-9),
 			MeanMs: ms(e.lat.mean()), P50Ms: ms(e.lat.quantile(.5)), P90Ms: ms(e.lat.quantile(.9)),
-			P99Ms: ms(e.lat.quantile(.99)), MaxMs: ms(time.Duration(e.lat.maxNs.Load()))})
+			P99Ms: ms(e.lat.quantile(.99)), MaxMs: ms(time.Duration(e.lat.maxNs.Load()))}) //nolint:gosec // nanoseconds of a measured run
 	}
 	s.mu.Lock()
 	for k, v := range s.errs {

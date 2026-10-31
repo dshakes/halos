@@ -26,7 +26,7 @@ const (
 var logFactor = math.Log(factor)
 
 func (h *hist) add(d time.Duration) {
-	ns := uint64(max(d, 0))
+	ns := uint64(max(d, 0)) //nolint:gosec // clamped non-negative
 	i := 0
 	if ns > bucketLo {
 		i = min(int(math.Ceil(math.Log(float64(ns)/bucketLo)/logFactor)), nBuckets-1)
@@ -62,12 +62,12 @@ func (h *hist) quantile(q float64) time.Duration {
 			return time.Duration(float64(bucketLo) * math.Pow(factor, float64(i)))
 		}
 	}
-	return time.Duration(h.maxNs.Load())
+	return time.Duration(h.maxNs.Load()) //nolint:gosec // nanoseconds of a measured run: far below 2^63
 }
 
 func (h *hist) mean() time.Duration {
 	if n := h.count(); n > 0 {
-		return time.Duration(h.sumNs.Load() / n)
+		return time.Duration(h.sumNs.Load() / n) //nolint:gosec // see quantile
 	}
 	return 0
 }
