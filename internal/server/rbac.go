@@ -103,6 +103,11 @@ var routePerms = map[string]perm{
 	"POST /api/v1/freeze":                     permAdmin, // incident freeze on/off (ADR-0030)
 	"POST /api/v1/revocations":                permAdmin, // per-credential revocation (ADR-0026)
 	"GET /api/v1/revocations":                 permAdmin,
+	// Service-account tokens (ADR-0036): only a human session may create one
+	// (checked in the handler); any admin principal may list and revoke.
+	"POST /api/v1/service-tokens":             permAdmin,
+	"GET /api/v1/service-tokens":              permAdmin,
+	"POST /api/v1/service-tokens/{id}/revoke": permAdmin,
 }
 
 // rolesFor returns the roles groups hold under id, in Roles order.

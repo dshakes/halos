@@ -55,6 +55,8 @@ type Backend interface {
 	failureCounter
 	// revocationStore holds credential revocations (ADR-0026).
 	revocationStore
+	// serviceTokenStore holds service-account API tokens (ADR-0036).
+	serviceTokenStore
 	// Ping fails when the backend is unreachable (/readyz).
 	Ping(ctx context.Context) error
 }

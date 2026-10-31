@@ -20,7 +20,7 @@ type oidcEnv struct {
 
 // newOIDCEnv points the portal policy's issuer at a live identitytest issuer;
 // adminGroups is the YAML flow list to use.
-func newOIDCEnv(t *testing.T, adminGroups string) *oidcEnv {
+func newOIDCEnv(t *testing.T, adminGroups string, mutate ...func(*Config)) *oidcEnv {
 	t.Helper()
 	iss, err := identitytest.NewIssuer("k1")
 	if err != nil {
@@ -38,6 +38,9 @@ func newOIDCEnv(t *testing.T, adminGroups string) *oidcEnv {
 		s = strings.Replace(s, "adminGroups: [platform-admins]", "adminGroups: "+adminGroups, 1)
 		if err := os.WriteFile(p, []byte(s), 0o600); err != nil {
 			t.Fatal(err)
+		}
+		for _, m := range mutate {
+			m(c)
 		}
 	})
 	return &oidcEnv{e, iss}

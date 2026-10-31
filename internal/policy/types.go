@@ -111,7 +111,24 @@ type Identity struct {
 	// Roles maps halo-server roles to IdP groups (ADR-0015). omitzero keeps
 	// the JSON form, and so existing snapshot digests, unchanged when unset.
 	Roles RoleGroups `yaml:"roles,omitempty" json:"roles,omitzero"`
+	// GroupsOverage is what halo-server's console login does when the ID
+	// token says the user's groups did not fit in it (Entra ID past 200
+	// groups: _claim_names / hasgroups): deny (default) refuses the login with
+	// a clear error; graph reads them from Microsoft Graph with the login's
+	// access token (ADR-0036). Never a login with no groups.
+	GroupsOverage string `yaml:"groupsOverage,omitempty" json:"groupsOverage,omitempty"`
+	// RequireAcr: the console login's ID token acr must be one of these.
+	// RequireAmr: its amr must contain at least one of these (e.g. [mfa]).
+	// halo-server console login only; gateways do not check them (ADR-0036).
+	RequireAcr []string `yaml:"requireAcr,omitempty" json:"requireAcr,omitempty"`
+	RequireAmr []string `yaml:"requireAmr,omitempty" json:"requireAmr,omitempty"`
 }
+
+// Identity.GroupsOverage values.
+const (
+	GroupsOverageDeny  = "deny"
+	GroupsOverageGraph = "graph"
+)
 
 // RoleGroups lists, per halo-server role, the IdP groups that hold it. A user
 // holds every role any of their groups maps to. Strict YAML decoding rejects an

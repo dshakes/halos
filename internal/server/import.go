@@ -84,6 +84,11 @@ func ImportDataDir(ctx context.Context, dir string, b *PGBackend) (ImportReport,
 				return fmt.Errorf("import: %w", err)
 			}
 		}
+		for _, t := range src.tokens {
+			if err := im.PutServiceToken(t); err != nil {
+				return fmt.Errorf("import: %w", err)
+			}
+		}
 		return verifyImport(im, src, &rep)
 	})
 	return rep, err
@@ -100,6 +105,9 @@ type dataDir struct {
 	// revocations: the credential revocation log replayed (one row per
 	// target, ADR-0026), so none is lost moving to the database.
 	revocations []pgstore.Revocation
+	// tokens: the service-token log replayed (one row per token, revocations
+	// kept, ADR-0036), so no token is lost or revived by the move.
+	tokens []pgstore.ServiceToken
 }
 
 func readDataDir(dir string, rep *ImportReport) (dataDir, error) {
@@ -220,6 +228,24 @@ func readDataDir(dir string, rep *ImportReport) (dataDir, error) {
 	}
 	if len(src.revocations) > 0 {
 		rep.Copied["revocations"] = int64(len(src.revocations))
+	}
+
+	toks, skipped, err := readJSONL[pgstore.ServiceToken](filepath.Join(dir, serviceTokenLogName+".jsonl"), func(t pgstore.ServiceToken) bool { return t.ID != "" })
+	if err != nil {
+		return src, err
+	}
+	if skipped > 0 {
+		rep.Skipped[serviceTokenLogName+".jsonl"] = skipped
+	}
+	tl := &serviceTokenLog{m: map[string]pgstore.ServiceToken{}}
+	for _, t := range toks {
+		tl.merge(t)
+	}
+	for _, t := range tl.m {
+		src.tokens = append(src.tokens, t)
+	}
+	if len(src.tokens) > 0 {
+		rep.Copied["service-tokens"] = int64(len(src.tokens))
 	}
 	return src, nil
 }

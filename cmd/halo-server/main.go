@@ -2,6 +2,7 @@
 package main
 
 import (
+	"bufio"
 	"cmp"
 	"context"
 	"crypto/ed25519"
@@ -79,6 +80,12 @@ type options struct {
 	// dbInsecureTLS accepts sslmode below verify-full to a remote host; dbMaxConns sizes the pool.
 	dbInsecureTLS bool
 	dbMaxConns    int
+
+	// Admin access (ADR-0036)
+	sessionTTL, sessionIdle, serviceTokenMaxTTL time.Duration
+	breakGlassEnabled                           bool
+	breakGlassUser, breakGlassHashFile          string
+	entraGraphURL                               string
 }
 
 func parseFlags(args []string) (options, error) {
@@ -134,6 +141,13 @@ func parseFlags(args []string) (options, error) {
 	fs.IntVar(&o.dbMaxConns, "database-max-conns", pgstore.DefaultMaxConns, "with --database-url-file: connection pool size per replica (replicas x this must stay under the server's max_connections)")
 	fs.BoolVar(&o.autoMigrate, "auto-migrate", false, "apply pending database migrations on start (else the schema must already be current)")
 	fs.DurationVar(&o.leaseTTL, "leader-lease-ttl", 15*time.Second, "with --database-url-file: controller and audit-export lease length; a failed leader is replaced within about this long")
+	fs.DurationVar(&o.sessionTTL, "session-ttl", server.DefaultSessionTTL, "console session absolute lifetime from login (5m..168h)")
+	fs.DurationVar(&o.sessionIdle, "session-idle-timeout", server.DefaultSessionIdle, "console session ends after this long without a request (sliding; at least 1m, at most --session-ttl; 0 disables)")
+	fs.DurationVar(&o.serviceTokenMaxTTL, "service-token-max-ttl", server.DefaultServiceTokenMaxTTL, "longest lifetime (and the default) of a service-account API token (1h..8760h)")
+	fs.BoolVar(&o.breakGlassEnabled, "breakglass-enabled", false, "allow the break-glass local admin to log in at POST /auth/breakglass (needs --breakglass-hash-file; every use is a high-severity audit event)")
+	fs.StringVar(&o.breakGlassUser, "breakglass-user", "breakglass", "break-glass account name")
+	fs.StringVar(&o.breakGlassHashFile, "breakglass-hash-file", "", "file holding the break-glass password hash from `halo-server breakglass-hash`; sealed (refused) unless --breakglass-enabled")
+	fs.StringVar(&o.entraGraphURL, "entra-graph-url", server.DefaultGraphURL, "Microsoft Graph base URL for identity.groupsOverage: graph (national clouds: https://graph.microsoft.us/v1.0, https://microsoftgraph.chinacloudapi.cn/v1.0)")
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), "Usage of halo-server:\n")
 		fs.VisitAll(func(f *flag.Flag) {
@@ -160,6 +174,12 @@ func parseFlags(args []string) (options, error) {
 	}
 	if o.policyDir == "" || o.tokenFile == "" {
 		return o, errors.New("--policy-dir and --token-file are required")
+	}
+	if o.sessionIdle == 0 {
+		o.sessionIdle = -1 // the flag's 0 means off; server.SessionPolicy's 0 means the default
+	}
+	if o.breakGlassEnabled && o.breakGlassHashFile == "" {
+		return o, errors.New("--breakglass-enabled requires --breakglass-hash-file")
 	}
 	if o.killKeyFile != "" && o.gatewayTokenFile == "" && o.gatewayCapTokenFiles[0] == "" { // a gateway token alone serves the posture and budget endpoints
 		return o, errors.New("--killswitch-key-file needs --gateway-token-file or --gateway-killswitch-token-file")
@@ -473,6 +493,8 @@ func run(ctx context.Context, args []string) error {
 			return runMigrate(ctx, args[1:], os.Stdout)
 		case "import":
 			return runImport(ctx, args[1:], os.Stdout)
+		case "breakglass-hash":
+			return runBreakGlassHash(os.Stdin, os.Stdout)
 		}
 	}
 	o, err := parseFlags(args)
@@ -608,6 +630,11 @@ func run(ctx context.Context, args []string) error {
 		GatewayDLPTokens: dlpTokens,
 		SCIMTokenSHA256:  scimHashes, SCIMAuthoritative: o.scimAuthoritative,
 		WorkloadKey: workloadKey,
+		Session:     server.SessionPolicy{TTL: o.sessionTTL, Idle: o.sessionIdle}, ServiceTokenMaxTTL: o.serviceTokenMaxTTL,
+		EntraGraphURL: o.entraGraphURL,
+	}
+	if cfg.BreakGlass, err = breakGlassConfig(o); err != nil {
+		return err
 	}
 	if cfg.CloudWebhookSecrets, cfg.CloudClients, err = cloudAgentsConfig(o); err != nil {
 		return err
@@ -779,6 +806,35 @@ func newController(o options, portal server.Portal, portalWriter server.PolicyWr
 		}
 	}
 	return c, nil
+}
+
+// breakGlassConfig reads --breakglass-hash-file (ADR-0036).
+func breakGlassConfig(o options) (server.BreakGlass, error) {
+	bg := server.BreakGlass{Enabled: o.breakGlassEnabled, User: o.breakGlassUser}
+	if o.breakGlassHashFile == "" {
+		return bg, nil
+	}
+	b, err := os.ReadFile(o.breakGlassHashFile)
+	if err != nil {
+		return bg, fmt.Errorf("--breakglass-hash-file: %w", err)
+	}
+	bg.Hash = strings.TrimSpace(string(b))
+	return bg, nil
+}
+
+// runBreakGlassHash reads the break-glass password (first line of in) and
+// writes its hash for --breakglass-hash-file. The password is never echoed.
+func runBreakGlassHash(in io.Reader, out io.Writer) error {
+	line, err := bufio.NewReader(io.LimitReader(in, 4096)).ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return fmt.Errorf("breakglass-hash: read password: %w", err)
+	}
+	h, err := server.HashBreakGlassPassword(strings.TrimRight(line, "\r\n"))
+	if err != nil {
+		return fmt.Errorf("breakglass-hash: %w (generate one with: openssl rand -base64 33)", err)
+	}
+	_, err = fmt.Fprintln(out, h)
+	return err
 }
 
 func splitCSV(s string) []string {
