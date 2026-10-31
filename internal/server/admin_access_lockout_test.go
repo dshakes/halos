@@ -2,11 +2,14 @@ package server
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"net/netip"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -35,22 +38,99 @@ func TestBreakGlassRequiresCIDRs(t *testing.T) {
 	_ = s.Close()
 }
 
-func TestBreakGlassBroadCIDRWarning(t *testing.T) {
-	var buf bytes.Buffer
-	cfg := Config{PolicyDir: t.TempDir(), Token: "t", SessionKey: []byte(strings.Repeat("k", 32)), Log: slog.New(slog.NewTextHandler(&buf, nil)),
-		BreakGlass: BreakGlass{Enabled: true, Hash: testBreakGlassHash(t), AllowedCIDRs: []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0"), netip.MustParsePrefix("10.8.0.0/16")}}}
-	s, err := New(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = s.Close()
-	if !strings.Contains(buf.String(), "very broad") || !strings.Contains(buf.String(), "0.0.0.0/0") || strings.Contains(buf.String(), "cidrs=[0.0.0.0/0 10.8") {
-		t.Fatalf("no broad-range warning: %s", buf.String())
-	}
-	for p, broad := range map[string]bool{"0.0.0.0/0": true, "10.0.0.0/7": true, "10.0.0.0/8": false, "::/0": true, "2001:db8::/31": true, "2001:db8::/48": false} {
-		if got := len(broadBreakGlassCIDRs([]netip.Prefix{netip.MustParsePrefix(p)})) == 1; got != broad {
-			t.Errorf("%s broad=%v", p, got)
+// TestBreakGlassBroadCIDRs (L-b): ranges too broad to protect the lockout
+// are refused at start (sealed or enabled); wide but accepted ones warn.
+func TestBreakGlassBroadCIDRs(t *testing.T) {
+	newWith := func(cidrs ...string) (string, error) {
+		var buf bytes.Buffer
+		var ps []netip.Prefix
+		for _, c := range cidrs {
+			ps = append(ps, netip.MustParsePrefix(c))
 		}
+		s, err := New(Config{PolicyDir: t.TempDir(), Token: "t", SessionKey: []byte(strings.Repeat("k", 32)), Log: slog.New(slog.NewTextHandler(&buf, nil)),
+			BreakGlass: BreakGlass{Enabled: true, Hash: testBreakGlassHash(t), AllowedCIDRs: ps}})
+		if err == nil {
+			_ = s.Close()
+		}
+		return buf.String(), err
+	}
+	for _, c := range []struct {
+		cidrs  []string
+		refuse bool
+		warn   bool
+	}{
+		{[]string{"0.0.0.0/0"}, true, false},
+		{[]string{"10.8.0.0/16", "0.0.0.0/0"}, true, false},
+		{[]string{"::/0"}, true, false},
+		{[]string{"10.0.0.0/7"}, true, false},
+		{[]string{"2001:db8::/31"}, true, false},
+		{[]string{"10.0.0.0/8"}, false, true},
+		{[]string{"10.16.0.0/12"}, false, true},
+		{[]string{"2001:db8::/32"}, false, true},
+		{[]string{"10.8.0.0/16", "2001:db8::/48", "192.0.2.10/32"}, false, false},
+	} {
+		log, err := newWith(c.cidrs...)
+		if (err != nil) != c.refuse || (c.refuse && !strings.Contains(err.Error(), "too broad")) {
+			t.Errorf("%v: err %v, want refused=%v", c.cidrs, err, c.refuse)
+		}
+		if got := strings.Contains(log, "CIDRs are wide"); !c.refuse && got != c.warn {
+			t.Errorf("%v: warned=%v, want %v (%s)", c.cidrs, got, c.warn, log)
+		}
+	}
+	// A sealed (not enabled) configuration is refused too: enabling must not be the first check.
+	if _, err := New(Config{PolicyDir: t.TempDir(), Token: "t", SessionKey: []byte(strings.Repeat("k", 32)),
+		BreakGlass: BreakGlass{Hash: testBreakGlassHash(t), AllowedCIDRs: []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")}}}); err == nil {
+		t.Fatal("sealed 0.0.0.0/0 accepted")
+	}
+}
+
+// failCount is a shared Backend whose failure count can be made unreadable
+// for one replica.
+type failCount struct {
+	*memShared
+	fail *atomic.Bool
+}
+
+func (f failCount) CountAuthFailure(ctx context.Context, key string, w time.Duration) (int64, error) {
+	if f.fail.Load() {
+		return 0, errors.New("count unavailable")
+	}
+	return f.memShared.CountAuthFailure(ctx, key, w)
+}
+
+// TestBreakGlassUnlockStaleLocalCount (L-a): after an unlock on replica a,
+// replica b whose shared-count read fails must not re-lock from a stale
+// count of its own.
+func TestBreakGlassUnlockStaleLocalCount(t *testing.T) {
+	old := breakGlassGlobalFails
+	breakGlassGlobalFails = 3
+	t.Cleanup(func() { breakGlassGlobalFails = old })
+	shared := newMemShared()
+	var bFail atomic.Bool
+	mk := func(be Backend) *env {
+		return newEnv(t, func(c *Config) {
+			c.Backend = be
+			c.BreakGlass = BreakGlass{Enabled: true, Hash: testBreakGlassHash(t), AllowedCIDRs: testBGCIDRs}
+		})
+	}
+	a, b := mk(failCount{shared, new(atomic.Bool)}), mk(failCount{shared, &bFail})
+	shared.Now = func() time.Time { return *a.now }
+	for i := range 3 { // all on b: b's failures reach the budget and lock
+		b.breakGlassFrom(fmt.Sprintf("198.51.100.%d", i+1), "breakglass", "wrong but long enough password")
+	}
+	if !a.s.breakGlassLocked() {
+		t.Fatal("not locked")
+	}
+	if w := a.as(admin, "POST", "/api/v1/breakglass/unlock", ""); w.Code != 200 {
+		t.Fatalf("unlock on a: %d", w.Code)
+	}
+	bFail.Store(true)
+	b.breakGlassFrom("198.51.100.9", "breakglass", "wrong but long enough password")
+	if b.s.breakGlassLocked() {
+		t.Fatal("b re-locked from its own stale count after an unlock on a")
+	}
+	if w := b.breakGlassFrom("203.0.113.9", "breakglass", bgPassword); w.Code != http.StatusOK {
+		t.Fatalf("correct password on b after unlock: %d", w.Code)
 	}
 }
 

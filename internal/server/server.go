@@ -322,8 +322,8 @@ func New(cfg Config) (*Server, error) {
 		session: session, tokens: tokens, tokenMaxTTL: cfg.ServiceTokenMaxTTL, bg: bg, bgSem: make(chan struct{}, breakGlassVerifiers), graphURL: cfg.EntraGraphURL}
 	if bg != nil && cfg.BreakGlass.Enabled {
 		cfg.Log.Warn("BREAK-GLASS ENABLED: the local admin account can log in at POST /auth/breakglass; disable it and rotate its password once the incident is over", "user", breakGlassSubPrefix+cfg.BreakGlass.User, "allowedCIDRs", cfg.BreakGlass.AllowedCIDRs)
-		if broad := broadBreakGlassCIDRs(cfg.BreakGlass.AllowedCIDRs); len(broad) > 0 {
-			cfg.Log.Warn("break-glass allowed CIDRs are very broad: anyone in them can spend the global failure budget and lock break-glass; narrow them to the VPN or bastion range", "cidrs", broad)
+		if wide := wideBreakGlassCIDRs(cfg.BreakGlass.AllowedCIDRs); len(wide) > 0 { // too-broad ranges were refused in newBreakGlass
+			cfg.Log.Warn("break-glass allowed CIDRs are wide (IPv4 shorter than /16, IPv6 shorter than /48): everyone in them can spend the global failure budget; narrow them to the VPN or bastion range", "cidrs", wide)
 		}
 	}
 	for _, l := range []struct {

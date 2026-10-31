@@ -823,6 +823,9 @@ func breakGlassConfig(o options) (server.BreakGlass, error) {
 		}
 		bg.AllowedCIDRs = append(bg.AllowedCIDRs, p.Masked())
 	}
+	if err := server.CheckBreakGlassCIDRs(bg.AllowedCIDRs); err != nil {
+		return bg, fmt.Errorf("--breakglass-allowed-cidrs: %w", err)
+	}
 	if o.breakGlassHashFile == "" {
 		return bg, nil
 	}

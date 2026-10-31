@@ -70,3 +70,17 @@ func TestBreakGlassHashCommand(t *testing.T) {
 		t.Fatalf("server refuses the generated hash: %v", err)
 	}
 }
+
+// TestBreakGlassCIDRFlag (L-b): --breakglass-allowed-cidrs refuses ranges
+// too broad to protect the lockout, and malformed ones.
+func TestBreakGlassCIDRFlag(t *testing.T) {
+	for cidrs, ok := range map[string]bool{
+		"10.8.0.0/16": true, "10.0.0.0/8,2001:db8::/32": true, "192.0.2.10/32": true,
+		"0.0.0.0/0": false, "::/0": false, "10.0.0.0/7": false, "10.8.0.0/16,2001:db8::/31": false, "10.1.1.1": false,
+	} {
+		_, err := breakGlassConfig(options{breakGlassEnabled: true, breakGlassCIDRs: cidrs})
+		if (err == nil) != ok {
+			t.Errorf("%s: err %v, want ok=%v", cidrs, err, ok)
+		}
+	}
+}

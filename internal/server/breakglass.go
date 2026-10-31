@@ -121,14 +121,20 @@ func (s *Server) breakGlassLocked() bool {
 func (s *Server) breakGlassFailed() bool {
 	ctx, cancel := storage.Ctx()
 	defer cancel()
-	n := s.bgLock.count(s.cfg.Now())
-	if b := s.cfg.Backend; b != nil { // one budget across replicas
+	var n int64
+	if b := s.cfg.Backend; b != nil {
+		// With replicas the shared count is the only budget (and what unlock
+		// resets everywhere): a per-replica count would survive an unlock made
+		// on another replica and re-lock on its next failure. If it cannot be
+		// read this failure does not lock; the per-address budget still holds.
 		shared, err := b.CountAuthFailure(ctx, breakGlassFailKey, breakGlassLockWindow)
 		if err != nil {
-			s.cfg.Log.Warn("shared break-glass failure count unavailable; this replica's count still applies", "err", err)
-		} else {
-			n = shared // the shared count is the budget (and what unlock resets)
+			s.cfg.Log.Warn("shared break-glass failure count unavailable; not locking on this failure", "err", err)
+			return false
 		}
+		n = shared
+	} else {
+		n = s.bgLock.count(s.cfg.Now()) // single replica: this process is the whole budget
 	}
 	if n < breakGlassGlobalFails {
 		return false
@@ -140,17 +146,51 @@ func (s *Server) breakGlassFailed() bool {
 	return added
 }
 
-// broadBreakGlassCIDRs returns the allowed ranges broad enough to re-open
-// the lockout DoS: IPv4 shorter than /8, IPv6 shorter than /32 (0.0.0.0/0
-// and ::/0 included).
+// Allowed-range breadth (ADR-0036). Shorter than these prefixes is refused:
+// so many addresses could spend the global failure budget that requiring
+// CIDRs would protect nothing (0.0.0.0/0 and ::/0 re-open the lockout DoS).
+// Up to the warn prefixes is accepted with a startup warning.
+const (
+	minBreakGlassBits4, warnBreakGlassBits4 = 8, 16
+	minBreakGlassBits6, warnBreakGlassBits6 = 32, 48
+)
+
+// broadBreakGlassCIDRs returns the allowed ranges that are refused (IPv4
+// shorter than /8, IPv6 shorter than /32).
 func broadBreakGlassCIDRs(cidrs []netip.Prefix) []string {
+	return cidrsShorter(cidrs, minBreakGlassBits4, minBreakGlassBits6)
+}
+
+// wideBreakGlassCIDRs returns the accepted ranges worth a warning (IPv4 /8
+// to /15, IPv6 /32 to /47): a whole corporate block rather than a VPN pool.
+func wideBreakGlassCIDRs(cidrs []netip.Prefix) []string {
+	var out []string
+	for _, c := range cidrsShorter(cidrs, warnBreakGlassBits4, warnBreakGlassBits6) {
+		if !slices.Contains(broadBreakGlassCIDRs(cidrs), c) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+func cidrsShorter(cidrs []netip.Prefix, bits4, bits6 int) []string {
 	var out []string
 	for _, p := range cidrs {
-		if (p.Addr().Is4() && p.Bits() < 8) || (!p.Addr().Is4() && p.Bits() < 32) {
+		if (p.Addr().Unmap().Is4() && p.Bits() < bits4) || (!p.Addr().Unmap().Is4() && p.Bits() < bits6) {
 			out = append(out, p.String())
 		}
 	}
 	return out
+}
+
+// CheckBreakGlassCIDRs refuses allowed ranges too broad to protect the
+// lockout (the halo-server flag and New both apply it).
+func CheckBreakGlassCIDRs(cidrs []netip.Prefix) error {
+	if broad := broadBreakGlassCIDRs(cidrs); len(broad) > 0 {
+		return fmt.Errorf("break-glass allowed CIDRs %v are too broad (IPv4 must be /%d or longer, IPv6 /%d or longer): anyone in them could spend the global failure budget and keep break-glass locked; use the VPN or bastion range",
+			broad, minBreakGlassBits4, minBreakGlassBits6)
+	}
+	return nil
 }
 
 // breakGlassUnlock (admin, a person): POST /api/v1/breakglass/unlock lifts
@@ -261,6 +301,9 @@ func newBreakGlass(cfg BreakGlass, devUser string) (*breakGlassHash, BreakGlass,
 	}
 	if !policy.ValidName(cfg.User) {
 		return nil, cfg, fmt.Errorf("server: break-glass user %q must be a lowercase name", cfg.User)
+	}
+	if err := CheckBreakGlassCIDRs(cfg.AllowedCIDRs); err != nil {
+		return nil, cfg, fmt.Errorf("server: %w", err)
 	}
 	if cfg.Enabled && len(cfg.AllowedCIDRs) == 0 {
 		// Without a range anyone can spend the global failure budget and keep
