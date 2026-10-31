@@ -183,6 +183,9 @@ func parseFlags(args []string) (options, error) {
 	if o.breakGlassEnabled && o.breakGlassHashFile == "" {
 		return o, errors.New("--breakglass-enabled requires --breakglass-hash-file")
 	}
+	if o.breakGlassEnabled && strings.TrimSpace(o.breakGlassCIDRs) == "" {
+		return o, errors.New("--breakglass-enabled requires --breakglass-allowed-cidrs (the VPN or bastion range): without it anyone can lock break-glass with failed logins")
+	}
 	if o.killKeyFile != "" && o.gatewayTokenFile == "" && o.gatewayCapTokenFiles[0] == "" { // a gateway token alone serves the posture and budget endpoints
 		return o, errors.New("--killswitch-key-file needs --gateway-token-file or --gateway-killswitch-token-file")
 	}

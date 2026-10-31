@@ -49,7 +49,9 @@ func TestSelfApprovalViaOwnToken(t *testing.T) {
 }
 
 func TestBreakGlassCannotDecide(t *testing.T) {
-	e := newEnv(t, func(c *Config) { c.BreakGlass = BreakGlass{Enabled: true, Hash: testBreakGlassHash(t)} })
+	e := newEnv(t, func(c *Config) {
+		c.BreakGlass = BreakGlass{Enabled: true, Hash: testBreakGlassHash(t), AllowedCIDRs: testBGCIDRs}
+	})
 	rq := decode[Request](t, e.as(dev, "POST", "/api/v1/requests", `{"kind":"ring-opt-in","item":"`+optInRing(t, e)+`","justification":"x"}`))
 	sc := cookieOf(e.breakGlass("breakglass", bgPassword), sessionCookie)
 	r := httptest.NewRequest("POST", "/api/v1/requests/"+rq.ID+"/approve", nil)
@@ -164,7 +166,9 @@ func TestBreakGlassGlobalLockout(t *testing.T) {
 	old := breakGlassGlobalFails
 	breakGlassGlobalFails = 3
 	t.Cleanup(func() { breakGlassGlobalFails = old })
-	e := newEnv(t, func(c *Config) { c.BreakGlass = BreakGlass{Enabled: true, Hash: testBreakGlassHash(t)} })
+	e := newEnv(t, func(c *Config) {
+		c.BreakGlass = BreakGlass{Enabled: true, Hash: testBreakGlassHash(t), AllowedCIDRs: testBGCIDRs}
+	})
 	for i, ip := range []string{"198.51.100.1", "198.51.100.2", "198.51.100.3"} {
 		if w := e.breakGlassFrom(ip, "breakglass", "wrong but long enough password"); w.Code != 401 {
 			t.Fatalf("attempt %d: %d", i, w.Code)
@@ -187,7 +191,7 @@ func TestBreakGlassGlobalLockout(t *testing.T) {
 // audit entry cannot be written is refused before it acts.
 func TestBreakGlassStrictAudit(t *testing.T) {
 	e := newEnv(t, func(c *Config) {
-		c.BreakGlass, c.DataDir = BreakGlass{Enabled: true, Hash: testBreakGlassHash(t)}, t.TempDir()
+		c.BreakGlass, c.DataDir = BreakGlass{Enabled: true, Hash: testBreakGlassHash(t), AllowedCIDRs: testBGCIDRs}, t.TempDir()
 	})
 	sc := cookieOf(e.breakGlass("breakglass", bgPassword), sessionCookie)
 	_ = e.s.auditLog.f.Close() // every append now errors

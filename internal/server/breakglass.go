@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/pbkdf2"
 	"crypto/rand"
 	"crypto/sha256"
@@ -58,29 +59,31 @@ type BreakGlass struct {
 
 // Global failed-login lockout (all addresses together, all replicas): past
 // breakGlassGlobalFails failures within breakGlassLockWindow, every
-// break-glass login is refused for breakGlassLockWindow, and the lockout is
-// audited at high severity. With AllowedCIDRs only allowed addresses count.
-const breakGlassLockWindow = 15 * time.Minute
+// break-glass login is refused for breakGlassLockWindow. Only allowed
+// addresses can fail (others get 404 before the password is read), which is
+// why AllowedCIDRs is mandatory: otherwise anyone could hold the lock. The
+// lock is one KV entry (shared across replicas with a Backend), so every
+// replica locks at once, the replica whose write created it audits it once,
+// and an SSO admin lifts it with POST /api/v1/breakglass/unlock.
+const (
+	breakGlassLockWindow = 15 * time.Minute
+	kvBreakGlass         = "breakglass-lock"
+	breakGlassLockKey    = "global"
+	breakGlassFailKey    = "breakglass/global" // the shared failure count (pgstore auth-fail namespace)
+	kvAuthFailNS         = "auth-fail"
+)
 
 // breakGlassGlobalFails is the global failure budget (a var so tests can lower it).
 var breakGlassGlobalFails = int64(20)
 
-// breakGlassLockout is the in-process side of the global budget.
+// breakGlassLockout counts failures in process (single replica, no Backend).
 type breakGlassLockout struct {
 	mu    sync.Mutex
 	fails []time.Time
-	until time.Time
 }
 
-func (l *breakGlassLockout) locked(now time.Time) bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return now.Before(l.until)
-}
-
-// fail records one failure (n is the shared count when a Backend has one, else
-// 0) and reports whether this failure locked break-glass.
-func (l *breakGlassLockout) fail(now time.Time, shared int64) bool {
+// count records one failure and returns this window's count.
+func (l *breakGlassLockout) count(now time.Time) int64 {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	keep := l.fails[:0]
@@ -90,11 +93,97 @@ func (l *breakGlassLockout) fail(now time.Time, shared int64) bool {
 		}
 	}
 	l.fails = append(keep, now)
-	if (int64(len(l.fails)) >= breakGlassGlobalFails || shared >= breakGlassGlobalFails) && !now.Before(l.until) {
-		l.until = now.Add(breakGlassLockWindow)
-		return true
+	return int64(len(l.fails))
+}
+
+func (l *breakGlassLockout) reset() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.fails = nil
+}
+
+// breakGlassLocked reports whether the global lock is held, on any replica. A
+// store error does not lock: the password check still stands, and refusing
+// would hand an outage the recovery path too.
+func (s *Server) breakGlassLocked() bool {
+	ctx, cancel := storage.Ctx()
+	defer cancel()
+	_, ok, err := s.kv.Get(ctx, kvBreakGlass, breakGlassLockKey)
+	if err != nil {
+		s.cfg.Log.Warn("break-glass lock unreadable; not treating it as locked", "err", err)
 	}
-	return false
+	return ok
+}
+
+// breakGlassFailed counts a failed login and takes the lock past the budget.
+// It reports whether this call created the lock (exactly one caller, on any
+// replica, does), so the lockout is audited once.
+func (s *Server) breakGlassFailed() bool {
+	ctx, cancel := storage.Ctx()
+	defer cancel()
+	n := s.bgLock.count(s.cfg.Now())
+	if b := s.cfg.Backend; b != nil { // one budget across replicas
+		shared, err := b.CountAuthFailure(ctx, breakGlassFailKey, breakGlassLockWindow)
+		if err != nil {
+			s.cfg.Log.Warn("shared break-glass failure count unavailable; this replica's count still applies", "err", err)
+		} else {
+			n = shared // the shared count is the budget (and what unlock resets)
+		}
+	}
+	if n < breakGlassGlobalFails {
+		return false
+	}
+	added, err := s.kv.Add(ctx, kvBreakGlass, breakGlassLockKey, nil, s.cfg.Now().Add(breakGlassLockWindow))
+	if err != nil {
+		s.cfg.Log.Error("break-glass lock not stored", "err", err)
+	}
+	return added
+}
+
+// broadBreakGlassCIDRs returns the allowed ranges broad enough to re-open
+// the lockout DoS: IPv4 shorter than /8, IPv6 shorter than /32 (0.0.0.0/0
+// and ::/0 included).
+func broadBreakGlassCIDRs(cidrs []netip.Prefix) []string {
+	var out []string
+	for _, p := range cidrs {
+		if (p.Addr().Is4() && p.Bits() < 8) || (!p.Addr().Is4() && p.Bits() < 32) {
+			out = append(out, p.String())
+		}
+	}
+	return out
+}
+
+// breakGlassUnlock (admin, a person): POST /api/v1/breakglass/unlock lifts
+// the global break-glass lockout on every replica and resets its failure
+// count, from a normal SSO admin session: the locked path is never needed to
+// unlock it. Audited at high severity before it acts.
+func (s *Server) breakGlassUnlock(w http.ResponseWriter, r *http.Request, p Principal) {
+	if !s.requireHuman(w, r, p, "POST /api/v1/breakglass/unlock") {
+		return
+	}
+	if s.bg == nil {
+		apiErr(w, http.StatusNotFound, "break-glass is not configured")
+		return
+	}
+	was := s.breakGlassLocked()
+	if err := s.AuditStrict(r.Context(), p.ID, "breakglass.unlock", "", map[string]string{"severity": "high", "wasLocked": strconv.FormatBool(was)}); err != nil {
+		apiErr(w, http.StatusInternalServerError, errAuditFailed)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), storage.OpTimeout)
+	defer cancel()
+	err := s.kv.Delete(ctx, kvBreakGlass, breakGlassLockKey)
+	if err == nil && s.cfg.Backend != nil {
+		err = s.kv.Delete(ctx, kvAuthFailNS, breakGlassFailKey)
+	}
+	if err != nil {
+		s.cfg.Log.Error("break-glass unlock", "err", err)
+		apiErr(w, http.StatusServiceUnavailable, "state store unavailable")
+		return
+	}
+	s.bgLock.reset()
+	s.cfg.Log.Warn("break-glass lockout lifted", "by", p.ID, "wasLocked", was)
+	writeJSON(w, http.StatusOK, map[string]bool{"wasLocked": was})
 }
 
 // breakGlassFrom reports whether r's client may use break-glass.
@@ -173,6 +262,11 @@ func newBreakGlass(cfg BreakGlass, devUser string) (*breakGlassHash, BreakGlass,
 	if !policy.ValidName(cfg.User) {
 		return nil, cfg, fmt.Errorf("server: break-glass user %q must be a lowercase name", cfg.User)
 	}
+	if cfg.Enabled && len(cfg.AllowedCIDRs) == 0 {
+		// Without a range anyone can spend the global failure budget and keep
+		// the recovery path locked during the outage it exists for.
+		return nil, cfg, errors.New("server: break-glass is enabled without allowed CIDRs: set --breakglass-allowed-cidrs (Helm server.breakGlass.allowedCIDRs) to the VPN or bastion range")
+	}
 	if devUser != "" && cfg.Enabled {
 		return nil, cfg, errors.New("server: break-glass and --dev-insecure-user are exclusive")
 	}
@@ -219,7 +313,7 @@ func (s *Server) breakGlassLogin(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, http.StatusTooManyRequests, "too many failed logins")
 		return
 	}
-	if s.bgLock.locked(s.cfg.Now()) {
+	if s.breakGlassLocked() {
 		w.Header().Set("Retry-After", strconv.Itoa(int(breakGlassLockWindow.Seconds())))
 		apiErr(w, http.StatusTooManyRequests, "break-glass is locked after too many failed logins; see the audit log")
 		return
@@ -247,18 +341,8 @@ func (s *Server) breakGlassLogin(w http.ResponseWriter, r *http.Request) {
 		s.loginFails.fail(ip)
 		s.cfg.Log.Warn("break-glass login failed", "remote", ip)
 		s.Audit(r.Context(), sub, "breakglass.login.failed", "", map[string]string{"severity": "high"})
-		var shared int64
-		if b := s.cfg.Backend; b != nil { // one budget across replicas
-			ctx, cancel := storage.Ctx()
-			n, err := b.CountAuthFailure(ctx, "breakglass/global", breakGlassLockWindow)
-			cancel()
-			if err != nil {
-				s.cfg.Log.Warn("shared break-glass failure count unavailable; this replica's count still applies", "err", err)
-			}
-			shared = n
-		}
-		if s.bgLock.fail(s.cfg.Now(), shared) {
-			s.cfg.Log.Error("BREAK-GLASS LOCKED after repeated failed logins", "window", breakGlassLockWindow)
+		if s.breakGlassFailed() { // this replica created the shared lock: the one lockout entry
+			s.cfg.Log.Error("BREAK-GLASS LOCKED after repeated failed logins; an SSO admin can lift it with POST /api/v1/breakglass/unlock", "window", breakGlassLockWindow)
 			if err := s.AuditStrict(r.Context(), sub, "breakglass.lockout", "", map[string]string{"severity": "high", "window": breakGlassLockWindow.String()}); err != nil {
 				s.cfg.Log.Error("break-glass lockout not audited", "err", err) // the lockout holds either way
 			}

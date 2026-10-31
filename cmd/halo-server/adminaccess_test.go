@@ -28,6 +28,8 @@ func TestAdminAccessFlags(t *testing.T) {
 			return o.sessionTTL == 8*time.Hour && o.sessionIdle == 20*time.Minute && o.serviceTokenMaxTTL == 720*time.Hour
 		}},
 		{"break-glass needs a hash", []string{"--breakglass-enabled"}, "--breakglass-hash-file", nil},
+		{"break-glass needs allowed CIDRs", []string{"--breakglass-enabled", "--breakglass-hash-file", "h"}, "--breakglass-allowed-cidrs", nil},
+		{"break-glass with CIDRs", []string{"--breakglass-enabled", "--breakglass-hash-file", "h", "--breakglass-allowed-cidrs", "10.8.0.0/16"}, "", func(o options) bool { return o.breakGlassCIDRs == "10.8.0.0/16" }},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			o, err := parseFlags(append(append([]string{}, base...), c.args...))
@@ -60,7 +62,7 @@ func TestBreakGlassHashCommand(t *testing.T) {
 	if err := os.WriteFile(f, []byte(h+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	bg, err := breakGlassConfig(options{breakGlassEnabled: true, breakGlassUser: "bg", breakGlassHashFile: f})
+	bg, err := breakGlassConfig(options{breakGlassEnabled: true, breakGlassUser: "bg", breakGlassHashFile: f, breakGlassCIDRs: "10.8.0.0/16"})
 	if err != nil || bg.Hash != h || !bg.Enabled || bg.User != "bg" {
 		t.Fatalf("%+v %v", bg, err)
 	}

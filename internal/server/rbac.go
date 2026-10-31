@@ -108,6 +108,7 @@ var routePerms = map[string]perm{
 	"POST /api/v1/service-tokens":             permAdmin,
 	"GET /api/v1/service-tokens":              permAdmin,
 	"POST /api/v1/service-tokens/{id}/revoke": permAdmin,
+	"POST /api/v1/breakglass/unlock":          permAdmin, // a person only (requireHuman)
 }
 
 // rolesFor returns the roles groups hold under id, in Roles order.

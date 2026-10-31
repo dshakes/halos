@@ -376,7 +376,7 @@ func TestBreakGlass(t *testing.T) {
 		}
 	})
 	t.Run("enabled", func(t *testing.T) {
-		e := newEnv(t, func(c *Config) { c.BreakGlass = BreakGlass{Enabled: true, Hash: h} })
+		e := newEnv(t, func(c *Config) { c.BreakGlass = BreakGlass{Enabled: true, Hash: h, AllowedCIDRs: testBGCIDRs} })
 		for _, bad := range [][2]string{{"breakglass", "wrong password, long enough"}, {"admin", bgPassword}} {
 			if w := e.breakGlass(bad[0], bad[1]); w.Code != 401 || cookieOf(w, sessionCookie) != nil {
 				t.Fatalf("bad credentials %v: %d", bad, w.Code)
@@ -423,7 +423,7 @@ func TestBreakGlass(t *testing.T) {
 		}
 	})
 	t.Run("disabling or rotating ends sessions", func(t *testing.T) {
-		e := newEnv(t, func(c *Config) { c.BreakGlass = BreakGlass{Enabled: true, Hash: h} })
+		e := newEnv(t, func(c *Config) { c.BreakGlass = BreakGlass{Enabled: true, Hash: h, AllowedCIDRs: testBGCIDRs} })
 		sc := cookieOf(e.breakGlass("breakglass", bgPassword), sessionCookie)
 		me := func() int {
 			r := httptest.NewRequest("GET", "/api/v1/me", nil)
@@ -446,7 +446,9 @@ func TestBreakGlass(t *testing.T) {
 		}
 	})
 	t.Run("audit down: refused", func(t *testing.T) {
-		e := newEnv(t, func(c *Config) { c.BreakGlass, c.DataDir = BreakGlass{Enabled: true, Hash: h}, t.TempDir() })
+		e := newEnv(t, func(c *Config) {
+			c.BreakGlass, c.DataDir = BreakGlass{Enabled: true, Hash: h, AllowedCIDRs: testBGCIDRs}, t.TempDir()
+		})
 		_ = e.s.auditLog.f.Close() // every append now errors
 		if w := e.breakGlass("breakglass", bgPassword); w.Code != 500 || cookieOf(w, sessionCookie) != nil {
 			t.Fatalf("unrecorded break-glass login: %d", w.Code)

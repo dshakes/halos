@@ -41,6 +41,7 @@
 {{- $sess := $s.session | default dict }}
 {{- $bgx := $s.breakGlass | default dict }}{{- /* break-glass local admin (ADR-0036): sealed unless enabled */}}
 {{- if and $bgx.enabled (not $bgx.existingSecret) }}{{ fail "server.breakGlass.enabled needs server.breakGlass.existingSecret (the Secret holding the `halo-server breakglass-hash` output)" }}{{ end }}
+{{- if and $bgx.enabled (not $bgx.allowedCIDRs) }}{{ fail "server.breakGlass.enabled needs server.breakGlass.allowedCIDRs (the VPN or bastion range): without it anyone can lock break-glass with failed logins" }}{{ end }}
 {{- if and $audit (not $s.persistence.enabled) (not $ha) }}{{ fail "server.audit requires server.persistence.enabled or server.database (export cursors must survive a restart)" }}{{ end }}
 {{- if and $ha $audit.rotation }}{{ fail "server.audit.rotation is for the file backend; on Postgres the audit chain is one table (ADR-0021)" }}{{ end }}
 {{- if $c.enabled }}

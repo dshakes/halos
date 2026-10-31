@@ -321,7 +321,10 @@ func New(cfg Config) (*Server, error) {
 		auditLog: al, forwarders: fwds, relCache: &releaseCache{byKey: map[string]cachedPointer{}, chans: map[string][]string{}}, budgets: bs, kv: kv, revs: revs,
 		session: session, tokens: tokens, tokenMaxTTL: cfg.ServiceTokenMaxTTL, bg: bg, bgSem: make(chan struct{}, breakGlassVerifiers), graphURL: cfg.EntraGraphURL}
 	if bg != nil && cfg.BreakGlass.Enabled {
-		cfg.Log.Warn("BREAK-GLASS ENABLED: the local admin account can log in at POST /auth/breakglass; disable it and rotate its password once the incident is over", "user", breakGlassSubPrefix+cfg.BreakGlass.User)
+		cfg.Log.Warn("BREAK-GLASS ENABLED: the local admin account can log in at POST /auth/breakglass; disable it and rotate its password once the incident is over", "user", breakGlassSubPrefix+cfg.BreakGlass.User, "allowedCIDRs", cfg.BreakGlass.AllowedCIDRs)
+		if broad := broadBreakGlassCIDRs(cfg.BreakGlass.AllowedCIDRs); len(broad) > 0 {
+			cfg.Log.Warn("break-glass allowed CIDRs are very broad: anyone in them can spend the global failure budget and lock break-glass; narrow them to the VPN or bastion range", "cidrs", broad)
+		}
 	}
 	for _, l := range []struct {
 		a     *authLimiter
@@ -465,6 +468,7 @@ func (s *Server) mux() *routeMux {
 	s.route(m, "POST /api/v1/service-tokens", s.createServiceToken) // ADR-0036
 	s.route(m, "GET /api/v1/service-tokens", s.listServiceTokens)
 	s.route(m, "POST /api/v1/service-tokens/{id}/revoke", s.revokeServiceToken)
+	s.route(m, "POST /api/v1/breakglass/unlock", s.breakGlassUnlock) // lift the break-glass lockout from an SSO admin session
 	s.route(m, "GET /api/v1/fleet", s.getFleet)
 	s.route(m, "GET /api/v1/policy", s.getPolicy)
 	s.route(m, "GET /api/v1/experiments", s.listExperiments)
