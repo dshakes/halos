@@ -43,7 +43,9 @@ metadata:
   name: {{ $n }}
   labels: {{- include "halo.labels" . | nindent 4 }}
 spec:
+  {{- if not $o.autoscaling.enabled }}
   replicas: {{ $o.replicas }}
+  {{- end }}
   selector:
     matchLabels: {{- include "halo.selector" (list . "otel") | nindent 6 }}
   template:
@@ -93,15 +95,13 @@ spec:
       {{- with $o.tolerations }}
       tolerations: {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with $o.affinity }}
-      affinity: {{- toYaml . | nindent 8 }}
-      {{- end }}
+      {{- include "halo.affinity" (list . "otel" $o.affinity (or (gt (int $o.replicas) 1) $o.autoscaling.enabled)) | nindent 6 }}
       volumes:
         - name: config
           configMap:
             name: {{ default $n $o.existingConfigMap }}
             items: [{key: config.yaml, path: config.yaml}]
-{{- if $o.pdb.enabled }}
+{{- if or $o.pdb.enabled (gt (int $o.replicas) 1) $o.autoscaling.enabled }}
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget
@@ -112,5 +112,9 @@ spec:
   maxUnavailable: {{ $o.pdb.maxUnavailable }}
   selector:
     matchLabels: {{- include "halo.selector" (list . "otel") | nindent 6 }}
+{{- end }}
+{{- if $o.autoscaling.enabled }}
+---
+{{ include "halo.hpa" (dict "root" . "name" $n "a" $o.autoscaling) }}
 {{- end }}
 {{- end }}

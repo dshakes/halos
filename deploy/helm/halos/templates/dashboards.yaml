@@ -1,0 +1,24 @@
+{{- /*
+  Grafana dashboards for the Grafana sidecar (label monitoring.dashboards.label). files/dashboards/*.json are copies of
+  deploy/observability/grafana/dashboards (the source); a test fails when they drift. Each JSON file is one ConfigMap.
+*/ -}}
+{{- $d := .Values.monitoring.dashboards -}}
+{{- if $d.enabled }}
+{{- range $path, $_ := .Files.Glob "files/dashboards/*.json" }}
+{{- $name := base $path | trimSuffix ".json" }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ printf "%s-dashboard-%s" (include "halo.fullname" $) $name | trunc 63 | trimSuffix "-" }}
+  namespace: {{ default $.Release.Namespace $d.namespace }}
+  labels: {{- include "halo.labels" $ | nindent 4 }}
+    {{ $d.label }}: {{ $d.labelValue | quote }}
+  {{- with $d.annotations }}
+  annotations: {{- toYaml . | nindent 4 }}
+  {{- end }}
+data:
+  {{ base $path }}: |-
+    {{- $.Files.Get $path | nindent 4 }}
+{{- end }}
+{{- end }}

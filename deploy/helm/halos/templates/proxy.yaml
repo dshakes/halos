@@ -140,9 +140,7 @@ spec:
       {{- with $p.tolerations }}
       tolerations: {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with $p.affinity }}
-      affinity: {{- toYaml . | nindent 8 }}
-      {{- end }}
+      {{- include "halo.affinity" (list . "proxy" $p.affinity (or (gt (int $p.replicas) 1) $p.autoscaling.enabled)) | nindent 6 }}
       volumes:
         - name: config
           configMap: {name: {{ $n }}}

@@ -1,0 +1,34 @@
+# Helm values for the disaster-recovery drill (scripts/uat-dr.sh) on kind: the chart's HA shape from ci/ha-values.yaml
+# (several halo-server replicas on Postgres, schema migrated by the pre-install hook Job, kill switch on) with the pieces the
+# drill does not need switched off. Secrets are created by the script. Test only: --dev-insecure-user disables login.
+image: {registry: ghcr.io, pullPolicy: Never}
+
+policy:
+  gitSync:
+    repo: git://git.halos-dr.svc.cluster.local/policy.git
+    ref: main
+    period: 5s
+
+server:
+  image: {repository: dshakes/halo-server, tag: dr}
+  replicas: 2
+  persistence: {enabled: false}
+  database:
+    existingSecret: halos-postgres
+    key: url
+    leaseTTL: 5s
+    insecureTLS: true            # the in-cluster Postgres speaks plain TCP; never set this against a real database
+    migrateJob: {enabled: true}
+  args: [--dev-insecure-user, dr, --dev-insecure-admin]
+  portal: {baseURL: "http://halos-server.halos-dr.svc.cluster.local"}
+  killSwitch: {existingSecret: halos-killswitch}
+  metrics: {enabled: true}
+  controller:
+    enabled: true
+    interval: 1m
+    clickhouse: {url: "http://clickhouse.invalid:8123"}   # unreachable on purpose: the drill checks leadership, not verdicts
+
+proxy: {enabled: false}
+shadow: {enabled: false}
+otel: {enabled: false}
+networkPolicy: {enabled: false}   # covered by uat-k8s

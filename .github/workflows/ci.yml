@@ -253,6 +253,39 @@ jobs:
       - if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with: {name: uat-k8s-report, path: test/uat/REPORT.md, if-no-files-found: ignore}
+  uat-dr:
+    # Disaster-recovery drill (scripts/uat-dr.sh): HA chart with Postgres on kind, state written through the API, pg_dump,
+    # database destroyed, restored, state and `halo audit verify` asserted. Also renders the chart's monitoring toggles.
+    runs-on: ubuntu-latest
+    needs: [test]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with: {go-version-file: go.mod}
+      - run: go install sigs.k8s.io/kind@v0.27.0
+      - run: make uat-dr
+  chart:
+    # Static checks of the Helm chart: lint and render every ci/ values file, schema-validate the output with kubeconform
+    # (CRD schemas for ServiceMonitor/PrometheusRule from the datreeio catalog), and the render tests in internal/obsassets.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with: {go-version-file: go.mod}
+      - run: go install github.com/yannh/kubeconform/cmd/kubeconform@v0.6.7
+      - run: go test -count=1 ./internal/obsassets/
+      - name: lint and kubeconform every values file
+        run: |
+          set -euo pipefail
+          for f in "" deploy/helm/halos/ci/*.yaml; do
+            args=(); [ -n "$f" ] && args=(-f "$f")
+            helm lint deploy/helm/halos "${args[@]}"
+            helm template halos deploy/helm/halos -n halos "${args[@]}" \
+              | "$(go env GOPATH)/bin/kubeconform" -strict -summary -ignore-missing-schemas \
+                  -schema-location default \
+                  -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+          done
   uat-clis:
     # Real Claude Code / Codex / Gemini / Copilot CLIs (scripts/uat-clis.sh) on a Landlock-capable
     # kernel, so the codex eval arm and the codex sandbox probe must pass here (not known gaps).
