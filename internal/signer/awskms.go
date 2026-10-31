@@ -3,6 +3,7 @@ package signer
 import (
 	"bytes"
 	"context"
+	"crypto/fips140"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -69,7 +70,7 @@ type kmsClient struct {
 // kmsURI is a parsed awskms:// URI.
 type kmsURI struct {
 	keyID, region, endpoint string
-	fips                    bool
+	fips, fipsSet           bool // fipsSet: fips= was given explicitly
 }
 
 func parseKMSURI(uri string) (kmsURI, error) {
@@ -97,7 +98,7 @@ func parseKMSURI(uri string) (kmsURI, error) {
 			if v != "true" && v != "false" {
 				return k, fmt.Errorf("signer: awskms fips=%q, want true or false", v)
 			}
-			k.fips = v == "true"
+			k.fips, k.fipsSet = v == "true", true
 		default:
 			return k, fmt.Errorf("signer: unknown awskms query parameter %q (want region, endpoint, fips)", name)
 		}
@@ -117,13 +118,25 @@ func parseKMSURI(uri string) (kmsURI, error) {
 	return k, nil
 }
 
-// checkKMSEndpoint allows https to AWS endpoint domains (incl. VPC endpoint
-// names) and http(s) to loopback only: SigV4-signed requests must not go to a
-// third party.
-func checkKMSEndpoint(raw string) error {
+// kmsHostRE matches the KMS endpoint host names AWS publishes, capturing
+// the region: kms[-fips].<region>.amazonaws.com(.cn), the dual-stack
+// kms[-fips].<region>.api.aws, and interface VPC endpoints
+// vpce-<id>[-<az>].kms[-fips].<region>.vpce.amazonaws.com(.cn). Any other AWS
+// host (execute-api, S3 website or bucket hosts, ...) could be someone
+// else's endpoint and must never receive a SigV4-signed KMS request.
+var kmsHostRE = regexp.MustCompile(`^(?:vpce-[a-z0-9-]+\.)?kms(?:-fips)?\.([a-z]{2}(?:-[a-z]+)+-[0-9]+)\.(?:amazonaws\.com(?:\.cn)?|api\.aws|vpce\.amazonaws\.com(?:\.cn)?)$`)
+
+// checkKMSEndpoint allows https to a KMS endpoint host in region (the SigV4
+// signing region: a request signed for one region is never sent to another
+// region's host) and http(s) to loopback only. No user info, query, fragment
+// or path beyond "/".
+func checkKMSEndpoint(raw, region string) error {
 	u, err := url.Parse(raw)
 	if err != nil {
 		return fmt.Errorf("signer: awskms endpoint: %w", err)
+	}
+	if u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" || (u.Path != "" && u.Path != "/") {
+		return fmt.Errorf("signer: awskms endpoint %q must be scheme://host[:port][/] only", raw)
 	}
 	host := strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")
 	if ip := net.ParseIP(host); host == "localhost" || (ip != nil && ip.IsLoopback()) {
@@ -134,12 +147,31 @@ func checkKMSEndpoint(raw string) error {
 	if u.Scheme != "https" {
 		return fmt.Errorf("signer: awskms endpoint %q must be https", raw)
 	}
-	for _, sfx := range []string{".amazonaws.com", ".amazonaws.com.cn", ".api.aws"} {
-		if strings.HasSuffix(host, sfx) {
-			return nil
-		}
+	m := kmsHostRE.FindStringSubmatch(host)
+	if m == nil {
+		return fmt.Errorf("signer: awskms endpoint host %q is not an AWS KMS endpoint (kms[-fips].<region>.amazonaws.com, kms.<region>.api.aws, vpce-*.kms.<region>.vpce.amazonaws.com) or loopback", host)
 	}
-	return fmt.Errorf("signer: awskms endpoint host %q is not an AWS domain or loopback", host)
+	if m[1] != region {
+		return fmt.Errorf("signer: awskms endpoint %q is in region %s but requests are signed for %s", host, m[1], region)
+	}
+	return nil
+}
+
+// kmsEndpoint picks the KMS URL for region: the checked endpoint= override,
+// else the FIPS endpoint when fips=true or, in a FIPS build (fipsMode), unless
+// fips=false is explicit (AWS has no KMS FIPS endpoint in the China
+// regions), else the standard one.
+func kmsEndpoint(k kmsURI, region string, fipsMode bool) (string, error) {
+	switch {
+	case k.endpoint != "":
+		if err := checkKMSEndpoint(k.endpoint, region); err != nil {
+			return "", err
+		}
+		return k.endpoint, nil
+	case k.fips || (!k.fipsSet && fipsMode && !strings.HasPrefix(region, "cn-")):
+		return "https://kms-fips." + region + "." + awsDomain(region) + "/", nil
+	}
+	return "https://kms." + region + "." + awsDomain(region) + "/", nil
 }
 
 func openAWSKMS(ctx context.Context, uri string, o Options) (bundle.KeySigner, error) {
@@ -169,16 +201,8 @@ func openAWSKMS(ctx context.Context, uri string, o Options) (bundle.KeySigner, e
 	if !kmsRegionRE.MatchString(c.region) {
 		return nil, fmt.Errorf("signer: awskms: no valid region (got %q): add ?region= to the URI, use a key ARN or set AWS_REGION", c.region)
 	}
-	switch {
-	case k.endpoint != "":
-		if err := checkKMSEndpoint(k.endpoint); err != nil {
-			return nil, err
-		}
-		c.endpoint = k.endpoint
-	case k.fips:
-		c.endpoint = "https://kms-fips." + c.region + "." + awsDomain(c.region) + "/"
-	default:
-		c.endpoint = "https://kms." + c.region + "." + awsDomain(c.region) + "/"
+	if c.endpoint, err = kmsEndpoint(k, c.region, fips140.Enabled()); err != nil {
+		return nil, err
 	}
 	if c.hc == nil {
 		c.hc = &http.Client{Timeout: DefaultTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}

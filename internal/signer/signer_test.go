@@ -422,18 +422,41 @@ func TestParseKMSURI(t *testing.T) {
 		}
 	}
 	for raw, ok := range map[string]bool{
-		"https://kms.us-east-1.amazonaws.com/":             true,
-		"https://vpce-1.kms.us-east-1.vpce.amazonaws.com":  true,
-		"http://127.0.0.1:8080":                            true,
-		"http://localhost:1":                               true,
-		"http://kms.us-east-1.amazonaws.com":               false,
-		"https://kms.evil.example":                         false,
-		"https://kms.us-east-1.amazonaws.com.evil.example": false,
-		"ftp://127.0.0.1":                                  false,
+		"https://kms.us-east-1.amazonaws.com/":                                                true,
+		"https://kms-fips.us-east-1.amazonaws.com":                                            true,
+		"https://kms.us-east-1.api.aws":                                                       true,
+		"https://vpce-0a1b2c3d4e5f60718-abcdefgh.kms.us-east-1.vpce.amazonaws.com":            true,
+		"https://vpce-0a1b2c3d4e5f60718-abcdefgh-us-east-1a.kms.us-east-1.vpce.amazonaws.com": true,
+		"http://127.0.0.1:8080":                                                               true,
+		"http://127.0.0.2:9/":                                                                 true,
+		"http://[::1]:9/":                                                                     true,
+		"http://localhost:1":                                                                  true,
+		"http://kms.us-east-1.amazonaws.com":                                                  false,
+		// L1: other AWS hosts can be someone else's endpoint
+		"https://abc123.execute-api.us-east-1.amazonaws.com/": false,
+		"https://attacker-bucket.s3.amazonaws.com/":           false,
+		"https://x.api.aws/":                                  false,
+		"https://amazonaws.com/":                              false,
+		"https://kms.amazonaws.com/":                          false,
+		"https://kms.evil.example":                            false,
+		"https://kms.us-east-1.amazonaws.com.evil.example":    false,
+		"https://kms.us-east-1.amazonaws.com.evil.com/":       false,
+		"https://evil.com/.amazonaws.com":                     false,
+		"https://evil.com#.amazonaws.com":                     false,
+		"https://evil.com%2e.amazonaws.com/":                  false,
+		"https://user@kms.us-east-1.amazonaws.com/":           false,
+		"https://kms.us-east-1.amazonaws.com/x":               false,
+		"https://kms.us-east-1.amazonaws.com/?a=b":            false,
+		// bound to the SigV4 region
+		"https://kms.eu-west-1.amazonaws.com/": false,
+		"ftp://127.0.0.1":                      false,
 	} {
-		if err := checkKMSEndpoint(raw); (err == nil) != ok {
+		if err := checkKMSEndpoint(raw, "us-east-1"); (err == nil) != ok {
 			t.Errorf("endpoint %s: %v, want ok=%v", raw, err, ok)
 		}
+	}
+	if err := checkKMSEndpoint("https://kms.cn-north-1.amazonaws.com.cn", "cn-north-1"); err != nil {
+		t.Errorf("china endpoint: %v", err)
 	}
 	// a non-AWS endpoint is refused before any request is signed
 	if _, err := Open(context.Background(), "awskms://alias/x?region=us-east-1&endpoint=https://kms.evil.example", kmsOpts()); err == nil {
