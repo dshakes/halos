@@ -4,6 +4,18 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added
+
+- Helm chart operations kit. `monitoring.prometheusRule.enabled` renders a `PrometheusRule` (only when the cluster serves the CRD) from `deploy/helm/halos/files/prometheus-rules.yaml`, now the single source of the alert list: the Grafana alerting provisioning (`deploy/observability/grafana/provisioning/alerting/halos-alerts.yaml`) is generated from it by `make obs-assets`, and `go test ./internal/obsassets` fails when the rules, the generated file, the dashboards or the operations guide drift, or when a rule or panel names a metric no binary exports. New alerts: `HaloServerErrorRateHigh`, `HaloServerGatewayLookupErrors`.
+- Four Grafana dashboards for Prometheus under `deploy/observability/grafana/dashboards/` (server, gateway, fleet as the server sees it, rollouts and experiments), built only from exported metrics; `monitoring.dashboards.enabled` ships them as ConfigMaps for the Grafana sidecar.
+- PodDisruptionBudgets for every component with more than one replica (the OTel collector included), optional HPAs for the Postgres-backed `halo-server`, `halo-shadow` and the collector (`<component>.autoscaling.enabled`, off by default), a default one-pod-per-node `podAntiAffinity` (`podAntiAffinity.*`), and `global.imageRegistry` / `global.imagePullSecrets` applied to every pod and image (the policy sync sidecar and the collector included) for mirrored and air-gapped installs. A render test asserts the hardened security context on every container for each CI values file.
+- The release workflow packages the chart and pushes it to `oci://ghcr.io/<owner>/charts/halos` with chart version and appVersion equal to the tag, signs it keyless like the images, and the `verify` job checks signature, version and default images. Available from the first release that includes this change (v0.5.0 or later); earlier versions install from a source checkout.
+- Disaster-recovery drill: `scripts/uat-dr.sh` (`make uat-dr`, CI job `uat-dr`) installs the HA chart on kind with Postgres, writes state through the API, runs `pg_dump`, destroys the database, restores, and asserts the kill list, the audit chain and `halo audit verify`, a single controller leader and the gateway endpoint. New guides: backup and restore (RPO and RTO per mode, PITR, restore order) and air-gapped install. A new `chart` CI job lints, renders and `kubeconform`-validates the chart with every values file.
+
+### Fixed
+
+- Helm: the schema-migration hook Job (`server.database.migrateJob`) failed a fresh `helm install` because the pre-install hook ran before the chart's ServiceAccount existed, so its pod was never created. On install it now uses the namespace default ServiceAccount (no token is mounted either way).
+
 ## [0.4.1] - 2026-10-30
 
 ### Fixed
