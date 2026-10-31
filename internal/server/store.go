@@ -90,10 +90,10 @@ func (h *Host) shareWith(prev Host) {
 	same(&h.ErrorCode, prev.ErrorCode)
 	same(&h.Experiment, prev.Experiment)
 	same(&h.Variant, prev.Variant)
-	if maps.Equal(h.Harnesses, prev.Harnesses) {
+	if (h.Harnesses == nil) == (prev.Harnesses == nil) && maps.Equal(h.Harnesses, prev.Harnesses) { // nil and empty marshal differently
 		h.Harnesses = prev.Harnesses
 	}
-	if slices.Equal(h.Drift, prev.Drift) {
+	if (h.Drift == nil) == (prev.Drift == nil) && slices.Equal(h.Drift, prev.Drift) {
 		h.Drift = prev.Drift
 	}
 }

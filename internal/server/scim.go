@@ -153,31 +153,27 @@ func (d *deviceStore) revokeUser(user string) (int, error) {
 	if err := d.catchup(); err != nil { // devices enrolled on other replicas too
 		return 0, err
 	}
+	// Every device of the user is revoked in memory first, then logged one by
+	// one. A write that fails leaves them all revoked (fail closed) and pending,
+	// so the retry logs the rest.
 	d.mu.Lock()
-	var ids []string
+	var todo []Device
 	for id, v := range d.byID {
-		if !v.Revoked && sameUser(v.UserID, user) {
-			ids = append(ids, id)
+		if sameUser(v.UserID, user) && (!v.Revoked || d.revPending[id]) {
+			v.Revoked = true
+			d.revPending[id] = true
+			todo = append(todo, *v)
 		}
 	}
 	d.mu.Unlock()
 	n := 0
-	for _, id := range ids {
-		d.mu.Lock()
-		v := d.byID[id]
-		if v == nil || v.Revoked {
-			d.mu.Unlock()
-			continue
-		}
-		v.Revoked = true
-		c := *v
-		d.mu.Unlock()
-		if err := d.persist(&c); err != nil {
-			d.mu.Lock()
-			v.Revoked = false
-			d.mu.Unlock()
+	for i := range todo {
+		if err := d.persist(&todo[i]); err != nil {
 			return n, err
 		}
+		d.mu.Lock()
+		delete(d.revPending, todo[i].ID)
+		d.mu.Unlock()
 		n++
 	}
 	return n, nil

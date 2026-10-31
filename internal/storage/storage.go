@@ -314,15 +314,25 @@ func (c *Coalescer) Do(fn func() error) error {
 			c.running = true
 			c.started++
 			mine := c.started
-			c.mu.Unlock()
-			err := fn()
-			c.mu.Lock()
-			c.running, c.done, c.err = false, mine, err
-			c.cond.Broadcast()
+			c.run(fn, mine)
 			continue
 		}
 		c.cond.Wait()
 	}
+}
+
+// run calls fn with c.mu released and re-locks it on every exit, a panic
+// included (which then propagates): a panicking fn must not leave running set
+// or Do's deferred Unlock on an unlocked mutex. Waiters get an error.
+func (c *Coalescer) run(fn func() error, mine uint64) {
+	c.mu.Unlock()
+	err := errors.New("storage: coalesced run panicked")
+	defer func() {
+		c.mu.Lock()
+		c.running, c.done, c.err = false, mine, err
+		c.cond.Broadcast()
+	}()
+	err = fn()
 }
 
 // ValidName reports whether name is usable as a log or KV namespace:

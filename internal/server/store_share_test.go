@@ -59,6 +59,28 @@ func TestLogStoreHistorySharesUnchangedValues(t *testing.T) {
 	}
 }
 
+// nil and empty marshal differently (null against {} and []); sharing must
+// never turn one into the other.
+func TestShareWithKeepsNilAndEmptyApart(t *testing.T) {
+	empty := shareReport(1, 0)
+	empty.Harnesses = map[string]HarnessStatus{}
+	nilled := shareReport(1, 1)
+	nilled.Drift, nilled.Harnesses = nil, nil
+
+	h := nilled
+	h.shareWith(empty)
+	if h.Drift != nil || h.Harnesses != nil {
+		t.Fatalf("nil drift/harnesses became %#v / %#v", h.Drift, h.Harnesses)
+	}
+	h = empty
+	h.Drift = []string{}
+	h.Harnesses = map[string]HarnessStatus{}
+	h.shareWith(nilled)
+	if h.Drift == nil || h.Harnesses == nil {
+		t.Fatal("empty drift/harnesses became nil")
+	}
+}
+
 // The history is what dominated halo-server memory: 50 reports per device.
 func TestLogStoreHistoryMemory(t *testing.T) {
 	heap := func() uint64 {

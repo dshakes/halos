@@ -67,9 +67,11 @@ type deviceStore struct {
 	byID   map[string]*Device
 	log    storage.Log // nil = memory only
 	saved  map[string]time.Time
-	ttl    time.Duration     // for devices persisted without ExpiresAt
-	cc     storage.Coalescer // shared log: one catch-up serves concurrent lookups
-	shared bool              // the log has other writers (Postgres): see lookup
+	// revPending: revoked in memory, not yet durably logged (a write failed); retried by revokeUser.
+	revPending map[string]bool
+	ttl        time.Duration     // for devices persisted without ExpiresAt
+	cc         storage.Coalescer // shared log: one catch-up serves concurrent lookups
+	shared     bool              // the log has other writers (Postgres): see lookup
 	// afterMint, when set, runs after a device is minted (test seam: models a
 	// deprovisioning racing an enrollment).
 	afterMint func()
@@ -79,7 +81,7 @@ func openDeviceStore(o storage.Opener, ttl time.Duration) (*deviceStore, error) 
 	if ttl <= 0 {
 		ttl = DefaultDeviceTTL
 	}
-	d := &deviceStore{byHash: map[string]*Device{}, byID: map[string]*Device{}, saved: map[string]time.Time{}, ttl: ttl}
+	d := &deviceStore{byHash: map[string]*Device{}, byID: map[string]*Device{}, saved: map[string]time.Time{}, revPending: map[string]bool{}, ttl: ttl}
 	ctx, cancel := storage.Ctx()
 	defer cancel()
 	log, err := o.OpenLog(ctx, "devices", func(line []byte) {
@@ -269,16 +271,20 @@ func (d *deviceStore) revoke(id string) (Device, error) {
 		d.mu.Unlock()
 		return Device{}, errNoDevice
 	}
-	was := v.Revoked
 	v.Revoked = true
+	d.revPending[id] = true
 	c := *v
 	d.mu.Unlock()
+	// A failed write does not undo the revocation in memory: the log may hold
+	// it anyway (written, then the sync failed), a replay may have replaced the
+	// record, and a revoked device that works until a restart is the unsafe
+	// outcome. The caller answers 500 and the revocation is retried.
 	if err := d.persist(&c); err != nil {
-		d.mu.Lock()
-		v.Revoked = was
-		d.mu.Unlock()
 		return Device{}, err
 	}
+	d.mu.Lock()
+	delete(d.revPending, id)
+	d.mu.Unlock()
 	return c, nil
 }
 
