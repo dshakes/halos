@@ -6,10 +6,10 @@ description: Install halo and halod on macOS, Linux and Windows, in CI, in dev c
 <img class="diagram dark:sl-hidden" src="/halos/diagrams/everywhere-light.svg" alt="macOS, Linux, Windows, Dev Containers, Codespaces and Coder workspaces, CI runners and Kubernetes." width="880" />
 <img class="diagram light:sl-hidden" src="/halos/diagrams/everywhere-dark.svg" alt="macOS, Linux, Windows, Dev Containers, Codespaces and Coder workspaces, CI runners and Kubernetes." width="880" />
 
-**`halo`** is the CLI you run in CI and on your workstation. **`halod`** is the fleet agent; it runs as root on each machine and applies the ring's signed release. Every channel below installs the same checksummed archives from a GitHub release. Always pin a version in automation; `v0.4.1` below is the current release.
+**`halo`** is the CLI you run in CI and on your workstation. **`halod`** is the fleet agent; it runs as root on each machine and applies the ring's signed release. Every channel below installs the same checksummed archives from a GitHub release. Always pin a version in automation; `v0.5.0` below is the current release.
 
 :::note[Release status]
-[`v0.4.1`](https://github.com/dshakes/halos/releases/tag/v0.4.1) is the current release (`v0.1.0` was published without its Homebrew formula, Scoop manifest and provenance attestation; see the changelog; `v0.1.1` superseded it). Every channel below installs from it: binaries, deb/rpm/apk packages, `install.sh`/`install.ps1`, Homebrew (`dshakes/homebrew-tap`), Scoop (`dshakes/scoop-bucket`), signed checksums and signed ghcr.io images, all verified by the release workflow after publishing; winget is built but not submitted. The [changelog](https://github.com/dshakes/halos/blob/main/CHANGELOG.md#030---2026-10-23) states what is GA and what is supported but not yet field-verified. Or [build from source](#from-source).
+[`v0.5.0`](https://github.com/dshakes/halos/releases/tag/v0.5.0) is the current release (`v0.1.0` was published without its Homebrew formula, Scoop manifest and provenance attestation; see the changelog; `v0.1.1` superseded it). Every channel below installs from it: binaries, deb/rpm/apk packages, `install.sh`/`install.ps1`, Homebrew (`dshakes/homebrew-tap`), Scoop (`dshakes/scoop-bucket`), signed checksums and signed ghcr.io images, all verified by the release workflow after publishing; winget is built but not submitted. The [changelog](https://github.com/dshakes/halos/blob/main/CHANGELOG.md#030---2026-10-23) states what is GA and what is supported but not yet field-verified. Or [build from source](#from-source).
 :::
 
 ## macOS
@@ -21,8 +21,8 @@ brew install dshakes/tap/halo                 # formula in github.com/dshakes/ho
 Or the script, which works on macOS and Linux and needs no sudo:
 
 ```sh
-curl -fsSLO https://raw.githubusercontent.com/dshakes/halos/v0.4.1/install/install.sh
-sh install.sh --version v0.4.1                # halo into ~/.local/bin; tells you if that is not on PATH
+curl -fsSLO https://raw.githubusercontent.com/dshakes/halos/v0.5.0/install/install.sh
+sh install.sh --version v0.5.0                # halo into ~/.local/bin; tells you if that is not on PATH
 ```
 
 `install.sh` verifies `checksums.txt` against its cosign signature when `cosign` is on `PATH`. Without cosign it warns loudly and trusts only the sha256 checksums. It then verifies each archive. `--prefix DIR` changes the install location; `--with-agent` adds `halod`.
@@ -30,8 +30,8 @@ sh install.sh --version v0.4.1                # halo into ~/.local/bin; tells yo
 ## Linux
 
 ```sh
-curl -fsSLO https://github.com/dshakes/halos/releases/download/v0.4.1/halo_0.4.1_linux_amd64.deb
-sudo apt install ./halo_0.4.1_linux_amd64.deb      # also .rpm / .apk, arm64, and the halod_* packages
+curl -fsSLO https://github.com/dshakes/halos/releases/download/v0.5.0/halo_0.5.0_linux_amd64.deb
+sudo apt install ./halo_0.5.0_linux_amd64.deb      # also .rpm / .apk, arm64, and the halod_* packages
 ```
 
 The `halo` and `halod` packages (deb, rpm, apk) install to `/usr/bin`. `halod` ships a systemd unit and `/etc/halos/`, but is **never enabled or enrolled** by the package. You write `/etc/halos/halod.yaml`, then run `systemctl enable --now halod`. `install.sh` works on Linux too.
@@ -43,10 +43,10 @@ scoop bucket add dshakes https://github.com/dshakes/scoop-bucket
 scoop install halo
 ```
 
-Or [`install.ps1`](https://raw.githubusercontent.com/dshakes/halos/v0.4.1/install/install.ps1) from the release tag, from an **elevated** PowerShell:
+Or [`install.ps1`](https://raw.githubusercontent.com/dshakes/halos/v0.5.0/install/install.ps1) from the release tag, from an **elevated** PowerShell:
 
 ```powershell
-.\install.ps1 -Version v0.4.1 -WithAgent         # to $env:ProgramFiles\Halos
+.\install.ps1 -Version v0.5.0 -WithAgent         # to $env:ProgramFiles\Halos
 ```
 
 `install.ps1` restricts the directory to SYSTEM and Administrators (write) and Users (read/execute), matching `halod`'s owner check. The binaries are not Authenticode-signed. A winget manifest (`Halos.Halo`) is built with each release but is not submitted to `winget-pkgs`.
@@ -75,9 +75,9 @@ sudo halod service install --start        # print the unit first: halod service 
 GitHub Actions:
 
 ```yaml
-- uses: dshakes/halos@v0.4.1
+- uses: dshakes/halos@v0.5.0
   with:
-    version: v0.4.1          # required; there is no "latest"
+    version: v0.5.0          # required; there is no "latest"
     # apply: "true"          # run `halod once` for a fixed ring (Linux/macOS, uses sudo)
     # registry: ghcr.io/acme/halos-releases
     # org: acme
@@ -90,8 +90,8 @@ GitLab CI:
 
 ```yaml
 include:
-  - remote: https://raw.githubusercontent.com/dshakes/halos/v0.4.1/deploy/ci/gitlab/halos.gitlab-ci.yml
-variables: {HALOS_VERSION: v0.4.1}
+  - remote: https://raw.githubusercontent.com/dshakes/halos/v0.5.0/deploy/ci/gitlab/halos.gitlab-ci.yml
+variables: {HALOS_VERSION: v0.5.0}
 policy-check:
   extends: .halos
   script: [halo validate]
@@ -103,7 +103,7 @@ policy-check:
 helm install halos deploy/helm/halos --namespace halos --create-namespace
 ```
 
-The chart runs `halo-server`, `halo-proxy` and `halo-shadow`, with an optional OTel collector and a Kong plugin resource. Images default to `ghcr.io/dshakes/halo-*:<chart appVersion>` (currently 0.4.1); to run a different release, set each component's `image.tag` (for example `--set server.image.tag=0.1.1`). See [production deployment](/halos/guides/production-deployment/).
+The chart runs `halo-server`, `halo-proxy` and `halo-shadow`, with an optional OTel collector and a Kong plugin resource. Images default to `ghcr.io/dshakes/halo-*:<chart appVersion>` (currently 0.5.0); to run a different release, set each component's `image.tag` (for example `--set server.image.tag=0.1.1`). See [production deployment](/halos/guides/production-deployment/).
 
 ## Components
 
@@ -156,7 +156,7 @@ See [security model](/halos/concepts/security-model/) and [production deployment
 
 ```console
 $ halo version
-halo 0.4.1 (commit <sha>, built <date>)
+halo 0.5.0 (commit <sha>, built <date>)
 $ halo --help        # lists validate, release, rollout, toggle, eval, upgrade, gateway, mcp ...
 ```
 
