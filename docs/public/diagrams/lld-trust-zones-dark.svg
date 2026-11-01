@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 620" width="760" height="620" role="img" aria-labelledby="t d" font-family="ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif">
 <title id="t">Trust zones and keys</title>
-<desc id="d">Who holds which key or token. The publisher holds the release ed25519 private key; the registry is untrusted storage and halod verifies with the release public keys. halo-server holds the kill-list private key, the gateway and fleet tokens, hashed device tokens and the OIDC secrets. Gateways hold the kill public key, the gateway token, provider credentials and the OTLP gateway token. The collector separates gateway, eval and CLI receivers by token; only gateway evidence may auto-kill.</desc>
+<desc id="d">Who holds which key or token. The publisher holds the release private key (a file, AWS KMS or an external signer, by key URI); the registry is untrusted storage and halod verifies with the release public keys. halo-server holds the kill-list private key, the gateway and fleet tokens, hashed device tokens and the OIDC secrets. Gateways hold the kill public key, the gateway token, provider credentials and the OTLP gateway token. The collector separates gateway, eval and CLI receivers by token; only gateway evidence may auto-kill.</desc>
 <style>
 .cv{fill:#0c0c10;stroke:#1e1e24;stroke-width:1.5}
 .card{fill:#121217;stroke:#2a2a31;stroke-width:1.5}
@@ -54,7 +54,7 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <rect class="zone" x="24" y="24" width="220" height="128" rx="16"/>
 <text class="k ka" x="40" y="48">PUBLISHER (CI)</text>
 <rect class="dcard" x="36" y="64" width="196" height="22" rx="6"/>
-<text class="m" x="44" y="79">release key: ed25519</text>
+<text class="m" x="44" y="79">release key: key URI</text>
 <rect class="chip" x="36" y="92" width="196" height="22" rx="6"/>
 <text class="m" x="44" y="107">cosign key (optional)</text>
 <rect class="chip" x="36" y="120" width="196" height="22" rx="6"/>
@@ -62,7 +62,7 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <rect class="zone" x="270" y="24" width="220" height="240" rx="16"/>
 <text class="k ka" x="286" y="48">HALO-SERVER</text>
 <rect class="dcard" x="282" y="64" width="196" height="22" rx="6"/>
-<text class="m" x="290" y="79">kill key: ed25519</text>
+<text class="m" x="290" y="79">kill key: key URI</text>
 <rect class="chip" x="282" y="92" width="196" height="22" rx="6"/>
 <text class="m" x="290" y="107">gateway token (sha256)</text>
 <rect class="chip" x="282" y="120" width="196" height="22" rx="6"/>
@@ -148,7 +148,7 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <text class="s" x="48" y="514">device token: GET fleet/ring, POST fleet/report, GET fleet/killswitch</text>
 <circle class="bdg" cx="32" cy="532" r="8"/>
 <text class="bn" x="32" y="535.4" text-anchor="middle">4</text>
-<text class="s" x="48" y="536">gateway token: GET gateway/killswitch; the list is ed25519-signed, &lt;= 10 min old</text>
+<text class="s" x="48" y="536">gateway token: GET gateway/killswitch; the list is signed (ed25519 or P-256), &lt;= 10 min old</text>
 <circle class="bdg" cx="32" cy="554" r="8"/>
 <text class="bn" x="32" y="557.4" text-anchor="middle">5</text>
 <text class="s" x="48" y="558">OTLP bearer on :4319 -&gt; halo.source=gateway, the only source that may auto-kill</text>

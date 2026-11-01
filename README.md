@@ -185,7 +185,7 @@ Traffic goes through `halo-proxy` to Anthropic, Bedrock (SigV4), Vertex, OpenAI,
 
 | Control | What it does | Docs |
 |---|---|---|
-| RBAC | IdP groups map to `viewer`, `operator`, `approver`, `auditor`, `admin`; every route is deny-by-default and denials are audited | [security model](https://dshakes.github.io/halos/concepts/security-model/) |
+| RBAC | IdP groups map to `viewer`, `operator`, `approver`, `auditor`, `admin`; role bindings can be scoped to rings and org units; every route is deny-by-default and denials are audited | [delegated administration](https://dshakes.github.io/halos/guides/delegated-administration/) |
 | SCIM 2.0 | Okta and Entra provisioning; deprovisioning revokes sessions and device tokens at once | [SCIM](https://dshakes.github.io/halos/guides/scim-provisioning/) |
 | Org units | Delegated owners and overlays that can tighten, never loosen, enforced fields | [org hierarchy](https://dshakes.github.io/halos/concepts/org-hierarchy/) |
 | Cost budgets | Per user, group, ring or org caps in USD or tokens, warn or enforce, answered as 429 at the gateway | [budgets](https://dshakes.github.io/halos/guides/cost-budgets/) |
@@ -207,6 +207,15 @@ Traffic goes through `halo-proxy` to Anthropic, Bedrock (SigV4), Vertex, OpenAI,
 | Delivery ROI | `halo roi` joins PR outcomes to randomized experiment arms, so the effect is the change's, not self-selection's; informational, never gates promotion | [delivery ROI](https://dshakes.github.io/halos/guides/delivery-roi/) |
 | Policy copilot | `halo copilot` drafts a policy change from an intent, runs validate, plan, impact and stats on it, and commits only to a local branch; a human opens and merges the PR | [policy copilot](https://dshakes.github.io/halos/guides/policy-copilot/) |
 | Test a change | `halo test` validates, renders every ring x harness x OS, checks invariants and releases, runs your `tests/` cases and simulates rollouts in seconds, offline, before any eval | [testing a policy change](https://dshakes.github.io/halos/guides/testing-policy/) |
+| Admin credentials | Service-account API tokens (`halo_sat_`, always expiring, never stronger than their creator), a sealed break-glass admin, session idle and absolute timeouts, Entra groups overage and `acr`/`amr` MFA claims | [admin access](https://dshakes.github.io/halos/guides/admin-access/) |
+| Signing keys | Release, kill-list and artifact signing keys by URI (`file://`, `awskms://`, or an `exec://` signer for an HSM); ECDSA P-256 and FIPS 140-3 builds | [key management](https://dshakes.github.io/halos/guides/key-management/) |
+| Promotion PRs | Promotions open a PR or MR through the `gh` CLI, GitHub REST or GitLab REST; Halos never merges | [GitLab and GHES](https://dshakes.github.io/halos/guides/gitlab-and-ghes/) |
+| Notifications | Slack, Microsoft Teams, PagerDuty and signed-webhook notifiers for rollout, freeze and kill-switch events | [notifications](https://dshakes.github.io/halos/guides/notifications/) |
+| HTTP API | `/api/v1` is described by an OpenAPI 3.1 document generated from the server, with a drift test in CI | [API reference](https://dshakes.github.io/halos/reference/api/) |
+| Ops kit | The Helm chart ships a PrometheusRule, PodDisruptionBudget and HPA, `global.imageRegistry`, an OCI chart and an air-gap install; `scripts/uat-dr.sh` runs a restore drill | [production deployment](https://dshakes.github.io/halos/guides/production-deployment/) |
+| Fleet sizing | `make load-fleet` runs simulated `halod` devices (up to 10,000) against `halo-server`; the sizing guide turns the results into replica counts | [sizing](https://dshakes.github.io/halos/guides/operations/#sizing-halo-server) |
+| Compliance mapping | Controls mapped to SOC 2, ISO 27001 and the EU AI Act, with data-flow and PII documents | [control mapping](https://dshakes.github.io/halos/compliance/control-mapping/) |
+| Terraform / OpenTofu | The [`dshakes/halos` provider](https://github.com/dshakes/terraform-provider-halos) on the Terraform Registry (OpenTofu-compatible) manages service-account tokens and reads status; it never touches policy or approvals | [Terraform provider](https://dshakes.github.io/halos/guides/terraform-provider/) |
 
 ## Runs everywhere
 

@@ -16,6 +16,8 @@ The document is generated from the server source (`make openapi`, also run by `m
 
 **Stability.** Every operation is marked `x-halo-stability: stable` and falls under the HTTP API promise in the [support policy](/halos/reference/support-policy/): under `/api/v1` fields are added in minors and never removed or retyped. Error bodies are `{"error": "<message>"}`: match on the HTTP status, not on the message text.
 
+**Clients.** The [Terraform and OpenTofu provider](/halos/guides/terraform-provider/) is built on this API and authenticates with a service-account token.
+
 ## Auth levels
 
 | Level | Credential | Failure |

@@ -4,6 +4,10 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Documentation
+
+- README capability table, docs site and diagrams cover v0.5.0: admin credentials, scoped RBAC, external signing keys and FIPS, the OpenAPI document, promotion PRs, notifiers, the Helm ops kit, fleet sizing and compliance mapping. New guide for the Terraform and OpenTofu provider (`dshakes/halos`, separate repository). The release-pipeline, trust-zones, security-boundaries and architecture diagrams show key URIs (file, AWS KMS, external signer) instead of a fixed ed25519 key.
+
 ## [0.5.0] - 2026-10-31
 
 ### Upgrade notes

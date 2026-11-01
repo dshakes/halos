@@ -63,7 +63,7 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <rect class="soft" x="454.0" y="52" width="179.0" height="52" rx="12"/>
 <rect class="ring" x="454.75" y="52.75" width="177.5" height="50.5" rx="11.25"/>
 <text class="t" x="470" y="74.5">Signed release</text>
-<text class="s" x="470" y="92.5">OCI · ed25519 · signed</text>
+<text class="s" x="470" y="92.5">OCI · file · KMS · HSM key</text>
 <rect class="card" x="661.0" y="52" width="179.0" height="52" rx="12" filter="url(#sh)"/>
 <text class="t" x="677" y="74.5">Ring pointers</text>
 <text class="s" x="677" y="92.5">r0 → r1 → r2 → GA</text>
