@@ -99,7 +99,7 @@ func TestFleetAggregation(t *testing.T) {
 	if ga.Percent < 66 || ga.Percent > 67 {
 		t.Errorf("percent %v", ga.Percent)
 	}
-	if w.Header().Get("X-Content-Type-Options") != "nosniff" || !strings.Contains(w.Header().Get("Content-Security-Policy"), "frame-ancestors 'none'") {
+	if w.Header().Get("X-Content-Type-Options") != "nosniff" || w.Header().Get("Strict-Transport-Security") == "" || !strings.Contains(w.Header().Get("Content-Security-Policy"), "frame-ancestors 'none'") {
 		t.Error("security headers missing")
 	}
 }
