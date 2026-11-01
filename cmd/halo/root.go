@@ -116,8 +116,21 @@ func newRoot(out, errw io.Writer) *cobra.Command {
 		a.cmdDoctor(), a.cmdOnboard(), a.cmdQuickstart(), a.cmdUnits(), a.cmdAudit(), a.cmdBudget(), a.cmdCI(), a.cmdAgents(), a.cmdAdmin(), a.cmdCloudAgents(), a.cmdROI(), a.cmdSessions(), a.cmdFreeze(),
 		a.cmdArtifact(), a.cmdEgress(), a.cmdDLP(), a.cmdCopilot(), a.cmdServiceToken(), a.cmdTest())
 	addPolicyDirFlags(root)
+	addDryRunFlags(root)
 	groupCommands(root)
 	return root
+}
+
+// addDryRunFlags gives every --apply command an explicit --dry-run (its
+// default), so the flag users learn on quickstart/enable/eject works everywhere.
+func addDryRunFlags(c *cobra.Command) {
+	for _, sub := range c.Commands() {
+		addDryRunFlags(sub)
+	}
+	if c.Flags().Lookup("apply") != nil && c.Flags().Lookup("dry-run") == nil {
+		c.Flags().Bool("dry-run", false, "show what would change without writing (the default without --apply)")
+		c.MarkFlagsMutuallyExclusive("apply", "dry-run")
+	}
 }
 
 // helpGroups orders `halo --help`; it only groups, every command keeps its name.

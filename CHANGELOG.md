@@ -4,6 +4,10 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Changed
+
+- Every command that writes only with `--apply` also accepts `--dry-run` (its default), matching `quickstart`, `enable`, `eject` and `model switch`; the two flags are mutually exclusive.
+
 ### Fixed
 
 - `halo onboard company` names every missing required flag in one error (`--gateway`, `--issuer`, `--registry`, `--policy-repo`, `--portal-url`) instead of failing one unnamed field per run; README points at `--help`.
