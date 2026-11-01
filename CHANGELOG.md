@@ -4,6 +4,11 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added
+
+- halo-server sends `Strict-Transport-Security` (browsers honour it only over HTTPS); every Prometheus/Grafana alert carries a `runbook_url` to the operations guide.
+- `halo --version` (same output as `halo version`).
+
 ### Changed
 
 - Every command that writes only with `--apply` also accepts `--dry-run` (its default), matching `quickstart`, `enable`, `eject` and `model switch`; the two flags are mutually exclusive.
@@ -13,10 +18,6 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 - `halo onboard company` names every missing required flag in one error (`--gateway`, `--issuer`, `--registry`, `--policy-repo`, `--portal-url`) instead of failing one unnamed field per run; README points at `--help`.
 - `halo quickstart` clones the release tag that matches the binary (cached per version), not `main`, and says when the Docker daemon is not running.
 - A `kind: Halos` document outside `halos.yaml` and an unknown `halo model switch` alias now say how to fix them.
-
-### Added
-
-- `halo --version` (same output as `halo version`).
 
 ## [0.5.1] - 2026-11-01
 
