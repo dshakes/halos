@@ -156,7 +156,7 @@ jobs:
       - run: shellcheck install/install.sh scripts/ci-delivery-macos.sh scripts/ci-devcontainer.sh scripts/release.sh scripts/release-notes.sh scripts/npm-build.sh deploy/packaging/*.sh
       - uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6.4.0
         with: {version: "~> v2", args: "release --snapshot --clean --skip=publish,sign,sbom,docker"}
-      - name: npm packages install and run halo (npx @dshakes/halo)
+      - name: npm packages install and run halo (npx @dshakesnotbot/halo)
         run: |
           set -euo pipefail
           v=$(jq -r .version dist/metadata.json)

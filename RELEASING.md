@@ -29,7 +29,7 @@ is automated by `.github/workflows/release.yml`; a human only decides *when*.
 | `web` | Builds the console with no credentials (`npm ci --ignore-scripts`) | `contents: read` |
 | `release` | GoReleaser with the CHANGELOG section as notes: archives, deb/rpm/apk, syft SBOMs, `checksums.txt` + cosign Sigstore bundle, signed multi-arch images on `ghcr.io/dshakes/{halo-server,halo-proxy,halo-shadow,kong-halo}`, FIPS 140-3 variants (`*_fips_*` archives and `:X.Y.Z-fips` images of halo-server, halo-proxy and halo-shadow, built with `GOFIPS140=v1.0.0`, ADR-0038), Homebrew + Scoop (final only). Then GitHub build provenance attestations for every archive | `contents`, `packages`, `id-token`, `attestations: write` |
 | `verify` | From published artifacts only: `cosign verify-blob` on `checksums.txt`, one archive's sha256, `gh attestation verify` on it, `cosign verify` on all four images at `:X.Y.Z` and the three `:X.Y.Z-fips` images, the `halod_fips` archive listed in `checksums.txt`, `install.sh --version` then `halo version`, and (final) `Formula/halo.rb` + `halo.json` are at `X.Y.Z` | read only |
-| `npm` | After `verify`: `cosign verify-blob` on `checksums.txt`, then `scripts/npm-build.sh` checks each `halo_X.Y.Z_<os>_<arch>` archive against it and repackages the binary as `@dshakes/halo-<os>-<arch>` plus the `@dshakes/halo` launcher; publishes with npm provenance (`next` dist-tag for rc tags, `latest` otherwise), skipping versions already on npm; then `npx @dshakes/halo@X.Y.Z version` | `contents: read`, `id-token: write` |
+| `npm` | After `verify`: `cosign verify-blob` on `checksums.txt`, then `scripts/npm-build.sh` checks each `halo_X.Y.Z_<os>_<arch>` archive against it and repackages the binary as `@dshakesnotbot/halo-<os>-<arch>` plus the `@dshakesnotbot/halo` launcher; publishes with npm provenance (`next` dist-tag for rc tags, `latest` otherwise), skipping versions already on npm; then `npx @dshakesnotbot/halo@X.Y.Z version` | `contents: read`, `id-token: write` |
 
 `release-drift.yml` (daily, and on every push to `main`) fails if the tap formula or Scoop manifest
 is not at the latest final release (`v0.1.1` is the first final it checks against).
@@ -59,7 +59,7 @@ after the `npm` job ran, the npm binaries are the earlier (equally signed) build
 |---|---|
 | `GITHUB_TOKEN` | built in: release, ghcr.io, cosign + attestation OIDC |
 | `HOMEBREW_TAP_TOKEN` | PAT, contents:write on `dshakes/homebrew-tap` and `dshakes/scoop-bucket`. Required for final tags (the gate fails without it) |
-| `NPM_TOKEN` | npm granular access token, read-write on the `@dshakes` scope (packages `@dshakes/halo` and `@dshakes/halo-*`). Required for every tag (the gate fails without it) |
+| `NPM_TOKEN` | npm granular access token, read-write on the `@dshakesnotbot` scope (npm org `dshakesnotbot`) (packages `@dshakesnotbot/halo` and `@dshakesnotbot/halo-*`). Required for every tag (the gate fails without it) |
 | `dshakes/homebrew-tap` | `Formula/halo.rb`, written by GoReleaser |
 | `dshakes/scoop-bucket` | `halo.json`, written by GoReleaser |
 
