@@ -236,6 +236,9 @@ func loadFile(org *Org, dir, path string) (deprecated bool, err error) {
 		case KindUnit:
 			target = &Unit{Dir: filepath.ToSlash(filepath.Dir(rel)), File: rel}
 		default:
+			if k == "Halos" {
+				return false, fmt.Errorf("policy: %s: document %d: kind Halos (simple mode) is only read from halos.yaml; rename or move this file", path, i+1)
+			}
 			return false, fmt.Errorf("policy: %s: document %d: unknown kind %q", path, i+1, k)
 		}
 		if err := dec.Decode(target); err != nil {
