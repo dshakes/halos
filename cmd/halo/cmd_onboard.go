@@ -388,7 +388,7 @@ func (a *app) cmdOnboardCompany() *cobra.Command {
 	var apply bool
 	c := &cobra.Command{
 		Use:   "company",
-		Short: "My company: generate the policy repo, Helm values, IdP client and enrollment config from interview answers",
+		Short: "My company: generate the policy repo, Helm values, IdP client and enrollment config from your answers (flags)",
 		Long: "Writes (with --apply) into an empty --policy-dir: halos.yaml, .halos/helm-values.yaml,\n" +
 			".halos/oidc-client.yaml, .halos/enroll/* per delivery channel, a validate+plan CI workflow, a smoke eval\n" +
 			"and a README of the human steps. Nothing is secret, published, enrolled or pushed.",
@@ -467,7 +467,9 @@ func (a *app) cmdOnboardCompany() *cobra.Command {
 	f.StringVar(&o.Init.Safety, "safety", "standard", "strict | standard | relaxed")
 	f.StringVar(&o.Init.Rollout, "rollout", "standard", "fast | standard | careful")
 	f.BoolVar(&apply, "apply", false, "write the files (default: dry run)")
-	_ = c.MarkFlagRequired("org")
+	for _, r := range []string{"org", "gateway", "issuer", "registry", "policy-repo", "portal-url"} {
+		_ = c.MarkFlagRequired(r) // cobra names every missing one at once
+	}
 	return c
 }
 
@@ -494,12 +496,16 @@ func (a *app) cmdQuickstart() *cobra.Command {
 					if err != nil {
 						return err
 					}
-					src = filepath.Join(cache, "halos", "src")
+					src = filepath.Join(cache, "halos", "src-"+version) // per version: a cached clone never runs another release's demo
 				}
 			}
 			steps := [][]string{}
 			if _, err := os.Stat(filepath.Join(src, "scripts", "demo.sh")); err != nil {
-				steps = append(steps, []string{"git", "clone", "--depth", "1", "https://github.com/dshakes/halos", src})
+				clone := []string{"git", "clone", "--depth", "1"}
+				if version != "dev" {
+					clone = append(clone, "--branch", "v"+strings.TrimPrefix(version, "v")) // the demo this binary was released with
+				}
+				steps = append(steps, append(clone, "https://github.com/dshakes/halos", src))
 			}
 			script := []string{"./scripts/demo.sh"}
 			if down {
@@ -519,9 +525,14 @@ func (a *app) cmdQuickstart() *cobra.Command {
 					return fmt.Errorf("%s is not on PATH: run halo doctor for the fix", t)
 				}
 			}
+			if err := exec.CommandContext(cmd.Context(), "docker", "info").Run(); err != nil { //nolint:gosec // fixed command
+				return fmt.Errorf("docker is installed but its daemon is not answering (start Docker Desktop or the docker service): %w", err)
+			}
 			for _, s := range steps {
 				if s[0] == "git" {
 					fmt.Fprintf(a.out, "cloning halos into %s\n", src)
+				} else if !down {
+					fmt.Fprintln(a.out, "starting the stack on Docker (first run builds images, 2 to 3 minutes; build logs follow on stderr)")
 				}
 				x := exec.CommandContext(cmd.Context(), s[0], s[1:]...) //nolint:gosec // fixed commands
 				if s[0] != "git" {

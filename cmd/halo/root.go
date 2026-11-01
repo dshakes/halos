@@ -104,6 +104,8 @@ func newRoot(out, errw io.Writer) *cobra.Command {
 			return nil
 		},
 	}
+	root.Version = version // --version, same line as `halo version`
+	root.SetVersionTemplate(fmt.Sprintf("halo %s (commit %s, built %s)\n", version, commit, date))
 	root.SetOut(out)
 	root.SetErr(errw)
 	root.PersistentFlags().StringVar(&output, "output", "text", "output format: text|json")

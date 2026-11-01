@@ -122,8 +122,22 @@ func TestOnboardCompanyCLI(t *testing.T) {
 	if code, _, errOut = halo(t, append(args, "--apply")...); code != 0 {
 		t.Fatalf("rerun: %s", errOut)
 	}
-	if code, _, _ = halo(t, "onboard", "company", "--policy-dir", dir, "--org", "acme"); code == 0 {
+	code, _, errOut = halo(t, "onboard", "company", "--policy-dir", dir, "--org", "acme")
+	if code == 0 {
 		t.Fatal("missing required answers accepted")
+	}
+	for _, f := range []string{"gateway", "issuer", "registry", "policy-repo", "portal-url"} {
+		if !strings.Contains(errOut, `"`+f+`"`) {
+			t.Errorf("missing --%s not named in one error: %s", f, errOut)
+		}
+	}
+}
+
+func TestVersionFlag(t *testing.T) {
+	_, a, _ := halo(t, "version")
+	_, b, _ := halo(t, "--version")
+	if a == "" || a != b {
+		t.Fatalf("halo version %q != halo --version %q", a, b)
 	}
 }
 

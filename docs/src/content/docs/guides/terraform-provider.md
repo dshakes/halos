@@ -5,7 +5,7 @@ description: Manage halo-server service-account tokens and read fleet, release a
 
 The `dshakes/halos` provider manages the server-side state of `halo-server` that is not policy-as-code: [service-account API tokens](/halos/guides/admin-access/) (ADR-0036, scoped by ADR-0037). It also has read-only data sources for status.
 
-It lives in its own repository, [dshakes/terraform-provider-halos](https://github.com/dshakes/terraform-provider-halos), and is published on the [Terraform Registry](https://registry.terraform.io/providers/dshakes/halos) (v0.1.0). It is OpenTofu-compatible; the OpenTofu registry listing is pending.
+It lives in its own repository, [dshakes/terraform-provider-halos](https://github.com/dshakes/terraform-provider-halos), and is published on the [Terraform Registry](https://registry.terraform.io/providers/dshakes/halos) (v0.1.0). It is OpenTofu-compatible; and listed on the [OpenTofu Registry](https://search.opentofu.org/provider/dshakes/halos) under the same `source`.
 
 ## What it does not do
 
