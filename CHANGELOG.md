@@ -6,7 +6,6 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ### Added
 
-- halo-server rate-limits each signed-in user and service token on console/API routes (`-api-rate-limit` 20/s, `-api-rate-burst` 100; 429 with `Retry-After`; `0` disables). Fleet, gateway and SCIM traffic is not charged.
 - `halo --version` (same output as `halo version`).
 
 ### Fixed

@@ -49,6 +49,7 @@ groups:
         execErrState: Error
         for: 10m
         annotations:
+          runbook_url: https://dshakes.github.io/halos/guides/operations/#alerts
           summary: halo-proxy 5xx rate above 1% for 10m (SLO 99.9% / 30d)
         labels:
           severity: page
@@ -93,6 +94,7 @@ groups:
         execErrState: Error
         for: 5m
         annotations:
+          runbook_url: https://dshakes.github.io/halos/guides/operations/#alerts
           summary: '{{ $labels.provider }} upstream: >20% of attempts failed or breaker open'
         labels:
           severity: page
@@ -137,6 +139,7 @@ groups:
         execErrState: Error
         for: 15m
         annotations:
+          runbook_url: https://dshakes.github.io/halos/guides/operations/#alerts
           summary: p99 time-to-first-byte doubled vs 24h ago (upstream or proxy)
         labels:
           severity: ticket
@@ -179,6 +182,7 @@ groups:
         execErrState: Error
         for: 10m
         annotations:
+          runbook_url: https://dshakes.github.io/halos/guides/operations/#alerts
           summary: 'callers failing identity verification: expired JWKS, wrong issuer/audience, or an attack'
         labels:
           severity: ticket
@@ -221,6 +225,7 @@ groups:
         execErrState: Error
         for: 15m
         annotations:
+          runbook_url: https://dshakes.github.io/halos/guides/operations/#alerts
           summary: 'shadow mirror dropping jobs: halo-shadow down, queue full or token mismatch (client traffic unaffected)'
         labels:
           severity: ticket
@@ -263,6 +268,7 @@ groups:
         execErrState: Error
         for: 0s
         annotations:
+          runbook_url: https://dshakes.github.io/halos/guides/operations/#alerts
           summary: 'budget {{ $labels.budget }}: callers past an alertAt threshold (halo budget status shows which counters)'
         labels:
           severity: ticket
@@ -305,6 +311,7 @@ groups:
         execErrState: Error
         for: 0s
         annotations:
+          runbook_url: https://dshakes.github.io/halos/guides/operations/#alerts
           summary: 'budget {{ $labels.budget }} used up ({{ $labels.outcome }}): refused means developers are getting 429s'
         labels:
           severity: ticket
@@ -347,6 +354,7 @@ groups:
         execErrState: Error
         for: 10m
         annotations:
+          runbook_url: https://dshakes.github.io/halos/guides/operations/#alerts
           summary: 'no budget verdicts from halo-server past grace: budgets are not enforced (failMode open) or callers get 503 (failMode closed)'
         labels:
           severity: page
@@ -391,6 +399,7 @@ groups:
         execErrState: Error
         for: 10m
         annotations:
+          runbook_url: https://dshakes.github.io/halos/guides/operations/#alerts
           summary: 'halo-proxy cannot report usage to halo-server (or is dropping it): budget counters lag or under-count'
         labels:
           severity: ticket
@@ -435,6 +444,7 @@ groups:
         execErrState: Error
         for: 30m
         annotations:
+          runbook_url: https://dshakes.github.io/halos/guides/operations/#alerts
           summary: '>5% of metered responses had no usage object or no price in gateway.pricing: USD budgets under-count'
         labels:
           severity: ticket
@@ -477,6 +487,7 @@ groups:
         execErrState: Error
         for: 5m
         annotations:
+          runbook_url: https://dshakes.github.io/halos/guides/operations/#alerts
           summary: 'fewer than 2 ready halo-proxy pods: no headroom for a drain or upgrade'
         labels:
           severity: page
@@ -524,6 +535,7 @@ groups:
         execErrState: Error
         for: 0s
         annotations:
+          runbook_url: https://dshakes.github.io/halos/guides/operations/#alerts
           summary: halo-shadow has spent 90% of its budget; mirroring stops at 100% (evidence gap, not an outage)
         labels:
           severity: ticket
@@ -571,6 +583,7 @@ groups:
         execErrState: Error
         for: 5m
         annotations:
+          runbook_url: https://dshakes.github.io/halos/guides/operations/#alerts
           summary: 'halo-server unreachable >5m: console, enrollment, reports and kill-list polls are failing (gateways keep the last list)'
         labels:
           severity: page
@@ -615,6 +628,7 @@ groups:
         execErrState: Error
         for: 10m
         annotations:
+          runbook_url: https://dshakes.github.io/halos/guides/operations/#alerts
           summary: halo-server answering 5xx to more than 5% of requests for 10m (see the route label in halo_server_requests_total)
         labels:
           severity: ticket
@@ -657,6 +671,7 @@ groups:
         execErrState: Error
         for: 10m
         annotations:
+          runbook_url: https://dshakes.github.io/halos/guides/operations/#alerts
           summary: 'gateway {{ $labels.kind }} lookups erroring on halo-server: gateways fall back to cached verdicts, then their fail mode'
         labels:
           severity: ticket
@@ -699,6 +714,7 @@ groups:
         execErrState: Error
         for: 5m
         annotations:
+          runbook_url: https://dshakes.github.io/halos/guides/operations/#alerts
           summary: '{{ $labels.sink }}: audit entries waiting >15m; the SIEM is down, rejecting credentials, or the hash chain broke (see the server log)'
         labels:
           severity: page
@@ -741,6 +757,7 @@ groups:
         execErrState: Error
         for: 0s
         annotations:
+          runbook_url: https://dshakes.github.io/halos/guides/operations/#alerts
           summary: audit log rotation failing; audit.jsonl keeps growing (nothing is lost)
         labels:
           severity: ticket
@@ -783,6 +800,7 @@ groups:
         execErrState: Error
         for: 0s
         annotations:
+          runbook_url: https://dshakes.github.io/halos/guides/operations/#alerts
           summary: a policy with security validation errors (unpinned workload rule, unit loosening) was refused; the last good policy is serving, see the 'policy refused' log line
         labels:
           severity: page
@@ -830,6 +848,7 @@ groups:
         execErrState: Error
         for: 0s
         annotations:
+          runbook_url: https://dshakes.github.io/halos/guides/operations/#alerts
           summary: no controller tick in 20m (default interval 5m)
         labels:
           severity: ticket
@@ -872,6 +891,7 @@ groups:
         execErrState: Error
         for: 0s
         annotations:
+          runbook_url: https://dshakes.github.io/halos/guides/operations/#alerts
           summary: 'controller errors: ClickHouse, policy clone, PR, kill or notify failing; rollbacks may not be enforced'
         labels:
           severity: ticket
@@ -914,6 +934,7 @@ groups:
         execErrState: Error
         for: 0s
         annotations:
+          runbook_url: https://dshakes.github.io/halos/guides/operations/#alerts
           summary: '{{ $labels.sink }}: notifications failing after retries; a rollback or page may not have reached anyone (check the webhook URL, routing key or outage)'
         labels:
           severity: ticket
@@ -961,6 +982,7 @@ groups:
         execErrState: Error
         for: 2m
         annotations:
+          runbook_url: https://dshakes.github.io/halos/guides/operations/#alerts
           summary: 'HA: no halo-server replica holds the controller lease for 2m (Postgres down or every replica failing to renew); rollbacks are not being acted on'
         labels:
           severity: page
@@ -1003,6 +1025,7 @@ groups:
         execErrState: Error
         for: 1m
         annotations:
+          runbook_url: https://dshakes.github.io/halos/guides/operations/#alerts
           summary: 'HA: two replicas report leadership for 1m; fenced writes keep state safe, but check clock and network health'
         labels:
           severity: page
@@ -1045,6 +1068,7 @@ groups:
         execErrState: Error
         for: 5m
         annotations:
+          runbook_url: https://dshakes.github.io/halos/guides/operations/#alerts
           summary: 'HA: Postgres statements failing on halo-server/halo-shadow; replicas go unready and device auth answers 503'
         labels:
           severity: page
@@ -1087,6 +1111,7 @@ groups:
         execErrState: Error
         for: 0s
         annotations:
+          runbook_url: https://dshakes.github.io/halos/guides/operations/#alerts
           summary: 'HA: controller lease changed hands repeatedly in 30m; renewals are timing out (database latency or lease TTL too short)'
         labels:
           severity: ticket
