@@ -45,6 +45,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/dshakes/halos/internal/bundle"
 	"github.com/dshakes/halos/internal/gateway"
 	"github.com/dshakes/halos/internal/server"
 )
@@ -266,7 +267,7 @@ func run(c config) error {
 				return
 			}
 			enrolled.Add(1)
-			ks, err := gateway.NewKillSwitch(c.server+"/api/v1/fleet/killswitch", d.token, c.killPub, 0,
+			ks, err := gateway.NewKillSwitch(c.server+"/api/v1/fleet/killswitch", d.token, bundle.Ed25519Verifier{Key: c.killPub}, 0,
 				slog.New(slog.NewTextHandler(io.Discard, nil)), true)
 			if err != nil {
 				enrollFailed.Add(1)
