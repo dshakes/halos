@@ -41,7 +41,7 @@
 brew install dshakes/tap/halo      # other installs below
 halo quickstart                    # the whole stack in Docker, about a minute with a warm Docker cache, 2 to 3 minutes cold
 halo doctor && halo onboard local  # or pin and manage the CLIs on this machine
-halo onboard company               # or: policy repo, gateway, IdP, fleet, first PR
+halo onboard company --help        # or: policy repo, gateway, IdP, fleet, first PR (six required flags)
 ```
 
 Each path can also be driven by the AI CLI you already use: [Start here](https://dshakes.github.io/halos/getting-started/start-here/).
