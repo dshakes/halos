@@ -4,6 +4,12 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-11-01
+
+### Upgrade notes
+
+- Releases need an `NPM_TOKEN` secret: the release gate fails without it (RELEASING.md).
+
 ### Added
 
 - `npx @dshakes/halo`: the release workflow's new `npm` job repackages the verified release archives as `@dshakes/halo` (a Node launcher) and one `@dshakes/halo-<os>-<arch>` package per platform, published with npm provenance. CI builds the packages from the snapshot release and runs `halo version` through them. Releases now need an `NPM_TOKEN` secret (RELEASING.md).
