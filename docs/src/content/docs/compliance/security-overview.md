@@ -87,6 +87,11 @@ TLS:
 - Credentials and tokens go only over https; http is accepted only to loopback for the vendor admin, ROI and copilot clients. The kill-list URL must be https unless explicitly marked in-cluster.
 - Postgres to a non-loopback host requires `sslmode=verify-full` (`internal/pgstore/pgstore.go`).
 
+At rest:
+
+- **`halo-server` does not encrypt its own data at the application layer.** The `--data-dir` JSONL logs (fleet, devices, audit, requests, revocations) and the Postgres tables hold identifiers, group names, hostnames and token hashes, never token or key plaintext. Encryption at rest is the storage layer's job: an encrypted PVC (CSI driver or cloud disk encryption) for `--data-dir`, and your managed Postgres's storage encryption (RDS, Cloud SQL and Azure Database encrypt by default) for the Postgres backend. State this reliance in your own control evidence.
+- Shadow pairs, the one store that holds prompt and response text, are encrypted by Halos itself when `-pair-key-file` is set (table above).
+
 Key management:
 
 - **The release signing key is the root of trust.** Keep it in AWS KMS (`--key-uri awskms://...`), in an HSM behind an external signer (`--key-uri exec://...`), or as a file in CI secrets ([key management](/halos/guides/key-management/), ADR-0038). Rotation, revocation (`revokedKeys`) and compromise handling are in [key management](/halos/guides/key-management/#rotation) and [production deployment](/halos/guides/production-deployment/#signing-key-management). There is no threshold signing and no key revocation list in the protocol beyond `revokedKeys` in each `halod` config.
