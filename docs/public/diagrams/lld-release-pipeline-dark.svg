@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 512" width="760" height="512" role="img" aria-labelledby="t d" font-family="ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif">
 <title id="t">Release pipeline</title>
-<desc id="d">halo release publish: load and validate the policy, build the ring release and one release per client-axis variant, render every harness for every OS, run the CheckRendered backstop, pack a content-addressed tar, sign its digest with ed25519 (cosign optional co-signer), push it and tag v&lt;version&gt; immutably, then sign and push the ring pointer with org, ring, digest, seq and expiry.</desc>
+<desc id="d">halo release publish: load and validate the policy, build the ring release and one release per client-axis variant, render every harness for every OS, run the CheckRendered backstop, pack a content-addressed tar, sign its digest with the key named by --key-uri (file://, awskms:// or exec://; ed25519 or ECDSA P-256; cosign optional co-signer), push it and tag v&lt;version&gt; immutably, then sign and push the ring pointer with org, ring, digest, seq and expiry.</desc>
 <style>
 .cv{fill:#0c0c10;stroke:#1e1e24;stroke-width:1.5}
 .card{fill:#121217;stroke:#2a2a31;stroke-width:1.5}
@@ -92,7 +92,7 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <text class="k ka" x="24" y="268">3 · SIGN AND PUSH</text>
 <rect class="card" x="24.0" y="280" width="208.0" height="66" rx="12" filter="url(#sh)"/>
 <text class="t" x="40" y="301.5">Sign</text>
-<text class="m" x="40" y="319.5">ed25519(digest)</text>
+<text class="m" x="40" y="319.5">sign(digest) via key URI</text>
 <text class="m" x="40" y="335.5">cosign co-sign (opt.)</text>
 <rect class="card" x="276.0" y="280" width="208.0" height="66" rx="12" filter="url(#sh)"/>
 <text class="t" x="292" y="301.5">Push</text>
@@ -115,7 +115,7 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <text class="m" x="40" y="451.5">seq, issuedAt, exp}</text>
 <rect class="card" x="276.0" y="396" width="208.0" height="66" rx="12" filter="url(#sh)"/>
 <text class="t" x="292" y="417.5">Sign pointer</text>
-<text class="m" x="292" y="435.5">ed25519(domain +</text>
+<text class="m" x="292" y="435.5">sign(domain +</text>
 <text class="m" x="292" y="451.5">sha256(payload))</text>
 <rect class="card" x="528.0" y="396" width="208.0" height="66" rx="12" filter="url(#sh)"/>
 <text class="t" x="544" y="417.5">Tag</text>
