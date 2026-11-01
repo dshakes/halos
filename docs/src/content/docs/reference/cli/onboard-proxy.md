@@ -16,6 +16,7 @@ halo onboard proxy [flags]
 | Flag | Shorthand | Type | Default | Description |
 |---|---|---|---|---|
 | `--apply` |  | bool | false | write the files (default: dry run) |
+| `--dry-run` |  | bool | false | show what would change without writing (the default without --apply) |
 | `--listen` |  | string | 127.0.0.1:8088 | loopback address halo-proxy listens on |
 | `--policy-dir` |  | string |  | policy repo directory (default ".") |
 

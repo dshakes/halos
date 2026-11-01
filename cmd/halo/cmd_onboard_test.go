@@ -2,10 +2,13 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 // TestOnboardLocalE2E drives the my-machine path non-interactively from an
@@ -149,5 +152,28 @@ func TestQuickstartDryRun(t *testing.T) {
 	code, out, _ = halo(t, "quickstart", "down", "--src", t.TempDir(), "--dry-run")
 	if code != 0 || !strings.Contains(out, "git clone --depth 1 https://github.com/dshakes/halos") || !strings.Contains(out, "demo.sh down") {
 		t.Fatalf("exit %d: %s", code, out)
+	}
+}
+
+func TestDryRunEverywhere(t *testing.T) {
+	var n int
+	var walk func(c *cobra.Command)
+	walk = func(c *cobra.Command) {
+		for _, sub := range c.Commands() {
+			walk(sub)
+		}
+		if c.Flags().Lookup("apply") != nil {
+			n++
+			if c.Flags().Lookup("dry-run") == nil {
+				t.Errorf("%s has --apply but no --dry-run", c.CommandPath())
+			}
+		}
+	}
+	walk(newRoot(io.Discard, io.Discard))
+	if n == 0 {
+		t.Fatal("no --apply commands found")
+	}
+	if code, _, errOut := halo(t, "onboard", "local", "--policy-dir", t.TempDir(), "--dry-run", "--apply"); code == 0 || !strings.Contains(errOut, "dry-run") {
+		t.Fatalf("--dry-run with --apply: exit %d: %s", code, errOut)
 	}
 }

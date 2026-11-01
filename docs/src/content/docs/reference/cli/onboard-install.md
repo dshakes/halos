@@ -22,6 +22,7 @@ halo onboard install [flags]
 | Flag | Shorthand | Type | Default | Description |
 |---|---|---|---|---|
 | `--apply` |  | bool | false | write the files (default: dry run) |
+| `--dry-run` |  | bool | false | show what would change without writing (the default without --apply) |
 | `--policy-dir` |  | string |  | policy repo directory (default ".") |
 | `--replace-existing` |  | bool | false | also replace files Halos did not write (originals kept at &lt;file>.halos-backup) |
 | `--ring` |  | string |  | ring to install (default: the GA ring) |

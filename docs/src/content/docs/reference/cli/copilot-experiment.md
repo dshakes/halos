@@ -24,6 +24,7 @@ halo copilot experiment <hypothesis> [flags]
 | `--daily-units` |  | float64 | 0 | users entering the experiment per day (for the duration) |
 | `--debug` |  | bool | false | log prompts and replies to stderr (default: token counts only) |
 | `--direction` |  | string | increase | offline: increase \| decrease |
+| `--dry-run` |  | bool | false | show what would change without writing (the default without --apply) |
 | `--llm-url` |  | string |  | provider or gateway base URL (default: the policy's gateway baseURL, e.g. a halo-proxy, else https://api.anthropic.com) |
 | `--max-cost-usd` |  | float64 | 2 | estimated spend per run in USD (hard ceiling) |
 | `--max-iterations` |  | int | 3 | model calls per run (hard ceiling) |

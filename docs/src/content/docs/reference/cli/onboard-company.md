@@ -24,6 +24,7 @@ halo onboard company [flags]
 | `--auth-helper` |  | string |  | command each laptop runs to print a short-lived gateway token (optional) |
 | `--client-id` |  | string | halos | OIDC client id |
 | `--delivery` |  | stringSlice | [halod] | devcontainer \| mdm \| halod, comma-separated |
+| `--dry-run` |  | bool | false | show what would change without writing (the default without --apply) |
 | `--gateway` |  | string |  | https URL the CLIs call (required) |
 | `--gateway-kind` |  | string | halo-proxy | halo-proxy \| kong \| external |
 | `--halo-version` |  | string | dev | halo version CI installs |

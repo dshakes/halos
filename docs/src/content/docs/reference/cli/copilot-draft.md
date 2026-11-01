@@ -18,6 +18,7 @@ halo copilot draft <intent> [flags]
 | `--api-key-env` |  | string | ANTHROPIC_API_KEY | env var holding the provider credential (never printed) |
 | `--apply` |  | bool | false | commit the verified draft to a new local halos/copilot-* branch (never pushes) |
 | `--debug` |  | bool | false | log prompts and replies to stderr (default: token counts only) |
+| `--dry-run` |  | bool | false | show what would change without writing (the default without --apply) |
 | `--llm-url` |  | string |  | provider or gateway base URL (default: the policy's gateway baseURL, e.g. a halo-proxy, else https://api.anthropic.com) |
 | `--max-cost-usd` |  | float64 | 2 | estimated spend per run in USD (hard ceiling) |
 | `--max-iterations` |  | int | 3 | model calls per run (hard ceiling) |
