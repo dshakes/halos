@@ -151,9 +151,20 @@ jobs:
         with: {go-version-file: go.mod}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with: {node-version: 22} # the goreleaser before-hooks build web/dist
-      - run: shellcheck install/install.sh scripts/ci-delivery-macos.sh scripts/ci-devcontainer.sh scripts/release.sh scripts/release-notes.sh deploy/packaging/*.sh
+      - run: shellcheck install/install.sh scripts/ci-delivery-macos.sh scripts/ci-devcontainer.sh scripts/release.sh scripts/release-notes.sh scripts/npm-build.sh deploy/packaging/*.sh
       - uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6.4.0
         with: {version: "~> v2", args: "release --snapshot --clean --skip=publish,sign,sbom,docker"}
+      - name: npm packages install and run halo (npx @dshakes/halo)
+        run: |
+          set -euo pipefail
+          v=$(jq -r .version dist/metadata.json)
+          scripts/npm-build.sh "$v" dist "$RUNNER_TEMP/npm"
+          mkdir "$RUNNER_TEMP/tgz" "$RUNNER_TEMP/proj"
+          for p in "$RUNNER_TEMP"/npm/*; do (cd "$p" && npm pack -q --pack-destination "$RUNNER_TEMP/tgz" >/dev/null); done
+          cd "$RUNNER_TEMP/proj" && npm init -y >/dev/null
+          npm install --no-audit --no-fund "$RUNNER_TEMP/tgz/dshakes-halo-linux-amd64-$v.tgz" "$RUNNER_TEMP/tgz/dshakes-halo-$v.tgz"
+          out=$(npx --no-install halo version); echo "$out"
+          grep -qF "$v" <<<"$out" || { echo "::error::npx halo version printed '$out', want $v"; exit 1; }
   fuzz:
     # Short pass over every native Go fuzz target (scripts/fuzz.sh); fuzz-nightly.yml runs them longer.
     runs-on: ubuntu-latest
