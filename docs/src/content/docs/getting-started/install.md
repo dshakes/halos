@@ -49,6 +49,17 @@ Or [`install.ps1`](https://raw.githubusercontent.com/dshakes/halos/v0.5.0/instal
 .\install.ps1 -Version v0.5.0 -WithAgent         # to $env:ProgramFiles\Halos
 ```
 
+## npm (any OS)
+
+With Node 18 or later, run `halo` without installing it, or install it globally:
+
+```sh
+npx @dshakes/halo quickstart
+npm install -g @dshakes/halo
+```
+
+npm downloads only the binary for your OS and CPU (macOS, Linux and Windows, on x64 or arm64). The release workflow builds these packages from the signed release archives after checking each one against the Sigstore-verified `checksums.txt`, and publishes them with npm provenance. `npm audit signatures` confirms the provenance. The npm packages contain `halo` only; use another method for `halod`.
+
 `install.ps1` restricts the directory to SYSTEM and Administrators (write) and Users (read/execute), matching `halod`'s owner check. The binaries are not Authenticode-signed. A winget manifest (`Halos.Halo`) is built with each release but is not submitted to `winget-pkgs`.
 
 ## Run halod as a service
