@@ -28,6 +28,7 @@ halo onboard install [flags]
 | `--ring` |  | string |  | ring to install (default: the GA ring) |
 | `--root` |  | string |  | write under this directory instead of the real paths |
 | `--show` |  | bool | false | include each file's contents |
+| `--verbose` |  | bool | false | list every adapter warning instead of a per-harness count |
 
 ## Global flags
 

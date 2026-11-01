@@ -261,8 +261,11 @@ func TestDoctor(t *testing.T) {
 	if !r.OK || status(r, "policy") != StatusWarn || status(r, "harness/claude-code") != StatusOK || status(r, "tool/docker") != StatusWarn {
 		t.Fatalf("empty dir: %+v", r.Checks)
 	}
+	if got := status(r, "harness/codex"); got != StatusSkip {
+		t.Fatalf("optional absent CLI: status %q, want %q", got, StatusSkip)
+	}
 	for _, c := range r.Checks {
-		if c.Status != StatusOK && c.Fix == "" {
+		if c.Status != StatusOK && c.Status != StatusSkip && c.Fix == "" {
 			t.Errorf("%s has no fix", c.ID)
 		}
 	}

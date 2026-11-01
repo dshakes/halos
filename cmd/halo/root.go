@@ -73,6 +73,7 @@ func (a *app) red(s string) string    { return a.paint("31", s) }
 func (a *app) green(s string) string  { return a.paint("32", s) }
 func (a *app) yellow(s string) string { return a.paint("33", s) }
 func (a *app) bold(s string) string   { return a.paint("1", s) }
+func (a *app) dim(s string) string    { return a.paint("2", s) }
 
 // emit writes v as indented JSON in --output json mode, else runs text.
 func (a *app) emit(v any, text func()) error {

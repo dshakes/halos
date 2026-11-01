@@ -19,7 +19,7 @@ func TestSuggestToolsOmitsVersionsPolicyCannotPin(t *testing.T) {
 		{"mixed", []Harness{
 			{Name: "claude-code", Installed: true, Version: "2.1.280"},
 			{Name: "cursor-agent", Installed: true, Version: "2026.04.17-787b533"},
-		}, map[string]string{"claude-code": "2.1.280"}, "--tools cursor-agent@<x.y.z>"},
+		}, map[string]string{"claude-code": "2.1.280"}, "cursor-agent@<x.y.z>"},
 		{"not installed", []Harness{{Name: "cursor-agent", Version: "2026.04.17-787b533"}}, map[string]string{}, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

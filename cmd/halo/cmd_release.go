@@ -711,7 +711,12 @@ func (a *app) planRing(cmd *cobra.Command, dir, baseDir, ring, against, ver stri
 			fmt.Fprintln(a.out, "no changes vs", cmp.Or(against, "the --diff base"))
 			return
 		}
-		for _, l := range strings.Split(strings.TrimRight(diff, "\n"), "\n") {
+		dl := strings.Split(strings.TrimRight(diff, "\n"), "\n")
+		for _, l := range diffSummary(dl) {
+			fmt.Fprintln(a.out, l)
+		}
+		for _, l := range dl {
+			l = strings.Replace(l, "release version:  -> ", "release version: (none) -> ", 1)
 			switch {
 			case strings.HasPrefix(l, "+"):
 				l = a.green(l)
@@ -817,6 +822,40 @@ func (a *app) openBaseline(ctx context.Context, against, ring string, rf *regFla
 		return nil, fmt.Errorf("pull %s:%s: %w", repo, tag, err)
 	}
 	return rel, nil
+}
+
+// diffSummary condenses release.Diff's lines into a "summary:" header with one
+// line per changed file: its heading as Diff prints it, and +/- line counts.
+// Nil when the diff touches no file.
+func diffSummary(dl []string) []string {
+	var files []string
+	var head string
+	var add, del int
+	flush := func() {
+		if head != "" {
+			files = append(files, fmt.Sprintf("  %s: +%d -%d", head, add, del))
+		}
+		head, add, del = "", 0, 0
+	}
+	for i, l := range dl {
+		// File headings follow a blank line; a changed file's "+++ " follows its "--- ".
+		afterBlank := i > 0 && dl[i-1] == ""
+		switch {
+		case afterBlank && (strings.HasPrefix(l, "--- ") || strings.HasPrefix(l, "+++ ")):
+			flush()
+			head = l[4:]
+		case strings.HasPrefix(l, "+++ ") && i > 0 && strings.HasPrefix(dl[i-1], "--- "):
+		case strings.HasPrefix(l, "+") && head != "":
+			add++
+		case strings.HasPrefix(l, "-") && head != "":
+			del++
+		}
+	}
+	flush()
+	if len(files) == 0 {
+		return nil
+	}
+	return append(append([]string{fmt.Sprintf("summary: %d file(s) changed", len(files))}, files...), "")
 }
 
 func versionBumps(prev, cur *release.Release) []string {
