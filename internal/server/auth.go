@@ -199,6 +199,16 @@ func (s *Server) sessionPrincipal(r *http.Request) (Principal, cookiePayload, bo
 // token (Authorization: Bearer halo_sat_...) or the session cookie. It writes
 // the failure itself.
 func (s *Server) authenticate(w http.ResponseWriter, r *http.Request) (Principal, bool) {
+	p, ok := s.authenticateCaller(w, r)
+	if ok && !s.apiRate.allow(p.Kind+"\x00"+p.ID) {
+		w.Header().Set("Retry-After", "1")
+		apiErr(w, http.StatusTooManyRequests, "rate limit exceeded for this identity; retry after a second")
+		return Principal{}, false
+	}
+	return p, ok
+}
+
+func (s *Server) authenticateCaller(w http.ResponseWriter, r *http.Request) (Principal, bool) {
 	if tok, ok := serviceTokenFrom(r); ok && s.cfg.DevUser == "" {
 		return s.serviceTokenAuth(w, r, tok)
 	}
