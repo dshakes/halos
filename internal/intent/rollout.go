@@ -253,7 +253,7 @@ func (r *Repo) SwitchModel(m ModelSwitch) (*Change, error) {
 	}
 	cur, ok := g.Models[m.Alias]
 	if !ok {
-		return nil, fmt.Errorf("intent: unknown model alias %q (have %v)", m.Alias, sortedKeys(g.Models))
+		return nil, fmt.Errorf("intent: unknown model alias %q (have %v); add it to models: in halos.yaml (or the Gateway models when ejected) first", m.Alias, sortedKeys(g.Models))
 	}
 	up, model := policy.SplitModel(m.Model, cur.Primary().Upstream)
 	if _, ok := g.Upstreams[up]; !ok {

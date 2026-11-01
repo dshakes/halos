@@ -1,9 +1,9 @@
 ---
 title: "halo onboard company"
-description: "My company: generate the policy repo, Helm values, IdP client and enrollment config from interview answers"
+description: "My company: generate the policy repo, Helm values, IdP client and enrollment config from your answers (flags)"
 ---
 
-My company: generate the policy repo, Helm values, IdP client and enrollment config from interview answers
+My company: generate the policy repo, Helm values, IdP client and enrollment config from your answers (flags)
 
 Writes (with --apply) into an empty --policy-dir: halos.yaml, .halos/helm-values.yaml,
 .halos/oidc-client.yaml, .halos/enroll/* per delivery channel, a validate+plan CI workflow, a smoke eval

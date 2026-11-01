@@ -41,16 +41,16 @@ func (o *CompanyOptions) check() error {
 			return fmt.Errorf("delivery %q: want %s", d, strings.Join(Deliveries, ", "))
 		}
 	}
-	for name, v := range map[string]string{"issuer": o.Init.Issuer, "portal URL": o.PortalURL, "gateway URL": o.Init.Gateway} {
-		if u, err := url.Parse(v); err != nil || u.Scheme != "https" || u.Host == "" {
-			return fmt.Errorf("%s %q: want an https URL", name, v)
+	for _, f := range [][2]string{{"gateway", o.Init.Gateway}, {"issuer", o.Init.Issuer}, {"portal-url", o.PortalURL}} {
+		if u, err := url.Parse(f[1]); err != nil || u.Scheme != "https" || u.Host == "" {
+			return fmt.Errorf("--%s %q: want an https URL", f[0], f[1])
 		}
 	}
 	if o.Registry == "" || strings.Contains(o.Registry, "://") {
-		return fmt.Errorf("registry %q: want an OCI repository like ghcr.io/acme/halos-releases", o.Registry)
+		return fmt.Errorf("--registry %q: want an OCI repository like ghcr.io/acme/halos-releases", o.Registry)
 	}
 	if o.PolicyRepo == "" {
-		return fmt.Errorf("policy repo: want the git URL Helm's git-sync clones (e.g. https://github.com/acme/halos-policy.git)")
+		return fmt.Errorf("--policy-repo: want the git URL Helm's git-sync clones (e.g. https://github.com/acme/halos-policy.git)")
 	}
 	return nil
 }

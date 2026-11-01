@@ -28,7 +28,7 @@ None.
 
 | Command | Description |
 |---|---|
-| [`halo onboard company`](/halos/reference/cli/onboard-company/) | My company: generate the policy repo, Helm values, IdP client and enrollment config from interview answers |
+| [`halo onboard company`](/halos/reference/cli/onboard-company/) | My company: generate the policy repo, Helm values, IdP client and enrollment config from your answers (flags) |
 | [`halo onboard detect`](/halos/reference/cli/onboard-detect/) | List the AI CLIs on PATH with versions, and which credential variables are set (never values) |
 | [`halo onboard install`](/halos/reference/cli/onboard-install/) | Render a ring's managed config for this OS and show exactly what lands where; --apply writes it |
 | [`halo onboard local`](/halos/reference/cli/onboard-local/) | My machine: create (or keep) halos.yaml, validate it and plan the managed-config install |
