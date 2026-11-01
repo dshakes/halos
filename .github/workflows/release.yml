@@ -218,6 +218,7 @@ jobs:
           cosign verify --certificate-identity "$IDENTITY" --certificate-oidc-issuer "$ISSUER" "$ref:$VERSION" >/dev/null
           echo "verified $ref:$VERSION"
           printf '%s' "$GH_TOKEN" | helm registry login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          mkdir -p "$RUNNER_TEMP/chart" # helm pull does not create --destination
           helm pull "oci://$ref" --version "$VERSION" --destination "$RUNNER_TEMP/chart"
           chart=$(tar -xzOf "$RUNNER_TEMP/chart/halos-$VERSION.tgz" halos/Chart.yaml)
           grep -qx "version: $VERSION" <<<"$chart" || { echo "::error::chart version is not $VERSION"; exit 1; }
