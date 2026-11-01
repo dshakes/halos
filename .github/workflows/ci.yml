@@ -164,7 +164,7 @@ jobs:
           mkdir "$RUNNER_TEMP/tgz" "$RUNNER_TEMP/proj"
           for p in "$RUNNER_TEMP"/npm/*; do (cd "$p" && npm pack -q --pack-destination "$RUNNER_TEMP/tgz" >/dev/null); done
           cd "$RUNNER_TEMP/proj" && npm init -y >/dev/null
-          npm install --no-audit --no-fund "$RUNNER_TEMP/tgz/dshakes-halo-linux-amd64-$v.tgz" "$RUNNER_TEMP/tgz/dshakes-halo-$v.tgz"
+          npm install --no-audit --no-fund "$RUNNER_TEMP/tgz/dshakesnotbot-halo-linux-amd64-$v.tgz" "$RUNNER_TEMP/tgz/dshakesnotbot-halo-$v.tgz"
           out=$(npx --no-install halo version); echo "$out"
           grep -qF "$v" <<<"$out" || { echo "::error::npx halo version printed '$out', want $v"; exit 1; }
   fuzz:
