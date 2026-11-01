@@ -4,6 +4,10 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added
+
+- halo-server sends `Strict-Transport-Security` (browsers honour it only over HTTPS); every Prometheus/Grafana alert carries a `runbook_url` to the operations guide.
+
 ## [0.5.1] - 2026-11-01
 
 ### Upgrade notes
