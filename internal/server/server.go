@@ -46,6 +46,10 @@ type Config struct {
 	// TrustedProxies are the reverse proxies whose X-Forwarded-For is believed
 	// for per-client rate limiting. Empty = use the TCP peer address only.
 	TrustedProxies []netip.Prefix
+	// APIRate and APIBurst are each authenticated principal's request budget
+	// on console/API routes (requests per second and burst); 0 = unlimited.
+	APIRate  float64
+	APIBurst int
 
 	// Portal auth/self-service. SessionKey signs cookies (>=32 bytes); required unless DevUser is set.
 	SessionKey       []byte
@@ -148,6 +152,7 @@ type Server struct {
 	agentFails    authLimiter // agent delegation exchange and POST /api/v1/agents/egress
 	scimFails     authLimiter // /scim/v2
 	tokenFails    authLimiter // service-account tokens on console/API routes (ADR-0036)
+	apiRate       *apiLimiter // per-principal budget on console/API routes, after authentication
 	revoked       *sessionRevocations
 	auditLog      *auditLog
 	forwarders    []*auditForwarder
@@ -327,7 +332,7 @@ func New(cfg Config) (*Server, error) {
 	if cfg.gatewayToken(capBudget) != "" && cfg.DataDir == "" && cfg.Backend == nil {
 		cfg.Log.Warn("no --data-dir: gateway budget counters are in memory and reset on restart")
 	}
-	s := &Server{cfg: cfg, tokSum: sha256.Sum256([]byte(cfg.Token)), pol: &policyHolder{dir: cfg.PolicyDir, log: cfg.Log}, reqs: reqs, approvals: approvals, devices: devs, revoked: revoked,
+	s := &Server{cfg: cfg, apiRate: newAPILimiter(cfg.APIRate, cfg.APIBurst), tokSum: sha256.Sum256([]byte(cfg.Token)), pol: &policyHolder{dir: cfg.PolicyDir, log: cfg.Log}, reqs: reqs, approvals: approvals, devices: devs, revoked: revoked,
 		auditLog: al, forwarders: fwds, relCache: &releaseCache{byKey: map[string]cachedPointer{}, chans: map[string][]string{}}, budgets: bs, kv: kv, revs: revs,
 		session: session, tokens: tokens, tokenMaxTTL: cfg.ServiceTokenMaxTTL, bg: bg, bgSem: make(chan struct{}, breakGlassVerifiers), graphURL: cfg.EntraGraphURL}
 	if bg != nil && cfg.BreakGlass.Enabled {

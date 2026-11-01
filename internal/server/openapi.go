@@ -137,7 +137,7 @@ func openAPIDoc() (map[string]any, error) {
 			"Unauthorized": errResponse("No valid session cookie or service-account token. Sign in again, or mint a new token."),
 			"Forbidden": errResponse("The caller lacks the permission in x-halo-permission, or a state-changing request came from another origin. " +
 				"Audited as authz.deny."),
-			"TooManyRequests": errResponse("Too many failed authentications from this client address. Honour Retry-After."),
+			"TooManyRequests": errResponse("Too many failed authentications from this client address, or (console/API routes) this user or service token is over its request budget (-api-rate-limit). Honour Retry-After."),
 		},
 	}
 	return map[string]any{
@@ -392,7 +392,7 @@ func (o apiOp) operation(g *schemaGen) map[string]any {
 		responses["401"] = map[string]any{"$ref": "#/components/responses/Unauthorized"}
 		responses["403"] = map[string]any{"$ref": "#/components/responses/Forbidden"}
 	}
-	if _, has := responses["429"]; !has && o.auth != authSession && o.auth != authNone {
+	if _, has := responses["429"]; !has && o.auth != authNone { // session/service-token ops: the per-principal API budget
 		responses["429"] = map[string]any{"$ref": "#/components/responses/TooManyRequests"}
 	}
 	op["responses"] = responses

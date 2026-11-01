@@ -55,6 +55,8 @@ type options struct {
 	devAdmin                                                                      bool
 	deviceTTL, postureMaxAge                                                      time.Duration
 	trusted                                                                       []netip.Prefix
+	apiRate                                                                       float64
+	apiBurst                                                                      int
 
 	// automated experiment loop + kill switch
 	controller                                                     bool
@@ -109,6 +111,8 @@ func parseFlags(args []string) (options, error) {
 	fs.BoolVar(&o.devAdmin, "dev-insecure-admin", false, "make the --dev-insecure-user an admin (same as --dev-insecure-roles admin)")
 	fs.StringVar(&devRoles, "dev-insecure-roles", "", "comma-separated roles for --dev-insecure-user: "+strings.Join(server.Roles, ", "))
 	fs.DurationVar(&o.deviceTTL, "device-ttl", server.DefaultDeviceTTL, "device token lifetime after enrollment; expired devices must re-enroll")
+	fs.Float64Var(&o.apiRate, "api-rate-limit", server.DefaultAPIRate, "console/API requests per second per signed-in user or service token (0 = unlimited)")
+	fs.IntVar(&o.apiBurst, "api-rate-burst", server.DefaultAPIBurst, "burst allowance for --api-rate-limit")
 	fs.StringVar(&proxies, "trusted-proxy-cidrs", "", "comma-separated CIDRs of reverse proxies whose X-Forwarded-For is trusted for rate limiting")
 	fs.BoolVar(&o.controller, "controller", false, "run the automated experiment loop (evaluate, kill switch on rollback, PRs, notifications)")
 	fs.DurationVar(&o.interval, "interval", 5*time.Minute, "controller tick interval")
@@ -656,7 +660,7 @@ func run(ctx context.Context, args []string) error {
 	cfg := server.Config{
 		PolicyDir: o.policyDir, Token: strings.TrimSpace(string(tok)), VerdictsPath: o.verdicts, Store: store,
 		SessionKey: []byte(sessionKey), OIDCClientSecret: clientSecret, Portal: portal, DataDir: o.dataDir, Writer: writer,
-		DeviceTTL: o.deviceTTL, DevUser: o.devUser, DevGroups: o.devGroups, DevRoles: o.devRoles, DevAdmin: o.devAdmin, TrustedProxies: o.trusted,
+		DeviceTTL: o.deviceTTL, DevUser: o.devUser, DevGroups: o.devGroups, DevRoles: o.devRoles, DevAdmin: o.devAdmin, TrustedProxies: o.trusted, APIRate: o.apiRate, APIBurst: o.apiBurst,
 		KillStore: kills, KillKey: killKey, GatewayToken: gwToken, PostureMaxAge: o.postureMaxAge, Audit: audit,
 		GatewayKillswitchToken: gwCaps[0], GatewayPostureToken: gwCaps[1], GatewayBudgetToken: gwCaps[2], GatewayDirectoryToken: gwCaps[3], GatewayDLPToken: gwCaps[4],
 		GatewayDLPTokens: dlpTokens,

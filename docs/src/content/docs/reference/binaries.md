@@ -231,6 +231,8 @@ Flags (Go style, single or double dash):
 | `-portal-config` | | Portal and self-service JSON config |
 | `-verdicts-file` (deprecated alias `-verdicts`) | | Verdicts JSON file shown in the console; written by `halo exp analyze --verdicts-file` or the controller |
 | `-trusted-proxy-cidrs` | | Reverse proxies whose `X-Forwarded-For` is trusted for rate limiting |
+| `-api-rate-limit` | `20` | Console/API requests per second per signed-in user or service token, after authentication; over budget returns 429 with `Retry-After`. Per replica. `0` = unlimited. Fleet, gateway and SCIM endpoints are not charged |
+| `-api-rate-burst` | `100` | Burst allowance for `-api-rate-limit` |
 | `-device-ttl` | `2160h` (90 days) | Device token lifetime after enrollment; expired devices must re-enroll |
 | `-dev-insecure-user`, `-dev-insecure-groups`, `-dev-insecure-roles`, `-dev-insecure-admin` | | Demo only: disable login and act as this user, with these roles (`viewer`, `operator`, `approver`, `auditor`, `admin`; `-dev-insecure-admin` adds `admin`) |
 | `-killswitch-key-file` | | ed25519 or ECDSA P-256 PKCS#8 PEM private key signing the kill list (`halo keys generate --name killswitch`). Use a dedicated key. Requires `-data-dir`. Without it the kill and unkill endpoints return 501, no kill list is served, `GET /api/v1/capabilities` reports `killSwitch: false`, and the in-process controller reports rollbacks as **not enforced** ("merge urgently": only the pause PR stops traffic). Startup fails if `-killswitch-key-file` is set without `-data-dir` or without `-gateway-token-file` or `-gateway-killswitch-token-file` |
