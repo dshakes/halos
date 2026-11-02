@@ -3,7 +3,7 @@ title: Single sign-on with Microsoft Entra ID
 description: Register halo-server in Entra ID, emit group claims, handle the 200-group overage, and require MFA.
 ---
 
-halo-server's console login is OpenID Connect authorization code with PKCE (for SAML, see [SAML 2.0](/halos/guides/sso-saml/)). These steps register it in Microsoft Entra ID. Roles come from groups mapped in policy ([ADR-0015](/halos/adr/0015-rbac-roles-for-halo-server/)); overage and MFA handling are [ADR-0036](/halos/adr/0036-admin-api-credentials-break-glass-and-session-policy/).
+halo-server's console login is OpenID Connect authorization code with PKCE (SAML 2.0 login is unreleased and ships in v0.6.0: [SAML 2.0](/halos/guides/sso-saml/)). These steps register it in Microsoft Entra ID. Roles come from groups mapped in policy ([ADR-0015](/halos/adr/0015-rbac-roles-for-halo-server/)); overage and MFA handling are [ADR-0036](/halos/adr/0036-admin-api-credentials-break-glass-and-session-policy/).
 
 > Steps follow the Entra admin center as documented by Microsoft; they were not run against a live tenant for this release. Check the screen names against your tenant.
 

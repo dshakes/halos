@@ -21,7 +21,7 @@ Halos has three planes plus a policy source. Each plane can be adopted independe
 - Rings point at immutable releases through signed pointers ([ADR-0002](/halos/adr/0002-rings-point-at-immutable-releases/), [ADR-0008](/halos/adr/0008-signed-ring-pointers-and-verified-artifacts/)).
 - Model experiments live at the gateway ([ADR-0003](/halos/adr/0003-experiments-on-traffic-plane-first/)).
 - Assignment is one Go package (`internal/assign`) shared by `halod`, `halo-proxy`, `halo-kong` and `halo-shadow` ([ADR-0006](/halos/adr/0006-go-and-kong-go-pdk/)).
-- Shadow is first-turn only ([ADR-0004](/halos/adr/0004-shadow-single-turn-only/)).
+- Shadow mirrors first turns by default; `turns: all` mirrors every step ([ADR-0004](/halos/adr/0004-shadow-single-turn-only/), amended by [ADR-0014](/halos/adr/0014-step-level-multi-turn-shadow/)).
 - A human owns every irreversible step. Promotion opens a PR; automatic rollback (the kill switch, [ADR-0009](/halos/adr/0009-signed-kill-switch/)) is the only automatic direction, and it only returns users to control.
 
 ## Request path

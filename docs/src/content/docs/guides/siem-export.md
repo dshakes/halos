@@ -52,7 +52,7 @@ Write an `--audit-config` file (JSON, unknown fields rejected) and start `halo-s
 
 ### Helm
 
-`server.audit` is rendered to `/etc/halos/audit.json` and needs `server.persistence.enabled`. The ConfigMap holds references only; set the variables from a Secret, open egress to the SIEM, and enable metrics:
+`server.audit` is rendered to `/etc/halos/audit.json` and needs `server.persistence.enabled` (or `server.database` on Postgres, where `rotation` is refused because the chain is one table). The ConfigMap holds references only; set the variables from a Secret, open egress to the SIEM, and enable metrics:
 
 ```yaml
 server:

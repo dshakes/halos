@@ -31,6 +31,7 @@ A one-shot `seed` container copies `examples/acme-corp` plus a small overlay (`d
 |---|---|
 | Console + portal | `http://localhost:18080` (Sign in, pick a demo user) |
 | Mock IdP (OIDC) | `http://localhost:18081/.well-known/openid-configuration` |
+| halod downloads | `http://localhost:18082/SHA256SUMS` (kiosk, Set up my laptop) |
 | halo-proxy (model API) | `http://localhost:18088/v1/messages` |
 | halo-shadow metrics | `http://localhost:18090/metrics` |
 | Grafana | `http://localhost:13000` (`admin` / `halo-dev-only`) |
@@ -114,7 +115,7 @@ make demo-down    # stops every container and deletes the volumes (keys, release
 
 ## Troubleshooting
 
-- **A port is taken.** Every host port binds to `127.0.0.1` and is overridable: `HALO_DEMO_CONSOLE_PORT`, `HALO_DEMO_IDP_PORT`, `HALO_DEMO_PROXY_PORT`, `HALO_DEMO_SHADOW_METRICS_PORT`, and for the evidence plane `HALO_OBS_GRAFANA_PORT`, `HALO_OBS_CH_HTTP_PORT`, `HALO_OBS_OTLP_*_PORT`. Pass the same values to `make demo-down`.
+- **A port is taken.** Every host port binds to `127.0.0.1` and is overridable: `HALO_DEMO_CONSOLE_PORT`, `HALO_DEMO_IDP_PORT`, `HALO_DEMO_DL_PORT`, `HALO_DEMO_PROXY_PORT`, `HALO_DEMO_SHADOW_METRICS_PORT`, and for the evidence plane `HALO_OBS_GRAFANA_PORT`, `HALO_OBS_CH_HTTP_PORT`, `HALO_OBS_OTLP_*_PORT`. Pass the same values to `make demo-down`.
 - **A service never got healthy.** The script names it; `docker compose -f deploy/compose/docker-compose.demo.yml logs <service>` shows why. `seed` failing usually means the registry was not reachable.
 - **Login loops back to the IdP.** The console's redirect URI and the IdP's browser URL are derived from the ports above (`HALO_DEMO_CONSOLE_URL`, `HALO_DEMO_IDP_URL` override them). In a Codespace the script uses the forwarded `https://<codespace>-<port>.app.github.dev` URLs.
 - **Start over.** `make demo-down && make demo` reseeds from scratch.

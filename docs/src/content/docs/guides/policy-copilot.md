@@ -84,7 +84,7 @@ Halos computes the facts (file diffs, each ring's plan, the impact, the experime
 halo copilot next --verdicts-file verdicts.json --scorecard sc.json --roi roi.json
 ```
 
-Rules over existing data, no model: draft experiments to start, running ones without a verdict to analyze, promote/rollback/expired verdicts, paused experiments, eval gates that block an arm, an ROI sample ratio mismatch, and, with `--server` and `HALO_SESSION`, budgets over a threshold. Each suggestion lists its evidence and the exact command; state-changing commands are marked `[human gate]`.
+Rules over existing data, no model: draft experiments to start, running ones without a verdict to analyze, promote/rollback/expired verdicts, paused experiments, eval gates that block an arm, an ROI sample ratio mismatch, and, with `--server` and `HALO_TOKEN` or `HALO_SESSION`, budgets over a threshold. Each suggestion lists its evidence and the exact command; state-changing commands are marked `[human gate]`.
 
 ## From an agent (MCP)
 

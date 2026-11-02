@@ -24,7 +24,7 @@ halo validate --policy-dir /tmp/my-policy
 halo explain --policy-dir /tmp/my-policy --kind ring
 ```
 
-**Check:** `halo init` prints `create /tmp/my-policy/halos.yaml` (plus two `next:` hints) and writes no other file: that one file is the whole policy ([simple mode](/halos/concepts/simple-mode/)). `halo validate` prints `OK: policy valid (0 warnings)`. `halo explain` prints the four rings the `standard` rollout preset expands to (`ring0-team`, `ring1-canary` 5%, `ring2-early` 25%, `ring3-ga`), each marked `# source: halos.yaml (simple mode)`.
+**Check:** `halo init` prints `create /tmp/my-policy/.gitattributes` and `create /tmp/my-policy/halos.yaml` (plus two `next:` hints). `.gitattributes` only stops CRLF conversion of artifact files; `halos.yaml` is the whole policy ([simple mode](/halos/concepts/simple-mode/)). `halo validate` prints `OK: policy valid (0 warnings)`. `halo explain` prints the four rings the `standard` rollout preset expands to (`ring0-team`, `ring1-canary` 5%, `ring2-early` 25%, `ring3-ga`), each marked `# source: halos.yaml (simple mode)`.
 
 The rest of this page uses `examples/acme-corp`, a full-mode repo with every document written out, because it exercises more of the stack. `halo init --full` scaffolds that style.
 
@@ -78,16 +78,16 @@ curl -s localhost:8080/v1/messages \
 Output (formatted):
 
 ```json
-{"content":[{"text":"served-by=orch model=us.anthropic.claude-sonnet-4-5-v1:0 path=/v1/messages headers=map[anthropic-version:2023-06-01 x-halo-release:sha256:ring0 x-halo-ring:ring0-harness-team]","type":"text"}],"id":"msg_mock","model":"us.anthropic.claude-sonnet-4-5-v1:0","role":"assistant","type":"message","usage":{"input_tokens":12,"output_tokens":34}}
+{"content":[{"text":"served-by=orch model=us.anthropic.claude-sonnet-4-5-v1:0 path=/v1/messages headers=map[anthropic-version:2023-06-01 x-halo-gate:version=warn x-halo-release:sha256:ring0 x-halo-ring:ring0-harness-team]","type":"text"}],"id":"msg_mock","model":"us.anthropic.claude-sonnet-4-5-v1:0","role":"assistant","type":"message","usage":{"input_tokens":12,"output_tokens":34}}
 ```
 
-**Check:** the mock echoes what the *upstream* received. The spoofed `x-halo-ring: ring3-ga` is gone; the ring is `ring0-harness-team`, derived from Alice's verified group. The alias `sonnet` was rewritten to the upstream model id. The `x-halo-*` stamps are added to the upstream request; they are not echoed to the client as response headers.
+**Check:** the mock echoes what the *upstream* received. The spoofed `x-halo-ring: ring3-ga` is gone; the ring is `ring0-harness-team`, derived from Alice's verified group. The alias `sonnet` was rewritten to the upstream model id. `x-halo-gate:version=warn` flags that the ring's version gate (warn by default) did not pass, because curl's User-Agent names no AI CLI; warn mode forwards the request anyway. The `x-halo-*` stamps are added to the upstream request; they are not echoed to the client as response headers.
 
 More requests to try:
 
 | Try | Expect |
 |---|---|
-| Token for `bob@acme.com`, groups `eng` | GA ring; he lands in the `sonnet-direct-canary` experiment (`x-halo-variant:control` or the canary variant) |
+| Token for `bob@acme.com`, groups `eng` | `ring1-canary` (his hash falls in its 20%); he lands in the `sonnet-direct-canary` experiment (`x-halo-variant:control` or the canary variant) |
 | `-d '{"model":"gpt-4o",...}'` (not a policy alias) | 400 `invalid_request_error`: `model "gpt-4o" is not permitted by the Halos gateway policy; allowed models: haiku, sonnet`. Never forwarded |
 | `curl -N` with `"stream":true` | Server-sent events arrive incrementally |
 | `POST /model/sonnet/invoke` | Path rewritten to the Bedrock model id |
