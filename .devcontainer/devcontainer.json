@@ -6,8 +6,8 @@
   "name": "halos",
   "image": "mcr.microsoft.com/devcontainers/base:bookworm",
   "features": {
-    // go.mod: go 1.25.0, toolchain go1.26.6; install the toolchain so nothing downloads at build time.
-    "ghcr.io/devcontainers/features/go:1": { "version": "1.26.6" },
+    // go.mod: go 1.25.0, toolchain go1.26.10; install the toolchain so nothing downloads at build time.
+    "ghcr.io/devcontainers/features/go:1": { "version": "1.26.10" },
     "ghcr.io/devcontainers/features/node:1": { "version": "lts" },
     "ghcr.io/devcontainers/features/docker-in-docker:2": {}
   },
