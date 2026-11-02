@@ -113,6 +113,11 @@ uat-dr:
 uat-kong:
 	./scripts/uat-kong.sh
 
+# SAML login against a real IdP: halo-server + Keycloak in Docker (ADR-0039).
+.PHONY: uat-saml
+uat-saml:
+	./scripts/uat-saml-keycloak.sh
+
 .PHONY: uat-k8s
 uat-k8s:
 	./scripts/uat-k8s.sh
