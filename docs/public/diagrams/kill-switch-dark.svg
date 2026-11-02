@@ -75,8 +75,8 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <text class="s" x="498.7" y="207.6" text-anchor="middle" style="font-size:11.5px">GET /api/v1/gateway/killswitch · gateway token</text>
 <path class="ln dash" d="M384 251.6L613.333 251.6"/>
 <path class="ln hd" d="M607.8 255.0L613.333 251.6L607.8 248.2"/>
-<rect class="pl" x="375.9" y="230.6" width="245.5" height="17" rx="4"/>
-<text class="s" x="498.7" y="243.6" text-anchor="middle" style="font-size:11.5px">signed list {version, experiments, issuedAt}</text>
+<rect class="pl" x="353.4" y="230.6" width="290.6" height="17" rx="4"/>
+<text class="s" x="498.7" y="243.6" text-anchor="middle" style="font-size:11.5px">signed list {version, experiments, toggles, issuedAt}</text>
 <rect class="chip" x="337.7" y="270.6" width="382.3" height="22" rx="6"/>
 <text class="m" x="528.83" y="285.6" text-anchor="middle">verify signature · freshness · issuedAt strictly newer</text>
 <rect class="ghost" x="30" y="176" width="700" height="133.60000000000002" rx="10"/>

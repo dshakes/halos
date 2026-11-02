@@ -64,7 +64,7 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <rect class="ring" x="245.75" y="112.75" width="166.5" height="110.5" rx="11.25"/>
 <text class="k ka" x="261" y="146.5">02 · RELEASE</text>
 <text class="t" x="261" y="164.5">Signed release</text>
-<text class="s" x="261" y="182.5">OCI · ed25519</text>
+<text class="s" x="261" y="182.5">OCI · signed</text>
 <text class="s" x="261" y="198.5">content-addressed</text>
 <rect class="card" x="466" y="112" width="168" height="112" rx="12" filter="url(#sh)"/>
 <text class="k ka" x="482" y="146.5">03 · RINGS</text>

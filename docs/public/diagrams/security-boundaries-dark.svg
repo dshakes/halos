@@ -94,7 +94,7 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <text class="k ka" x="40" y="424">HALO-SERVER</text>
 <rect class="card" x="40" y="436" width="320" height="56" rx="12" filter="url(#sh)"/>
 <text class="t" x="56" y="460.5">Portal</text>
-<text class="s" x="56" y="478.5">OIDC login · enrollment + device tokens</text>
+<text class="s" x="56" y="478.5">OIDC/SAML login · enrollment + device tokens</text>
 <rect class="card" x="452" y="436" width="268" height="56" rx="12" filter="url(#sh)"/>
 <rect class="soft" x="452" y="436" width="268" height="56" rx="12"/>
 <rect class="ring" x="452.75" y="436.75" width="266.5" height="54.5" rx="11.25"/>
