@@ -4,6 +4,10 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Fixed
+
+- Release `npm` job: the post-publish check waits for the platform package too; `npx` silently skips an optional platform package npm cannot serve yet (v0.6.0 published every package, then the check ran before `@dshakesnotbot/halo-linux-amd64` was visible).
+
 ## [0.6.0] - 2026-11-02
 
 ### Upgrade notes
