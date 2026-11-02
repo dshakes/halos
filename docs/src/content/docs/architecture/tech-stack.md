@@ -31,10 +31,10 @@ Edit a dependency and forget this page, and `go test ./internal/docgen` fails.
 
 Most of the core is the Go standard library:
 
-- **Reverse proxy:** `net/http` and `net/http/httputil.ReverseProxy` ([`cmd/halo-proxy/proxy.go:95-107`](https://github.com/dshakes/halos/blob/main/cmd/halo-proxy/proxy.go#L95-L107)).
-- **Signatures:** `crypto/ed25519` for release, pointer and kill-list signatures ([`internal/bundle/sign.go`](https://github.com/dshakes/halos/blob/main/internal/bundle/sign.go), [`internal/gateway/killswitch.go:53-93`](https://github.com/dshakes/halos/blob/main/internal/gateway/killswitch.go#L53-L93)).
+- **Reverse proxy:** `net/http` and `net/http/httputil.ReverseProxy` ([`cmd/halo-proxy/proxy.go:131-168`](https://github.com/dshakes/halos/blob/main/cmd/halo-proxy/proxy.go#L131-L168)).
+- **Signatures:** `crypto/ed25519` and `crypto/ecdsa` (P-256) for release, pointer and kill-list signatures ([`internal/bundle/sign.go`](https://github.com/dshakes/halos/blob/main/internal/bundle/sign.go), [`internal/bundle/keys.go`](https://github.com/dshakes/halos/blob/main/internal/bundle/keys.go), [`internal/gateway/killswitch.go:50-95`](https://github.com/dshakes/halos/blob/main/internal/gateway/killswitch.go#L50-L95)).
 - **Hashing:** `crypto/sha256` for content addressing and assignment hashing ([`internal/assign/assign.go:16-19`](https://github.com/dshakes/halos/blob/main/internal/assign/assign.go#L16-L19)).
-- **Bundles:** `archive/tar` for the release bundle ([`internal/release/release.go:191-223`](https://github.com/dshakes/halos/blob/main/internal/release/release.go#L191-L223)).
+- **Bundles:** `archive/tar` for the release bundle ([`internal/release/release.go:284-316`](https://github.com/dshakes/halos/blob/main/internal/release/release.go#L284-L316)).
 - **Logs:** `log/slog` for structured logs.
 
 ## Go modules
@@ -76,7 +76,7 @@ Signing itself uses the standard library: ed25519 or ECDSA P-256 primary signatu
 <!-- check: go.mod -->
 | Module | Version | Used for | Used by |
 | --- | --- | --- | --- |
-| `github.com/coreos/go-oidc/v3` | `v3.21.0` | OIDC discovery and JWT / ID-token verification against the issuer's JWKS: gateway callers ([`internal/identity/oidc.go:71-91`](https://github.com/dshakes/halos/blob/main/internal/identity/oidc.go#L71-L91)) and console login. | `internal/identity`, `internal/server` |
+| `github.com/coreos/go-oidc/v3` | `v3.21.0` | OIDC discovery and JWT / ID-token verification against the issuer's JWKS: gateway callers ([`internal/identity/oidc.go:158-194`](https://github.com/dshakes/halos/blob/main/internal/identity/oidc.go#L158-L194)) and console login. | `internal/identity`, `internal/server` |
 | `github.com/go-jose/go-jose/v4` | `v4.1.4` | Halos's own JWKS cache for OIDC verification ([`internal/identity/jwks.go`](https://github.com/dshakes/halos/blob/main/internal/identity/jwks.go)), which can verify from cached keys only, so a client IP blocked for failed token exchanges cannot make `halo-server` fetch the issuer's JWKS. Already required by go-oidc. | `internal/identity` |
 | `golang.org/x/oauth2` | `v0.36.0` | The console's OIDC authorization-code flow. | `internal/server` |
 | `golang.org/x/time` | `v0.15.0` | Per-IP rate limiting of failed token attempts. | `internal/server` |
@@ -89,7 +89,7 @@ Signing itself uses the standard library: ed25519 or ECDSA P-256 primary signatu
 <!-- check: go.mod -->
 | Module | Version | Used for | Used by |
 | --- | --- | --- | --- |
-| `github.com/Kong/go-pdk` | `v0.11.2` | The Kong Go plugin server and PDK that `halo-kong` runs on ([`cmd/halo-kong/main.go:376`](https://github.com/dshakes/halos/blob/main/cmd/halo-kong/main.go#L376)). | `cmd/halo-kong` |
+| `github.com/Kong/go-pdk` | `v0.11.2` | The Kong Go plugin server and PDK that `halo-kong` runs on ([`cmd/halo-kong/main.go:577`](https://github.com/dshakes/halos/blob/main/cmd/halo-kong/main.go#L577)). | `cmd/halo-kong` |
 | `github.com/aws/aws-sdk-go-v2` | `v1.47.0` | SigV4 signing of direct Bedrock requests and of AWS KMS `GetPublicKey` / `Sign` calls (`aws/signer/v4`) ([`internal/gateway/upstreamauth/bedrock.go:139-194`](https://github.com/dshakes/halos/blob/main/internal/gateway/upstreamauth/bedrock.go#L139-L194), [`internal/signer/awskms.go`](https://github.com/dshakes/halos/blob/main/internal/signer/awskms.go)). | `internal/gateway/upstreamauth`, `internal/signer`; tests: `cmd/halo-proxy` |
 | `github.com/aws/aws-sdk-go-v2/config` | `v1.33.4` | The default AWS credential chain for those signers. | `internal/gateway/upstreamauth`, `internal/signer` |
 | `github.com/aws/aws-sdk-go-v2/credentials` | `v1.20.4` | Static credentials in the SigV4 and fake-KMS tests. | tests: `cmd/halo-proxy`, `internal/gateway/upstreamauth`, `internal/signer` |
@@ -115,7 +115,7 @@ No OpenTelemetry SDK runs in a Halos binary. The collector, ClickHouse and Grafa
 | Module | Version | Used for | Used by |
 | --- | --- | --- | --- |
 | `github.com/google/jsonschema-go` | `v0.4.3` | Reads tool input schemas so the MCP envelope can name a missing or mistyped argument, its type, example and allowed values ([`internal/mcpserver/flow.go`](https://github.com/dshakes/halos/blob/main/internal/mcpserver/flow.go)). Already required by the MCP go-sdk. | `internal/mcpserver` |
-| `github.com/modelcontextprotocol/go-sdk` | `v1.8.0` | The MCP server behind `halo mcp serve` ([`internal/mcpserver/server.go:48-71`](https://github.com/dshakes/halos/blob/main/internal/mcpserver/server.go#L48-L71)). | `cmd/halo`, `internal/mcpserver` |
+| `github.com/modelcontextprotocol/go-sdk` | `v1.8.0` | The MCP server behind `halo mcp serve` ([`internal/mcpserver/server.go:81-112`](https://github.com/dshakes/halos/blob/main/internal/mcpserver/server.go#L81-L112)). | `cmd/halo`, `internal/mcpserver` |
 <!-- /check -->
 
 ### Storage (HA)
@@ -178,12 +178,12 @@ The diagrams on these pages are SVGs generated by [`assets/src/build.py`](https:
 
 | Image | Tag / digest | Where | Role |
 | --- | --- | --- | --- |
-| `gcr.io/distroless/static-debian12:nonroot` | `sha256:afa5c872…` | [`deploy/docker/Dockerfile.service:4`](https://github.com/dshakes/halos/blob/main/deploy/docker/Dockerfile.service#L4) | Base image of the released `halo-server`, `halo-proxy` and `halo-shadow` images ([`.goreleaser.yaml:43-67`](https://github.com/dshakes/halos/blob/main/.goreleaser.yaml#L43-L67)). |
-| `kong` | `3.9`, `sha256:12972ce1…` | [`deploy/docker/Dockerfile.kong:6`](https://github.com/dshakes/halos/blob/main/deploy/docker/Dockerfile.kong#L6), [`scripts/uat-kong.sh:15-16`](https://github.com/dshakes/halos/blob/main/scripts/uat-kong.sh#L15-L16) | Kong OSS that `halo-kong` runs inside (`ghcr.io/dshakes/kong-halo`). The compose stack uses the unpinned `kong:3.9` ([`deploy/compose/Dockerfile.kong:9`](https://github.com/dshakes/halos/blob/main/deploy/compose/Dockerfile.kong#L9)). |
-| `otel/opentelemetry-collector-contrib` | `0.161.0`, `sha256:fd328de2…` | [`deploy/observability/docker-compose.yml:28`](https://github.com/dshakes/halos/blob/main/deploy/observability/docker-compose.yml#L28), [`deploy/helm/halos/values.yaml:283`](https://github.com/dshakes/halos/blob/main/deploy/helm/halos/values.yaml#L283) | OTLP receivers to ClickHouse. Its config is generated by `internal/telemetry` ([`collector.go:157-282`](https://github.com/dshakes/halos/blob/main/internal/telemetry/collector.go#L157-L282)). |
+| `gcr.io/distroless/static-debian12:nonroot` | `sha256:afa5c872…` | [`deploy/docker/Dockerfile.service:4`](https://github.com/dshakes/halos/blob/main/deploy/docker/Dockerfile.service#L4) | Base image of the released `halo-server`, `halo-proxy` and `halo-shadow` images ([`.goreleaser.yaml:68-92`](https://github.com/dshakes/halos/blob/main/.goreleaser.yaml#L68-L92)). |
+| `kong` | `3.9`, `sha256:12972ce1…` | [`deploy/docker/Dockerfile.kong:6`](https://github.com/dshakes/halos/blob/main/deploy/docker/Dockerfile.kong#L6), [`scripts/uat-kong.sh:15-16`](https://github.com/dshakes/halos/blob/main/scripts/uat-kong.sh#L15-L16) | Kong OSS that `halo-kong` runs inside (`ghcr.io/dshakes/kong-halo`). The compose stack pins the same digest ([`deploy/compose/Dockerfile.kong:9`](https://github.com/dshakes/halos/blob/main/deploy/compose/Dockerfile.kong#L9)). |
+| `otel/opentelemetry-collector-contrib` | `0.161.0`, `sha256:fd328de2…` | [`deploy/observability/docker-compose.yml:28`](https://github.com/dshakes/halos/blob/main/deploy/observability/docker-compose.yml#L28), [`deploy/helm/halos/values.yaml:374`](https://github.com/dshakes/halos/blob/main/deploy/helm/halos/values.yaml#L374) | OTLP receivers to ClickHouse. Its config is generated by `internal/telemetry` ([`internal/telemetry/collector.go:233-364`](https://github.com/dshakes/halos/blob/main/internal/telemetry/collector.go#L233-L364)). |
 | `clickhouse/clickhouse-server` | `26.9.7.9`, `sha256:1f9c29a7…` | [`deploy/observability/docker-compose.yml:16`](https://github.com/dshakes/halos/blob/main/deploy/observability/docker-compose.yml#L16) | Evidence store; schema in [`deploy/observability/clickhouse/schema.sql`](https://github.com/dshakes/halos/blob/main/deploy/observability/clickhouse/schema.sql). |
 | `grafana/grafana` | `13.2.3`, `sha256:b28bae15…` | [`deploy/observability/docker-compose.yml:73`](https://github.com/dshakes/halos/blob/main/deploy/observability/docker-compose.yml#L73) | Dashboards ([`deploy/observability/grafana/dashboard.json`](https://github.com/dshakes/halos/blob/main/deploy/observability/grafana/dashboard.json)). |
-| `registry.k8s.io/git-sync/git-sync` | `v4.4.0` | [`deploy/helm/halos/values.yaml:37`](https://github.com/dshakes/halos/blob/main/deploy/helm/halos/values.yaml#L37) | Keeps the served policy directory in sync in the Helm chart. |
+| `registry.k8s.io/git-sync/git-sync` | `v4.4.0` | [`deploy/helm/halos/values.yaml:54`](https://github.com/dshakes/halos/blob/main/deploy/helm/halos/values.yaml#L54) | Keeps the served policy directory in sync in the Helm chart. |
 | `registry:2` | `2` | [`deploy/compose/docker-compose.demo.yml:23`](https://github.com/dshakes/halos/blob/main/deploy/compose/docker-compose.demo.yml#L23), [`ci.yml`](https://github.com/dshakes/halos/blob/main/.github/workflows/ci.yml) (`e2e` service) | OCI registry for the demo and the e2e tests. |
 | `alpine` | `3.20` / `3.22` | [`deploy/compose/Dockerfile.svc:10`](https://github.com/dshakes/halos/blob/main/deploy/compose/Dockerfile.svc#L10), [`test/uat/k8s/Dockerfile:4`](https://github.com/dshakes/halos/blob/main/test/uat/k8s/Dockerfile#L4) | Runtime images for the demo and UAT. |
 | `node` | `22-alpine`, `22-bookworm-slim` (digest) | [`deploy/compose/demo/Dockerfile.console:4`](https://github.com/dshakes/halos/blob/main/deploy/compose/demo/Dockerfile.console#L4), [`evals/images/claude/Dockerfile:6`](https://github.com/dshakes/halos/blob/main/evals/images/claude/Dockerfile#L6) | Builds the console in the demo; base image of the eval images that run the real CLIs. |
@@ -193,10 +193,11 @@ The diagrams on these pages are SVGs generated by [`assets/src/build.py`](https:
 | Tool | Version | Where | What it does |
 | --- | --- | --- | --- |
 | GoReleaser | `~> v2` (config `version: 2`) | [`.goreleaser.yaml`](https://github.com/dshakes/halos/blob/main/.goreleaser.yaml), [`ci.yml` `packaging` job](https://github.com/dshakes/halos/blob/main/.github/workflows/ci.yml) | Archives, checksums, multi-arch images (`dockers_v2`), Homebrew, Scoop and a winget manifest. |
-| nfpm (via GoReleaser) | n/a | [`.goreleaser.yaml:97-122`](https://github.com/dshakes/halos/blob/main/.goreleaser.yaml#L97-L122) | `deb`, `rpm` and `apk` packages for `halo` and `halod`, plus the `halod` systemd unit ([`deploy/packaging/halod.service`](https://github.com/dshakes/halos/blob/main/deploy/packaging/halod.service)). |
-| cosign (via GoReleaser) | n/a | [`.goreleaser.yaml:159-171`](https://github.com/dshakes/halos/blob/main/.goreleaser.yaml#L159-L171) | Keyless `sign-blob` of `checksums.txt` and keyless `sign` of images. |
-| syft (via GoReleaser) | n/a | [`.goreleaser.yaml:157-158`](https://github.com/dshakes/halos/blob/main/.goreleaser.yaml#L157-L158) | SBOMs for archives (needs `syft` on `PATH`). |
-| Helm chart `halos` | chart `0.5.2`, `kubeVersion >=1.27.0-0` | [`deploy/helm/halos/Chart.yaml`](https://github.com/dshakes/halos/blob/main/deploy/helm/halos/Chart.yaml) | `halo-server`, `halo-proxy`, `halo-shadow`, an optional OTel collector and the Kong plugin CR. |
+| nfpm (via GoReleaser) | n/a | [`.goreleaser.yaml:158-183`](https://github.com/dshakes/halos/blob/main/.goreleaser.yaml#L158-L183) | `deb`, `rpm` and `apk` packages for `halo` and `halod`, plus the `halod` systemd unit ([`deploy/packaging/halod.service`](https://github.com/dshakes/halos/blob/main/deploy/packaging/halod.service)). |
+| cosign (via GoReleaser) | n/a | [`.goreleaser.yaml:220-232`](https://github.com/dshakes/halos/blob/main/.goreleaser.yaml#L220-L232) | Keyless `sign-blob` of `checksums.txt` and keyless `sign` of images. |
+| syft (via GoReleaser) | n/a | [`.goreleaser.yaml:218-219`](https://github.com/dshakes/halos/blob/main/.goreleaser.yaml#L218-L219) | SBOMs for archives (needs `syft` on `PATH`). |
+| Helm chart `halos` | chart `0.5.2`, `kubeVersion >=1.27.0-0` | [`deploy/helm/halos/Chart.yaml`](https://github.com/dshakes/halos/blob/main/deploy/helm/halos/Chart.yaml) | `halo-server`, `halo-proxy`, `halo-shadow`, an optional OTel collector and the Kong plugin CR, plus a database migration Job, NetworkPolicies, Ingress, and ServiceMonitor, PrometheusRule and dashboard objects ([`templates/`](https://github.com/dshakes/halos/tree/main/deploy/helm/halos/templates)). |
+| npm (`release.yml` `npm` job) | Node `22` | [`release.yml`](https://github.com/dshakes/halos/blob/main/.github/workflows/release.yml#L257-L305), [`scripts/npm-build.sh`](https://github.com/dshakes/halos/blob/main/scripts/npm-build.sh) | After `verify` passes, repackages the verified archives as `@dshakesnotbot/halo` plus one package per OS/CPU, published with npm provenance. |
 | Docker Compose | v2 | [`deploy/compose/`](https://github.com/dshakes/halos/tree/main/deploy/compose), [`deploy/observability/`](https://github.com/dshakes/halos/tree/main/deploy/observability) | `make demo` (the whole stack, seeded from `examples/acme-corp`) and the observability stack. |
 
 :::note[Release signing is verified for v0.5.2]
@@ -208,7 +209,7 @@ The `packaging` job in [`ci.yml`](https://github.com/dshakes/halos/blob/main/.gi
 | Tool | Version | Where |
 | --- | --- | --- |
 | golangci-lint | `v2.14.0` (golangci-lint-action `v8.0.0`) | [`ci.yml` `lint`](https://github.com/dshakes/halos/blob/main/.github/workflows/ci.yml) |
-| govulncheck | govulncheck-action `v1.1.0` | [`ci.yml` `vuln`](https://github.com/dshakes/halos/blob/main/.github/workflows/ci.yml); `make vuln` runs `govulncheck@latest` ([`Makefile:18-19`](https://github.com/dshakes/halos/blob/main/Makefile#L18-L19)) |
+| govulncheck | govulncheck-action `v1.1.0` | [`ci.yml` `vuln`](https://github.com/dshakes/halos/blob/main/.github/workflows/ci.yml); `make vuln` runs `govulncheck@latest` ([`Makefile:34-35`](https://github.com/dshakes/halos/blob/main/Makefile#L34-L35)) |
 | `go test -race` | toolchain from `go.mod` | [`ci.yml` `test`](https://github.com/dshakes/halos/blob/main/.github/workflows/ci.yml), plus macOS and Windows in the `cross` job |
 | `go mod tidy` drift check | n/a | [`ci.yml` `tidy`](https://github.com/dshakes/halos/blob/main/.github/workflows/ci.yml) |
 | shellcheck | runner default | [`ci.yml` `packaging`](https://github.com/dshakes/halos/blob/main/.github/workflows/ci.yml) (`install/install.sh`, `deploy/packaging/*.sh`) |

@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 620" width="760" height="620" role="img" aria-labelledby="t d" font-family="ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif">
 <title id="t">Trust zones and keys</title>
-<desc id="d">Who holds which key or token. The publisher holds the release private key (a file, AWS KMS or an external signer, by key URI); the registry is untrusted storage and halod verifies with the release public keys. halo-server holds the kill-list private key, the gateway and fleet tokens, hashed device tokens and the OIDC secrets. Gateways hold the kill public key, the gateway token, provider credentials and the OTLP gateway token. The collector separates gateway, eval and CLI receivers by token; only gateway evidence may auto-kill.</desc>
+<desc id="d">Who holds which key or token. The publisher holds the release private key (a file, AWS KMS or an external signer, by key URI); the registry is untrusted storage and halod verifies with the release public keys. halo-server holds the kill-list private key, the gateway and fleet tokens, hashed device, service and SCIM tokens, the OIDC secret and the SAML SP key. Gateways hold the kill public key, the gateway token, provider credentials and the OTLP gateway token. The collector separates gateway, eval and CLI receivers by token; only gateway evidence may auto-kill.</desc>
 <style>
 .cv{fill:#f7f2e9;stroke:#e6ddcd;stroke-width:1.5}
 .card{fill:#fffdf9;stroke:#e3d9c8;stroke-width:1.5}
@@ -59,7 +59,7 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <text class="m" x="44" y="107">cosign key (optional)</text>
 <rect class="chip" x="36" y="120" width="196" height="22" rx="6"/>
 <text class="m" x="44" y="135">pointer state file</text>
-<rect class="zone" x="270" y="24" width="220" height="240" rx="16"/>
+<rect class="zone" x="270" y="24" width="220" height="268" rx="16"/>
 <text class="k ka" x="286" y="48">HALO-SERVER</text>
 <rect class="dcard" x="282" y="64" width="196" height="22" rx="6"/>
 <text class="m" x="290" y="79">kill key: key URI</text>
@@ -72,9 +72,11 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <rect class="chip" x="282" y="176" width="196" height="22" rx="6"/>
 <text class="m" x="290" y="191">release pubkey (enroll)</text>
 <rect class="chip" x="282" y="204" width="196" height="22" rx="6"/>
-<text class="m" x="290" y="219">OIDC client secret</text>
+<text class="m" x="290" y="219">service/SCIM token hashes</text>
 <rect class="chip" x="282" y="232" width="196" height="22" rx="6"/>
-<text class="m" x="290" y="247">session key</text>
+<text class="m" x="290" y="247">OIDC secret, SAML SP key</text>
+<rect class="chip" x="282" y="260" width="196" height="22" rx="6"/>
+<text class="m" x="290" y="275">session key</text>
 <rect class="zone" x="516" y="24" width="220" height="184" rx="16"/>
 <text class="k ka" x="532" y="48">GATEWAYS</text>
 <rect class="chip" x="528" y="64" width="196" height="22" rx="6"/>
@@ -110,9 +112,9 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <text class="m" x="536" y="371">:4317/8 CLI (opt. token)</text>
 <rect class="chip" x="528" y="384" width="196" height="22" rx="6"/>
 <text class="m" x="536" y="399">-&gt; ClickHouse</text>
-<rect class="ghost" x="270" y="360" width="220" height="56" rx="12"/>
-<text class="t" x="286" y="384.5">OIDC IdP</text>
-<text class="s" x="286" y="402.5">signs developer JWTs</text>
+<rect class="ghost" x="270" y="388" width="220" height="56" rx="12"/>
+<text class="t" x="286" y="412.5">OIDC IdP</text>
+<text class="s" x="286" y="430.5">signs developer JWTs</text>
 <path class="la" d="M134 158L134 176"/>
 <path class="la hd" d="M130.6 170.5L134 176L137.4 170.5"/>
 <circle class="bdg" cx="152.0" cy="167.0" r="8"/>
@@ -121,10 +123,10 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <path class="la hd" d="M130.6 266.5L134 272L137.4 266.5"/>
 <circle class="bdg" cx="152.0" cy="256.0" r="8"/>
 <text class="bn" x="152.0" y="259.4" text-anchor="middle">2</text>
-<path class="ln" d="M250 318L322.0 318.0Q330 318 330.0 310.0L330 270"/>
-<path class="ln hd" d="M333.4 275.5L330 270L326.6 275.5"/>
-<circle class="bdg" cx="330" cy="291.0" r="8"/>
-<text class="bn" x="330" y="294.4" text-anchor="middle">3</text>
+<path class="ln" d="M250 318L322.0 318.0Q330 318 330.0 310.0L330 298"/>
+<path class="ln hd" d="M333.4 303.5L330 298L326.6 303.5"/>
+<circle class="bdg" cx="330" cy="305.0" r="8"/>
+<text class="bn" x="330" y="308.4" text-anchor="middle">3</text>
 <path class="ln" d="M510 92L496 92"/>
 <path class="ln hd" d="M501.5 88.6L496 92L501.5 95.4"/>
 <circle class="bdg" cx="503.0" cy="78" r="8"/>
@@ -133,26 +135,26 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <path class="la hd" d="M622.6 248.5L626 254L629.4 248.5"/>
 <circle class="bdg" cx="644.0" cy="234.0" r="8"/>
 <text class="bn" x="644.0" y="237.4" text-anchor="middle">5</text>
-<path class="ln dash" d="M496 388L499.5 388.0Q503 388 503.0 384.5L503.0 163.5Q503 160 506.5 160.0L510 160"/>
+<path class="ln dash" d="M496 416L499.5 416.0Q503 416 503.0 412.5L503.0 163.5Q503 160 506.5 160.0L510 160"/>
 <path class="ln hd" d="M504.5 163.4L510 160L504.5 156.6"/>
-<circle class="bdg" cx="503.0" cy="274.0" r="8"/>
-<text class="bn" x="503.0" y="277.4" text-anchor="middle">6</text>
-<circle class="bdg" cx="32" cy="466" r="8"/>
-<text class="bn" x="32" y="469.4" text-anchor="middle">1</text>
-<text class="s" x="48" y="470">release + signed ring pointer pushed, signed with the release key</text>
-<circle class="bdg" cx="32" cy="488" r="8"/>
-<text class="bn" x="32" y="491.4" text-anchor="middle">2</text>
-<text class="s" x="48" y="492">halod verifies with its release pubkeys: signature, org, ring, seq, expiry</text>
-<circle class="bdg" cx="32" cy="510" r="8"/>
-<text class="bn" x="32" y="513.4" text-anchor="middle">3</text>
-<text class="s" x="48" y="514">device token: GET fleet/ring, POST fleet/report, GET fleet/killswitch</text>
-<circle class="bdg" cx="32" cy="532" r="8"/>
-<text class="bn" x="32" y="535.4" text-anchor="middle">4</text>
-<text class="s" x="48" y="536">gateway token: GET gateway/killswitch; the list is signed (ed25519 or P-256), &lt;= 10 min old</text>
-<circle class="bdg" cx="32" cy="554" r="8"/>
-<text class="bn" x="32" y="557.4" text-anchor="middle">5</text>
-<text class="s" x="48" y="558">OTLP bearer on :4319 -&gt; halo.source=gateway, the only source that may auto-kill</text>
-<circle class="bdg" cx="32" cy="576" r="8"/>
-<text class="bn" x="32" y="579.4" text-anchor="middle">6</text>
-<text class="s" x="48" y="580">gateways verify developer JWTs against the IdP's JWKS (OIDC discovery)</text>
+<circle class="bdg" cx="503.0" cy="288.0" r="8"/>
+<text class="bn" x="503.0" y="291.4" text-anchor="middle">6</text>
+<circle class="bdg" cx="32" cy="476" r="8"/>
+<text class="bn" x="32" y="479.4" text-anchor="middle">1</text>
+<text class="s" x="48" y="480">release + signed ring pointer pushed, signed with the release key</text>
+<circle class="bdg" cx="32" cy="498" r="8"/>
+<text class="bn" x="32" y="501.4" text-anchor="middle">2</text>
+<text class="s" x="48" y="502">halod verifies with its release pubkeys: signature, org, ring, seq, expiry</text>
+<circle class="bdg" cx="32" cy="520" r="8"/>
+<text class="bn" x="32" y="523.4" text-anchor="middle">3</text>
+<text class="s" x="48" y="524">device token: GET fleet/ring, POST fleet/report, GET fleet/killswitch</text>
+<circle class="bdg" cx="32" cy="542" r="8"/>
+<text class="bn" x="32" y="545.4" text-anchor="middle">4</text>
+<text class="s" x="48" y="546">gateway token: GET gateway/killswitch; the list is signed (ed25519 or P-256), &lt;= 10 min old</text>
+<circle class="bdg" cx="32" cy="564" r="8"/>
+<text class="bn" x="32" y="567.4" text-anchor="middle">5</text>
+<text class="s" x="48" y="568">OTLP bearer on :4319 -&gt; halo.source=gateway, the only source that may auto-kill</text>
+<circle class="bdg" cx="32" cy="586" r="8"/>
+<text class="bn" x="32" y="589.4" text-anchor="middle">6</text>
+<text class="s" x="48" y="590">gateways verify developer JWTs against the IdP's JWKS (OIDC discovery)</text>
 </svg>

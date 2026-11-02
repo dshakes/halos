@@ -26,7 +26,7 @@ Headers owned by the gateway (from `internal/gateway/decision.go`):
 <img class="diagram dark:sl-hidden" src="/halos/diagrams/header-stripping-light.svg" alt="The client sends a forged x-halo-ring header; the gateway deletes every x-halo header, verifies the JWT for user and groups, decides ring, release, experiment and variant, then sets x-halo stamps on the upstream request." width="760" />
 <img class="diagram light:sl-hidden" src="/halos/diagrams/header-stripping-dark.svg" alt="The client sends a forged x-halo-ring header; the gateway deletes every x-halo header, verifies the JWT for user and groups, decides ring, release, experiment and variant, then sets x-halo stamps on the upstream request." width="760" />
 
-The stamps go on the **upstream request**. They are not added to the response the client receives.
+The stamps go on the **upstream request**. They are not added to the response the client receives, with one exception: `halo-proxy` adds `X-Halo-Budget: <budget>; scope=...; used=N%; state=alert|exceeded|refused; reset=<RFC3339>` to the **response** when a [cost budget](/halos/guides/cost-budgets/) is not `ok` (`cmd/halo-proxy/budget.go:143`).
 
 ## Killed experiments
 

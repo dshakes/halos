@@ -5,8 +5,8 @@ description: The developer kiosk and operator console in halo-server. Launchers,
 
 `halo-server` serves a developer portal ("kiosk") next to the operator API. Developers sign in with the org's OIDC provider, see which ring and profile they are on, get a launcher for the environment they want, and ask for access. Nothing they do changes production directly: enrollment issues a scoped device credential, and access requests end as **pull requests a human merges**.
 
-<img class="diagram dark:sl-hidden" src="/halos/diagrams/enrollment-light.svg" alt="A developer logs in to the halo-server portal through OIDC, requests a laptop launch and gets a one-time token, enrolls the laptop to receive halod.yaml with a device token, and halod then resolves its ring live. Access requests are approved by an admin and become a policy PR, never a merge." width="760" />
-<img class="diagram light:sl-hidden" src="/halos/diagrams/enrollment-dark.svg" alt="A developer logs in to the halo-server portal through OIDC, requests a laptop launch and gets a one-time token, enrolls the laptop to receive halod.yaml with a device token, and halod then resolves its ring live. Access requests are approved by an admin and become a policy PR, never a merge." width="760" />
+<img class="diagram dark:sl-hidden" src="/halos/diagrams/enrollment-light.svg" alt="A developer logs in to the halo-server portal through OIDC or SAML, requests a laptop launch and gets a one-time token, enrolls the laptop to receive halod.yaml with a device token, and halod then resolves its ring live. Access requests are approved by an approver and become a policy PR, never a merge." width="760" />
+<img class="diagram light:sl-hidden" src="/halos/diagrams/enrollment-dark.svg" alt="A developer logs in to the halo-server portal through OIDC or SAML, requests a laptop launch and gets a one-time token, enrolls the laptop to receive halod.yaml with a device token, and halod then resolves its ring live. Access requests are approved by an approver and become a policy PR, never a merge." width="760" />
 
 ## Turn it on
 

@@ -59,7 +59,7 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <rect class="card" x="276.0" y="48" width="208.0" height="66" rx="12" filter="url(#sh)"/>
 <text class="t" x="292" y="69.5">Validate</text>
 <text class="m" x="292" y="87.5">Org.Validate</text>
-<text class="m" x="292" y="103.5">+ 13 guardrails</text>
+<text class="m" x="292" y="103.5">+ 18 guardrails</text>
 <rect class="card" x="528.0" y="48" width="208.0" height="66" rx="12" filter="url(#sh)"/>
 <text class="t" x="544" y="69.5">Build ring</text>
 <text class="m" x="544" y="87.5">release.BuildRing</text>

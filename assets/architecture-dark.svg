@@ -63,7 +63,7 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <rect class="soft" x="454.0" y="52" width="179.0" height="52" rx="12"/>
 <rect class="ring" x="454.75" y="52.75" width="177.5" height="50.5" rx="11.25"/>
 <text class="t" x="470" y="74.5">Signed release</text>
-<text class="s" x="470" y="92.5">OCI · ed25519 · signed</text>
+<text class="s" x="470" y="92.5">OCI · file · KMS · HSM</text>
 <rect class="card" x="661.0" y="52" width="179.0" height="52" rx="12" filter="url(#sh)"/>
 <text class="t" x="677" y="74.5">Ring pointers</text>
 <text class="s" x="677" y="92.5">r0 → r1 → r2 → GA</text>
@@ -128,7 +128,7 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <rect class="soft" x="628" y="358" width="216" height="44" rx="12"/>
 <rect class="ring" x="628.75" y="358.75" width="214.5" height="42.5" rx="11.25"/>
 <text class="t" x="644" y="376.5">controller</text>
-<text class="s" x="644" y="394.5">mSPRT · ROI · rollback</text>
+<text class="s" x="644" y="394.5">mSPRT · rollouts · rollback</text>
 <rect class="card" x="628" y="408" width="216" height="44" rx="12" filter="url(#sh)"/>
 <text class="t" x="644" y="426.5">halo-server</text>
 <text class="s" x="644" y="444.5">console · RBAC · SCIM · SIEM</text>

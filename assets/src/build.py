@@ -461,7 +461,7 @@ def hero():
         w,
         h,
         "Signed release",
-        ["OCI · ed25519", "content-addressed"],
+        ["OCI · signed", "content-addressed"],
         kind="accent",
         kicker="02 · Release",
     )
@@ -545,7 +545,7 @@ def architecture():
         [
             ("Policy repo", ["git · YAML · review"]),
             ("halo release", ["compile · validate · sign"]),
-            ("Signed release", ["OCI · ed25519 · signed"], "accent"),
+            ("Signed release", ["OCI · file · KMS · HSM"], "accent"),
             ("Ring pointers", ["r0 → r1 → r2 → GA"]),
         ],
         x0=40,
@@ -588,7 +588,7 @@ def architecture():
                 ("OTEL collector", ["halo.* · session ledger"]),
                 ("ClickHouse", ["halo.* tables"]),
                 ("halo eval", ["pass@k · LLM judge · matrix"]),
-                ("controller", ["mSPRT · ROI · rollback"], "accent"),
+                ("controller", ["mSPRT · rollouts · rollback"], "accent"),
                 ("halo-server", ["console · RBAC · SCIM · SIEM"]),
                 ("Postgres (HA)", ["replicas · leader lease"]),
                 ("MCP · copilot", ["halo mcp serve · halo copilot"]),
@@ -1451,7 +1451,7 @@ def docs_diagrams():
                 "every 10s",
                 [
                     (2, 1, "GET /api/v1/gateway/killswitch · gateway token", "call"),
-                    (1, 2, "signed list {version, experiments, issuedAt}", "reply"),
+                    (1, 2, "signed list {version, experiments, toggles, issuedAt}", "reply"),
                     (
                         "self",
                         2,
@@ -1795,7 +1795,7 @@ def docs_diagrams():
         kind="accent",
     )
     d.zone(24, 212, 300, 164, "Supply chain")
-    d.card(40, 248, 268, 48, "ed25519 signing key", ["CI or HSM / KMS"])
+    d.card(40, 248, 268, 48, "signing key (by URI)", ["CI or HSM / KMS"])
     d.card(
         40, 316, 268, 48, "OCI registry", ["release + pointer · untrusted transport"]
     )
@@ -1813,14 +1813,14 @@ def docs_diagrams():
     d.card(452, 328, 268, 36, "Managed config files")
     d.path([(586, 316), (586, 322)], "line")
     d.zone(24, 400, 712, 100, "halo-server")
-    d.card(40, 436, 320, 56, "Portal", ["OIDC login · enrollment + device tokens"])
+    d.card(40, 436, 320, 56, "Portal", ["OIDC/SAML login · enrollment + device tokens"])
     d.card(
         452,
         436,
         268,
         56,
         "Kill list",
-        ["signed with a separate ed25519 key"],
+        ["signed with a separate key"],
         kind="accent",
     )
     d.path([(314, 86), (446, 86)], "line")
@@ -1908,21 +1908,21 @@ def docs_diagrams():
     seq(
         "enrollment",
         "Self-service enrollment",
-        "A developer logs in to the halo-server portal through OIDC, requests a laptop launch and gets a "
+        "A developer logs in to the halo-server portal through OIDC (or SAML), requests a laptop launch and gets a "
         "one-time token, enrolls the laptop to receive halod.yaml with a device token, and halod then "
-        "resolves its ring live. Access requests are approved by an admin and become a policy PR, never a merge.",
+        "resolves its ring live. Access requests are approved by an approver or admin and become a policy PR, never a merge.",
         [
             ("Developer", ""),
             ("Portal", "halo-server"),
-            ("IdP", "OIDC"),
-            ("Admin", "adminGroups"),
+            ("IdP", "OIDC or SAML"),
+            ("Approver", "approver role"),
             ("Policy repo", "git"),
             ("Laptop", "halod"),
         ],
         [
             (0, 1, "GET /auth/login", "call"),
-            (1, 2, "authorization code flow", "call"),
-            (2, 1, "id token (user, groups)", "reply"),
+            (1, 2, "authorization code flow (or SAML)", "call"),
+            (2, 1, "id token or assertion (user, groups)", "reply"),
             (0, 1, "POST /api/v1/launch/laptop", "call"),
             (1, 0, "one-time token (15 min TTL) + enroll commands", "reply"),
             (0, 5, "run enroll.sh with the one-time TOKEN", "call"),
@@ -2404,8 +2404,8 @@ def deep_dive():
     stage_list(
         "lld-request-path",
         "Request path inside halo-proxy",
-        "Order of operations in cmd/halo-proxy ServeHTTP: snapshot, identity, body bound, kill list, "
-        "decision per alias, route order, attempts with translation, header hygiene, shadow mirror, "
+        "Order of operations in cmd/halo-proxy ServeHTTP: snapshot, identity and SCIM directory, body bound, kill list, "
+        "DLP scan and decision per alias, posture and budget gates, route order, attempts with translation, header hygiene, shadow mirror, "
         "failover with breaker and upstream auth, streaming, and deferred metrics in a defer.",
         "cmd/halo-proxy · Proxy.ServeHTTP",
         [
@@ -2417,8 +2417,8 @@ def deep_dive():
             ),
             (
                 "Verify the caller",
-                "identity: jwt | trusted_header | none",
-                "401 unauthorized",
+                "jwt | trusted_header | none; SCIM dir",
+                "401 / 403",
                 "danger",
             ),
             (
@@ -2435,8 +2435,14 @@ def deep_dive():
             ),
             (
                 "Decide ring, toggle, experiment",
-                "PrepareVerified -> Decide, per alias",
-                "400 / 404 not served",
+                "PrepareVerified: DLP scan, Decide per alias",
+                "400 / 404 / 413",
+                "danger",
+            ),
+            (
+                "Posture and budget gates",
+                "gate (posture, version), budgetGate",
+                "403 / 429 / 503",
                 "danger",
             ),
             (
@@ -2487,7 +2493,7 @@ def deep_dive():
         "Release pipeline",
         "halo release publish: load and validate the policy, build the ring release and one release per "
         "client-axis variant, render every harness for every OS, run the CheckRendered backstop, pack a "
-        "content-addressed tar, sign its digest with ed25519 (cosign optional co-signer), push it and tag "
+        "content-addressed tar, sign its digest with the key named by --key-uri (file://, awskms:// or exec://; ed25519 or ECDSA P-256; cosign optional co-signer), push it and tag "
         "v<version> immutably, then sign and push the ring pointer with org, ring, digest, seq and expiry.",
     )
     rows = [
@@ -2495,7 +2501,7 @@ def deep_dive():
             "1 · policy",
             [
                 ("Load", ["policy.Load", "strict YAML"]),
-                ("Validate", ["Org.Validate", "+ 13 guardrails"]),
+                ("Validate", ["Org.Validate", "+ 18 guardrails"]),
                 ("Build ring", ["release.BuildRing", "+1 release per variant"]),
             ],
         ),
@@ -2510,7 +2516,7 @@ def deep_dive():
         (
             "3 · sign and push",
             [
-                ("Sign", ["ed25519(digest)", "cosign co-sign (opt.)"]),
+                ("Sign", ["sign(digest) via key URI", "cosign co-sign (opt.)"]),
                 ("Push", ["config + layer blobs", "sig in annotations"]),
                 ("Tag", ["v<version>", "immutable: refuse move"]),
             ],
@@ -2519,7 +2525,7 @@ def deep_dive():
             "4 · ring pointer",
             [
                 ("Pointer", ["{org, ring, digest,", "seq, issuedAt, exp}"]),
-                ("Sign pointer", ["ed25519(domain +", "sha256(payload))"]),
+                ("Sign pointer", ["sign(domain +", "sha256(payload))"]),
                 ("Tag", ["ring-<r>.pointer", "+ ring-<r> (info)"]),
             ],
         ),
@@ -2745,9 +2751,9 @@ def deep_dive():
         W,
         620,
         "Trust zones and keys",
-        "Who holds which key or token. The publisher holds the release ed25519 private key; the registry is "
+        "Who holds which key or token. The publisher holds the release private key (a file, AWS KMS or an external signer, by key URI); the registry is "
         "untrusted storage and halod verifies with the release public keys. halo-server holds the kill-list "
-        "private key, the gateway and fleet tokens, hashed device tokens and the OIDC secrets. Gateways hold "
+        "private key, the gateway and fleet tokens, hashed device, service and SCIM tokens, the OIDC secret and the SAML SP key. Gateways hold "
         "the kill public key, the gateway token, provider credentials and the OTLP gateway token. The "
         "collector separates gateway, eval and CLI receivers by token; only gateway evidence may auto-kill.",
     )
@@ -2766,7 +2772,7 @@ def deep_dive():
         24,
         "Publisher (CI)",
         [
-            ("release key: ed25519", "danger"),
+            ("release key: key URI", "danger"),
             ("cosign key (optional)", "chip"),
             ("pointer state file", "chip"),
         ],
@@ -2776,12 +2782,13 @@ def deep_dive():
         24,
         "halo-server",
         [
-            ("kill key: ed25519", "danger"),
+            ("kill key: key URI", "danger"),
             ("gateway token (sha256)", "chip"),
             ("fleet token", "chip"),
             ("device tokens (hashed)", "chip"),
             ("release pubkey (enroll)", "chip"),
-            ("OIDC client secret", "chip"),
+            ("service/SCIM token hashes", "chip"),
+            ("OIDC secret, SAML SP key", "chip"),
             ("session key", "chip"),
         ],
     )
@@ -2856,7 +2863,7 @@ def deep_dive():
         "release + signed ring pointer pushed, signed with the release key",
         "halod verifies with its release pubkeys: signature, org, ring, seq, expiry",
         "device token: GET fleet/ring, POST fleet/report, GET fleet/killswitch",
-        "gateway token: GET gateway/killswitch; the list is ed25519-signed, <= 10 min old",
+        "gateway token: GET gateway/killswitch; the list is signed (ed25519 or P-256), <= 10 min old",
         "OTLP bearer on :4319 -> halo.source=gateway, the only source that may auto-kill",
         "gateways verify developer JWTs against the IdP's JWKS (OIDC discovery)",
     ]

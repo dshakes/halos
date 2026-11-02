@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 776" width="760" height="776" role="img" aria-labelledby="t d" font-family="ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 834" width="760" height="834" role="img" aria-labelledby="t d" font-family="ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif">
 <title id="t">Request path inside halo-proxy</title>
-<desc id="d">Order of operations in cmd/halo-proxy ServeHTTP: snapshot, identity, body bound, kill list, decision per alias, route order, attempts with translation, header hygiene, shadow mirror, failover with breaker and upstream auth, streaming, and deferred metrics in a defer.</desc>
+<desc id="d">Order of operations in cmd/halo-proxy ServeHTTP: snapshot, identity and SCIM directory, body bound, kill list, DLP scan and decision per alias, posture and budget gates, route order, attempts with translation, header hygiene, shadow mirror, failover with breaker and upstream auth, streaming, and deferred metrics in a defer.</desc>
 <style>
 .cv{fill:#f7f2e9;stroke:#e6ddcd;stroke-width:1.5}
 .card{fill:#fffdf9;stroke:#e3d9c8;stroke-width:1.5}
@@ -50,7 +50,7 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <linearGradient id="gs" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="760" y2="0"><stop offset="0" stop-color="#b4400f" stop-opacity="0.08"/><stop offset="1" stop-color="#8a5300" stop-opacity="0.08"/></linearGradient>
 <filter id="sh" x="-10%" y="-10%" width="120%" height="140%"><feDropShadow dx="0" dy="1" stdDeviation="1.6" flood-color="#3c280a" flood-opacity="0.08"/></filter>
 </defs>
-<rect class="cv" x=".75" y=".75" width="758.5" height="774.5" rx="16"/>
+<rect class="cv" x=".75" y=".75" width="758.5" height="832.5" rx="16"/>
 <text class="k ka" x="24" y="38">CMD/HALO-PROXY · PROXY.SERVEHTTP</text>
 <rect class="card" x="56" y="64" width="452" height="46" rx="12" filter="url(#sh)"/>
 <text class="t" x="96" y="83.5">Load the policy snapshot</text>
@@ -63,14 +63,14 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <text class="xs xd" x="609.862" y="90.6" text-anchor="middle">503 policy_unavailable</text>
 <rect class="card" x="56" y="122" width="452" height="46" rx="12" filter="url(#sh)"/>
 <text class="t" x="96" y="141.5">Verify the caller</text>
-<text class="m" x="96" y="159.5">identity: jwt | trusted_header | none</text>
+<text class="m" x="96" y="159.5">jwt | trusted_header | none; SCIM dir</text>
 <circle class="bdg" cx="76" cy="145.0" r="8"/>
 <text class="bn" x="76" y="148.4" text-anchor="middle">2</text>
 <path class="ln" d="M76 111L76 113"/>
 <path class="ld" d="M514 145L544 145"/>
 <path class="ld hd" d="M538.5 148.4L544 145L538.5 141.6"/>
-<rect class="pd" x="548.0" y="136.0" width="98.9" height="18" rx="9"/>
-<text class="xs xd" x="597.472" y="148.6" text-anchor="middle">401 unauthorized</text>
+<rect class="pd" x="548.0" y="136.0" width="61.2" height="18" rx="9"/>
+<text class="xs xd" x="578.625" y="148.6" text-anchor="middle">401 / 403</text>
 <rect class="card" x="56" y="180" width="452" height="46" rx="12" filter="url(#sh)"/>
 <text class="t" x="96" y="199.5">Bound the body</text>
 <text class="m" x="96" y="217.5">MaxBytesReader, 32 MiB default</text>
@@ -89,70 +89,80 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <path class="ln" d="M76 227L76 229"/>
 <rect class="card" x="56" y="296" width="452" height="46" rx="12" filter="url(#sh)"/>
 <text class="t" x="96" y="315.5">Decide ring, toggle, experiment</text>
-<text class="m" x="96" y="333.5">PrepareVerified -&gt; Decide, per alias</text>
+<text class="m" x="96" y="333.5">PrepareVerified: DLP scan, Decide per alias</text>
 <circle class="bdg" cx="76" cy="319.0" r="8"/>
 <text class="bn" x="76" y="322.4" text-anchor="middle">5</text>
 <path class="ln" d="M76 285L76 287"/>
 <path class="ld" d="M514 319L544 319"/>
 <path class="ld hd" d="M538.5 322.4L544 319L538.5 315.6"/>
-<rect class="pd" x="548.0" y="310.0" width="117.3" height="18" rx="9"/>
-<text class="xs xd" x="606.66" y="322.6" text-anchor="middle">400 / 404 not served</text>
+<rect class="pd" x="548.0" y="310.0" width="90.2" height="18" rx="9"/>
+<text class="xs xd" x="593.115" y="322.6" text-anchor="middle">400 / 404 / 413</text>
 <rect class="card" x="56" y="354" width="452" height="46" rx="12" filter="url(#sh)"/>
-<text class="t" x="96" y="373.5">Order the route targets</text>
-<text class="m" x="96" y="391.5">RouteOrder: tiers, assign.Pick(user, session)</text>
+<text class="t" x="96" y="373.5">Posture and budget gates</text>
+<text class="m" x="96" y="391.5">gate (posture, version), budgetGate</text>
 <circle class="bdg" cx="76" cy="377.0" r="8"/>
 <text class="bn" x="76" y="380.4" text-anchor="middle">6</text>
 <path class="ln" d="M76 343L76 345"/>
+<path class="ld" d="M514 377L544 377"/>
+<path class="ld hd" d="M538.5 380.4L544 377L538.5 373.6"/>
+<rect class="pd" x="548.0" y="368.0" width="90.2" height="18" rx="9"/>
+<text class="xs xd" x="593.115" y="380.6" text-anchor="middle">403 / 429 / 503</text>
 <rect class="card" x="56" y="412" width="452" height="46" rx="12" filter="url(#sh)"/>
-<text class="t" x="96" y="431.5">Build attempts, translate</text>
-<text class="m" x="96" y="449.5">BuildOutbound, CheckURL, signHosts</text>
+<text class="t" x="96" y="431.5">Order the route targets</text>
+<text class="m" x="96" y="449.5">RouteOrder: tiers, assign.Pick(user, session)</text>
 <circle class="bdg" cx="76" cy="435.0" r="8"/>
 <text class="bn" x="76" y="438.4" text-anchor="middle">7</text>
 <path class="ln" d="M76 401L76 403"/>
-<path class="ld" d="M514 435L544 435"/>
-<path class="ld hd" d="M538.5 438.4L544 435L538.5 431.6"/>
-<rect class="pd" x="548.0" y="426.0" width="105.1" height="18" rx="9"/>
-<text class="xs xd" x="600.57" y="438.6" text-anchor="middle">502 bad_upstream</text>
 <rect class="card" x="56" y="470" width="452" height="46" rx="12" filter="url(#sh)"/>
-<text class="t" x="96" y="489.5">Header hygiene</text>
-<text class="m" x="96" y="507.5">drop x-halo-* + identity, stamp, strip creds</text>
+<text class="t" x="96" y="489.5">Build attempts, translate</text>
+<text class="m" x="96" y="507.5">BuildOutbound, CheckURL, signHosts</text>
 <circle class="bdg" cx="76" cy="493.0" r="8"/>
 <text class="bn" x="76" y="496.4" text-anchor="middle">8</text>
 <path class="ln" d="M76 459L76 461"/>
+<path class="ld" d="M514 493L544 493"/>
+<path class="ld hd" d="M538.5 496.4L544 493L538.5 489.6"/>
+<rect class="pd" x="548.0" y="484.0" width="105.1" height="18" rx="9"/>
+<text class="xs xd" x="600.57" y="496.6" text-anchor="middle">502 bad_upstream</text>
 <rect class="card" x="56" y="528" width="452" height="46" rx="12" filter="url(#sh)"/>
-<text class="t" x="96" y="547.5">Mirror sampled steps</text>
-<text class="m" x="96" y="565.5">shadow.Jobs -&gt; bounded async queue</text>
+<text class="t" x="96" y="547.5">Header hygiene</text>
+<text class="m" x="96" y="565.5">drop x-halo-* + identity, stamp, strip creds</text>
 <circle class="bdg" cx="76" cy="551.0" r="8"/>
 <text class="bn" x="76" y="554.4" text-anchor="middle">9</text>
 <path class="ln" d="M76 517L76 519"/>
-<path class="la" d="M514 551L544 551"/>
-<path class="la hd" d="M538.5 554.4L544 551L538.5 547.6"/>
-<rect class="pl" x="548.0" y="542.0" width="74.8" height="18" rx="9"/>
-<text class="xs" x="585.398" y="554.6" text-anchor="middle">halo-shadow</text>
 <rect class="card" x="56" y="586" width="452" height="46" rx="12" filter="url(#sh)"/>
-<text class="t" x="96" y="605.5">Failover over attempts</text>
-<text class="m" x="96" y="623.5">Breaker.Allow, auth, RoundTrip, 5xx/429 next</text>
+<text class="t" x="96" y="605.5">Mirror sampled steps</text>
+<text class="m" x="96" y="623.5">shadow.Jobs -&gt; bounded async queue</text>
 <circle class="bdg" cx="76" cy="609.0" r="8"/>
 <text class="bn" x="76" y="612.4" text-anchor="middle">10</text>
 <path class="ln" d="M76 575L76 577"/>
-<path class="ld" d="M514 609L544 609"/>
-<path class="ld hd" d="M538.5 612.4L544 609L538.5 605.6"/>
-<rect class="pd" x="548.0" y="600.0" width="130.9" height="18" rx="9"/>
-<text class="xs xd" x="613.433" y="612.6" text-anchor="middle">503 no_available_target</text>
+<path class="la" d="M514 609L544 609"/>
+<path class="la hd" d="M538.5 612.4L544 609L538.5 605.6"/>
+<rect class="pl" x="548.0" y="600.0" width="74.8" height="18" rx="9"/>
+<text class="xs" x="585.398" y="612.6" text-anchor="middle">halo-shadow</text>
 <rect class="card" x="56" y="644" width="452" height="46" rx="12" filter="url(#sh)"/>
-<text class="t" x="96" y="663.5">Stream the response</text>
-<text class="m" x="96" y="681.5">FlushInterval -1, eventstream -&gt; SSE</text>
+<text class="t" x="96" y="663.5">Failover over attempts</text>
+<text class="m" x="96" y="681.5">Breaker.Allow, auth, RoundTrip, 5xx/429 next</text>
 <circle class="bdg" cx="76" cy="667.0" r="8"/>
 <text class="bn" x="76" y="670.4" text-anchor="middle">11</text>
 <path class="ln" d="M76 633L76 635"/>
+<path class="ld" d="M514 667L544 667"/>
+<path class="ld hd" d="M538.5 670.4L544 667L538.5 663.6"/>
+<rect class="pd" x="548.0" y="658.0" width="130.9" height="18" rx="9"/>
+<text class="xs xd" x="613.433" y="670.6" text-anchor="middle">503 no_available_target</text>
 <rect class="card" x="56" y="702" width="452" height="46" rx="12" filter="url(#sh)"/>
-<text class="t" x="96" y="721.5">Deferred metrics and log</text>
-<text class="m" x="96" y="739.5">OTLP halo.gateway.*, /metrics, access log</text>
+<text class="t" x="96" y="721.5">Stream the response</text>
+<text class="m" x="96" y="739.5">FlushInterval -1, eventstream -&gt; SSE</text>
 <circle class="bdg" cx="76" cy="725.0" r="8"/>
 <text class="bn" x="76" y="728.4" text-anchor="middle">12</text>
 <path class="ln" d="M76 691L76 693"/>
-<path class="la" d="M514 725L544 725"/>
-<path class="la hd" d="M538.5 728.4L544 725L538.5 721.6"/>
-<rect class="pa" x="548.0" y="716.0" width="88.0" height="18" rx="9"/>
-<text class="xs xa" x="592.013" y="728.6" text-anchor="middle">collector :4319</text>
+<rect class="card" x="56" y="760" width="452" height="46" rx="12" filter="url(#sh)"/>
+<text class="t" x="96" y="779.5">Deferred metrics and log</text>
+<text class="m" x="96" y="797.5">OTLP halo.gateway.*, /metrics, access log</text>
+<circle class="bdg" cx="76" cy="783.0" r="8"/>
+<text class="bn" x="76" y="786.4" text-anchor="middle">13</text>
+<path class="ln" d="M76 749L76 751"/>
+<path class="la" d="M514 783L544 783"/>
+<path class="la hd" d="M538.5 786.4L544 783L538.5 779.6"/>
+<rect class="pa" x="548.0" y="774.0" width="88.0" height="18" rx="9"/>
+<text class="xs xa" x="592.013" y="786.6" text-anchor="middle">collector :4319</text>
 </svg>

@@ -54,7 +54,7 @@ For Claude Code these ride on `OTEL_RESOURCE_ATTRIBUTES`. Codex uses its `[otel]
 
 ## Controller metrics
 
-`halo-server --controller` serves Prometheus text on `--metrics-listen` (empty disables). **The listener is unauthenticated**: bind it to an internal address and restrict it with a NetworkPolicy.
+`halo-server --controller` serves these on `--metrics-listen` (empty disables). **The listener is unauthenticated**: bind it to an internal address and restrict it with a NetworkPolicy.
 
 | Metric | Type | Meaning |
 |---|---|---|
@@ -85,6 +85,9 @@ With the Postgres backend (`--database-url-file`, [ADR-0021](/halos/adr/0021-ha-
 | `halo_server_audit_forward_lag_entries{sink}` | gauge | Entries appended but not yet delivered to the sink |
 | `halo_server_audit_forward_last_success_timestamp_seconds{sink}` | gauge | Unix time of the last delivered batch (0 since start: none yet) |
 | `halo_server_audit_rotate_errors_total` | counter | Failed audit log rotations; entries keep going to the active segment |
+| `halo_server_audit_append_errors_total` | counter | Audit appends that failed: the action was refused (strict) or went unrecorded (best-effort) |
+| `halo_server_policy_refused_total` | counter | Policy loads refused for security validation errors (the last good policy keeps serving) |
+| `halo_server_policy_tightened_total` | counter | Refused policy loads whose workload rule removals were applied over the last good policy |
 
 ## Server request and security metrics
 
@@ -108,7 +111,7 @@ These processes expose Prometheus text on a **separate, unauthenticated** addres
 
 | Process | Flag | Default | Metrics |
 |---|---|---|---|
-| `halo-proxy` | `--admin-listen` (also `/healthz`) | `127.0.0.1:9090` | `halo_proxy_requests_total{ring,variant,status}`, `halo_proxy_upstream_ttfb_seconds`, `halo_proxy_request_duration_seconds`, `halo_proxy_auth_failures_total`, `halo_proxy_shadow_dropped_total`, `halo_proxy_shadow_failed_total` |
+| `halo-proxy` | `--admin-listen` (also `/healthz`, `/readyz`) | `127.0.0.1:9090` | `halo_proxy_requests_total{ring,variant,status}`, `halo_proxy_upstream_attempts_total`, `halo_proxy_gate_total{gate,ring,outcome}`, `halo_proxy_budget_*`, `halo_proxy_dlp_*`, `halo_proxy_upstream_ttfb_seconds`, `halo_proxy_request_duration_seconds`, `halo_proxy_auth_failures_total`, `halo_proxy_shadow_dropped_total`, `halo_proxy_shadow_failed_total` |
 | `halo-shadow` | `-metrics-listen` (env `HALO_SHADOW_METRICS_LISTEN`) | off | `halo_shadow_mirrored_total`, `halo_shadow_dropped_total`, `halo_shadow_errors_total`, `halo_shadow_spend_usd`, `halo_shadow_budget_usd` |
 | `halo-server` | `--metrics-listen` | off | `halo_server_audit_*`, the request and security metrics above; with `--controller`, `halo_controller_*`; with `--database-url-file`, `halo_leader*` and `halo_db_*` above |
 
