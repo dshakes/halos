@@ -4,14 +4,16 @@
 .DESCRIPTION
   Installs halo (and halod with -WithAgent) to $env:ProgramFiles\Halos. Verifies
   every archive against checksums.txt, and checksums.txt against its cosign
-  signature when cosign is on PATH (otherwise warns and trusts the sha256 only).
+  signature when cosign is on PATH (otherwise warns and trusts the sha256 only;
+  -RequireSignature or HALOS_REQUIRE_SIGNATURE=1 refuses instead).
   Binaries are not Authenticode-signed. The directory is limited to SYSTEM and
   Administrators (write) plus Users (read/execute), matching halod's owner check.
 #>
 [CmdletBinding()]
 param(
   [string]$Version = $env:HALOS_VERSION,
-  [switch]$WithAgent
+  [switch]$WithAgent,
+  [switch]$RequireSignature
 )
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -52,6 +54,8 @@ try {
       (Join-Path $tmp 'checksums.txt') *> $null
     if ($LASTEXITCODE -ne 0) { throw 'install.ps1: cosign signature verification FAILED for checksums.txt' }
     Write-Host 'cosign signature verified'
+  } elseif ($RequireSignature -or $env:HALOS_REQUIRE_SIGNATURE -eq '1') {
+    throw 'install.ps1: cosign is not on PATH and -RequireSignature is set; install cosign and re-run'
   } else {
     Write-Warning 'cosign not found; the signature was NOT verified.'
     Write-Warning 'Trusting the sha256 checksums downloaded from the same origin.'

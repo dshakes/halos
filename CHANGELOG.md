@@ -4,6 +4,10 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added
+
+- `install.sh --require-signature` / `install.ps1 -RequireSignature` (or `HALOS_REQUIRE_SIGNATURE=1`): refuse to install when cosign is missing instead of falling back to the same-origin sha256.
+
 ### Fixed
 
 - `make load-fleet` runs halo-server with `--api-rate-limit 0`: all simulated devices enroll through one portal identity, which the per-principal API budget (v0.5.2) throttled to 20/s, so the 5,000- and 10,000-device scenarios failed with 429. The sizing guide says to raise the budget for bulk enrollment through one identity.

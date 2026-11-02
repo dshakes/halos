@@ -1,9 +1,10 @@
 #!/bin/sh
 # Halos installer for macOS and Linux.
-#   sh install.sh [--version vX.Y.Z] [--prefix DIR] [--with-agent]
+#   sh install.sh [--version vX.Y.Z] [--prefix DIR] [--with-agent] [--require-signature]
 # Installs halo (and halod with --with-agent) into DIR/bin (default ~/.local).
 # Verifies checksums.txt against its cosign signature when cosign is on PATH
-# (else warns loudly and trusts the sha256 only), then each archive against
+# (else warns loudly and trusts the sha256 only; --require-signature or
+# HALOS_REQUIRE_SIGNATURE=1 refuses instead), then each archive against
 # checksums.txt. Never uses sudo; pick a prefix you can write, or run it as root.
 # --with-agent runs as root, so it needs a root-owned prefix: sudo sh install.sh --prefix /usr/local --with-agent
 set -eu
@@ -12,6 +13,7 @@ REPO=dshakes/halos
 VERSION=${HALOS_VERSION:-}
 PREFIX=${HALOS_PREFIX:-$HOME/.local}
 WITH_AGENT=0
+REQUIRE_SIG=${HALOS_REQUIRE_SIGNATURE:-0}
 
 die() { echo "install.sh: $*" >&2; exit 1; }
 
@@ -20,7 +22,8 @@ while [ $# -gt 0 ]; do
     --version) [ $# -ge 2 ] || die "--version needs a value"; VERSION=$2; shift 2 ;;
     --prefix) [ $# -ge 2 ] || die "--prefix needs a value"; PREFIX=$2; shift 2 ;;
     --with-agent) WITH_AGENT=1; shift ;;
-    -h|--help) sed -n '2,7p' "$0"; exit 0 ;;
+    --require-signature) REQUIRE_SIG=1; shift ;;
+    -h|--help) sed -n '2,8p' "$0"; exit 0 ;;
     *) die "unknown flag $1" ;;
   esac
 done
@@ -91,6 +94,8 @@ if command -v cosign >/dev/null 2>&1; then
     --bundle "$TMP/checksums.txt.sigstore.json" \
     "$TMP/checksums.txt" >/dev/null 2>&1 || die "cosign signature verification FAILED for checksums.txt"
   echo "install.sh: cosign signature verified"
+elif [ "$REQUIRE_SIG" = 1 ]; then
+  die "cosign is not on PATH and --require-signature is set; install cosign (https://docs.sigstore.dev/cosign/system_config/installation/) and re-run"
 else
   echo "install.sh: WARNING: cosign not found; the signature was NOT verified." >&2
   echo "install.sh: WARNING: trusting the sha256 checksums downloaded from the same origin." >&2
