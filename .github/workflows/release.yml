@@ -301,7 +301,8 @@ jobs:
       - name: npx runs this version
         run: |
           set -euo pipefail
-          for _ in 1 2 3 4 5 6; do npm view "@dshakesnotbot/halo@$VERSION" version >/dev/null 2>&1 && break; sleep 10; done
+          # A new package can take several minutes to appear (v0.5.2 needed more than one): wait up to 10 minutes.
+          for _ in $(seq 60); do npm view "@dshakesnotbot/halo@$VERSION" version >/dev/null 2>&1 && break; sleep 10; done
           out=$(cd "$RUNNER_TEMP" && npx -y "@dshakesnotbot/halo@$VERSION" version)
           echo "$out"
           grep -qF "$VERSION" <<<"$out" || { echo "::error::npx @dshakesnotbot/halo@$VERSION printed '$out'"; exit 1; }
