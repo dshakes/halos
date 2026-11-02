@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -69,17 +70,24 @@ type requestLog struct {
 	mu   sync.Mutex
 	byID map[string]*Request
 	log  storage.Log
+	// gone: requests deleted by retention or erasure (ADR-0040).
+	gone map[string]bool
+	gc   journalGC
 }
 
 func (l *requestLog) close() error { return storage.CloseLog(&l.mu, l.log) }
 
 func openRequestLog(o storage.Opener) (*requestLog, error) {
-	l := &requestLog{byID: map[string]*Request{}}
+	l := &requestLog{byID: map[string]*Request{}, gone: map[string]bool{}}
 	ctx, cancel := storage.Ctx()
 	defer cancel()
 	log, err := o.OpenLog(ctx, "requests", func(line []byte) {
+		if ids := tombstoneIDs(line); ids != nil {
+			l.forget(ids)
+			return
+		}
 		var r Request
-		if json.Unmarshal(line, &r) == nil && r.ID != "" { // torn line: skip
+		if json.Unmarshal(line, &r) == nil && r.ID != "" && !l.gone[r.ID] { // torn line: skip
 			if r.Status == StatusApproving {
 				r.Status = StatusPending
 			}
@@ -115,6 +123,70 @@ func (l *requestLog) catchup() error {
 	ctx, cancel := storage.Ctx()
 	defer cancel()
 	return l.log.Catchup(ctx)
+}
+
+// forget deletes requests from memory for good (caller holds mu, or replays).
+func (l *requestLog) forget(ids []string) {
+	for _, id := range ids {
+		delete(l.byID, id)
+		l.gone[id] = true
+	}
+}
+
+// remove deletes every request del selects and rewrites every request fix
+// changes (fix edits its argument in place and reports whether it did), in
+// memory and in the log (ADR-0040). Compaction drops every record of a
+// deleted request, and the superseded records of a rewritten one (all but the
+// record just saved); no other request's records are touched. dry only counts.
+func (l *requestLog) remove(del func(*Request) bool, fix func(*Request) bool, dry bool) (deleted []Request, fixed int, err error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if err := l.catchup(); err != nil {
+		return nil, 0, err
+	}
+	var ids []string
+	var changed []*Request
+	for id, r := range l.byID {
+		if r.Status == StatusApproving { // a PR is being opened: the next sweep or erasure takes it
+			continue
+		}
+		switch c := *r; {
+		case del(&c):
+			ids, deleted = append(ids, id), append(deleted, c)
+		case fix != nil && fix(&c):
+			changed = append(changed, &c)
+		}
+	}
+	if dry {
+		return deleted, len(changed), nil
+	}
+	latest := map[string][]byte{} // id -> the record just saved for it
+	for _, c := range changed {
+		if err := l.save(c); err != nil {
+			return nil, 0, err
+		}
+		latest[c.ID], _ = json.Marshal(c) // what save wrote: plain struct, cannot fail
+		l.byID[c.ID] = c
+		fixed++
+	}
+	if err := l.gc.tombstone(l.log, ids); err != nil {
+		return nil, fixed, err
+	}
+	l.forget(ids)
+	var superseded func([]byte) bool
+	if len(latest) > 0 {
+		superseded = func(rec []byte) bool {
+			var r struct {
+				ID string `json:"id"`
+			}
+			if json.Unmarshal(rec, &r) != nil {
+				return false
+			}
+			b, ok := latest[r.ID]
+			return ok && !bytes.Equal(rec, b)
+		}
+	}
+	return deleted, fixed, l.gc.compact(l.log, superseded)
 }
 
 func (l *requestLog) list(filter func(*Request) bool) []Request {

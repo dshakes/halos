@@ -25,7 +25,7 @@ None.
 
 | Command | Description |
 |---|---|
-| [`halo audit verify`](/halos/reference/cli/audit-verify/) | Verify the audit hash chain across every segment (exit 2 if broken) |
+| [`halo audit verify`](/halos/reference/cli/audit-verify/) | Verify the audit hash chain, its signed checkpoints and an external anchor (exit 2 if broken) |
 
 ## Parent
 

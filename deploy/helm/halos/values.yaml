@@ -159,6 +159,23 @@ server:
   #       - {name: splunk, type: splunk-hec, url: "https://splunk.example:8088/services/collector/event",
   #          token: {env: HALO_SPLUNK_HEC_TOKEN}, index: halo, format: ocsf}
   audit: {}
+  # Data retention (ADR-0040; guide: compliance/data-flow-and-pii). "0" keeps a store forever, the default. Needs
+  # persistence.enabled or database. Recommended: fleetReports 2160h, requests 8760h, devices 2160h, audit 9528h
+  # (13 months; at least 720h; entries are never deleted before every SIEM sink delivered them; with persistence it
+  # deletes whole rotated segments, so set audit.rotation). The sweep runs every `interval`, on the leader with database.
+  retention: {fleetReports: "0", requests: "0", devices: "0", audit: "0", interval: 1h}
+  # Signed audit checkpoints (ADR-0041; recommended). keyURI: awskms://KEY?region=R, exec:///SIGNER, or file:///path to
+  # a PKCS#8 PEM key mounted through extraVolumes/extraVolumeMounts (a dedicated key, not the kill-switch key). Every
+  # checkpointInterval (and at rotation) a signed {seq, head} is appended to the chain and exported to the SIEM sinks;
+  # verify with `halo audit verify --public-key audit.pub --anchor <SIEM export>`. Empty keyURI = unsigned (as before).
+  # previousPublicKeys: rotation (ADR-0041): an existing Secret holding the PEM public keys of audit keys keyURI
+  # replaced (keys: the Secret keys, oldest last); mounted and passed as --audit-previous-public-key-files. Restart all
+  # replicas together when keyURI changes. enableAtHead: --audit-signing-enable=<the log's current head seq>, ONLY for the
+  # first upgrade that signs a log already holding entries (or to recreate a lost signing record after checking the log
+  # against the SIEM copy). Pass it once with --set server.auditSigning.enableAtHead=N; never keep it in a values file:
+  # a stale value is refused, and halo-server logs an error on every start while it is set over a signed log.
+  # helm upgrade --reuse-values KEEPS it: run the next upgrade with --set server.auditSigning.enableAtHead=0.
+  auditSigning: {keyURI: "", checkpointInterval: 5m, previousPublicKeys: {existingSecret: "", keys: []}, enableAtHead: 0}
   # Automated experiment loop (--controller): evaluates experiments from ClickHouse, trips the kill switch on
   # rollback, opens PRs, notifies. Requires persistence.enabled (--data-dir: action log dedups PRs across restarts).
   controller:

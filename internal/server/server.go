@@ -93,6 +93,26 @@ type Config struct {
 	// Audit: log rotation and SIEM export (ADR-0016). Both need DataDir.
 	// Export runs only while RunAuditExport does.
 	Audit AuditConfig
+	// Retention bounds the unbounded stores (ADR-0040); the zero value keeps
+	// everything. The sweep runs only while RunMaintenance does.
+	Retention Retention
+	// AuditSigner signs audit checkpoints (ADR-0041): a file key, or a KMS /
+	// external signer (internal/signer). nil leaves the chain unsigned.
+	// Checkpoints are appended every AuditCheckpointInterval (0 =
+	// DefaultCheckpointInterval) while RunMaintenance runs, and at rotation.
+	AuditSigner             bundle.KeySigner
+	AuditCheckpointInterval time.Duration
+	// AuditPreviousKeys are earlier audit keys' public halves: checkpoints and
+	// vouches they signed keep verifying after a rotation (ADR-0041).
+	AuditPreviousKeys []bundle.PublicKeyVerifier
+	// AuditSigningEnableHead allows writing the audit.signing.enabled marker
+	// over a log that holds entries but was never signed (first-ever enable),
+	// or recreating a missing signing record over a signed log, but only when
+	// it equals the log's head seq at that moment (a stale value is refused),
+	// and only once per process (ADR-0041). 0 = off.
+	AuditSigningEnableHead uint64
+	// auditSigningEnableAny (tests only) allows it at any head, once.
+	auditSigningEnableAny bool
 	// SCIM 2.0 provisioning at /scim/v2 (ADR-0022). SCIMTokenSHA256 holds the
 	// hex SHA-256 of each accepted bearer token (two while rotating); empty =
 	// SCIM off. SCIMAuthoritative: the directory, not the login's groups claim
@@ -172,6 +192,7 @@ type Server struct {
 	wl            workloadExchange
 	kv            storage.KV    // ephemeral state: Backend, else in process
 	auditFails    atomic.Uint64 // audit appends that failed (strict and best-effort)
+	signRefused   atomic.Uint64 // signatures refused over an audit chain that does not verify
 	revs          revocationStore
 	metrics       serverMetrics
 
@@ -184,6 +205,13 @@ type Server struct {
 	bgSem       chan struct{}
 	bgLock      breakGlassLockout
 	graphURL    string
+
+	eraseMu    clusterMutex // one erasure at a time, across replicas (ADR-0040)
+	subjectKey []byte       // HMAC key naming erased subjects in audit entries (subjectHash)
+
+	enableMu   sync.Mutex // guards the one-shot --audit-signing-enable (takeSigningEnable)
+	enableHead uint64
+	enableAny  bool
 }
 
 // New validates cfg and returns a Server. It does not require the policy dir to load yet.
@@ -260,6 +288,15 @@ func New(cfg Config) (*Server, error) {
 	if err := cfg.Audit.Validate(); err != nil {
 		return nil, err
 	}
+	if err := cfg.Retention.validate(); err != nil {
+		return nil, err
+	}
+	if cfg.AuditCheckpointInterval != 0 && cfg.AuditCheckpointInterval < time.Minute {
+		return nil, errors.New("server: audit checkpoint interval must be at least 1m")
+	}
+	if cfg.Retention.Audit > 0 && cfg.Backend == nil && cfg.Audit.Rotation == (AuditRotation{}) {
+		cfg.Log.Warn("audit retention is set but rotation is off: the file backend deletes whole rotated segments only, so nothing will be deleted until --audit-config sets rotation")
+	}
 	if cfg.Audit.Rotation != (AuditRotation{}) {
 		switch {
 		case cfg.Backend != nil:
@@ -321,6 +358,12 @@ func New(cfg Config) (*Server, error) {
 	closers = append(closers, al.close)
 	al.shared = cfg.Backend
 	al.rot, al.log = cfg.Audit.Rotation, cfg.Log
+	if al.verifier, err = auditVerifier(cfg.AuditSigner, cfg.AuditPreviousKeys); err != nil {
+		return nil, err
+	}
+	if cfg.AuditSigner != nil {
+		al.sign, al.key = checkpointSigner(cfg.AuditSigner), cfg.AuditSigner
+	}
 	fwds, err := newAuditForwarders(cfg.Audit.Export, cfg.DataDir, al, cfg.Log)
 	if err != nil {
 		return nil, err
@@ -360,6 +403,13 @@ func New(cfg Config) (*Server, error) {
 		}
 	}
 	s.oidc.kv, s.enroll.kv = kv, kv
+	s.eraseMu = clusterMutex{kv: kvOf(cfg.Backend), name: "erasure", log: cfg.Log}
+	s.enableHead, s.enableAny = cfg.AuditSigningEnableHead, cfg.auditSigningEnableAny
+	al.checkHook = s.checkSigning // the rotation checkpoint holds the chain to the signing record too
+	s.warnSigningState()
+	if s.subjectKey, err = subjectHashKey(cfg.SessionKey); err != nil {
+		return nil, err
+	}
 	if org, _, _ := s.pol.Get(); samlSP != nil && org != nil && (len(org.Identity.RequireAcr) > 0 || len(org.Identity.RequireAmr) > 0) {
 		cfg.Log.Warn("SAML login with identity.requireAcr/requireAmr: a SAML login must carry a matching AuthnContextClassRef (requireAcr) or authnmethodsreferences attribute (requireAmr), or it is denied; check that the IdP sends them (ADR-0039)",
 			"requireAcr", org.Identity.RequireAcr, "requireAmr", org.Identity.RequireAmr)
@@ -493,6 +543,9 @@ func (s *Server) mux() *routeMux {
 	s.route(m, "GET /api/v1/budgets", s.getBudgets)
 	s.route(m, "POST /api/v1/devices/{id}/revoke", s.revokeDevice)
 	s.route(m, "POST /api/v1/users/{id}/revoke-sessions", s.revokeSessions)
+	s.route(m, "POST /api/v1/users/erase", s.eraseUser) // ADR-0040
+	s.route(m, "POST /api/v1/users/erase/{id}/confirm", s.confirmErasure)
+	s.route(m, "GET /api/v1/users/erase/{id}", s.getPendingErasure)
 	s.route(m, "POST /api/v1/revocations", s.postRevocation)
 	s.route(m, "GET /api/v1/revocations", s.listRevocations)
 	s.route(m, "POST /api/v1/service-tokens", s.createServiceToken) // ADR-0036

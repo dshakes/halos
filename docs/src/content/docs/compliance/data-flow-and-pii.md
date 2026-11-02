@@ -85,11 +85,13 @@ Halos does not send data to its maintainers. No code path in `cmd/` or `internal
 | Store | Default | Control |
 |---|---|---|
 | Shadow pairs (file or Postgres) | 30 days (`720h`) | `halo-shadow -retention`; Helm `retention`; `0` keeps forever (`cmd/halo-shadow/main.go`) |
-| Audit log (`audit.jsonl`, or `halo_audit`) | **Unbounded by default.** Rotation is off, and rotation only splits segments; it never deletes them | `--audit-config` `rotation`, then archive or delete segments yourself, and keep your SIEM copy ([SIEM export](/halos/guides/siem-export/)). Deleting a segment breaks `halo audit verify` from that point unless you keep the chain head |
+| Audit log (`audit.jsonl`, or `halo_audit`) | **Unbounded by default.** Rotation only splits segments | `--retention-audit` (at least `720h`; recommended `9528h`, 13 months): deletes entries older than that once every SIEM sink delivered them, recording the cut as an `audit.retention` entry so `halo audit verify` still passes ([ADR-0040](/halos/adr/0040-data-retention-and-erasure/)). With `--data-dir` it deletes whole rotated segments, so it needs `rotation` in `--audit-config`. Keep your SIEM copy ([SIEM export](/halos/guides/siem-export/)) |
 | Session ledger records in `halo-server` | Same as the audit log (they are audit entries) | as above |
-| Other `--data-dir` files: devices, access requests, session revocations, controller state, SCIM journal | **Unbounded**: append-only JSONL, never compacted; Postgres `halo_journal` likewise ([ADR-0021](/halos/adr/0021-ha-control-plane-on-postgres/)) | SCIM `DELETE` removes the directory record and revokes access, but no API erases a user's audit entries or device rows: handle erasure requests by your own procedure (and mind that editing the audit log breaks its chain) |
+| Access requests (`requests.jsonl`, or Postgres `halo_journal`) | **Unbounded by default** | `--retention-requests` (recommended `8760h`): deletes requests that long after their decision; pending requests are kept |
+| Devices (`devices.jsonl`, or `halo_journal`) | **Unbounded by default** | `--retention-devices` (recommended `2160h`): deletes revoked devices unused that long and expired devices that long after expiry; active devices are kept |
+| Fleet reports | Latest per reporter, plus the last 50 (`MaxHistory`); reporters that stopped reporting are kept forever by default | `--retention-fleet-reports` (recommended `2160h`): deletes reporters not seen that long, with their history |
+| Other `--data-dir` files: session revocations, controller state, SCIM journal, rollout approvals | **Unbounded**: append-only JSONL; Postgres `halo_journal` likewise ([ADR-0021](/halos/adr/0021-ha-control-plane-on-postgres/)) | One record per user (session epoch) or per change; controller state holds no personal data. SCIM `DELETE` deprovisions a user; the [erasure API](#erasure) covers the rest |
 | Credential revocations | A row is dropped an hour and a minute after its epoch, when nothing it matches can still be valid | none ([security model](/halos/concepts/security-model/#credential-revocation)) |
-| Fleet reports | Latest per reporter, plus the last 50 (`MaxHistory`) | none needed |
 | Budget counters (Postgres) | Buckets older than 95 days are pruned (`budget.MaxRetention`) | none |
 | Sessions and tokens | Console session 12 hours; enrollment token 15 minutes, single use; device token 90 days (`DefaultDeviceTTL`); workload credential 15 minutes by default, 1 hour at most | policy and server flags |
 | ClickHouse `halo_metrics`, `halo_sessions` | 180 days | `TTL` in the schema |
@@ -99,6 +101,34 @@ Halos does not send data to its maintainers. No code path in `cmd/` or `internal
 | ClickHouse `halo_eval_results`, `halo_delivery_prs` | **Unbounded** (no `TTL`) | add a `TTL` clause or delete rows; `halo_delivery_prs` holds SCM logins |
 | halo-proxy and halo-server logs | Whatever your log pipeline keeps | Kubernetes and log-shipper settings |
 | OCI registry | **Unbounded**; every release is kept | registry garbage-collection policy |
+
+The retention sweep runs every `--retention-interval` (default `1h`), on one replica at a time with Postgres, and audits what it removed as `retention.sweep`. Every retention flag defaults to `0`, which keeps the store forever: nothing is deleted until you set one. In Helm: `server.retention`.
+
+## Erasure
+
+`POST /api/v1/users/erase` fulfils an erasure request ([ADR-0040](/halos/adr/0040-data-retention-and-erasure/)). It needs an admin with a global binding, signed in as a person (not a service token or break-glass), a reason, and refuses the caller's own id. The user id travels in the body, so it never reaches request logs:
+
+```sh
+curl -sS -X POST https://halos.example.com/api/v1/users/erase \
+  -H "Cookie: halo_session=$SESSION" -H 'Content-Type: application/json' \
+  -d '{"user":"dev@acme.example","aliases":["devuser","dev-laptop-17"],"reason":"DSR-2026-114","dryRun":true}'
+```
+
+Run it with `"dryRun": true` first: it reports the counts and changes nothing. Then without it: every erasure needs two admins. The call answers `202` with a pending erasure. A **different** admin reviews it with `GET /api/v1/users/erase/{id}` and confirms it within an hour by sending the same body to `POST /api/v1/users/erase/{id}/confirm`; a different user, alias or reason is refused with `409`.
+
+The user and aliases must identify a person: values shorter than 3 characters, numbers, times, role names, request statuses, ring names, `halo-server` and `erased-` pseudonyms are refused. Neither may be your own id, under any spelling. The erasure is refused, and nothing is erased, while the audit chain does not verify. Once confirmed, it revokes the user's sessions; deletes their devices (their tokens stop working at once), their access requests and their fleet reports (also those whose OS user or hostname is one of the `aliases`); replaces their id with a random pseudonym in requests they decided and in every audit entry that names them in an identity field (actor, target, identity details such as `user` or `by`, and the user fields of session-ledger records; the client IP of their own actions is dropped; other free text is not changed); and appends a high-severity `subject.erase` entry recording who erased, the reason and the counts. The answer lists what was erased per store and what was retained, and why:
+
+| Retained | Why |
+|---|---|
+| Session epoch (user id, timestamp) | Keeps the user's sessions revoked; deleting it would revive their cookies |
+| Credential revocations | Dropped automatically within the hour |
+| Rollout-step approvals | Change records; the matching audit entries are pseudonymised |
+| Service-account tokens | Not personal data; revoke the user's tokens first |
+| SCIM directory | Deprovision the user in the IdP (SCIM `DELETE`) before erasing |
+| Budget counters | Pruned after 95 days |
+| Your SIEM's copy | Entries already exported stay there; the `subject.erase` entry is exported too, so apply it there |
+
+The audit chain still verifies: a pseudonymised entry keeps its original hash (so the chain still links) and the `subject.erase` entry lists a digest of each one, which `halo audit verify` checks instead of the hash. With `--audit-signing-key-uri` that list is signed, and `halo audit verify --public-key` accepts no unsigned one. Write the reason as a ticket number, not the person's name: it is stored. Erasure is idempotent; run it again if it reports an error.
 
 ## What leaves your boundary
 
@@ -118,6 +148,6 @@ Only to hosts you configured or products you chose to manage. Nothing here is se
 ## Using this for a DPIA
 
 - The CONTENT class is in your gateway's memory, the model providers' hands and, if you enable them, shadow pairs and raw OTel rows. Halos keeps no copy of bodies otherwise. Confirm each provider's retention and training terms yourself.
-- The ID class is concentrated in `halo-server`: audit actors and targets, SCIM records, devices, ledger records. Minimise at the source (the IdP) and decide the retention of the audit log, which is unbounded by default.
+- The ID class is concentrated in `halo-server`: audit actors and targets, SCIM records, devices, ledger records. Minimise at the source (the IdP), decide the retention of each store (all unbounded by default; the `--retention-*` flags above) and use the [erasure API](#erasure) for erasure requests.
 - The ledger and the ROI report can be read as monitoring of individual developers. The ledger is per user by design; the ROI report compares arms. Decide who holds the `auditor` and `admin` roles, and whether works-council or employee-representative consultation applies in your jurisdiction.
 - UNVERIFIED: the retention and TTL values above are the defaults in this repository. A deployment that overrides them, or runs a ClickHouse schema older than the one in the repo, differs.

@@ -93,7 +93,7 @@ func TestAuditRotationChainsAcrossSegments(t *testing.T) {
 				}
 				prevLast = last.Hash
 			}
-			r, err := VerifyAuditDir(dir)
+			r, err := VerifyAuditDir(dir, AuditVerifyOptions{})
 			if err != nil || r.Error != "" || r.Entries != 10 || r.Segments != len(segs)+1 || r.Head != prevLast {
 				t.Fatalf("verify: %+v %v", r, err)
 			}
@@ -125,7 +125,7 @@ func TestAuditRotationCrashAfterRename(t *testing.T) {
 	if err := os.Rename(filepath.Join(dir, auditActive), filepath.Join(dir, auditSegName(1))); err != nil {
 		t.Fatal(err)
 	}
-	if r, err := VerifyAuditDir(dir); err != nil || r.Error != "" || r.Entries != 3 {
+	if r, err := VerifyAuditDir(dir, AuditVerifyOptions{}); err != nil || r.Error != "" || r.Entries != 3 {
 		t.Fatalf("verify without an active segment: %+v %v", r, err)
 	}
 	l2, err := openAuditLog(dir)
@@ -217,7 +217,7 @@ func TestAuditEndpointAcrossSegments(t *testing.T) {
 	if r := decode[AuditResponse](t, e.as(admin, "GET", "/api/v1/audit?limit=1", "")); r.Verified || r.VerifyError == "" {
 		t.Fatal("tampered rotated segment verified")
 	}
-	if v, err := VerifyAuditDir(dir); err != nil || v.Error == "" {
+	if v, err := VerifyAuditDir(dir, AuditVerifyOptions{}); err != nil || v.Error == "" {
 		t.Fatalf("VerifyAuditDir missed the tamper: %+v %v", v, err)
 	}
 	// a removed segment breaks the chain from genesis (reported, not a 500)

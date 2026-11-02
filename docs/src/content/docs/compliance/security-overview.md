@@ -100,7 +100,7 @@ Key management:
 
 ## Logging and monitoring
 
-- **Audit log.** Privileged actions append to a hash chain (`seq`, `prev`, `hash`), fsynced before the response, and fail closed with HTTP 500 if the append fails. Verify with `halo audit verify` or `GET /api/v1/audit`. Tail truncation is undetectable from the log alone: the SIEM copy closes that gap ([audit log](/halos/concepts/security-model/#audit-log)).
+- **Audit log.** Privileged actions append to a hash chain (`seq`, `prev`, `hash`), fsynced before the response, and fail closed with HTTP 500 if the append fails. Verify with `halo audit verify` or `GET /api/v1/audit`. A plain hash chain can be recomputed by anyone with write access to the store, and cut from the end. With `--audit-signing-key-uri` (opt-in, recommended; file, AWS KMS or external key) halo-server appends signed checkpoints of the chain head that are exported to your SIEM sinks; `halo audit verify --public-key --anchor <SIEM export>` then catches a recomputed chain and a log cut back past the newest checkpoint the SIEM holds. Entries after that checkpoint (at most one `--audit-checkpoint-interval` plus export lag) can still be cut without trace ([ADR-0041](/halos/adr/0041-signed-audit-chain-heads/), [audit log](/halos/concepts/security-model/#audit-log)).
 - **SIEM export.** Every entry, at least once and in order, to Splunk HEC, a signed webhook (Datadog and others) or syslog over TLS, native or OCSF ([SIEM export](/halos/guides/siem-export/)).
 - **Session ledger.** One redacted record per agent session, who and what and on whose evidence ([session ledger](/halos/guides/session-ledger/)).
 - **Gateway request log.** Method, path, status, bytes, duration, ring, remote address, experiment, variant, upstream, model. Never bodies, headers or query strings (`cmd/halo-proxy/proxy.go`).
@@ -162,7 +162,7 @@ Stated so you do not have to find them.
 | No TLS in the services | Terminate TLS in front of `halo-server`, `halo-proxy` and `halo-shadow`. No mTLS, no per-user rate limiting |
 | Single signing key | No threshold signing; compromise is fleet-wide ([residual risk](/halos/reference/threat-model/#residual-risk-and-non-goals)) |
 | Cookie not encrypted | The console session cookie is signed, not encrypted, and carries the subject and groups |
-| Audit retention unbounded, tail truncation undetectable alone | Pin the chain head or use the SIEM copy |
+| Audit retention unbounded by default; a recomputed chain or truncated tail undetectable without signing | Set `--retention-audit`; enable `--audit-signing-key-uri` and run `halo audit verify --anchor` against the SIEM copy |
 | Root can defeat client enforcement | Gateway gates (`posture`, `versionGate`) are the backstop; posture is `halod`'s self-report |
 | DLP is pattern-based | Misses secrets with no recognizable format; injection scoring is a tripwire, not a guarantee |
 | Single maintainer; branch protection unverified here | See [SDLC](#sdlc) |
@@ -185,7 +185,7 @@ Short answers for a SIG or CAIQ response, by domain. "N/A" means Halos is not th
 | Threat and vulnerability management | Scanning, patch SLAs, pen test? | `govulncheck` per PR, weekly Scorecard, fuzzing; disclosure SLAs in SECURITY.md; no pen test |
 | Supply chain management | SBOM, signed artifacts, provenance, third-party risk? | SBOMs, cosign signatures, build-provenance attestations, SHA-pinned Actions. For your fleet: AI-BOM and SLSA-format provenance per release ([control mapping](/halos/compliance/control-mapping/#nist-ssdf-and-slsa)) |
 | Security incident management | Incident process, breach notification, disclosure? | Disclosure per SECURITY.md. No hosted service, so no vendor-side data breach path. Your IR plan uses the product levers above |
-| Data security and privacy | Data inventory, classification, retention, residency, deletion? | [Data flow and PII inventory](/halos/compliance/data-flow-and-pii/). Residency is where you deploy. Some stores are unbounded by default and have no erasure API |
+| Data security and privacy | Data inventory, classification, retention, residency, deletion? | [Data flow and PII inventory](/halos/compliance/data-flow-and-pii/). Residency is where you deploy. halo-server's stores are unbounded by default; per-store retention flags and an admin erasure API (`POST /api/v1/users/erase`, audit chain pseudonymised and still verifiable) cover deletion ([ADR-0040](/halos/adr/0040-data-retention-and-erasure/)). ClickHouse tables without a TTL and the registry stay yours to prune |
 | Data security and privacy | Is customer content used to train models? | Halos does not train models and sends nothing to its maintainers. The model provider's terms govern what the provider does with prompts |
 | Business continuity and resilience | HA, backup, DR? | HA on Postgres; documented backup and restore; gateways and clients degrade to last good state. No tested DR figures |
 | Datacenter and physical security | Physical controls? | N/A, self-hosted |

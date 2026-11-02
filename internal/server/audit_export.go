@@ -555,7 +555,7 @@ func (f *auditForwarder) next() ([]auditEvent, error) {
 			broken = fmt.Errorf("audit chain broken at seq %d (after delivered seq %d): export halted until the log verifies", e.Seq, cur.Seq)
 			return false
 		}
-		if e.Hash != e.sum() {
+		if !e.intact() { // a redacted entry links by its original hash (ADR-0040)
 			broken = fmt.Errorf("audit chain broken at seq %d (hash mismatch): export halted until the log verifies", e.Seq)
 			return false
 		}
@@ -696,6 +696,7 @@ func (s *Server) RunAuditExport(ctx context.Context) {
 func (s *Server) WriteMetrics(w io.Writer) {
 	fmt.Fprintf(w, "# TYPE halo_server_audit_rotate_errors_total counter\nhalo_server_audit_rotate_errors_total %d\n", s.auditLog.rotateErrs.Load())
 	fmt.Fprintf(w, "# HELP halo_server_audit_append_errors_total Audit appends that failed: the action was refused (strict) or went unrecorded (best-effort refusals and logins).\n# TYPE halo_server_audit_append_errors_total counter\nhalo_server_audit_append_errors_total %d\n", s.auditFails.Load())
+	fmt.Fprintf(w, "# HELP halo_server_audit_sign_refused_total Checkpoints, erasure vouches and retention cuts refused because the audit chain did not verify (ADR-0040, ADR-0041): investigate at once.\n# TYPE halo_server_audit_sign_refused_total counter\nhalo_server_audit_sign_refused_total %d\n", s.signRefused.Load())
 	fmt.Fprintf(w, "# HELP halo_server_policy_refused_total Policy loads refused for security validation errors (the last good policy keeps serving).\n# TYPE halo_server_policy_refused_total counter\nhalo_server_policy_refused_total %d\n", s.pol.refused.Load())
 	fmt.Fprintf(w, "# HELP halo_server_policy_tightened_total Refused policy loads whose workload rule removals were applied over the last good policy.\n# TYPE halo_server_policy_tightened_total counter\nhalo_server_policy_tightened_total %d\n", s.pol.tightened.Load())
 	fmt.Fprintf(w, "# HELP halo_server_workload_rules_skipped Workload rules in the policy in effect that pin no tenant, so token exchange never matches them.\n# TYPE halo_server_workload_rules_skipped gauge\nhalo_server_workload_rules_skipped %d\n", s.pol.skipped.Load())

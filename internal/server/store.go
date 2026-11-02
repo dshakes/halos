@@ -105,6 +105,7 @@ type logStore struct {
 	hosts map[string]Host
 	hist  map[string][]Host // per-key ring buffer, oldest first; in memory only (compaction drops it on restart)
 	f     *os.File          // nil = memory only
+	path  string
 }
 
 // NewMemStore returns a non-persistent Store.
@@ -134,31 +135,87 @@ func OpenLogStore(dir string) (Store, error) {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
-	tmp := path + ".tmp"
-	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
-	if err != nil {
-		return nil, err
-	}
-	enc := json.NewEncoder(f)
-	for _, h := range s.All() {
-		if err := enc.Encode(h); err != nil {
-			_ = f.Close()
-			return nil, err
-		}
-	}
-	if err := f.Close(); err != nil {
-		return nil, err
-	}
-	if err := fsutil.RestrictToOwner(tmp); err != nil {
-		return nil, err
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		return nil, err
-	}
-	if s.f, err = os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600); err != nil {
+	s.path = path
+	if err := s.rewrite(); err != nil {
 		return nil, err
 	}
 	return s, nil
+}
+
+// rewrite replaces the log with the latest report per reporter and reopens
+// it for appends (caller holds mu, or owns s).
+func (s *logStore) rewrite() error {
+	var b []byte
+	for _, h := range s.sorted() {
+		line, err := json.Marshal(h)
+		if err != nil {
+			return err
+		}
+		b = append(append(b, line...), '\n')
+	}
+	if s.f != nil {
+		_ = s.f.Close() // every append was written; Windows cannot rename over an open file
+		s.f = nil
+	}
+	werr := fsutil.WriteAtomic(s.path, b, 0o600)
+	f, err := os.OpenFile(s.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return errors.Join(werr, err)
+	}
+	s.f = f
+	return werr
+}
+
+// RemoveHosts deletes every report, latest and history, that match selects
+// and returns how many (ADR-0040 erasure); dry only counts.
+func (s *logStore) RemoveHosts(match func(Host) bool, dry bool) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for k, h := range s.hosts {
+		if match(h) {
+			n++
+			if !dry {
+				delete(s.hosts, k)
+			}
+		}
+	}
+	for k, hh := range s.hist {
+		kept := make([]Host, 0, len(hh))
+		for _, h := range hh {
+			if match(h) {
+				n++
+			} else {
+				kept = append(kept, h)
+			}
+		}
+		if !dry && len(kept) < len(hh) {
+			s.hist[k] = kept
+		}
+	}
+	if dry || n == 0 || s.f == nil {
+		return n, nil
+	}
+	return n, s.rewrite()
+}
+
+// PruneHosts deletes reporters last seen before cutoff, with their history
+// (ADR-0040 retention), and returns how many.
+func (s *logStore) PruneHosts(cutoff time.Time) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for k, h := range s.hosts {
+		if h.LastSeen.Before(cutoff) {
+			delete(s.hosts, k)
+			delete(s.hist, k)
+			n++
+		}
+	}
+	if n == 0 || s.f == nil {
+		return n, nil
+	}
+	return n, s.rewrite()
 }
 
 // Close closes the report log. A held handle blocks deleting or renaming the file on Windows.
@@ -202,6 +259,11 @@ func (s *logStore) History(key string) []Host {
 func (s *logStore) All() []Host {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	return s.sorted()
+}
+
+// sorted is every latest report by hostname (caller holds mu).
+func (s *logStore) sorted() []Host {
 	out := make([]Host, 0, len(s.hosts))
 	for _, h := range s.hosts {
 		out = append(out, h)

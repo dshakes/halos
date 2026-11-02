@@ -105,6 +105,9 @@ var routeScopes = map[string]scopeRule{
 
 	"POST /api/v1/devices/{id}/revoke":        byPath((*Server).deviceResourceByID),
 	"POST /api/v1/users/{id}/revoke-sessions": global("a user id alone has no server-side ring or unit (groups live in the session)"),
+	"POST /api/v1/users/erase":                global("erases a person's data in every store and pseudonymises the whole audit chain"),
+	"POST /api/v1/users/erase/{id}/confirm":   global("confirms an erasure: the same reach as POST /api/v1/users/erase"),
+	"GET /api/v1/users/erase/{id}":            global("shows a pending erasure: any person's ids"),
 	"POST /api/v1/toggles/{name}/propose":     global("the proposed rules may target any ring, group or user"),
 	"POST /api/v1/sessions":                   global("ingests records for any user"),
 	"POST /api/v1/freeze":                     global("the incident freeze holds every ring"),

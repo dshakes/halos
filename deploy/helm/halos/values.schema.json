@@ -31,6 +31,7 @@
       "ref": {"type": "string"},
       "auth": {"type": "object", "properties": {"type": {"enum": ["none", "ssh", "token"]}}}}}}},
     "server": {"type": "object", "allOf": [{"$ref": "#/definitions/haWhenDatabase"}], "properties": {
+      "auditSigning": {"type": "object", "additionalProperties": false, "properties": {"keyURI": {"type": "string"}, "checkpointInterval": {"type": "string"}, "enableAtHead": {"type": "integer", "minimum": 0}, "previousPublicKeys": {"type": "object", "additionalProperties": false, "properties": {"existingSecret": {"type": "string"}, "keys": {"type": "array", "items": {"type": "string", "minLength": 1}}}}}},
       "enabled": {"type": "boolean"}, "image": {"$ref": "#/definitions/image"},
       "replicas": {"type": "integer", "minimum": 1, "description": "1 unless database.existingSecret is set (file-backed store: single writer)"},
       "database": {"allOf": [{"$ref": "#/definitions/database"}], "properties": {"leaseTTL": {"type": "string", "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h))+$"}, "maxConns": {"type": "integer", "minimum": 2}, "insecureTLS": {"type": "boolean"}, "migrateJob": {"type": "object", "properties": {"enabled": {"type": "boolean"}, "existingSecret": {"type": "string"}, "key": {"type": "string", "minLength": 1}}}}},
