@@ -26,7 +26,7 @@ curl -fsSLO https://raw.githubusercontent.com/dshakes/halos/v0.5.2/install/insta
 sh install.sh --version v0.5.2                # halo into ~/.local/bin; tells you if that is not on PATH
 ```
 
-`install.sh` verifies `checksums.txt` against its cosign signature when `cosign` is on `PATH`. Without cosign it warns loudly and trusts only the sha256 checksums. It then verifies each archive. `--prefix DIR` changes the install location; `--with-agent` adds `halod`.
+`install.sh` verifies `checksums.txt` against its cosign signature when `cosign` is on `PATH`. Without cosign it warns loudly and trusts only the sha256 checksums; pass `--require-signature` (or set `HALOS_REQUIRE_SIGNATURE=1`; `-RequireSignature` for `install.ps1`) to refuse instead, which is what automation should do. It then verifies each archive. `--prefix DIR` changes the install location; `--with-agent` adds `halod`.
 
 ## Linux
 
