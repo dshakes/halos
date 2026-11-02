@@ -25,7 +25,7 @@ func SuggestTools(hs []Harness) (tools map[string]string, warnings []string) {
 		switch {
 		case !h.Installed || h.Version == "":
 		case !policy.ValidVersion(h.Version):
-			warnings = append(warnings, fmt.Sprintf("%s %s is installed but not pinned: its version is not an exact semver (x.y.z), which a policy pin requires, so it is left out of halos.yaml. To manage it, pin a semver yourself: --tools %s@<x.y.z>", h.Name, h.Version, h.Name))
+			warnings = append(warnings, fmt.Sprintf("%s %s is installed but not pinned: policy pins need an exact x.y.z version, so it is left out of halos.yaml. To manage it, re-run with --tools listing every CLI to pin, e.g. --tools claude-code@<x.y.z>,%s@<x.y.z>; otherwise ignore this", h.Name, h.Version, h.Name))
 		default:
 			tools[h.Name] = h.Version
 		}

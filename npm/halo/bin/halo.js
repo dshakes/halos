@@ -1,12 +1,12 @@
 #!/usr/bin/env node
-// Launcher for `npx @dshakes/halo`. npm installs only the optional dependency that
+// Launcher for `npx @dshakesnotbot/halo`. npm installs only the optional dependency that
 // matches this OS and CPU (see package.json); this runs the halo binary inside it.
 "use strict";
 const { spawnSync } = require("node:child_process");
 
 const os = { darwin: "darwin", linux: "linux", win32: "windows" }[process.platform];
 const cpu = { x64: "amd64", arm64: "arm64" }[process.arch];
-const pkg = `@dshakes/halo-${os}-${cpu}`;
+const pkg = `@dshakesnotbot/halo-${os}-${cpu}`;
 let bin;
 try {
   bin = require.resolve(`${pkg}/bin/halo${process.platform === "win32" ? ".exe" : ""}`);

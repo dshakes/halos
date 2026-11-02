@@ -54,8 +54,8 @@ Or [`install.ps1`](https://raw.githubusercontent.com/dshakes/halos/v0.5.0/instal
 With Node 18 or later, run `halo` without installing it, or install it globally:
 
 ```sh
-npx @dshakes/halo quickstart
-npm install -g @dshakes/halo
+npx @dshakesnotbot/halo quickstart
+npm install -g @dshakesnotbot/halo
 ```
 
 npm downloads only the binary for your OS and CPU (macOS, Linux and Windows, on x64 or arm64). The release workflow builds these packages from the signed release archives after checking each one against the Sigstore-verified `checksums.txt`, and publishes them with npm provenance. `npm audit signatures` confirms the provenance. The npm packages contain `halo` only; use another method for `halod`.

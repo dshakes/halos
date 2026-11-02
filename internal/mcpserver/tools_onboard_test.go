@@ -40,6 +40,16 @@ func TestOnboardToolsFromEmptyDir(t *testing.T) {
 	if err != nil || d["ok"] != true {
 		t.Fatalf("doctor: %v %v", err, d)
 	}
+	skipped := false
+	cs, _ := d["checks"].([]any)
+	for _, c := range cs {
+		if m, _ := c.(map[string]any); m["id"] == "harness/codex" && m["status"] == "skip" {
+			skipped = true
+		}
+	}
+	if !skipped {
+		t.Fatalf("optional absent codex should report status skip: %v", cs)
+	}
 	h, err := call(t, ro, "detect_harnesses", nil)
 	if err != nil || h["suggested_provider"] != "anthropic" {
 		t.Fatalf("detect: %v %v", err, h)

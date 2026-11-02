@@ -34,7 +34,7 @@ Needs Docker and git. It brings up the console with a mock IdP, halo-proxy, shad
 ## My machine
 
 ```sh
-halo doctor                                   # CLIs and versions, tools, which key variables are set (never values), fixes
+halo doctor                                   # CLIs and versions, tools, which key variables are set (never values), fixes; `skip` = optional CLI not installed
 halo onboard local --policy-dir ~/halos       # halos.yaml for this machine, validated, plus the install plan (dry run)
 halo onboard local --policy-dir ~/halos --apply
 halo onboard install --policy-dir ~/halos --show      # exactly what lands where (dry run)

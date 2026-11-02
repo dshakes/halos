@@ -19,7 +19,7 @@ Tools come from the `halos` MCP server (`halo mcp serve`) and mirror `halo docto
 
 ## Always first
 
-Call `doctor`. For each `fail`, give the human its `fix` verbatim and re-run until no `fail` remains (a `warn` is fine to continue on; say what it means). Then `detect_harnesses`: list each CLI with its version, and say which credential variables are set, never values.
+Call `doctor`. For each `fail`, give the human its `fix` verbatim and re-run until no `fail` remains (a `warn` is fine to continue on; say what it means; a `skip` is an optional CLI that is not installed, so ignore it and never report it as a problem). Then `detect_harnesses`: list each CLI with its version, and say which credential variables are set, never values.
 
 ## Try it (about 2 minutes, Docker)
 

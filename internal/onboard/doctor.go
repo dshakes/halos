@@ -18,6 +18,7 @@ import (
 // Check statuses.
 const (
 	StatusOK   = "ok"
+	StatusSkip = "skip" // optional and absent: informational, never a warning or failure
 	StatusWarn = "warn"
 	StatusFail = "fail"
 )
@@ -79,7 +80,7 @@ func Doctor(ctx context.Context, e Env, dir string) Report {
 		case !h.Installed && pins[h.Name] != "":
 			add(Check{id, StatusWarn, fmt.Sprintf("%s is pinned to %s by the policy but `%s` is not on PATH", h.Name, pins[h.Name], h.Binary), installFix(h.Name, pins[h.Name], e.GOOS)})
 		case !h.Installed:
-			add(Check{id, StatusOK, fmt.Sprintf("%s not installed (optional; `%s` not on PATH)", h.Name, h.Binary), ""})
+			add(Check{id, StatusSkip, fmt.Sprintf("%s not installed (optional; `%s` not on PATH)", h.Name, h.Binary), ""})
 		case h.Version == "":
 			installed++
 			add(Check{id, StatusWarn, fmt.Sprintf("%s at %s: %s", h.Name, h.Path, h.Error), installFix(h.Name, pins[h.Name], e.GOOS)})

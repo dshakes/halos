@@ -229,7 +229,7 @@ The current release is [v0.5.0](https://github.com/dshakes/halos/releases/tag/v0
 ```sh
 brew install dshakes/tap/halo                                                            # macOS / Linux
 scoop bucket add dshakes https://github.com/dshakes/scoop-bucket && scoop install halo   # Windows
-npx @dshakes/halo quickstart                                                             # Node 18+, no install
+npx @dshakesnotbot/halo quickstart                                                             # Node 18+, no install
 
 # The script works everywhere; halod runs as root from a root-owned prefix
 curl -fsSLO https://raw.githubusercontent.com/dshakes/halos/v0.5.0/install/install.sh

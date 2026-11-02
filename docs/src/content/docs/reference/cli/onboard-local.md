@@ -34,6 +34,7 @@ halo onboard local [flags]
 | `--root` |  | string |  | plan the install under this directory instead of the real paths |
 | `--safety` |  | string | standard | strict \| standard \| relaxed |
 | `--tools` |  | stringSlice | [] | harnesses as name@version (default: every CLI on PATH at its installed version) |
+| `--verbose` |  | bool | false | list every adapter warning instead of a per-harness count |
 
 ## Global flags
 
