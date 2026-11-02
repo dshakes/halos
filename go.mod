@@ -2,7 +2,7 @@ module github.com/dshakes/halos
 
 go 1.25.0
 
-toolchain go1.26.6
+toolchain go1.26.10
 
 require (
 	github.com/Kong/go-pdk v0.11.2
