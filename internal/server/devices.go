@@ -76,20 +76,32 @@ type deviceStore struct {
 	// afterMint, when set, runs after a device is minted (test seam: models a
 	// deprovisioning racing an enrollment).
 	afterMint func()
+	// gone: devices deleted by retention or erasure (ADR-0040); a late record
+	// for one never brings it back. gc removes their records from the log.
+	gone map[string]bool
+	gc   journalGC
 }
 
 func openDeviceStore(o storage.Opener, ttl time.Duration) (*deviceStore, error) {
 	if ttl <= 0 {
 		ttl = DefaultDeviceTTL
 	}
-	d := &deviceStore{byHash: map[string]*Device{}, byID: map[string]*Device{}, saved: map[string]time.Time{}, revPending: map[string]bool{}, ttl: ttl}
+	d := &deviceStore{byHash: map[string]*Device{}, byID: map[string]*Device{}, saved: map[string]time.Time{}, revPending: map[string]bool{}, ttl: ttl, gone: map[string]bool{}}
 	ctx, cancel := storage.Ctx()
 	defer cancel()
 	log, err := o.OpenLog(ctx, "devices", func(line []byte) {
+		if ids := tombstoneIDs(line); ids != nil {
+			d.mu.Lock()
+			d.forget(ids)
+			d.mu.Unlock()
+			return
+		}
 		var v Device
 		if json.Unmarshal(line, &v) == nil && v.ID != "" && v.Hash != "" { // torn line: skip
 			d.mu.Lock() // replay also runs from Append/Catchup, beside authentications
-			d.index(&v)
+			if !d.gone[v.ID] {
+				d.index(&v)
+			}
 			d.mu.Unlock()
 		}
 	})
@@ -287,6 +299,49 @@ func (d *deviceStore) revoke(id string) (Device, error) {
 	delete(d.revPending, id)
 	d.mu.Unlock()
 	return c, nil
+}
+
+// forget deletes devices from memory for good (caller holds mu).
+func (d *deviceStore) forget(ids []string) {
+	for _, id := range ids {
+		if v := d.byID[id]; v != nil {
+			delete(d.byHash, v.Hash)
+		}
+		delete(d.byID, id)
+		delete(d.saved, id)
+		delete(d.revPending, id)
+		d.gone[id] = true
+	}
+}
+
+// remove deletes every device match selects, from memory and from the log
+// (ADR-0040), and returns how many; dry only counts them. Its token stops
+// working at once on every replica (the tombstone is caught up before any
+// device authentication).
+func (d *deviceStore) remove(match func(Device) bool, dry bool) (int, error) {
+	d.wmu.Lock()
+	defer d.wmu.Unlock()
+	if err := d.catchup(); err != nil {
+		return 0, err
+	}
+	d.mu.Lock()
+	var ids []string
+	for id, v := range d.byID {
+		if match(*v) {
+			ids = append(ids, id)
+		}
+	}
+	d.mu.Unlock()
+	if dry {
+		return len(ids), nil
+	}
+	if err := d.gc.tombstone(d.log, ids); err != nil {
+		return 0, err
+	}
+	d.mu.Lock()
+	d.forget(ids)
+	d.mu.Unlock()
+	return len(ids), d.gc.compact(d.log, nil)
 }
 
 func (d *deviceStore) list() []Device {

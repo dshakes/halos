@@ -72,6 +72,39 @@ func (d *DB) AuditEntries(ctx context.Context) ([][]byte, error) {
 	return out, d.fail(rows.Err())
 }
 
+// PruneAudit deletes entries with seq <= through (ADR-0040 retention). The
+// head row is untouched, so appends continue the chain.
+func (d *DB) PruneAudit(ctx context.Context, through uint64) (int64, error) {
+	res, err := d.db.ExecContext(ctx, `DELETE FROM halo_audit WHERE seq <= $1`, int64(through)) //nolint:gosec // audit seq never exceeds int64
+	if err != nil {
+		return 0, d.fail(fmt.Errorf("pgstore: prune audit: %w", err))
+	}
+	n, err := res.RowsAffected()
+	return n, d.fail(err)
+}
+
+// ErrAuditChanged: a body to redact is no longer the one the caller read.
+var ErrAuditChanged = errors.New("pgstore: an audit entry changed while it was being redacted")
+
+// RedactAudit replaces the stored bodies of existing entries (ADR-0040
+// erasure): seq -> {body read, redacted body}. Each row is swapped only if
+// it still holds the body read (compare and swap), all or none, so two
+// erasures racing cannot undo each other. seq, hash and prev never change.
+func (d *DB) RedactAudit(ctx context.Context, bodies map[uint64][2][]byte) error {
+	return d.tx(ctx, func(t *sql.Tx) error {
+		for seq, b := range bodies {
+			res, err := t.ExecContext(ctx, `UPDATE halo_audit SET entry = $3 WHERE seq = $1 AND entry = $2`, int64(seq), b[0], b[1]) //nolint:gosec // as above
+			if err != nil {
+				return fmt.Errorf("pgstore: redact audit seq %d: %w", seq, err)
+			}
+			if n, err := res.RowsAffected(); err != nil || n != 1 {
+				return errors.Join(fmt.Errorf("%w: seq %d", ErrAuditChanged, seq), err)
+			}
+		}
+		return nil
+	})
+}
+
 // ---- fleet reports ----
 
 // PutReport upserts the latest report for key and appends it to key's
@@ -101,6 +134,76 @@ func (d *DB) Reports(ctx context.Context) ([][]byte, error) {
 // ReportHistory returns up to limit reports for key, newest first.
 func (d *DB) ReportHistory(ctx context.Context, key string, limit int) ([][]byte, error) {
 	return d.blobs(ctx, `SELECT report FROM halo_report_history WHERE rkey = $1 ORDER BY id DESC LIMIT $2`, key, limit)
+}
+
+// PruneReports deletes reporters whose report was last seen (the lastSeen the
+// server stamped, its clock) before cutoff, with their history (ADR-0040).
+func (d *DB) PruneReports(ctx context.Context, cutoff time.Time) (int64, error) {
+	var n int64
+	err := d.tx(ctx, func(t *sql.Tx) error {
+		res, err := t.ExecContext(ctx, `DELETE FROM halo_reports WHERE (convert_from(report, 'UTF8')::jsonb->>'lastSeen')::timestamptz < $1`, cutoff)
+		if err != nil {
+			return fmt.Errorf("pgstore: prune reports: %w", err)
+		}
+		if n, err = res.RowsAffected(); err != nil {
+			return err
+		}
+		if _, err := t.ExecContext(ctx, `DELETE FROM halo_report_history h WHERE NOT EXISTS (SELECT 1 FROM halo_reports r WHERE r.rkey = h.rkey)`); err != nil {
+			return fmt.Errorf("pgstore: prune report history: %w", err)
+		}
+		return nil
+	})
+	return n, err
+}
+
+// DeleteReportsWhere deletes every latest report and history row whose body
+// match selects (ADR-0040 erasure) and returns how many of each it deleted
+// (with dry, would delete).
+// ponytail: reads every report; erasure is a rare admin action.
+func (d *DB) DeleteReportsWhere(ctx context.Context, match func(report []byte) bool, dry bool) (latest, history int64, err error) {
+	err = d.tx(ctx, func(t *sql.Tx) error {
+		for _, tbl := range []struct {
+			sel, del string
+			n        *int64
+		}{
+			{`SELECT rkey, report FROM halo_reports`, `DELETE FROM halo_reports WHERE rkey = ANY($1)`, &latest},
+			{`SELECT id::text, report FROM halo_report_history`, `DELETE FROM halo_report_history WHERE id::text = ANY($1)`, &history},
+		} {
+			rows, err := t.QueryContext(ctx, tbl.sel)
+			if err != nil {
+				return fmt.Errorf("pgstore: read reports: %w", err)
+			}
+			var keys []string
+			for rows.Next() {
+				var k string
+				var b []byte
+				if err := rows.Scan(&k, &b); err != nil {
+					_ = rows.Close()
+					return fmt.Errorf("pgstore: read reports: %w", err)
+				}
+				if match(b) {
+					keys = append(keys, k)
+				}
+			}
+			_ = rows.Close() // read-only
+			if err := rows.Err(); err != nil {
+				return fmt.Errorf("pgstore: read reports: %w", err)
+			}
+			if dry || len(keys) == 0 {
+				*tbl.n = int64(len(keys))
+				continue
+			}
+			res, err := t.ExecContext(ctx, tbl.del, keys)
+			if err != nil {
+				return fmt.Errorf("pgstore: delete reports: %w", err)
+			}
+			if *tbl.n, err = res.RowsAffected(); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	return latest, history, err
 }
 
 func (d *DB) blobs(ctx context.Context, q string, args ...any) ([][]byte, error) {

@@ -154,7 +154,7 @@ func TestSessionLedger(t *testing.T) {
 	if r := list(""); r.Verified || !strings.Contains(r.VerifyError, "modified") {
 		t.Fatalf("tampered ledger verified: %+v", r)
 	}
-	if v, err := VerifyAuditDir(dir); err == nil && v.Error == "" {
+	if v, err := VerifyAuditDir(dir, AuditVerifyOptions{}); err == nil && v.Error == "" {
 		t.Fatalf("VerifyAuditDir missed the tamper: %+v", v)
 	}
 }

@@ -15,10 +15,38 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dshakes/halos/internal/bundle"
 	"github.com/dshakes/halos/internal/controller"
 	"github.com/dshakes/halos/internal/promote"
 	"github.com/dshakes/halos/internal/server"
 )
+
+// TestDistinctAuditKey: the audit key may not be the kill-switch or the
+// release key (ADR-0041).
+func TestDistinctAuditKey(t *testing.T) {
+	mk := func() (bundle.KeySigner, []byte) {
+		priv, pub, err := bundle.GenerateKeyPair()
+		if err != nil {
+			t.Fatal(err)
+		}
+		k, err := bundle.ParseSigner(priv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return k, pub
+	}
+	audit, auditPub := mk()
+	other, otherPub := mk()
+	if err := distinctAuditKey(audit, other, string(otherPub)); err != nil {
+		t.Fatalf("distinct keys refused: %v", err)
+	}
+	if err := distinctAuditKey(audit, audit, ""); err == nil || !strings.Contains(err.Error(), "kill-switch") {
+		t.Fatalf("audit key = kill key: %v", err)
+	}
+	if err := distinctAuditKey(audit, nil, string(auditPub)); err == nil || !strings.Contains(err.Error(), "release") {
+		t.Fatalf("audit key = release key: %v", err)
+	}
+}
 
 func TestParseFlags(t *testing.T) {
 	tests := []struct {
@@ -63,6 +91,17 @@ func TestParseFlags(t *testing.T) {
 			"--killswitch-key-file", "k", "--gateway-token-file", "g", "--policy-repo-dir", "r"}, "",
 			func(o options) bool {
 				return o.controller && o.interval == 5*time.Minute && o.policyRepoBase == "main" && o.killKeyFile == "k" && o.gatewayTokenFile == "g" && o.policyRepoDir == "r"
+			}},
+		{"retention off by default", []string{"--policy-dir", "p", "--token-file", "t"}, "",
+			func(o options) bool {
+				return o.retention == server.Retention{Interval: server.DefaultRetentionInterval} && o.auditSigningKeyURI == "" && o.auditCheckpoint == server.DefaultCheckpointInterval
+			}},
+		{"retention without durable state", []string{"--policy-dir", "p", "--token-file", "t", "--retention-requests", "720h"}, "--retention-* needs --data-dir", nil},
+		{"audit signing without durable state", []string{"--policy-dir", "p", "--token-file", "t", "--audit-signing-key-uri", "awskms://alias/a"}, "--audit-signing-key-uri needs --data-dir", nil},
+		{"retention and signing", []string{"--policy-dir", "p", "--token-file", "t", "--database-url-file", "u", "--retention-audit", "9528h", "--retention-devices", "2160h",
+			"--audit-signing-key-uri", "exec:///usr/bin/signer", "--audit-checkpoint-interval", "1m"}, "",
+			func(o options) bool {
+				return o.retention.Audit == 9528*time.Hour && o.retention.Devices == 2160*time.Hour && o.auditSigningKeyURI == "exec:///usr/bin/signer" && o.auditCheckpoint == time.Minute
 			}},
 		{"scim authoritative without token hashes", []string{"--policy-dir", "p", "--token-file", "t", "--scim-authoritative"}, "requires --scim-token-sha256-file", nil},
 		{"scim without data dir", []string{"--policy-dir", "p", "--token-file", "t", "--scim-token-sha256-file", "h"}, "requires --data-dir", nil},

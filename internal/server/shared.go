@@ -73,6 +73,9 @@ func NewPGBackend(db *pgstore.DB) *PGBackend { return &PGBackend{DB: db} }
 // AppendAudit implements Backend.
 func (b *PGBackend) AppendAudit(ctx context.Context, e AuditEntry) error {
 	return b.DB.AppendAudit(ctx, func(seq uint64, head string) (pgstore.AuditLink, error) {
+		if err := checkpointStale(e, seq); err != nil {
+			return pgstore.AuditLink{}, err
+		}
 		c := ChainAuditEntry(e, seq, head)
 		body, err := json.Marshal(c)
 		if err != nil {
@@ -165,6 +168,27 @@ func (s *pgReports) History(key string) []Host {
 	return decodeHosts(rows)
 }
 
+// RemoveHosts deletes every report, latest and history, that match selects
+// (ADR-0040 erasure); dry only counts.
+func (s *pgReports) RemoveHosts(match func(Host) bool, dry bool) (int, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	latest, hist, err := s.db.DeleteReportsWhere(ctx, func(b []byte) bool {
+		var h Host
+		return json.Unmarshal(b, &h) == nil && match(h)
+	}, dry)
+	return int(latest + hist), err
+}
+
+// PruneHosts deletes reporters last seen before cutoff, with their history
+// (ADR-0040 retention).
+func (s *pgReports) PruneHosts(cutoff time.Time) (int, error) {
+	ctx, cancel := storage.Ctx()
+	defer cancel()
+	n, err := s.db.PruneReports(ctx, cutoff)
+	return int(n), err
+}
+
 func decodeHosts(rows [][]byte) []Host {
 	out := make([]Host, 0, len(rows))
 	for _, r := range rows {
@@ -199,6 +223,7 @@ type clusterMutex struct {
 	log   *slog.Logger
 	owner string // the token of the held cluster lock ("" = not held)
 	wait  time.Duration
+	renew time.Duration // keepAlive period; 0 = clusterLockTTL/3
 }
 
 const (
@@ -243,6 +268,45 @@ func (m *clusterMutex) Lock() (func(), error) {
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
+}
+
+// keepAlive extends the held cluster lock every renew (default a third of
+// clusterLockTTL) until stop is called, for holders that may outlive the
+// TTL (an erasure). On a failed renewal it calls lost (the holder stops:
+// another replica may take the lock) and renews no more. Call stop before
+// Unlock.
+func (m *clusterMutex) keepAlive(lost func()) (stop func()) {
+	if m.kv == nil || m.owner == "" {
+		return func() {}
+	}
+	every := m.renew
+	if every <= 0 {
+		every = clusterLockTTL / 3
+	}
+	owner, done := m.owner, make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		t := time.NewTicker(every)
+		defer t.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-t.C:
+				ctx, cancel := storage.Ctx()
+				ok, err := m.kv.TryLock(ctx, "lock", m.name, owner, clusterLockTTL)
+				cancel()
+				if !ok || err != nil {
+					orDefault(m.log).Error("cluster lock renewal failed; stopping the holder", "lock", m.name, "err", err)
+					if lost != nil {
+						lost()
+					}
+					return
+				}
+			}
+		}
+	})
+	return func() { close(done); wg.Wait() }
 }
 
 func (m *clusterMutex) unlock() {

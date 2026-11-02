@@ -124,6 +124,55 @@ func (l *pgLog) read(ctx context.Context, before int64) error {
 	return l.db.fail(rows.Err())
 }
 
+// Compact deletes the stream's rows drop selects (ADR-0040), under the
+// stream's append lock. Other replicas tail by id, so a deleted row they have
+// not read yet is simply never replayed: a store writes a tombstone record
+// before compacting, so their memory converges on it.
+func (l *pgLog) Compact(ctx context.Context, drop func(rec []byte) bool) (int, error) {
+	n := 0
+	err := l.db.tx(ctx, func(t *sql.Tx) error {
+		if _, err := t.ExecContext(ctx, `SELECT pg_advisory_xact_lock($1, hashtext($2))`, journalLock, l.stream); err != nil {
+			return fmt.Errorf("pgstore: lock %s: %w", l.stream, err)
+		}
+		if l.fence != nil {
+			if err := checkFence(ctx, t, *l.fence); err != nil {
+				return err
+			}
+		}
+		rows, err := t.QueryContext(ctx, `SELECT id, body FROM halo_journal WHERE stream = $1`, l.stream)
+		if err != nil {
+			return fmt.Errorf("pgstore: read %s: %w", l.stream, err)
+		}
+		var ids []int64
+		for rows.Next() {
+			var id int64
+			var body []byte
+			if err := rows.Scan(&id, &body); err != nil {
+				_ = rows.Close()
+				return fmt.Errorf("pgstore: read %s: %w", l.stream, err)
+			}
+			if drop(body) {
+				ids = append(ids, id)
+			}
+		}
+		_ = rows.Close() // read-only
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("pgstore: read %s: %w", l.stream, err)
+		}
+		if len(ids) == 0 {
+			return nil
+		}
+		res, err := t.ExecContext(ctx, `DELETE FROM halo_journal WHERE stream = $1 AND id = ANY($2)`, l.stream, ids)
+		if err != nil {
+			return fmt.Errorf("pgstore: compact %s: %w", l.stream, err)
+		}
+		m, err := res.RowsAffected()
+		n = int(m)
+		return err
+	})
+	return n, err
+}
+
 // Close implements storage.Log; the pool is the DB's to close.
 func (l *pgLog) Close() error { return nil }
 

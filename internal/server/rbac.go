@@ -99,6 +99,9 @@ var routePerms = map[string]perm{
 
 	"POST /api/v1/devices/{id}/revoke":        permAdmin,
 	"POST /api/v1/users/{id}/revoke-sessions": permAdmin,
+	"POST /api/v1/users/erase":                permAdmin, // GDPR erasure (ADR-0040); a person only, never themselves
+	"POST /api/v1/users/erase/{id}/confirm":   permAdmin, // the second admin of every erasure (two-person rule)
+	"GET /api/v1/users/erase/{id}":            permAdmin, // review a pending erasure before confirming it
 	"POST /api/v1/toggles/{name}/propose":     permAdmin,
 	"POST /api/v1/sessions":                   permAdmin, // ingest normalized session records (halo sessions import)
 	"POST /api/v1/freeze":                     permAdmin, // incident freeze on/off (ADR-0030)

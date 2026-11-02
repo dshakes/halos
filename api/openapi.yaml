@@ -3288,6 +3288,230 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/OAuthError'
+  /api/v1/users/erase:
+    post:
+      tags:
+        - Devices
+      operationId: eraseUser
+      summary: Erase a person's data (GDPR)
+      description: |-
+        Revokes the user's sessions, deletes their devices, access requests and fleet reports, pseudonymises their name in requests they decided and in every audit entry, and appends a high-severity `subject.erase` entry that vouches for the redacted entries, so the audit chain still verifies (ADR-0040). The user is in the body so it never reaches request logs. `dryRun` reports the counts and changes nothing. `retained` names what is kept, and why.
+
+        Requires the `admin` permission. A person only (service tokens and break-glass get 403), never their own data under the user id or any alias, with a global admin binding. One erasure runs at a time. Only a dry run answers at once: every erasure answers 202 with a pending erasure that a different admin reviews (GET) and confirms within an hour by resubmitting it (two-person rule).
+      x-halo-permission: admin
+      x-halo-stability: stable
+      security:
+        - sessionCookie: []
+        - serviceToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EraseRequest'
+            example:
+              aliases:
+                - dev-laptop-17
+              reason: DSR-2026-114 (erasure request)
+              user: dev@acme.example
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EraseReport'
+              example:
+                erased:
+                  auditEntries: 12
+                  devices: 1
+                  fleetReports: 3
+                  requests: 2
+                pseudonym: erased-q7T0vZ1xYk2b
+                retained:
+                  siem: 'entries already exported stay in your SIEM: apply the subject.erase entry there'
+        "202":
+          description: 'Pending: a different admin must confirm.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PendingErasure'
+              example:
+                confirm: POST /api/v1/users/erase/p1/confirm
+                expiresAt: "2026-01-02T04:04:05Z"
+                id: p1
+                requestedBy: boss@acme.example
+        "400":
+          description: Invalid JSON.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "422":
+          description: A reason, and a user and aliases that identify a person (not a number, time, ring, role, status or pseudonym), are required.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
+        "500":
+          description: 'A store failed; `errors` names it and the rest was erased. Retry: erasure is idempotent.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: Another erasure is running.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/users/erase/{id}:
+    get:
+      tags:
+        - Devices
+      operationId: getPendingErasure
+      summary: A pending erasure
+      description: |-
+        What a pending erasure would erase (user, aliases, reason) and who requested it, for the second admin to review before confirming.
+
+        Requires the `admin` permission.
+      x-halo-permission: admin
+      x-halo-stability: stable
+      security:
+        - sessionCookie: []
+        - serviceToken: []
+      parameters:
+        - description: The resource id.
+          name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PendingErasure'
+              example:
+                confirm: POST /api/v1/users/erase/p1/confirm
+                expiresAt: "2026-01-02T04:04:05Z"
+                id: p1
+                reason: DSR-2026-114
+                requestedBy: boss@acme.example
+                user: dev@acme.example
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "404":
+          description: No such pending erasure.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
+        "503":
+          description: The state store is unavailable; retry.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/users/erase/{id}/confirm:
+    post:
+      tags:
+        - Devices
+      operationId: confirmErasure
+      summary: Confirm a pending erasure (second admin)
+      description: |-
+        Runs an erasure another admin requested (two-person rule, ADR-0040). The body must repeat the pending erasure's user, aliases and reason (compared as canonical ids); a mismatch is 409 and the erasure stays pending. The subject.erase entry records both admins.
+
+        Requires the `admin` permission. A person, not the requester, not the subject.
+      x-halo-permission: admin
+      x-halo-stability: stable
+      security:
+        - sessionCookie: []
+        - serviceToken: []
+      parameters:
+        - description: The resource id.
+          name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EraseRequest'
+            example:
+              aliases:
+                - dev-laptop-17
+              reason: DSR-2026-114 (erasure request)
+              user: dev@acme.example
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EraseReport'
+              example:
+                erased:
+                  auditEntries: 3
+                pseudonym: erased-q7T0vZ1xYk2b
+                retained: {}
+        "400":
+          description: 'Invalid JSON: resubmit the user, aliases and reason.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "404":
+          description: No such pending erasure (expired, confirmed or never requested).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "409":
+          description: The resubmitted erasure differs from the pending one, or it was confirmed or expired meanwhile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "422":
+          description: The pending erasure no longer validates.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
+        "500":
+          description: A store failed or the audit chain does not verify; `errors` names it.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: State store unavailable, or another erasure is running.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/users/{id}/revoke-sessions:
     post:
       tags:
@@ -4706,6 +4930,8 @@ components:
           type: string
         prev:
           type: string
+        redacted:
+          type: boolean
         requestId:
           type: string
         seq:
@@ -4725,15 +4951,22 @@ components:
         - verified
       type: object
       properties:
+        checkpoints:
+          type: integer
         entries:
           type: array
           items:
             $ref: '#/components/schemas/AuditEntry'
         head:
           type: string
+        lastCheckpoint:
+          type: integer
+          format: int64
         next:
           type: integer
           format: int64
+        signed:
+          type: boolean
         total:
           type: integer
         verified:
@@ -5016,6 +5249,44 @@ components:
         skill:
           type: string
         url:
+          type: string
+    EraseReport:
+      required:
+        - erased
+        - retained
+      type: object
+      properties:
+        dryRun:
+          type: boolean
+        erased:
+          type: object
+          additionalProperties:
+            type: integer
+        errors:
+          type: object
+          additionalProperties:
+            type: string
+        pseudonym:
+          type: string
+        retained:
+          type: object
+          additionalProperties:
+            type: string
+    EraseRequest:
+      required:
+        - reason
+        - user
+      type: object
+      properties:
+        aliases:
+          type: array
+          items:
+            type: string
+        dryRun:
+          type: boolean
+        reason:
+          type: string
+        user:
           type: string
     Error:
       required:
@@ -5396,6 +5667,31 @@ components:
           type: array
           items:
             type: string
+    PendingErasure:
+      required:
+        - confirm
+        - expiresAt
+        - id
+        - requestedBy
+      type: object
+      properties:
+        aliases:
+          type: array
+          items:
+            type: string
+        confirm:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+        id:
+          type: string
+        reason:
+          type: string
+        requestedBy:
+          type: string
+        user:
+          type: string
     PolicyView:
       required:
         - experiments

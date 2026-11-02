@@ -191,6 +191,17 @@ spec:
             {{- if $audit }}
             - --audit-config=/etc/halos/audit.json
             {{- end }}
+            {{- with $s.retention }}
+            - --retention-fleet-reports={{ .fleetReports | default "0" }}
+            - --retention-requests={{ .requests | default "0" }}
+            - --retention-devices={{ .devices | default "0" }}
+            - --retention-audit={{ .audit | default "0" }}
+            - --retention-interval={{ .interval | default "1h" }}
+            {{- end }}
+            {{- with (($s.auditSigning | default dict).keyURI) }}
+            - --audit-signing-key-uri={{ . }}
+            - --audit-checkpoint-interval={{ $s.auditSigning.checkpointInterval | default "5m" }}
+            {{- end }}
             {{- with $s.trustedProxyCIDRs }}
             - --trusted-proxy-cidrs={{ . }}
             {{- end }}

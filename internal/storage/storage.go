@@ -92,6 +92,63 @@ func SingleWriter(l Log) bool {
 }
 func (l *fileLog) Close() error { return l.f.Close() }
 
+// Compact rewrites the file without the records drop selects (ADR-0040):
+// written to a temporary file, synced and renamed over the log, then reopened
+// for appends. The caller holds the store's lock, so nothing appends meanwhile.
+func (l *fileLog) Compact(_ context.Context, drop func(rec []byte) bool) (int, error) {
+	in, err := os.ReadFile(l.path)
+	if err != nil {
+		return 0, fmt.Errorf("compact %s: %w", l.path, err)
+	}
+	var out []byte
+	n := 0
+	for _, line := range strings.SplitAfter(string(in), "\n") {
+		rec := strings.TrimSuffix(line, "\n")
+		if rec == "" {
+			continue
+		}
+		if drop([]byte(rec)) {
+			n++
+			continue
+		}
+		out = append(out, rec...)
+		out = append(out, '\n')
+	}
+	if n == 0 {
+		return 0, nil
+	}
+	_ = l.f.Close() // every append was synced; Windows cannot rename over an open file
+	werr := fsutil.WriteAtomic(l.path, out, 0o600)
+	f, err := os.OpenFile(l.path, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return 0, errors.Join(werr, fmt.Errorf("compact %s: reopen: %w", l.path, err))
+	}
+	l.f = f
+	if werr != nil {
+		return 0, fmt.Errorf("compact %s: %w", l.path, werr)
+	}
+	return n, nil
+}
+
+// ErrNoCompact is Compact's answer for a log that cannot drop records.
+var ErrNoCompact = errors.New("storage: this log cannot drop records")
+
+// Compact removes every record of l that drop selects and returns how many it
+// removed (ADR-0040: retention and erasure). A nil Log (memory only) has
+// nothing to remove. Callers serialize it with Append and Catchup.
+func Compact(ctx context.Context, l Log, drop func(rec []byte) bool) (int, error) {
+	if l == nil {
+		return 0, nil
+	}
+	c, ok := l.(interface {
+		Compact(ctx context.Context, drop func(rec []byte) bool) (int, error)
+	})
+	if !ok {
+		return 0, ErrNoCompact
+	}
+	return c.Compact(ctx, drop)
+}
+
 // CloseLog closes l under mu; a nil Log (memory only) is a no-op.
 func CloseLog(mu sync.Locker, l Log) error {
 	mu.Lock()

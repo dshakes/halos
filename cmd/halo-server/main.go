@@ -93,6 +93,13 @@ type options struct {
 	breakGlassCIDRs                             string
 	entraGraphURL                               string
 
+	// Data lifecycle (ADR-0040) and signed audit checkpoints (ADR-0041)
+	retention          server.Retention
+	auditSigningKeyURI string
+	auditPrevKeys      string // comma-separated PEM public key files of replaced audit keys
+	auditCheckpoint    time.Duration
+	auditSigningEnable bool
+
 	// SAML login (ADR-0039)
 	saml samlOptions
 }
@@ -161,6 +168,15 @@ func parseFlags(args []string) (options, error) {
 	fs.StringVar(&o.breakGlassCIDRs, "breakglass-allowed-cidrs", "", "comma-separated CIDRs the break-glass login and session may come from (client address after --trusted-proxy-cidrs); elsewhere it answers 404 as if sealed. Empty = any address")
 	fs.StringVar(&o.breakGlassHashFile, "breakglass-hash-file", "", "file holding the break-glass password hash from `halo-server breakglass-hash`; sealed (refused) unless --breakglass-enabled")
 	fs.StringVar(&o.entraGraphURL, "entra-graph-url", server.DefaultGraphURL, "Microsoft Graph base URL for identity.groupsOverage: graph (national clouds: https://graph.microsoft.us/v1.0, https://microsoftgraph.chinacloudapi.cn/v1.0)")
+	fs.DurationVar(&o.retention.FleetReports, "retention-fleet-reports", 0, "delete fleet reporters (and their report history) not seen for this long (ADR-0040; 0 = keep forever; recommended 2160h)")
+	fs.DurationVar(&o.retention.Requests, "retention-requests", 0, "delete access requests this long after they were decided (0 = keep forever; recommended 8760h)")
+	fs.DurationVar(&o.retention.Devices, "retention-devices", 0, "delete revoked devices this long after their last use, and expired ones this long after expiry (0 = keep forever; recommended 2160h)")
+	fs.DurationVar(&o.retention.Audit, "retention-audit", 0, "delete audit entries older than this, never before every SIEM sink delivered them; whole rotated segments on --data-dir (0 = keep forever; at least 720h; recommended 9528h, 13 months)")
+	fs.DurationVar(&o.retention.Interval, "retention-interval", server.DefaultRetentionInterval, "how often the retention sweep runs (leader only with --database-url-file)")
+	fs.StringVar(&o.auditSigningKeyURI, "audit-signing-key-uri", "", "key signing audit chain checkpoints (ADR-0041; recommended): file://PATH, awskms://KEY?region=R or exec:///SIGNER; verify with `halo audit verify --public-key`")
+	fs.StringVar(&o.auditPrevKeys, "audit-previous-public-key-files", "", "comma-separated PEM public keys of audit keys --audit-signing-key-uri replaced: checkpoints and vouches they signed keep verifying after a rotation")
+	fs.BoolVar(&o.auditSigningEnable, "audit-signing-enable", false, "for ONE start: allow writing the signed audit.signing.enabled marker over an audit log that already holds entries (first-ever enable), or recreating a missing signing record over a signed log; without it halo-server refuses to sign such a log (ADR-0041)")
+	fs.DurationVar(&o.auditCheckpoint, "audit-checkpoint-interval", server.DefaultCheckpointInterval, "with --audit-signing-key-uri: how often a signed checkpoint of the chain head is appended (and exported to SIEM sinks) when entries arrived")
 	samlFlags(fs, &o.saml)
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), "Usage of halo-server:\n")
@@ -222,6 +238,12 @@ func parseFlags(args []string) (options, error) {
 	}
 	if o.auditCfg != "" && !durable {
 		return o, errors.New("--audit-config requires --data-dir or --database-url-file (segments and export cursors must survive a restart)")
+	}
+	if (o.retention.FleetReports > 0 || o.retention.Requests > 0 || o.retention.Devices > 0 || o.retention.Audit > 0) && !durable {
+		return o, errors.New("--retention-* needs --data-dir or --database-url-file (memory-only state is gone on restart anyway)")
+	}
+	if o.auditSigningKeyURI != "" && !durable {
+		return o, errors.New("--audit-signing-key-uri needs --data-dir or --database-url-file (checkpoints anchor a log that survives a restart)")
 	}
 	if o.scimAuthoritative && o.scimTokenHashFile == "" {
 		return o, errors.New("--scim-authoritative requires --scim-token-sha256-file")
@@ -626,6 +648,28 @@ func run(ctx context.Context, args []string) error {
 		killKey = ks
 		slog.Info("kill list signed by external key", "backend", signer.Scheme(o.killKeyURI), "alg", ks.Type(), "keyId", bundle.KeyID(ks.Verifier()))
 	}
+	var auditKey bundle.KeySigner
+	if o.auditSigningKeyURI != "" {
+		if auditKey, err = signer.Open(ctx, o.auditSigningKeyURI, signer.Options{}); err != nil {
+			return fmt.Errorf("--audit-signing-key-uri: %w", err)
+		}
+		if err := distinctAuditKey(auditKey, killKey, portal.PubKeyPEM); err != nil {
+			return err
+		}
+		slog.Info("audit checkpoints signed", "backend", signer.Scheme(o.auditSigningKeyURI), "alg", auditKey.Type(), "keyId", bundle.KeyID(auditKey.Verifier()))
+	}
+	var prevAuditKeys []bundle.PublicKeyVerifier
+	for _, f := range splitCSV(o.auditPrevKeys) {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			return fmt.Errorf("--audit-previous-public-key-files: %w", err)
+		}
+		v, err := bundle.ParseVerifier(b)
+		if err != nil {
+			return fmt.Errorf("--audit-previous-public-key-files %s: %w", f, err)
+		}
+		prevAuditKeys = append(prevAuditKeys, v)
+	}
 	var workloadKey ed25519.PrivateKey
 	if o.workloadKeyFile != "" {
 		b, err := os.ReadFile(o.workloadKeyFile)
@@ -675,6 +719,7 @@ func run(ctx context.Context, args []string) error {
 		WorkloadKey: workloadKey,
 		Session:     server.SessionPolicy{TTL: o.sessionTTL, Idle: o.sessionIdle}, ServiceTokenMaxTTL: o.serviceTokenMaxTTL,
 		EntraGraphURL: o.entraGraphURL,
+		Retention:     o.retention, AuditSigner: auditKey, AuditCheckpointInterval: o.auditCheckpoint, AuditPreviousKeys: prevAuditKeys, AuditSigningEnable: o.auditSigningEnable,
 	}
 	if cfg.BreakGlass, err = breakGlassConfig(o); err != nil {
 		return err
@@ -699,7 +744,9 @@ func run(ctx context.Context, args []string) error {
 	actx, stopAudit := context.WithCancel(ctx)
 	auditDone := make(chan struct{})
 	go func() { defer close(auditDone); srv.RunAuditExport(actx) }()
-	defer func() { stopAudit(); <-auditDone }() // runs before srv.Close: forwarders read the log
+	maintDone := make(chan struct{})
+	go func() { defer close(maintDone); srv.RunMaintenance(actx) }() // retention and checkpoints (ADR-0040, ADR-0041)
+	defer func() { stopAudit(); <-auditDone; <-maintDone }()         // runs before srv.Close: forwarders read the log
 	hup := make(chan os.Signal, 1)
 	signal.Notify(hup, syscall.SIGHUP)
 	defer signal.Stop(hup)
@@ -906,4 +953,20 @@ func splitCSV(s string) []string {
 		}
 	}
 	return out
+}
+
+// distinctAuditKey refuses an audit signing key that is also the kill-list
+// key or the release key (ADR-0041): one key per purpose, so a signature made
+// for one can never be presented as another and each rotates on its own.
+func distinctAuditKey(audit bundle.KeySigner, kill bundle.Signer, releasePubPEM string) error {
+	id := bundle.KeyID(audit.Verifier())
+	if ks, ok := kill.(bundle.KeySigner); ok && bundle.KeyID(ks.Verifier()) == id {
+		return errors.New("--audit-signing-key-uri is the kill-switch key: use a dedicated audit key")
+	}
+	if releasePubPEM != "" {
+		if v, err := bundle.ParseVerifier([]byte(releasePubPEM)); err == nil && bundle.KeyID(v) == id {
+			return errors.New("--audit-signing-key-uri is the release signing key: use a dedicated audit key")
+		}
+	}
+	return nil
 }

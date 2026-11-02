@@ -326,7 +326,7 @@ func TestSharedAuditExport(t *testing.T) {
 		if len(tail.Entries) != 2 || tail.Entries[1].Seq != 10 {
 			t.Fatalf("tail: %+v", tail)
 		}
-		r, err := VerifyAuditBackend(context.Background(), b)
+		r, err := VerifyAuditBackend(context.Background(), b, AuditVerifyOptions{})
 		if err != nil || r.Error != "" || r.Entries != 10 || r.Head != resp.Head {
 			t.Fatalf("verify: %+v %v", r, err)
 		}
