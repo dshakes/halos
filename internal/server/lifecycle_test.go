@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -76,15 +77,25 @@ func erase2(t *testing.T, req *env, rp Principal, conf *env, cp Principal, body 
 	return conf.as(cp, "POST", "/api/v1/users/erase/"+pe.ID+"/confirm", body)
 }
 
+// openStores is the fleet-report store each test data dir has open. A test
+// "restart" (a second fileEnv on the same dir) closes the previous one first,
+// as a real restart does: OpenLogStore compacts by rename, and Windows cannot
+// rename over a file another handle still holds open.
+var openStores sync.Map // dir -> *logStore
+
 // fileEnv is a single replica on a data dir, its fleet reports on disk too.
 func fileEnv(t *testing.T, dir string, mutate func(*Config)) *env {
 	t.Helper()
 	return newEnv(t, func(c *Config) {
+		if prev, ok := openStores.LoadAndDelete(dir); ok {
+			_ = prev.(*logStore).Close()
+		}
 		st, err := OpenLogStore(dir)
 		if err != nil {
 			t.Fatal(err)
 		}
-		t.Cleanup(func() { _ = st.(*logStore).Close() })
+		openStores.Store(dir, st.(*logStore))
+		t.Cleanup(func() { openStores.CompareAndDelete(dir, st.(*logStore)); _ = st.(*logStore).Close() })
 		c.DataDir, c.Store = dir, st
 		c.auditSigningEnableAny = true // as signedPGEnv; a mutate may turn it off
 		if mutate != nil {
