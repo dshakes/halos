@@ -837,14 +837,17 @@ func diffSummary(dl []string) []string {
 		}
 		head, add, del = "", 0, 0
 	}
-	for i, l := range dl {
+	prev, first := "", true
+	for _, l := range dl {
 		// File headings follow a blank line; a changed file's "+++ " follows its "--- ".
-		afterBlank := i > 0 && dl[i-1] == ""
+		afterBlank := !first && prev == ""
+		prevDel := !first && strings.HasPrefix(prev, "--- ")
+		prev, first = l, false
 		switch {
 		case afterBlank && (strings.HasPrefix(l, "--- ") || strings.HasPrefix(l, "+++ ")):
 			flush()
 			head = l[4:]
-		case strings.HasPrefix(l, "+++ ") && i > 0 && strings.HasPrefix(dl[i-1], "--- "):
+		case strings.HasPrefix(l, "+++ ") && prevDel:
 		case strings.HasPrefix(l, "+") && head != "":
 			add++
 		case strings.HasPrefix(l, "-") && head != "":
