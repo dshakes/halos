@@ -80,7 +80,7 @@ curl -s https://ai.acme.example/v1/messages -H "Authorization: Bearer $TOKEN" \
 
 ## 5. Kill switch (optional)
 
-Give `halo-kong` the signed kill list from `halo-server` and a rollback verdict or an admin click takes effect in seconds instead of after a PR merge. `halo gateway deck --killswitch-url https://<halo-server>/api/v1/gateway/killswitch` generates `killswitch_url`, `killswitch_token` and `killswitch_pubkey` (the last two as the vault references below); `killswitch_allow_insecure_in_cluster` is never generated, add it by hand if you need it.
+Give `halo-kong` the signed kill list from `halo-server` and a rollback verdict or an admin click takes effect in seconds instead of after a PR merge. `halo gateway deck --killswitch-url https://<halo-server>/api/v1/gateway/killswitch` generates `killswitch_url`, `killswitch_token` and `killswitch_pubkey` (the last two as the vault references below); `killswitch_allow_insecure_in_cluster` is generated only with `--killswitch-allow-insecure-in-cluster`, for a trusted in-cluster `http://` URL.
 
 | Field | Meaning |
 |---|---|

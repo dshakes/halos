@@ -3,7 +3,7 @@ title: Operations
 description: SLOs and Prometheus alerts, high availability, backup and restore of halo-server state and keys, and the runbook for the incidents that matter.
 ---
 
-Everything here is checked against the code it describes; `file:line` references are to the repository at the commit that built these docs. Where a behaviour has only been exercised in the kind-based UAT (`make uat-k8s`), it says so.
+Everything here is checked against the code it describes; `file:line` references were taken when this page was written and drift as the code moves: find the symbol in the named file. Where a behaviour has only been exercised in the kind-based UAT (`make uat-k8s`), it says so.
 
 ## What is highly available and what is not
 

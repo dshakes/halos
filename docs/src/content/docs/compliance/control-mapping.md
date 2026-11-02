@@ -129,7 +129,7 @@ These stay with you, whatever the framework.
 | Physical and environmental security (SOC 2 CC6.4, CC6.5; ISO 27001 Annex A 7.x) | Software |
 | People: hiring, screening, training, disciplinary process (SOC 2 CC1; ISO 27001 Annex A 6.x) | Software |
 | Risk assessment, ISMS governance, statement of applicability, management review | Process |
-| Identity proofing, MFA, password policy | Halos speaks OIDC (console, gateway), SAML 2.0 (console) and SCIM 2.0; the IdP does the rest |
+| Identity proofing, MFA, password policy | Halos speaks OIDC (console, gateway), SAML 2.0 (console; unreleased, since v0.6.0) and SCIM 2.0; the IdP does the rest |
 | TLS termination, certificates, network segmentation | `halo-server`, `halo-proxy` and `halo-shadow` have no TLS listener. Terminate TLS at your ingress or load balancer |
 | Endpoint protection, OS patching, disk encryption | Halos manages AI CLI configuration, not the machine |
 | Backups and disaster recovery execution | Halos documents what to back up; you run and test it |

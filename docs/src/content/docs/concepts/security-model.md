@@ -248,7 +248,7 @@ Limit: an `enforce` budget is checked before the call against what has been char
 - The signing key is a single point of trust. There is no threshold signing. The kill-switch key is a second, narrower one.
 - The audit log is tamper-evident, not tamper-proof, and tail truncation is undetectable on its own (see [Audit log](#audit-log)).
 - The enrollment bootstrap (`curl -fsSL <server>/enroll.sh | sh -s -- <token>`) is itself a piped script whose integrity rests on TLS to your server. It pins the `halod` binary by sha256 and refuses to install without a pinned checksum.
-- Shadow is single-turn only ([ADR-0004](/halos/adr/0004-shadow-single-turn-only/)).
+- Shadow mirrors first turns by default; `turns: all` mirrors every step ([ADR-0004](/halos/adr/0004-shadow-single-turn-only/), amended by [ADR-0014](/halos/adr/0014-step-level-multi-turn-shadow/)).
 - The `halo-kong` Go plugin runs as a separate process; treat its socket as part of the trust boundary.
 - **UNVERIFIED:** the above was tested with unit tests, the compose demo, and the kind, real-CLI and Kong OSS UAT suites in CI, not against a real fleet, Kong Enterprise or Konnect, real AWS Bedrock, or a third-party penetration test.
 

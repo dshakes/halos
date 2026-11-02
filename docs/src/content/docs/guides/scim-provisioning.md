@@ -15,7 +15,7 @@ Design and limits: [ADR-0022](/halos/adr/0022-scim-provisioning/). Endpoints: [A
 
 The SCIM `userName` must be the same value halo-server and the gateways see as the user's identity: the OIDC claim named by `identity.userClaim` in policy (`email` by default). It is compared case-insensitively; a different attribute (for example Entra's UPN when the token carries `mail`) leaves users unknown. Groups are matched by `displayName`, the same names policy uses in ring `membership.groups`, `identity.adminGroups` and toggle rules.
 
-SCIM needs `--data-dir`: the directory is stored in `scim.jsonl` there.
+SCIM needs `--data-dir` (the directory is stored in `scim.jsonl` there) or `--database-url-file` (Postgres); halo-server refuses `--scim-token-sha256-file` with neither.
 
 ## 1. Create the SCIM token
 
