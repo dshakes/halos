@@ -265,12 +265,20 @@ func TestScanAdversarialBodies(t *testing.T) {
 		for _, size := range []int{256 << 10, 4 << 20} {
 			text := strings.Repeat(a, size/len(a))
 			for name, body := range map[string][]byte{"user": userTextBody(text), "tool": anthropicToolResult(text)} {
-				t0 := time.Now()
-				rep := ScanRequest(d, ProtoAnthropic, "", nil, body)
-				took := time.Since(t0)
 				limit := 2 * dlpScanBudget // 4 MB: the budget, plus the one regex chunk in flight
 				if size == 256<<10 {
 					limit = 300 * time.Millisecond
+				}
+				var rep *DLPReport
+				var took time.Duration
+				// A shared CI runner can stall one measurement past a wall-clock budget;
+				// a real regression is slow every time, so measure again before failing.
+				for range 2 {
+					t0 := time.Now()
+					rep = ScanRequest(d, ProtoAnthropic, "", nil, body)
+					if took = time.Since(t0); took <= limit*slow && (size != 256<<10 || !rep.Truncated) {
+						break
+					}
 				}
 				if took > limit*slow {
 					t.Errorf("%q x %d KB (%s): %v, want under %v (truncated %v)", a, size>>10, name, took, limit*slow, rep.Truncated)
