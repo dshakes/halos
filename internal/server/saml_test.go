@@ -103,8 +103,8 @@ func (e *samlEnv) samlLogin(t *testing.T) (*http.Cookie, string) {
 	if w.Code != http.StatusFound || loc.Host != "idp.saml.example" || q.Get("SAMLRequest") == "" || q.Get("Signature") == "" || q.Get("SigAlg") != sigRSASHA256 {
 		t.Fatalf("saml login: %d %s", w.Code, loc)
 	}
-	c := cookieOf(w, samlCookie)
-	if c == nil || !c.HttpOnly || !c.Secure || c.SameSite != http.SameSiteNoneMode {
+	c := cookieOf(w, "__Host-"+samlCookie)
+	if c == nil || c.Path != "/" || !c.HttpOnly || !c.Secure || c.SameSite != http.SameSiteNoneMode {
 		t.Fatalf("tracking cookie: %+v", c)
 	}
 	st, err := e.s.unseal(c.Value)
@@ -120,6 +120,7 @@ type samlAssert struct {
 	issued, notOnOrAfter           time.Time
 	unsigned, signResponse         bool
 	encrypt                        bool
+	acr                            string                                              // AuthnContextClassRef
 	attrs                          []saml.Attribute                                    // extra attributes
 	tamper                         func(resp *etree.Element, assertion *etree.Element) // after signing
 }
@@ -169,7 +170,7 @@ func (e *samlEnv) response(t *testing.T, o samlAssert) string {
 			}}},
 		},
 		Conditions:          &saml.Conditions{NotBefore: o.issued.Add(-time.Minute), NotOnOrAfter: o.notOnOrAfter, AudienceRestrictions: aud},
-		AuthnStatements:     []saml.AuthnStatement{{AuthnInstant: o.issued, SessionIndex: "s1"}},
+		AuthnStatements:     []saml.AuthnStatement{{AuthnInstant: o.issued, SessionIndex: "s1", AuthnContext: saml.AuthnContext{AuthnContextClassRef: acrRef(o.acr)}}},
 		AttributeStatements: []saml.AttributeStatement{{Attributes: append([]saml.Attribute{{Name: "groups", Values: vals}}, o.attrs...)}},
 	}
 	if o.unsigned {

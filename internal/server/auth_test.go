@@ -64,10 +64,10 @@ func (o *oidcEnv) login(t *testing.T) (*http.Cookie, *url.URL) {
 	if w.Code != http.StatusFound {
 		t.Fatalf("login: %d %s", w.Code, w.Body)
 	}
-	c := cookieOf(w, oidcCookie)
+	c := cookieOf(w, "__Host-"+oidcCookie)
 	auth, _ := url.Parse(w.Header().Get("Location"))
 	q := auth.Query()
-	if c == nil || q.Get("code_challenge_method") != "S256" || q.Get("nonce") == "" || q.Get("state") == "" {
+	if c == nil || c.Path != "/" || q.Get("code_challenge_method") != "S256" || q.Get("nonce") == "" || q.Get("state") == "" {
 		t.Fatalf("login redirect lacks state/nonce/PKCE: %s (cookie %v)", auth, c)
 	}
 	cl := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}

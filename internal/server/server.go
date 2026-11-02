@@ -360,6 +360,10 @@ func New(cfg Config) (*Server, error) {
 		}
 	}
 	s.oidc.kv, s.enroll.kv = kv, kv
+	if org, _, _ := s.pol.Get(); samlSP != nil && org != nil && (len(org.Identity.RequireAcr) > 0 || len(org.Identity.RequireAmr) > 0) {
+		cfg.Log.Warn("SAML login with identity.requireAcr/requireAmr: a SAML login must carry a matching AuthnContextClassRef (requireAcr) or authnmethodsreferences attribute (requireAmr), or it is denied; check that the IdP sends them (ADR-0039)",
+			"requireAcr", org.Identity.RequireAcr, "requireAmr", org.Identity.RequireAmr)
+	}
 	s.relFetch, s.relChannels = s.registryFetch, s.registryChannels
 	if s.kills = cfg.KillStore; s.kills == nil {
 		if cfg.Backend != nil {

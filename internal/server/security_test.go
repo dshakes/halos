@@ -102,7 +102,7 @@ func TestCookieAttributes(t *testing.T) {
 		c      *http.Cookie
 		path   string
 		maxAge int
-	}{{sc, "/auth", 600}, {c, "/", int(sessionTTL.Seconds())}} {
+	}{{sc, "/", 600}, {c, "/", int(sessionTTL.Seconds())}} {
 		if !tc.c.HttpOnly || !tc.c.Secure || tc.c.SameSite != http.SameSiteLaxMode || tc.c.Path != tc.path || tc.c.MaxAge != tc.maxAge {
 			t.Errorf("cookie %s = %+v, want HttpOnly Secure Lax Path=%s MaxAge=%d", tc.c.Name, tc.c, tc.path, tc.maxAge)
 		}

@@ -26,7 +26,7 @@ ECDSA P-256 keys also work. Rotate by publishing the new certificate at the IdP 
 | ACS / Reply / Single sign-on URL (HTTP-POST) | `https://<portal baseURL>/auth/saml/acs` |
 | Entity ID / Audience / Identifier | `https://<portal baseURL>/auth/saml/metadata` (or your `--saml-entity-id`) |
 | SP metadata (for IdPs that import it) | `https://<portal baseURL>/auth/saml/metadata` |
-| Name ID | The user id Halos matches in policy and SCIM, usually the email or UPN |
+| Name ID | The user id Halos matches in policy and SCIM. Use an identifier the user cannot change: the UPN, the directory object id, or a persistent NameID. Never a mail attribute the user (or a delegated admin) can edit: whoever sets that value becomes that Halos user |
 | Signing | Sign the assertion (or the response), SHA-256 |
 | Group attribute | Name `groups` (or set `--saml-groups-attribute`), values the groups policy maps |
 
@@ -47,8 +47,8 @@ The IdP must offer the **HTTP-Redirect** SSO binding (every one above does): hal
 | `--saml-idp-metadata-url` | `idpMetadataURL` | Or fetch it at start (https). Restart to pick up a rotated IdP certificate |
 | `--saml-sp-key-file`, `--saml-sp-cert-file` | `existingSecret` with `keyKey`/`certKey` (default `tls.key`/`tls.crt`) | SP key pair from step 1 |
 | `--saml-entity-id` | `entityID` | Default `<baseURL>/auth/saml/metadata` |
-| `--saml-user-attribute` | `userAttribute` | Attribute holding the user id; default the Name ID |
-| `--saml-groups-attribute` | `groupsAttribute` | Comma-separated attribute names; default `groups`, `Group`, `memberOf` and the Entra ID and ADFS group claim URIs |
+| `--saml-user-attribute` | `userAttribute` | `Name` of the attribute holding the user id; default the Name ID. Same rule: an immutable identifier only |
+| `--saml-groups-attribute` | `groupsAttribute` | Comma-separated attribute `Name`s (never matched against `FriendlyName`); default `groups`, `Group`, `memberOf` and the Entra ID and ADFS group claim URIs |
 | `--saml-allow-idp-initiated` | `allowIdPInitiated` | Accept logins started from the IdP's app dashboard. Off: see below |
 
 ```yaml
@@ -72,10 +72,13 @@ OIDC stays on as long as policy names `identity.issuer` and `clientID`; the logi
 
 ## 4. Behaviour to know
 
-- **Signed assertions required.** halo-server refuses a response unless the assertion, or the whole response, is signed by a certificate in the IdP metadata. It also checks audience, recipient, destination, InResponseTo, a 60-second validity skew, and that each assertion id is used once.
-- **IdP-initiated SSO is off.** A login must start at Halos (`/auth/saml/login`), so the response can be tied to the browser that asked for it. Turning on `--saml-allow-idp-initiated` lets IdP dashboard tiles work, and also lets an attacker sign a victim's browser into the attacker's account (login CSRF). Assertions are still single-use.
+- **Signed assertions required.** halo-server refuses a response unless the assertion, or the whole response, is signed by a certificate in the IdP metadata. Encrypted assertions must use RSA-OAEP with AES-GCM, or AES-CBC inside a signed Response; rsa-1_5 is refused. A response with more than one assertion is refused. It also checks audience, recipient, destination, InResponseTo, a 60-second validity skew, and that each assertion id is used once.
+- **IdP-initiated SSO is off.** A login must start at Halos (`/auth/saml/login`), so the response can be tied to the browser that asked for it (a `__Host-halo_saml` cookie, spent only once the response verifies). Turning on `--saml-allow-idp-initiated` lets IdP dashboard tiles work, and also lets an attacker sign a victim's browser into the attacker's account (login CSRF). Assertions are still single-use.
 - **Groups overage (Entra ID).** Past 150 groups Entra sends a `groups.link` claim instead of groups. halo-server refuses that login (`login.denied`, `reason: groups_overage`) rather than log the user in with no roles. Emit **Groups assigned to the application**, or make [SCIM](/halos/guides/scim-provisioning/) authoritative.
-- **MFA.** `identity.requireAcr`/`requireAmr` are OIDC checks. Enforce MFA in the IdP's sign-on policy for the Halos application.
+- **MFA (`identity.requireAcr` / `requireAmr`).** Both apply to SAML logins and fail closed: if the assertion does not carry the evidence, the login is denied (403, `login.denied`, `reason: authn_context`). halo-server warns at start when policy has either and SAML is on.
+  - `requireAcr`: an AuthnStatement's `AuthnContextClassRef` must be one of the values, so list SAML class URIs (for example `urn:oasis:names:tc:SAML:2.0:ac:classes:MultiFactor`, or the value your IdP emits after MFA; Okta and Ping can be configured to send one). With exactly one value, halo-server also asks for it in the AuthnRequest (`RequestedAuthnContext`, exact).
+  - `requireAmr`: read from the `http://schemas.microsoft.com/claims/authnmethodsreferences` attribute, which Entra ID and ADFS send. Its `http://schemas.microsoft.com/claims/multipleauthn` value counts as `mfa`, so `requireAmr: [mfa]` covers OIDC and SAML. Other IdPs do not send this attribute: there, `requireAmr` denies every SAML login. Use `requireAcr`, or add the attribute at the IdP.
+  - Policy is shared with OIDC: a `requireAcr` of OIDC `acr` values only will deny SAML logins unless the IdP sends the same value as the class ref. List both forms if you use both protocols.
 - **Logout** ends every Halos session of the user. It does not log out of the IdP (no SAML single logout).
 - **Replicas.** Request and assertion ids are recorded in the shared Postgres store when `--database-url-file` is set, so a replayed response is refused on every replica.
 

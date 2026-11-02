@@ -3597,7 +3597,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         "403":
-          description: The user is not allowed in (unprovisioned or deactivated, reserved id, groups overage).
+          description: The user is not allowed in (unprovisioned or deactivated, reserved id, groups overage, identity.requireAcr/requireAmr not met).
           content:
             application/json:
               schema:
@@ -3626,7 +3626,7 @@ paths:
         - Auth
       operationId: samlLogin
       summary: Start the SAML login
-      description: Redirects to the IdP with a signed AuthnRequest (HTTP-Redirect binding) and sets a short-lived `halo_saml` cookie holding its id (ADR-0039).
+      description: Redirects to the IdP with a signed AuthnRequest (HTTP-Redirect binding) and sets a short-lived `__Host-halo_saml` cookie holding its id (ADR-0039); with a single policy identity.requireAcr it is sent as RequestedAuthnContext.
       x-halo-stability: stable
       security: []
       responses:

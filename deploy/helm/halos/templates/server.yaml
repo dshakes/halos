@@ -214,18 +214,18 @@ spec:
             - --saml-sp-key-file=/secrets/saml-sp-key
             - --saml-sp-cert-file=/secrets/saml-sp-cert
             {{- if $saml.idpMetadataURL }}
-            - --saml-idp-metadata-url={{ $saml.idpMetadataURL }}
+            - {{ printf "--saml-idp-metadata-url=%s" $saml.idpMetadataURL | quote }}
             {{- else }}
             - --saml-idp-metadata-file=/secrets/saml-idp-metadata
             {{- end }}
             {{- with $saml.entityID }}
-            - --saml-entity-id={{ . }}
+            - {{ printf "--saml-entity-id=%s" . | quote }}
             {{- end }}
             {{- with $saml.userAttribute }}
-            - --saml-user-attribute={{ . }}
+            - {{ printf "--saml-user-attribute=%s" . | quote }}
             {{- end }}
             {{- with $saml.groupsAttribute }}
-            - --saml-groups-attribute={{ . }}
+            - {{ printf "--saml-groups-attribute=%s" . | quote }}
             {{- end }}
             {{- if $saml.allowIdPInitiated }}
             - --saml-allow-idp-initiated
