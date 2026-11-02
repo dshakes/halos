@@ -3,6 +3,8 @@ package server
 import (
 	"bytes"
 	"compress/flate"
+	"crypto/rand"
+	"crypto/rsa"
 	"encoding/base64"
 	"io"
 	"log/slog"
@@ -17,6 +19,7 @@ import (
 
 	"github.com/beevik/etree"
 	"github.com/crewjam/saml"
+	"github.com/crewjam/saml/xmlenc"
 )
 
 // Security review of ADR-0039 (2026-11-01): one test per finding.
@@ -141,6 +144,8 @@ func TestSAMLScreenResponse(t *testing.T) {
 		{"AES-CBC in an unsigned response", head + enc(oaep, cbc) + tail, false},
 		{"AES-CBC in a signed response", head + sig + enc(oaep, cbc) + tail, true},
 		{"3DES refused", head + sig + enc(oaep, triple) + tail, false},
+		{"rsa-1_5 in a foreign namespace", head + `<saml:EncryptedAssertion><xenc:EncryptedData><zz:EncryptionMethod xmlns:zz="urn:not-xmlenc" Algorithm="` + cbc + `"/><xenc:EncryptedKey><zz:EncryptionMethod xmlns:zz="urn:not-xmlenc" Algorithm="` + rsa15 + `"/></xenc:EncryptedKey></xenc:EncryptedData></saml:EncryptedAssertion>` + tail, false},
+		{"duplicate prefixed Algorithm", head + `<saml:EncryptedAssertion><xenc:EncryptedData><xenc:EncryptionMethod Algorithm="` + gcm + `"/><xenc:EncryptedKey><xenc:EncryptionMethod xmlns:q="urn:q" q:Algorithm="` + rsa15 + `" Algorithm="` + oaep + `"/></xenc:EncryptedKey></xenc:EncryptedData></saml:EncryptedAssertion>` + tail, false},
 		{"not XML", "not xml <", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -204,5 +209,20 @@ func TestSAMLForgedPostKeepsPendingLogin(t *testing.T) {
 	}
 	if w := e.acs(c, e.response(t, samlAssert{inResponseTo: id, groups: []string{"platform-admins"}})); w.Code != http.StatusFound {
 		t.Fatalf("genuine response after a forged one: %d %s", w.Code, w.Body)
+	}
+}
+
+func TestRSA15DecrypterRefused(t *testing.T) {
+	// The global registry must hold our refusing decrypter, not crewjam's PKCS#1 v1.5 one.
+	doc := etree.NewDocument()
+	if err := doc.ReadFromString(`<EncryptedKey><EncryptionMethod Algorithm="http://www.w3.org/2001/04/xmlenc#rsa-1_5"/><CipherData><CipherValue>AAAA</CipherValue></CipherData></EncryptedKey>`); err != nil {
+		t.Fatal(err)
+	}
+	k, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := xmlenc.Decrypt(k, doc.Root()); err == nil || !strings.Contains(err.Error(), "refused") {
+		t.Fatalf("rsa-1_5 decrypt: %v, want refused", err)
 	}
 }

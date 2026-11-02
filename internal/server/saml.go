@@ -19,7 +19,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/beevik/etree"
 	"github.com/crewjam/saml"
+	"github.com/crewjam/saml/xmlenc"
 
 	"github.com/dshakes/halos/internal/policy"
 	"github.com/dshakes/halos/internal/storage"
@@ -315,6 +317,19 @@ func (st *samlState) subject(a *saml.Assertion) (string, []string, bool, error) 
 	return user, groups, overage && len(groups) == 0, nil
 }
 
+// refusedDecrypter replaces crewjam's rsa-1_5 key-transport decrypter in its
+// global registry, so PKCS#1 v1.5 decryption (a Bleichenbacher oracle surface)
+// never runs on attacker ciphertext even if a document slips past
+// screenResponse.
+type refusedDecrypter string
+
+func (d refusedDecrypter) Algorithm() string { return string(d) }
+func (d refusedDecrypter) Decrypt(any, *etree.Element) ([]byte, error) {
+	return nil, fmt.Errorf("encryption algorithm %s refused", string(d))
+}
+
+func init() { xmlenc.RegisterDecrypter(refusedDecrypter("http://www.w3.org/2001/04/xmlenc#rsa-1_5")) }
+
 // screenResponse rejects, before any signature or decryption work, a
 // document that: binds a namespace prefix to more than one URI (crewjam
 // re-declares prefixes from the whole document on the element it unmarshals,
@@ -356,10 +371,14 @@ func screenResponse(raw []byte) error {
 				}
 			case depth == 2 && t.Name.Space == nsDSig && t.Name.Local == "Signature":
 				signed = true
-			case t.Name.Space == nsXMLEnc && t.Name.Local == "EncryptionMethod":
+			case t.Name.Local == "EncryptionMethod": // any namespace: crewjam's xmlenc finds it by local name only
 				var alg string
+				n := 0
 				for _, a := range t.Attr {
 					if a.Name.Local == "Algorithm" {
+						if n++; a.Name.Space != "" || n > 1 { // etree reads the first match whatever its prefix
+							return errors.New("EncryptionMethod must carry exactly one unprefixed Algorithm")
+						}
 						alg = a.Value
 					}
 				}
