@@ -337,7 +337,7 @@ func (s *Server) verifiedChain(what string) (chainCheck, error) {
 
 // errSigningNotEnabled: an audit key is configured over a chain that holds
 // entries but was never signed, and --audit-signing-enable was not given.
-var errSigningNotEnabled = errors.New("audit signing is not enabled on this log: start halo-server once with --audit-signing-enable (first-ever enable only)")
+var errSigningNotEnabled = errors.New("audit signing is not enabled on this log: start halo-server once with --audit-signing-enable=<head seq> (first-ever enable only)")
 
 // signingChain is verifiedChain for a signer. A chain never signed gets the
 // signed audit.signing.enabled marker first, with a fresh log id and the seq
@@ -351,10 +351,12 @@ func (s *Server) signingChain(ctx context.Context, what string) (chainCheck, err
 	if err != nil || s.auditLog.key == nil || c.since > 0 {
 		return c, err
 	}
-	if c.total > 0 && !s.cfg.AuditSigningEnable {
-		s.signRefused.Add(1)
-		s.cfg.Log.Error("audit key configured over an unsigned, non-empty log: refusing to sign", "what", what, "entries", c.total-c.cut)
-		return c, fmt.Errorf("%w (%s): %w", errChainUnverified, what, errSigningNotEnabled)
+	if c.total > 0 {
+		if err := s.takeSigningEnable(c.total); err != nil {
+			s.signRefused.Add(1)
+			s.cfg.Log.Error("audit key configured over an unsigned, non-empty log: refusing to sign", "what", what, "head", c.total, "err", err)
+			return c, fmt.Errorf("%w (%s): %w", errChainUnverified, what, err)
+		}
 	}
 	logID := make([]byte, 16)
 	if _, err := rand.Read(logID); err != nil {
@@ -376,6 +378,63 @@ func (s *Server) signingChain(ctx context.Context, what string) (chainCheck, err
 		return c, fmt.Errorf("write the signing record: %w", err)
 	}
 	return s.verifiedChain(what)
+}
+
+// warnSigningState logs, at start, states an operator must act on: a signed
+// log served without its audit key (no erasure or retention cut can be
+// signed: they are refused), and --audit-signing-enable left set over a log
+// that already has a signing record.
+func (s *Server) warnSigningState() {
+	rec, err := s.auditLog.readSigningRecord()
+	if err != nil {
+		s.cfg.Log.Error("audit: cannot read the signing record", "err", err)
+		return
+	}
+	if rec.Since > 0 && s.auditLog.key == nil {
+		s.cfg.Log.Error("audit: this log is signed (signing record present) but no --audit-signing-key-uri is set: erasures and audit retention cuts are refused until the key is restored", "since", rec.Since)
+	}
+	if rec.Since > 0 && (s.enableHead > 0 || s.enableAny) {
+		s.cfg.Log.Error("audit: --audit-signing-enable is set but the log already has a signing record: remove the flag; it is for the first-ever enable or a lost record only", "since", rec.Since)
+	}
+}
+
+// errSignedNoKey: an erasure or retention cut on a signed log without the
+// audit key would write an unsigned vouch and break signed verification.
+var errSignedNoKey = errors.New("this audit log is signed but halo-server has no --audit-signing-key-uri: restore the key before erasing or cutting (an unsigned vouch would break signed verification)")
+
+// requireKeyIfSigned refuses vouching work on a signed log without the key.
+func (s *Server) requireKeyIfSigned() error {
+	if s.auditLog.key != nil {
+		return nil
+	}
+	rec, err := s.auditLog.readSigningRecord()
+	if err != nil {
+		return err
+	}
+	if rec.Since > 0 {
+		return errSignedNoKey
+	}
+	return nil
+}
+
+// takeSigningEnable consumes the one-shot --audit-signing-enable for a log
+// whose head is at head: allowed only when the value names that head (a
+// stale value, set for an earlier state, is refused), and only once per
+// process (it is cleared on use).
+func (s *Server) takeSigningEnable(head uint64) error {
+	s.enableMu.Lock()
+	defer s.enableMu.Unlock()
+	switch {
+	case s.enableAny:
+		s.enableAny = false
+		return nil
+	case s.enableHead == 0:
+		return errSigningNotEnabled
+	case s.enableHead != head:
+		return fmt.Errorf("--audit-signing-enable=%d is stale: the log's head is at seq %d (set it to the current head, after checking the log against your SIEM copy)", s.enableHead, head)
+	}
+	s.enableHead = 0
+	return nil
 }
 
 // noteSigned re-verifies after this server signed an entry, so the signing
@@ -437,19 +496,24 @@ func (s *Server) checkSigning(c *chainCheck) {
 		curKey = bundle.KeyID(l.key.Verifier())
 	}
 	l.vmu.Lock()
-	memKey := l.knownKey
+	memKey, memLog := l.knownKey, l.knownLog
 	l.vmu.Unlock()
 	switch {
 	case c.since == 0 && (mem > 0 || rec.Since > 0):
-		c.err = fmt.Errorf("signing was enabled at seq %d, but no signed entry is left in the chain", max(mem, rec.Since))
+		c.err = fmt.Errorf("signing was enabled at seq %d, but no signed entry is left in the chain. If this data was restored from a backup taken before signing was enabled, restore the signing record from the same backup, or check the log against your SIEM copy (halo audit verify --strict --compare-export) and remove audit-signing.json (or the audit-signing document) before starting once with --audit-signing-enable=<head seq>. Otherwise the signed tail was deleted: investigate", max(mem, rec.Since))
 		return
 	case c.since == 0:
 		return // never signed
-	case rec.Since == 0 && !s.cfg.AuditSigningEnable:
-		c.err = errors.New("the chain is signed but the signing record is missing: restore it, or start halo-server once with --audit-signing-enable after checking the chain against your SIEM copy")
-		return
+	case rec.Since == 0:
+		if err := s.takeSigningEnable(c.total); err != nil {
+			c.err = fmt.Errorf("the chain is signed but the signing record is missing: restore it from backup, or check the chain against your SIEM copy (halo audit verify --strict --compare-export) and start halo-server once with --audit-signing-enable=%d: %w", c.total, err)
+			return
+		}
 	case rec.Since != 0 && (rec.Since != c.since || (rec.Log != "" && rec.Log != c.logID)):
 		c.err = fmt.Errorf("signed entries say signing was enabled at seq %d (log %s), the signing record says %d (log %s)", c.since, c.logID, rec.Since, rec.Log)
+		return
+	case memLog != "" && memLog != c.logID:
+		c.err = fmt.Errorf("the chain is log %s, this process signed log %s: the log was replaced", c.logID, memLog)
 		return
 	case mem > 0 && mem != c.since:
 		c.err = fmt.Errorf("signed entries say signing was enabled at seq %d, this process saw %d", c.since, mem)
@@ -459,6 +523,9 @@ func (s *Server) checkSigning(c *chainCheck) {
 		return
 	}
 	l.knownSince.Store(c.since)
+	l.vmu.Lock()
+	l.knownLog = c.logID
+	l.vmu.Unlock()
 	want := rec
 	want.Since, want.Log = c.since, c.logID
 	if curKey != "" && c.newestSignedKey == 0 && rec.Key != curKey {
@@ -918,7 +985,10 @@ func (s *Server) Checkpoint(ctx context.Context) (bool, error) {
 	// The head signed is the head of the chain as just verified, never a
 	// head someone recomputed in storage (verifiedChain refuses that).
 	c, err := s.verifiedChain("checkpoint")
-	if err != nil || c.total == 0 || c.lastAction == actionCheckpoint {
+	// Nothing new since the last checkpoint: skip, unless that checkpoint is a
+	// previous key's (after a rotation the current key signs at once, so an
+	// idle deployment verifies with the new key first).
+	if err != nil || c.total == 0 || (c.lastAction == actionCheckpoint && c.newestSignedKey == 0) {
 		return false, err
 	}
 	if c, err = s.signingChain(ctx, "checkpoint"); err != nil { // enables signing on first use
@@ -1004,6 +1074,9 @@ func (s *Server) Sweep(ctx context.Context) (map[string]int, error) {
 // entry recording the cut is appended first: a crash between the two leaves a
 // recorded cut not yet made, never a cut nobody recorded.
 func (s *Server) pruneAudit(ctx context.Context, cutoff time.Time) (int, error) {
+	if err := s.requireKeyIfSigned(); err != nil {
+		return 0, err
+	}
 	delivered, err := s.delivered(ctx)
 	if err != nil || delivered == 0 {
 		return 0, err
@@ -1059,6 +1132,11 @@ func (s *Server) RunMaintenance(ctx context.Context) {
 		return
 	}
 	run := func(ctx context.Context) {
+		if s.auditLog.sign != nil { // at start: a rotated key signs a checkpoint now, not at the next interval
+			if _, err := s.Checkpoint(ctx); err != nil {
+				s.cfg.Log.Error("audit checkpoint at start failed; retrying next interval", "err", err)
+			}
+		}
 		var sweep, cp <-chan time.Time
 		if s.cfg.Retention.enabled() {
 			t := time.NewTicker(s.retentionInterval())
@@ -1389,6 +1467,13 @@ func (s *Server) erase(ctx context.Context, m subjectMatcher, in EraseRequest, a
 		if err != nil {
 			rep.Errors[store] = errStoreFailed
 			s.cfg.Log.Error("erasure: store failed", "store", store, "err", err)
+		}
+	}
+	if !dry {
+		if err := s.requireKeyIfSigned(); err != nil {
+			s.cfg.Log.Error("erasure refused", "err", err)
+			rep.Errors["auditEntries"] = err.Error()
+			return rep
 		}
 	}
 	// The chain must verify before anything is erased: the erasure signs a

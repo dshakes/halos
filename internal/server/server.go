@@ -105,11 +105,14 @@ type Config struct {
 	// AuditPreviousKeys are earlier audit keys' public halves: checkpoints and
 	// vouches they signed keep verifying after a rotation (ADR-0041).
 	AuditPreviousKeys []bundle.PublicKeyVerifier
-	// AuditSigningEnable allows this start to write the audit.signing.enabled
-	// marker over a log that holds entries but was never signed (first-ever
-	// enable), or to recreate a missing signing record over a signed log. Set
-	// it for one start only (ADR-0041).
-	AuditSigningEnable bool
+	// AuditSigningEnableHead allows writing the audit.signing.enabled marker
+	// over a log that holds entries but was never signed (first-ever enable),
+	// or recreating a missing signing record over a signed log, but only when
+	// it equals the log's head seq at that moment (a stale value is refused),
+	// and only once per process (ADR-0041). 0 = off.
+	AuditSigningEnableHead uint64
+	// auditSigningEnableAny (tests only) allows it at any head, once.
+	auditSigningEnableAny bool
 	// SCIM 2.0 provisioning at /scim/v2 (ADR-0022). SCIMTokenSHA256 holds the
 	// hex SHA-256 of each accepted bearer token (two while rotating); empty =
 	// SCIM off. SCIMAuthoritative: the directory, not the login's groups claim
@@ -205,6 +208,10 @@ type Server struct {
 
 	eraseMu    clusterMutex // one erasure at a time, across replicas (ADR-0040)
 	subjectKey []byte       // HMAC key naming erased subjects in audit entries (subjectHash)
+
+	enableMu   sync.Mutex // guards the one-shot --audit-signing-enable (takeSigningEnable)
+	enableHead uint64
+	enableAny  bool
 }
 
 // New validates cfg and returns a Server. It does not require the policy dir to load yet.
@@ -397,6 +404,9 @@ func New(cfg Config) (*Server, error) {
 	}
 	s.oidc.kv, s.enroll.kv = kv, kv
 	s.eraseMu = clusterMutex{kv: kvOf(cfg.Backend), name: "erasure", log: cfg.Log}
+	s.enableHead, s.enableAny = cfg.AuditSigningEnableHead, cfg.auditSigningEnableAny
+	al.checkHook = s.checkSigning // the rotation checkpoint holds the chain to the signing record too
+	s.warnSigningState()
 	if s.subjectKey, err = subjectHashKey(cfg.SessionKey); err != nil {
 		return nil, err
 	}

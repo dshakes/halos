@@ -95,7 +95,7 @@ func TestAuditVerifySigned(t *testing.T) {
 		t.Fatal(err)
 	}
 	srv, err := server.New(server.Config{PolicyDir: "../../examples/acme-corp", Token: "t", DataDir: dir, DevUser: "admin@test", DevAdmin: true,
-		AuditSigner: k, AuditSigningEnable: true, Log: slog.New(slog.NewTextHandler(io.Discard, nil))})
+		AuditSigner: k, AuditSigningEnableHead: 3, Log: slog.New(slog.NewTextHandler(io.Discard, nil))})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,6 +140,20 @@ func TestAuditVerifySigned(t *testing.T) {
 	}
 	if code, out, _ := halo(t, "audit", "verify", "--data-dir", dir, "--public-key", pubFile, "--compare-export", siem, "--strict"); code != 0 {
 		t.Fatalf("strict with the export: %d %q", code, out)
+	}
+	// M2 (round 5): an empty or unrecognised export, or one without a signed
+	// checkpoint, anchors nothing.
+	noCP := filepath.Join(keys, "nocp.jsonl")
+	_ = os.WriteFile(noCP, []byte(strings.SplitAfter(string(b), "\n")[0]), 0o600)
+	for name, content := range map[string]string{"empty": "", "ocsf without raw_data": `{"class_uid":3001,"message":"x"}` + "\n"} {
+		f := filepath.Join(keys, "bad.jsonl")
+		_ = os.WriteFile(f, []byte(content), 0o600)
+		if code, _, _ := halo(t, "audit", "verify", "--data-dir", dir, "--public-key", pubFile, "--strict", "--compare-export", f); code == 0 {
+			t.Fatalf("--strict with an %s export passed", name)
+		}
+	}
+	if code, _, errOut := halo(t, "audit", "verify", "--data-dir", dir, "--public-key", pubFile, "--strict", "--compare-export", noCP); code == 0 || !strings.Contains(errOut, "no signed audit.checkpoint") {
+		t.Fatalf("--strict with an export holding no checkpoint: %d %q", code, errOut)
 	}
 	// R4-C: an empty log does not pass --public-key.
 	empty := t.TempDir()

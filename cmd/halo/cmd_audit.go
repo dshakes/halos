@@ -47,6 +47,18 @@ func (a *app) cmdAudit() *cobra.Command {
 				if o.Export, err = server.LoadExport(compareFile); err != nil {
 					return fmt.Errorf("--compare-export: %w", err)
 				}
+				if strict && o.Anchor == nil && o.Verifier != nil {
+					// The export must also hold a signed checkpoint: it anchors the log
+					// to something the audit key signed, not just to what the file says.
+					e, ok, err := server.LastCheckpoint(compareFile, o.Verifier)
+					switch {
+					case err != nil:
+						return fmt.Errorf("--compare-export: %w", err)
+					case !ok:
+						return errors.New("--strict --compare-export: the export holds no signed audit.checkpoint")
+					}
+					o.Anchor = &e
+				}
 			}
 			o.RequireCurrentKey = len(pubKeyFiles) > 1 && !allowRotation
 			anchored := o.Anchor != nil || o.Export != nil

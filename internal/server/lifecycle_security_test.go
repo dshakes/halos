@@ -484,7 +484,7 @@ func TestRetentionIgnoresAtColumnPostgres(t *testing.T) {
 	kills, _ := controller.NewKillStore(context.Background(), b)
 	e := newEnv(t, func(c *Config) {
 		c.Backend, c.KillStore, c.Store = b, kills, NewPGStore(db)
-		c.AuditSigner, c.Retention, c.AuditSigningEnable = k, Retention{Audit: MinAuditRetention}, true
+		c.AuditSigner, c.Retention, c.auditSigningEnableAny = k, Retention{Audit: MinAuditRetention}, true
 	})
 	*e.now = time.Now().UTC()
 	ctx := context.Background()

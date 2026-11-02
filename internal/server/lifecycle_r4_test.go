@@ -55,7 +55,7 @@ func TestRecordDeleteResignRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	e2 := fileEnv(t, dir, func(c *Config) { c.AuditSigner, c.AuditSigningEnable = k, false })
+	e2 := fileEnv(t, dir, func(c *Config) { c.AuditSigner, c.auditSigningEnableAny = k, false })
 	e2.s.Audit(ctx, "carol@acme.example", "policy.change", "y", nil)
 	before := e2.s.signRefused.Load()
 	if ok, err := e2.s.Checkpoint(ctx); ok || !errors.Is(err, errSigningNotEnabled) {
@@ -81,7 +81,7 @@ func TestSigningRecordMismatchRefused(t *testing.T) {
 	if ok, err := e.s.Checkpoint(ctx); !ok || err != nil {
 		t.Fatal(ok, err)
 	}
-	e.s.cfg.AuditSigningEnable = false // only the first start enables
+	e.s.enableAny = false // only the first start enables
 	if err := e.s.auditLog.writeSigningRecord(signingRecord{Since: 99, Log: "00000000000000000000000000000000"}); err != nil {
 		t.Fatal(err)
 	}

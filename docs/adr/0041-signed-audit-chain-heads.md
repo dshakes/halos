@@ -82,8 +82,8 @@ What each attack now costs:
 | Back-date the Postgres `at` column so a sweep signs a cut over fresh entries | cuts read times from verified bodies, never `at` |
 | Forge an unsigned vouch, verify without a key | not caught: links-only verification authenticates nothing (stated in the output); use `--public-key` |
 | Plant unsigned vouches after signing started, then delete the prefix holding every signed entry | every remaining signed entry binds `since`; with none left, `--public-key` fails. While the signing record or the running process survives, the server refuses to sign again; a writer who also deletes the record and restarts the server is caught only by `--anchor` or `--compare-export` |
-| Delete the signed tail and the signing record, restart | the server writes no new marker over a non-empty log without the one-shot `--audit-signing-enable`; offline, `--strict --compare-export` catches it |
-| Rewrite the tail with a leaked previous key | the server refuses once the record says the current key has signed (it records that after its first signature); offline, several `--public-key` require the newest checkpoint by the first key unless `--allow-rotation-window` |
+| Delete the signed tail and the signing record, restart | the server writes no new marker over a non-empty log unless started with `--audit-signing-enable=<current head seq>` (a stale value is refused, it is consumed by its first use, and an error is logged on every start while it is set over a signed log); offline, `--strict --compare-export` catches it |
+| Rewrite the tail with a leaked previous key | only while the signing record (or the running process) is intact: the server, the periodic and the rotation checkpoint alike, refuses once the record says the current key has signed. A writer who also edits the record is caught only by `--anchor` or `--compare-export`; offline, several `--public-key` require the newest checkpoint by the first key unless `--allow-rotation-window` |
 | Replay a signed entry from another deployment that shares the key | every signed entry binds the log id, created at the marker |
 
 ### What signatures prove, and what needs an anchor
@@ -97,13 +97,15 @@ Signatures prove authorship. Every checkpoint, erasure vouch and retention cut w
 
 Signatures cannot prove that nothing was deleted. Someone who can write to the store can cut the tail back to an earlier checkpoint, or delete everything (signing record included) and start a new log. What is left still verifies. halo-server makes this as hard as it can on its own:
 
-- it never writes a new signing marker over a non-empty log unless started once with `--audit-signing-enable`;
+- it never writes a new signing marker over a non-empty log unless started with `--audit-signing-enable=<current head seq>`, consumed by its first use;
 - it keeps the log's `since`, log id and current key in a record outside the chain, and in memory, and refuses to sign when they disagree;
 - the Postgres verifier compares the table with its head row.
 
 The record and the process are on the attacker's side of that line. Only an external copy closes the gap: the SIEM export. Run `halo audit verify --strict --public-key <key> --compare-export <SIEM export>` on a schedule. `--strict` fails without an anchor, and without `--strict`, `--public-key` alone prints a warning saying deletion is not detected.
 
-**Rotation.** Restart all replicas together when the audit key changes. A replica still on the old key signing after one on the new key makes the chain fail (an old key after the current key is refused). While replicas switch, verify with `--allow-rotation-window`.
+**Rotation.** Restart all replicas together when the audit key changes, with the old public key in `--audit-previous-public-key-files` (Helm `auditSigning.previousPublicKeys`). A replica still on the old key cannot verify the new key's signatures, so once the new key has signed it refuses to sign (it does not break the chain); it just stops checkpointing until restarted. At start, and at every checkpoint, a server whose newest signed entry is a previous key's signs a checkpoint with the current key at once, even on an idle deployment, so verification with the new key first passes right after the restart. While replicas switch, verify with `--allow-rotation-window`.
+
+**Backup and restore.** Restore the signing record (`audit-signing.json`, or the `audit-signing` document) together with the log; the server then keeps signing. The restored log reuses seqs your SIEM already holds with other hashes, so re-baseline the comparison: verify with `--compare-export` against the SIEM export cut at the backup's head seq, and treat later SIEM entries as the record of what the restore rolled back. A log restored from before signing was enabled, with a record from after, is refused with a message saying how to recover: check the log against the SIEM copy, remove the record, and start once with `--audit-signing-enable=<head seq>`.
 
 ### Compatibility
 

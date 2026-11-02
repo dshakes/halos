@@ -32,7 +32,7 @@ func signedPGEnv(t *testing.T, db *pgstore.DB, k bundle.KeySigner, mutate func(*
 	}
 	e := newEnv(t, func(c *Config) {
 		c.Backend, c.KillStore, c.Store, c.AuditSigner = b, kills, NewPGStore(db), k
-		c.AuditSigningEnable = true // tests enable signing over logs that already hold entries; the round-4 tests turn it off
+		c.auditSigningEnableAny = true // tests enable signing over logs that already hold entries; the round-4 tests turn it off
 		if mutate != nil {
 			mutate(c)
 		}

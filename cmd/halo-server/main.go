@@ -98,7 +98,7 @@ type options struct {
 	auditSigningKeyURI string
 	auditPrevKeys      string // comma-separated PEM public key files of replaced audit keys
 	auditCheckpoint    time.Duration
-	auditSigningEnable bool
+	auditSigningEnable uint64
 
 	// SAML login (ADR-0039)
 	saml samlOptions
@@ -175,7 +175,7 @@ func parseFlags(args []string) (options, error) {
 	fs.DurationVar(&o.retention.Interval, "retention-interval", server.DefaultRetentionInterval, "how often the retention sweep runs (leader only with --database-url-file)")
 	fs.StringVar(&o.auditSigningKeyURI, "audit-signing-key-uri", "", "key signing audit chain checkpoints (ADR-0041; recommended): file://PATH, awskms://KEY?region=R or exec:///SIGNER; verify with `halo audit verify --public-key`")
 	fs.StringVar(&o.auditPrevKeys, "audit-previous-public-key-files", "", "comma-separated PEM public keys of audit keys --audit-signing-key-uri replaced: checkpoints and vouches they signed keep verifying after a rotation")
-	fs.BoolVar(&o.auditSigningEnable, "audit-signing-enable", false, "for ONE start: allow writing the signed audit.signing.enabled marker over an audit log that already holds entries (first-ever enable), or recreating a missing signing record over a signed log; without it halo-server refuses to sign such a log (ADR-0041)")
+	fs.Uint64Var(&o.auditSigningEnable, "audit-signing-enable", 0, "the audit log's current head seq, for ONE start: allow writing the signed audit.signing.enabled marker over a log that already holds entries (first-ever enable), or recreating a missing signing record over a signed log; refused when it is not the head seq at that moment, cleared after use (ADR-0041). 0 = off")
 	fs.DurationVar(&o.auditCheckpoint, "audit-checkpoint-interval", server.DefaultCheckpointInterval, "with --audit-signing-key-uri: how often a signed checkpoint of the chain head is appended (and exported to SIEM sinks) when entries arrived")
 	samlFlags(fs, &o.saml)
 	fs.Usage = func() {
@@ -719,7 +719,7 @@ func run(ctx context.Context, args []string) error {
 		WorkloadKey: workloadKey,
 		Session:     server.SessionPolicy{TTL: o.sessionTTL, Idle: o.sessionIdle}, ServiceTokenMaxTTL: o.serviceTokenMaxTTL,
 		EntraGraphURL: o.entraGraphURL,
-		Retention:     o.retention, AuditSigner: auditKey, AuditCheckpointInterval: o.auditCheckpoint, AuditPreviousKeys: prevAuditKeys, AuditSigningEnable: o.auditSigningEnable,
+		Retention:     o.retention, AuditSigner: auditKey, AuditCheckpointInterval: o.auditCheckpoint, AuditPreviousKeys: prevAuditKeys, AuditSigningEnableHead: o.auditSigningEnable,
 	}
 	if cfg.BreakGlass, err = breakGlassConfig(o); err != nil {
 		return err

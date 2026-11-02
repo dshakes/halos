@@ -110,10 +110,10 @@ The kill-switch key has one public key per poller (`killSwitch.pubkey`, `killSwi
 
 The audit key (`--audit-signing-key-uri`, [ADR-0041](/halos/adr/0041-signed-audit-chain-heads/)) rotates with a coordinated restart too:
 
-1. Restart **all** replicas together with the new key and `--audit-previous-public-key-files <old.pub>`. A replica still on the old key that signs after one on the new key makes the chain fail: an old key signing after the current one is refused, because that is what a leaked old key would do.
+1. Restart **all** replicas together with the new key and `--audit-previous-public-key-files <old.pub>` (Helm `server.auditSigning.previousPublicKeys`). A replica still on the old key cannot verify the new key's signatures, so it stops checkpointing (it refuses to sign) until restarted; the new key signs a checkpoint at start, so verification with the new key first passes at once.
 2. Verify with the new key first: `halo audit verify --public-key new.pub --public-key old.pub`. Pass `--allow-rotation-window` only while replicas are still switching.
 
-`--audit-signing-enable` is for the first start that signs an existing log, or for recreating a lost signing record after checking the log against the SIEM copy. Never leave it set.
+`--audit-signing-enable=<head seq>` is for the one start that signs an existing log, or that recreates a lost signing record after checking the log against the SIEM copy. It must name the log's current head seq, is consumed by its first use, and is logged as an error on every start while set over a signed log. In Helm pass it once with `--set`; never keep it in a values file. A signed log served without the key refuses erasures and retention cuts (logged at start) until the key is back.
 
 ## What is not covered
 

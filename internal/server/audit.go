@@ -510,6 +510,9 @@ type auditLog struct {
 	// chain is signed (ADR-0041): since, and the newest key that has signed.
 	knownSince atomic.Uint64
 	knownKey   string
+	knownLog   string
+	// checkHook holds a verified chain to the signing record (Server.checkSigning).
+	checkHook func(*chainCheck)
 
 	rotateErrs atomic.Uint64
 
@@ -618,7 +621,12 @@ func (l *auditLog) append(e AuditEntry) error {
 			// signing enabled already: the marker comes from Checkpoint).
 			if l.sign != nil {
 				err := errChainUnverified
-				if c, verr := l.verifiedLocked(); verr == nil && c.since > 0 && c.total == l.seq && c.last == l.head {
+				c, verr := l.verifiedLocked()
+				if verr == nil && l.checkHook != nil {
+					l.checkHook(&c) // the signing record and memory too, as for every signature
+					verr = c.err
+				}
+				if verr == nil && c.since > 0 && c.total == l.seq && c.last == l.head {
 					sctx, cancel := context.WithTimeout(context.Background(), rotationSignTimeout) // appends wait on l.mu: never a slow signer's full timeout
 					var cp AuditEntry
 					cp, err = l.sign(sctx, c.logID, c.since, l.seq, l.head, e.Time)
@@ -1077,12 +1085,23 @@ func (o AuditVerifyOptions) check() chainCheck {
 // split the export by seq range if it is too large for that.
 func LoadExport(path string) (map[uint64]ExportedEntry, error) {
 	out := map[uint64]ExportedEntry{}
+	bad := 0
 	err := eachExportedEntry(path, func(e AuditEntry) {
-		if e.Hash != "" {
-			out[e.Seq] = ExportedEntry{Hash: e.Hash, Digest: e.redactionDigest()}
+		if e.Hash == "" {
+			bad++
+			return
 		}
+		out[e.Seq] = ExportedEntry{Hash: e.Hash, Digest: e.redactionDigest()}
 	})
-	return out, err
+	switch {
+	case err != nil:
+		return nil, err
+	case bad > 0:
+		return nil, fmt.Errorf("%s: %d lines are not audit entries (native, or OCSF with raw_data)", path, bad)
+	case len(out) == 0:
+		return nil, fmt.Errorf("%s: holds no audit entries: an empty export anchors nothing", path)
+	}
+	return out, nil
 }
 
 // VerifyAuditBackend verifies the whole shared chain, streaming and uncached

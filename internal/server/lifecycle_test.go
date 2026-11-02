@@ -86,7 +86,7 @@ func fileEnv(t *testing.T, dir string, mutate func(*Config)) *env {
 		}
 		t.Cleanup(func() { _ = st.(*logStore).Close() })
 		c.DataDir, c.Store = dir, st
-		c.AuditSigningEnable = true // as signedPGEnv; a mutate may turn it off
+		c.auditSigningEnableAny = true // as signedPGEnv; a mutate may turn it off
 		if mutate != nil {
 			mutate(c)
 		}
