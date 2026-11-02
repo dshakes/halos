@@ -22,6 +22,10 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 - `halo quickstart` clones the release tag that matches the binary (cached per version), not `main`, and says when the Docker daemon is not running.
 - A `kind: Halos` document outside `halos.yaml` and an unknown `halo model switch` alias now say how to fix them.
 
+### Security
+
+- Build toolchain go1.26.6 -> go1.26.10: fixes 12 standard-library vulnerabilities govulncheck reports as reachable (net/http, crypto/tls, crypto/x509, net/textproto, os). Every binary and image is rebuilt with it.
+
 ## [0.5.1] - 2026-11-01
 
 ### Upgrade notes
