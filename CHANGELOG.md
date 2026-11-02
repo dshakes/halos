@@ -4,6 +4,15 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-11-02
+
+### Upgrade notes
+
+- npm: the packages are `@dshakesnotbot/halo` and `@dshakesnotbot/halo-<os>-<arch>` (`npx @dshakesnotbot/halo quickstart`). This is the first version on npm.
+- halo-server now rate-limits each signed-in user and service token on console/API routes (20/s, burst 100, 429 with `Retry-After`). Automation that bursts harder should back off on 429 or raise `-api-rate-limit` / `-api-rate-burst` (`0` disables).
+- `halo doctor --output json` (and the MCP `doctor` tool) can now report `"status": "skip"` for optional CLIs that are not installed; consumers that switch on `ok|warn|fail` must accept it.
+- Binaries are built with go1.26.10 (12 reachable standard-library vulnerabilities fixed).
+
 ### Added
 
 - halo-server sends `Strict-Transport-Security` (browsers honour it only over HTTPS); every Prometheus/Grafana alert carries a `runbook_url` to the operations guide.
