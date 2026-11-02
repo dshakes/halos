@@ -65,6 +65,8 @@ Set these on the gateway: it is the only component in the developer's request pa
 
 How many developers one `halo-server` replica serves, and what it needs. The numbers come from `make load-fleet` (`test/load/fleet`): simulated `halod` devices that enroll, poll the signed kill list every minute and, every 15 minutes, fetch their ring and post a status report, which is the real device protocol and halod's default intervals. Rerun it on your hardware before you commit to a size; `.github/workflows/load-fleet.yml` runs the 10,000-device scenario on a GitHub runner with a Postgres service container.
 
+Enrollment through the portal (`POST /api/v1/launch/{launcher}`) is a console route, so it counts against the signed-in person's `-api-rate-limit` budget (20/s, burst 100). One person enrolling their own machine never notices; enrolling a fleet in bulk through one identity or service token does, so raise `-api-rate-limit` / `-api-rate-burst` for that window. `make load-fleet` runs with `--api-rate-limit 0` because all its simulated devices share one identity.
+
 **Request rate of a fleet.** Per device and per hour: 60 kill-list reads, 4 ring lookups, 4 reports (plus 4 registry pulls, which go to the registry, not `halo-server`). At 10,000 devices that is about 167 kill-list, 11 ring and 11 report requests per second, steady. The enrollment rush is the peak: every device does 2 requests once.
 
 ### What was measured
