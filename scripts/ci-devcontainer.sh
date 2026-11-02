@@ -22,7 +22,7 @@ dc() { devcontainer "$@"; }
 echo "== A: repo .devcontainer"
 dc up --workspace-folder "$ROOT" --remove-existing-container
 dcx() { dc exec --workspace-folder "$ROOT" "$@"; }
-dcx go version | grep -q 'go1\.26\.6' || fail "go toolchain is not the pinned 1.26.6"
+dcx go version | grep -q 'go1\.26\.10' || fail "go toolchain is not the pinned 1.26.10"
 dcx node --version
 dcx bin/halo version
 dcx bin/halo validate examples/acme-corp

@@ -24,7 +24,7 @@ Edit a dependency and forget this page, and `go test ./internal/docgen` fails.
 | Piece | Version | Where it is pinned | Notes |
 | --- | --- | --- | --- |
 | Go language | `go 1.25.0` | [`go.mod:3`](https://github.com/dshakes/halos/blob/main/go.mod#L3) | Minimum language version. |
-| Go toolchain | `go1.26.6` | [`go.mod:5`](https://github.com/dshakes/halos/blob/main/go.mod#L5) | CI uses `go-version-file: go.mod` ([`ci.yml`](https://github.com/dshakes/halos/blob/main/.github/workflows/ci.yml)). |
+| Go toolchain | `go1.26.10` | [`go.mod:5`](https://github.com/dshakes/halos/blob/main/go.mod#L5) | CI uses `go-version-file: go.mod` ([`ci.yml`](https://github.com/dshakes/halos/blob/main/.github/workflows/ci.yml)). |
 | Go build images | `golang:1.25` | [`deploy/compose/Dockerfile.svc:2`](https://github.com/dshakes/halos/blob/main/deploy/compose/Dockerfile.svc#L2) | Demo and compose builds. The eval images pin `golang:1.25-bookworm` by digest ([`evals/images/claude/Dockerfile:4`](https://github.com/dshakes/halos/blob/main/evals/images/claude/Dockerfile#L4)). |
 | Node.js | `22` | [`ci.yml`](https://github.com/dshakes/halos/blob/main/.github/workflows/ci.yml) (`setup-node` with `node-version: 22`), [`docs.yml`](https://github.com/dshakes/halos/blob/main/.github/workflows/docs.yml) | Builds the web console and the docs only. No Node runs in a Halos binary at run time. |
 | Binaries | `CGO_ENABLED=0`, `-trimpath` | [`.goreleaser.yaml:16-20`](https://github.com/dshakes/halos/blob/main/.goreleaser.yaml#L16-L20) | Static binaries for darwin, linux and windows, amd64 and arm64. `halo-kong` is linux only. |
