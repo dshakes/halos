@@ -19,7 +19,7 @@ helm template halo deploy/helm/halos -f my-values.yaml | kubectl diff -f -   # r
 | `halos-halo-shadow` | `token` | halo-shadow `HALO_SHADOW_TOKEN`; also injected into halo-proxy as `HALO_PROXY_HALO_SHADOW_TOKEN`, and into Kong as `HALO_SHADOW_TOKEN` (you configure Kong) |
 | `shadow.upstreamHeaders.existingSecret` | `upstream-headers.yaml` | halo-shadow `--upstream-headers`: YAML `{upstream: {Header: value}}`, `${ENV}` expanded (`shadow.extraEnv`). `HALO_SHADOW_AUTH_HEADER` is refused by halo-shadow |
 | `shadow.pairKey.existingSecret` | `pair-key` | optional `--pair-key-file` (base64 32-byte AES-256-GCM key) |
-| `server.saml.existingSecret` | `tls.key`, `tls.crt` (names via `keyKey`/`certKey`), plus the IdP metadata XML under `idpMetadataKey` | SAML login (ADR-0039; unreleased, ships in v0.6.0): `--saml-sp-key-file`, `--saml-sp-cert-file`, `--saml-idp-metadata-file`; or set `idpMetadataURL` instead (`--saml-idp-metadata-url`), not both |
+| `server.saml.existingSecret` | `tls.key`, `tls.crt` (names via `keyKey`/`certKey`), plus the IdP metadata XML under `idpMetadataKey` | SAML login (ADR-0039; since chart 0.6.0): `--saml-sp-key-file`, `--saml-sp-cert-file`, `--saml-idp-metadata-file`; or set `idpMetadataURL` instead (`--saml-idp-metadata-url`), not both |
 | `server.killSwitch.existingSecret` | `signing-key`, `gateway-token` | halo-server `--killswitch-key-file` (Ed25519 PKCS#8 PEM, `halo keys generate --name killswitch`) and `--gateway-token-file` (>= 32 characters and 128 bits of estimated entropy: `openssl rand -hex 32`); set together |
 | `server.gatewayTokens.existingSecret` | the keys you name (`killswitch`, `posture`, `budget`, `directory`) | per-capability gateway bearer tokens (`--gateway-<cap>-token-file`); recommended over the shared `gateway-token` |
 | `proxy.killSwitch.pubkey.existingSecret` | `killswitch.pub` | PUBLIC half of the signing key -> halo-proxy `killSwitch.pubkeyFile`; token defaults to `server.killSwitch.existingSecret`/`gateway-token` |
@@ -129,7 +129,7 @@ OIDC issuer/audience live in the policy repo (halo-server) and `proxy.config.ide
 | `server.{fleetToken,sessionKey,oidcClientSecret}` | existing Secret refs | see prerequisites |
 | `server.portal` | `{baseURL: ...}` | rendered to `--portal-config` JSON (strict fields) |
 | `server.killSwitch.{existingSecret,signingKey,gatewayToken}` | off | see prerequisites |
-| `server.saml.{existingSecret,keyKey,certKey,idpMetadataKey,idpMetadataURL,entityID,userAttribute,groupsAttribute,allowIdPInitiated}` | off (`existingSecret` empty) | SAML 2.0 console login (ADR-0039); unreleased, ships in v0.6.0 (not in chart 0.5.2). Maps to `--saml-*` flags |
+| `server.saml.{existingSecret,keyKey,certKey,idpMetadataKey,idpMetadataURL,entityID,userAttribute,groupsAttribute,allowIdPInitiated}` | off (`existingSecret` empty) | SAML 2.0 console login (ADR-0039); since chart 0.6.0. Maps to `--saml-*` flags |
 | `server.metrics.{enabled,port}` | off, 9092 | `--metrics-listen` |
 | `server.audit.{rotation,export}` | `{}` | rendered to `--audit-config` JSON: audit log rotation and SIEM export ([guide](https://dshakes.github.io/halos/guides/siem-export/)); credentials are `{env}`/`{file}` refs only; needs persistence |
 | `server.controller.{enabled,interval,clickhouse,notify,policyRepo}` | off, `5m` | automated experiment loop (see design notes) |
