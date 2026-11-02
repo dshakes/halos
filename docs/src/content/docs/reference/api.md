@@ -61,7 +61,7 @@ State-changing Session and Admin requests (anything but `GET`) are rejected with
 | `GET /auth/callback` | Public | OIDC redirect target; sets the session cookie |
 | `POST /auth/logout` | Public | End the session |
 | `GET /auth/methods` | Public | Which console sign-in methods are configured: `{"oidc": bool, "saml": bool}` |
-| `GET /auth/saml/login`, `POST /auth/saml/acs`, `GET /auth/saml/metadata` | Public | SAML 2.0 console login ([ADR-0039](/halos/adr/0039-saml-login/)): start, assertion consumer service, SP metadata. 404 unless SAML is configured. Merged on `main`, unreleased (ships in v0.6.0) |
+| `GET /auth/saml/login`, `POST /auth/saml/acs`, `GET /auth/saml/metadata` | Public | SAML 2.0 console login ([ADR-0039](/halos/adr/0039-saml-login/)): start, assertion consumer service, SP metadata. 404 unless SAML is configured. Since v0.6.0 |
 | `POST /auth/breakglass` | Public (password in the body) | Break-glass local admin login `{"user","password"}`: a 30-minute admin session for `breakglass:<user>`. 404 unless `--breakglass-enabled`, or from a client outside `--breakglass-allowed-cidrs` (required when enabled); 401 bad credentials; 429 after repeated failures, during the 15-minute global lockout (20 failures from allowed addresses on any replica; audited once as `breakglass.lockout`; lifted by `POST /api/v1/breakglass/unlock`) or while two attempts are running; 500 if the audit append fails (no session). Audited at high severity: `breakglass.login`, `breakglass.login.failed`, and `breakglass.request` for every request the session makes |
 
 ### Fleet and devices

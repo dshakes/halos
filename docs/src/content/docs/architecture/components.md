@@ -197,7 +197,7 @@ Halos ships six binaries from `cmd/`. Two more surfaces run inside one of them o
 
 - **Inputs:**
   - the served policy directory, reloaded on `SIGHUP` ([`cmd/halo-server/main.go:703-716`](https://github.com/dshakes/halos/blob/main/cmd/halo-server/main.go#L703-L716))
-  - console logins: OIDC, SAML 2.0 when `--saml-*` is set (ADR-0039, unreleased; on `main` after v0.5.2), and the break-glass account when enabled
+  - console logins: OIDC, SAML 2.0 when `--saml-*` is set (ADR-0039, since v0.6.0), and the break-glass account when enabled
   - service-account API tokens (ADR-0036), SCIM 2.0 provisioning at `/scim/v2` (ADR-0022), and CI/cloud OIDC tokens at `POST /api/v1/token/exchange` (ADR-0023)
   - halod reports, and gateway calls carrying the gateway token
   - ClickHouse evidence, when `--controller` is set

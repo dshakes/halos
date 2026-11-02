@@ -59,7 +59,7 @@ The chart never holds secret values; it references Secrets you create.
 | `halos-session` | `session-key` | Portal session signing; at least 32 bytes |
 | `server.oidcClientSecret.existingSecret` | `client-secret` | Portal OIDC client secret |
 | `server.breakGlass.existingSecret` | `hash` | Break-glass password hash from `halo-server breakglass-hash` (`--breakglass-hash-file`); sealed unless `server.breakGlass.enabled` ([Admin access](/halos/guides/admin-access/#break-glass)) |
-| `server.saml.existingSecret` | `tls.key`, `tls.crt` (+ `idpMetadataKey`) | SAML SP key pair and, unless `idpMetadataURL` is set, the IdP metadata XML. Unreleased: ships in v0.6.0 ([SAML SSO](/halos/guides/sso-saml/)) |
+| `server.saml.existingSecret` | `tls.key`, `tls.crt` (+ `idpMetadataKey`) | SAML SP key pair and, unless `idpMetadataURL` is set, the IdP metadata XML. Since v0.6.0 ([SAML SSO](/halos/guides/sso-saml/)) |
 | `halos-halo-shadow` | `token` | `halo-shadow` `HALO_SHADOW_TOKEN`; also injected into `halo-proxy` as `HALO_PROXY_HALO_SHADOW_TOKEN` |
 | `halo-shadow.authHeader.existingSecret` | `auth-header` | Upstream credential header for halo-shadow (`Name: value`) |
 | `server.killSwitch.existingSecret` | `signing-key`, `gateway-token` | Kill-switch signing key (Ed25519 PKCS#8 PEM) and gateway bearer token (random hex or base64, at least 32 characters and 128 bits, e.g. `openssl rand -hex 32`; passphrases are refused); set together |
@@ -145,7 +145,7 @@ server:
   serviceTokens: {maxTTL: 2160h}          # --service-token-max-ttl: longest and default token lifetime
   breakGlass: {enabled: false, existingSecret: halos-breakglass, key: hash, user: breakglass, allowedCIDRs: "10.8.0.0/16"}
   oidc: {entraGraphURL: ""}               # --entra-graph-url, for identity.groupsOverage: graph
-  saml: {existingSecret: ""}              # SAML login next to OIDC (ADR-0039, guides/sso-saml; unreleased, ships in v0.6.0)
+  saml: {existingSecret: ""}              # SAML login next to OIDC (ADR-0039, guides/sso-saml; since v0.6.0)
 ```
 
 Automation authenticates with service-account tokens (`halo service-token create`, used as `HALO_TOKEN`), never with a copied console cookie. On Postgres the tokens live in `halo_service_tokens` (schema v4; run `halo-server migrate`), on the file backend in `service-tokens.jsonl`. Keep `breakGlass.enabled: false` outside an incident, and alert on `breakglass.*` audit actions.

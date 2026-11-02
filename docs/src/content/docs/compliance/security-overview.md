@@ -14,7 +14,7 @@ Halos is Apache-2.0 open-source software that you run. There is no Halos-operate
 | Hosted by the vendor? | No. Self-hosted: you run `halo-server`, the gateway, the collector and the registry |
 | Independent assurance? | **None.** No third-party penetration test, code audit, SOC 2 report or ISO certificate. [SECURITY.md](https://github.com/dshakes/halos/blob/main/SECURITY.md) states it |
 | Release integrity | ed25519- or ECDSA P-256-signed releases and ring pointers (key in a file, AWS KMS or an HSM via an external signer); cosign-signed checksums and images; build-provenance attestations; SBOMs |
-| Authentication | OIDC (console and gateway), SAML 2.0 (console; merged on main, unreleased, ships in v0.6.0; [ADR-0039](/halos/adr/0039-saml-login/)), SCIM 2.0, short-lived workload and agent credentials |
+| Authentication | OIDC (console and gateway), SAML 2.0 (console, since v0.6.0; [ADR-0039](/halos/adr/0039-saml-login/)), SCIM 2.0, short-lived workload and agent credentials |
 | Encryption in transit | Not terminated by Halos services. Put TLS in front of them. Outbound calls use Go's TLS defaults |
 | FIPS 140-3 cryptography | **FIPS builds, no Halos certificate.** `_fips` archives and `-fips` images are built against the Go Cryptographic Module v1.0.0; every algorithm on the signing path is inside it. See [FIPS 140-3 builds](/halos/guides/fips/) |
 | Audit | Hash-chained, tamper-evident audit log with SIEM export |
@@ -158,7 +158,7 @@ Stated so you do not have to find them.
 | No third-party assurance | No penetration test, code audit, SOC 2 or ISO certification. The [threat model](/halos/reference/threat-model/) is the maintainers' own |
 | No Halos FIPS certificate | `_fips` builds use the Go Cryptographic Module v1.0.0, but Halos is not itself validated; `fips140=only` is tested on the crypto packages, not the whole tree (a FIPS build refuses to start with an HMAC salt or webhook secret under 14 bytes). The workload-credential key has no KMS backend ([FIPS 140-3 builds](/halos/guides/fips/)) |
 | One built-in KMS | `awskms://` is built in; GCP, Azure, Vault and PKCS#11 need an `exec://` adapter you supply ([key management](/halos/guides/key-management/#external-signers)) |
-| SAML for the console only (unreleased, v0.6.0) | Gateways authenticate OIDC tokens; no SAML single logout ([ADR-0039](/halos/adr/0039-saml-login/)) |
+| SAML for the console only (since v0.6.0) | Gateways authenticate OIDC tokens; no SAML single logout ([ADR-0039](/halos/adr/0039-saml-login/)) |
 | No TLS in the services | Terminate TLS in front of `halo-server`, `halo-proxy` and `halo-shadow`. No mTLS, no per-user rate limiting |
 | Single signing key | No threshold signing; compromise is fleet-wide ([residual risk](/halos/reference/threat-model/#residual-risk-and-non-goals)) |
 | Cookie not encrypted | The console session cookie is signed, not encrypted, and carries the subject and groups |
