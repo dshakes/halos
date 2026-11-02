@@ -12,6 +12,7 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ### Changed
 
+- `halo doctor` (and the MCP `doctor` tool and `--output json`) report an optional CLI that is not installed with the new check status `skip` instead of `ok`; it is informational, never a warning or failure, and does not affect `ok`. JSON consumers that switch on `status` (`ok`, `warn`, `fail`) must accept `skip`. `halo onboard local|install` collapse a harness's adapter warnings (more than two) into one count line, `--verbose` lists them all and `--output json` is unchanged; `halo plan` prints a per-file summary first and `(none)` for a first release's empty side.
 - The npm packages publish as `@dshakesnotbot/halo` (and `@dshakesnotbot/halo-<os>-<arch>`): the `@dshakes` npm scope does not exist, so v0.5.1 never reached npm. Use `npx @dshakesnotbot/halo quickstart`.
 - Every command that writes only with `--apply` also accepts `--dry-run` (its default), matching `quickstart`, `enable`, `eject` and `model switch`; the two flags are mutually exclusive.
 

@@ -40,6 +40,8 @@ func (a *app) cmdDoctor() *cobra.Command {
 				for _, c := range r.Checks {
 					st := a.green("ok  ")
 					switch c.Status {
+					case onboard.StatusSkip:
+						st = a.dim("skip")
 					case onboard.StatusWarn:
 						st = a.yellow("warn")
 					case onboard.StatusFail:
@@ -112,6 +114,7 @@ func (a *app) cmdOnboardDetect() *cobra.Command {
 func (a *app) cmdOnboardLocal() *cobra.Command {
 	var o onboard.LocalOptions
 	var tools, models []string
+	var verbose bool
 	c := &cobra.Command{
 		Use:   "local",
 		Short: "My machine: create (or keep) halos.yaml, validate it and plan the managed-config install",
@@ -143,7 +146,7 @@ func (a *app) cmdOnboardLocal() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := a.emit(r, func() { a.printLocal(r) }); err != nil {
+			if err := a.emit(r, func() { a.printLocal(r, verbose) }); err != nil {
 				return err
 			}
 			if !r.Valid {
@@ -165,10 +168,11 @@ func (a *app) cmdOnboardLocal() *cobra.Command {
 	f.StringVar(&o.Ring, "ring", "", "ring this machine follows (default: the GA ring)")
 	f.StringVar(&o.Root, "root", "", "plan the install under this directory instead of the real paths")
 	f.BoolVar(&o.Apply, "apply", false, "write halos.yaml (default: dry run)")
+	f.BoolVar(&verbose, "verbose", false, "list every adapter warning instead of a per-harness count")
 	return c
 }
 
-func (a *app) printLocal(r *onboard.LocalResult) {
+func (a *app) printLocal(r *onboard.LocalResult, verbose bool) {
 	verb := map[string]string{onboard.PolicyCreate: "create", onboard.PolicyUnchanged: "unchanged", onboard.PolicyKept: "kept"}[r.Policy.Action]
 	if r.DryRun && r.Policy.Action == onboard.PolicyCreate {
 		verb = "would create"
@@ -178,9 +182,7 @@ func (a *app) printLocal(r *onboard.LocalResult) {
 	for _, n := range r.Policy.Notes {
 		fmt.Fprintln(a.out, a.yellow("note:"), n)
 	}
-	for _, w := range r.Warnings {
-		fmt.Fprintln(a.out, a.yellow("warning:"), w)
-	}
+	a.printWarnings(r.Warnings, true)
 	for _, i := range r.Issues {
 		fmt.Fprintln(a.out, i)
 	}
@@ -192,13 +194,13 @@ func (a *app) printLocal(r *onboard.LocalResult) {
 		return
 	}
 	fmt.Fprintln(a.out, a.green("OK")+": policy valid")
-	a.printInstall(r.Install, true)
+	a.printInstall(r.Install, true, verbose)
 	for _, n := range r.Next {
 		fmt.Fprintln(a.out, a.bold("next:"), n)
 	}
 }
 
-func (a *app) printInstall(p *onboard.InstallPlan, dry bool) {
+func (a *app) printInstall(p *onboard.InstallPlan, dry, verbose bool) {
 	fmt.Fprintf(a.out, "install plan: ring %s, %s, gateway %s\n", p.Ring, p.OS, orDash(p.Gateway))
 	tw := tabwriter.NewWriter(a.out, 0, 4, 2, ' ', 0)
 	for _, f := range p.Files {
@@ -224,14 +226,42 @@ func (a *app) printInstall(p *onboard.InstallPlan, dry bool) {
 	for _, h := range hs {
 		fmt.Fprintf(a.out, "  pin %s %s\n", h, orDash(p.Versions[h]))
 	}
-	for _, w := range p.Warnings {
-		fmt.Fprintln(a.out, a.yellow("warning:"), w)
+	a.printWarnings(p.Warnings, verbose)
+}
+
+// printWarnings lists warnings in full when verbose, otherwise collapses the
+// "<harness>/<os>: ..." adapter warnings of a harness with more than two into
+// one summary line. Nothing is dropped: --verbose and --output json carry all.
+func (a *app) printWarnings(ws []string, verbose bool) {
+	count := map[string]int{}
+	for _, w := range ws {
+		count[warnHarness(w)]++
 	}
+	done := map[string]bool{}
+	for _, w := range ws {
+		h := warnHarness(w)
+		if verbose || h == "" || count[h] <= 2 {
+			fmt.Fprintln(a.out, a.yellow("warning:"), w)
+		} else if !done[h] {
+			done[h] = true
+			fmt.Fprintf(a.out, "%s %s: %d adapter warnings (unsupported settings and caveats; run with --verbose to list them)\n", a.yellow("warning:"), h, count[h])
+		}
+	}
+}
+
+// warnHarness returns "gemini-cli" for "gemini-cli/darwin: ...", else "".
+func warnHarness(w string) string {
+	pre, _, ok := strings.Cut(w, ": ")
+	h, _, ok2 := strings.Cut(pre, "/")
+	if !ok || !ok2 || strings.ContainsAny(pre, " ") {
+		return ""
+	}
+	return h
 }
 
 func (a *app) cmdOnboardInstall() *cobra.Command {
 	var ring, root string
-	var apply, show, replace bool
+	var apply, show, replace, verbose bool
 	c := &cobra.Command{
 		Use:   "install",
 		Short: "Render a ring's managed config for this OS and show exactly what lands where; --apply writes it",
@@ -261,7 +291,7 @@ func (a *app) cmdOnboardInstall() *cobra.Command {
 						fmt.Fprintf(a.out, "--- %s\n%s\n", f.Dest, f.Content)
 					}
 				}
-				a.printInstall(p, !apply)
+				a.printInstall(p, !apply, verbose)
 				for _, w := range written {
 					fmt.Fprintln(a.out, a.green("wrote"), w)
 				}
@@ -275,6 +305,7 @@ func (a *app) cmdOnboardInstall() *cobra.Command {
 	c.Flags().StringVar(&root, "root", "", "write under this directory instead of the real paths")
 	c.Flags().BoolVar(&apply, "apply", false, "write the files (default: dry run)")
 	c.Flags().BoolVar(&show, "show", false, "include each file's contents")
+	c.Flags().BoolVar(&verbose, "verbose", false, "list every adapter warning instead of a per-harness count")
 	c.Flags().BoolVar(&replace, "replace-existing", false, "also replace files Halos did not write (originals kept at <file>.halos-backup)")
 	return c
 }
