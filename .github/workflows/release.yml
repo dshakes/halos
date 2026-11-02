@@ -4,7 +4,7 @@ name: release
 # -> web (unprivileged npm build) -> release (GoReleaser: archives, deb/rpm/apk, checksums,
 # SBOMs, cosign signatures, ghcr.io images, the Helm chart as a signed OCI artifact,
 # Homebrew/Scoop on final tags; build provenance attestations) -> verify (checks the published artifacts the way a user gets them)
-# -> npm (@dshakes/halo for npx, built from the verified archives).
+# -> npm (@dshakesnotbot/halo for npx, built from the verified archives).
 # Cut releases with scripts/release.sh; see RELEASING.md for the process and secrets.
 #
 # Re-run for an existing tag: Actions > release > Run workflow, choose the TAG itself under
@@ -68,7 +68,7 @@ jobs:
         run: |
           # Fail before anything is published, so npm never lags the GitHub release.
           if [ -z "$NPM_TOKEN" ]; then
-            echo "::error::NPM_TOKEN is empty, so @dshakes/halo would not be published. Set a granular npm token with read-write on the @dshakes scope (RELEASING.md), then re-run from the tag."
+            echo "::error::NPM_TOKEN is empty, so @dshakesnotbot/halo would not be published. Set a granular npm token with read-write on the @dshakesnotbot scope (RELEASING.md), then re-run from the tag."
             exit 1
           fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -251,7 +251,7 @@ jobs:
           [ "$scoop" = "$VERSION" ] || { echo "::error::dshakes/scoop-bucket halo.json is at $scoop, want $VERSION"; exit 1; }
           echo "tap and bucket at $VERSION"
 
-  # npx @dshakes/halo: the verified release archives repackaged for npm, one package per
+  # npx @dshakesnotbot/halo: the verified release archives repackaged for npm, one package per
   # OS/CPU plus a launcher. Runs after verify, so npm only ever gets binaries that passed
   # the checks above, and runs no npm code from the repo (scripts/npm-build.sh is shell).
   npm:
@@ -301,7 +301,7 @@ jobs:
       - name: npx runs this version
         run: |
           set -euo pipefail
-          for _ in 1 2 3 4 5 6; do npm view "@dshakes/halo@$VERSION" version >/dev/null 2>&1 && break; sleep 10; done
-          out=$(cd "$RUNNER_TEMP" && npx -y "@dshakes/halo@$VERSION" version)
+          for _ in 1 2 3 4 5 6; do npm view "@dshakesnotbot/halo@$VERSION" version >/dev/null 2>&1 && break; sleep 10; done
+          out=$(cd "$RUNNER_TEMP" && npx -y "@dshakesnotbot/halo@$VERSION" version)
           echo "$out"
-          grep -qF "$VERSION" <<<"$out" || { echo "::error::npx @dshakes/halo@$VERSION printed '$out'"; exit 1; }
+          grep -qF "$VERSION" <<<"$out" || { echo "::error::npx @dshakesnotbot/halo@$VERSION printed '$out'"; exit 1; }
