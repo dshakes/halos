@@ -7,7 +7,7 @@ Per-command `halo` flags are in the generated [CLI reference](/halos/reference/c
 
 ## `halo` notes
 
-Commands that need a signing key take `--key <ed25519 private key PEM>`; `publish`, `promote`, `refresh` and `rollback` also accept `--cosign-key` (file or KMS URI, as a co-signature) and `--cosign-keyless`. `--plain-http` allows a local HTTP registry.
+Commands that need a signing key take `--key <ed25519 or ECDSA P-256 private key PEM>` or `--key-uri` (`file://PATH`, `awskms://KEY?region=R`, `exec:///SIGNER` for an external signer such as an HSM; [key management](/halos/guides/key-management/)). `publish`, `promote`, `refresh` and `rollback` also accept `--co-key-uri` (a second key of the other algorithm that co-signs while rotating), `--cosign-key` (file or KMS URI; cosign can only co-sign, alongside the signing key) and `--cosign-keyless`. `--plain-http` allows a local HTTP registry.
 
 ### Signing continuity flags
 
@@ -43,7 +43,7 @@ With `--output json`, `publish` returns `registry`, `digest` (release), `manifes
 
 ### `halo telemetry collector-config`
 
-Generates a collector with two OTLP receivers so experiment evidence can be trusted ([evidence trust](/halos/concepts/evidence-plane/#evidence-trust)).
+Generates a collector with two OTLP receivers (three with `--eval-receiver`) so experiment evidence can be trusted ([evidence trust](/halos/concepts/evidence-plane/#evidence-trust)).
 
 | Flag | Default | Purpose |
 |---|---|---|
@@ -53,6 +53,7 @@ Generates a collector with two OTLP receivers so experiment evidence can be trus
 | `--gateway-endpoint` | `0.0.0.0:4319` | `halo-proxy` OTLP/HTTP receiver. Requires the bearer token in the **collector's** env `HALO_OTLP_GATEWAY_TOKEN` (the collector refuses to start without it); stamps `halo.source=gateway` |
 | `--cli-token-file F` | off | Require a per-device bearer token on the CLI receiver. One token per line in this file, **as seen by the collector** (mount it); re-read when it changes |
 | `--prometheus-endpoint` | `0.0.0.0:8889` | Scrape address. `halo.gateway.*` is not exposed here |
+| `--eval-receiver` / `--eval-endpoint` | off / `0.0.0.0:4320` | Add a third, online-eval OTLP/HTTP receiver (`halo.eval.*` only, stamped `halo.source=eval`); bearer token from the collector's env `HALO_OTLP_EVAL_TOKEN` |
 | `-o`, `--out` | `-` (stdout) | Output file |
 
 `halo-proxy` side: `--telemetry-otlp-endpoint http://collector:4319 --telemetry-token-file F` with the same token ([below](#halo-proxy)).
@@ -136,7 +137,7 @@ Read the body bytes before parsing JSON; re-serialized JSON will not match. The 
 
 ### `halo export`
 
-Shared flags: `--registry` (required), `--pubkey` (required; verifies the release and is embedded inline), `--out` (default `halo-export`), `--plain-http`, `--download-url` (https `halod` URL; `{os}` and `{arch}` are substituted), `--halod-sha256 <os>/<arch>=<hex>` (repeatable or comma-separated), `--ring`, `--org`.
+Shared flags: `--registry` (required), `--pubkey` (required; ed25519 or ECDSA P-256 public key PEM, verifies the release and is embedded inline), `--out` (default `halo-export`), `--plain-http`, `--download-url` (https `halod` URL; `{os}` and `{arch}` are substituted), `--halod-sha256 <os>/<arch>=<hex>` (repeatable or comma-separated), `--ring`, `--org`.
 
 **`--org` is required with `--ring`.** The export pulls the ring's signed pointer, verifies it with `--pubkey` and requires the pointer to carry that org, so a pointer for another org (or an unsigned/expired one) is refused before anything is written.
 
@@ -154,7 +155,7 @@ Only the Claude Code harness has an MDM channel.
 
 ## `halod`
 
-`halod run|once|status [--config f] [--state f] [--root dir] [--install=true]`; `halod help` lists commands and `halod <command> -h` its flags.
+`halod run|once|status [--config f] [--state f] [--root dir] [--install=true] [--log-level info]`; `halod help` lists commands and `halod <command> -h` its flags.
 
 | Command | Purpose |
 |---|---|
@@ -170,11 +171,11 @@ Flags: `--config` and `--state` default to the per-OS paths in [delivery](/halos
 |---|---|---|
 | `registry` | yes | OCI repository, for example `ghcr.io/acme/halos` |
 | `org` | yes | Must equal the org in the signed pointer and release |
-| `pubkey` / `pubkeys` | one of | Path to the ed25519 public key PEM, and/or a list of additional PEM paths. A release signed by any listed key verifies, so old and new keys overlap during rotation. `halod` never applies an unsigned release |
-| `revokedKeys` | no | Fingerprints (`sha256:<hex>` of the raw ed25519 public key, printed by `halod` at startup) that are never trusted, even if listed in `pubkey`/`pubkeys` |
+| `pubkey` / `pubkeys` | one of | Path to the public key PEM (ed25519 or ECDSA P-256), and/or a list of additional PEM paths. A release signed by any listed key verifies, so old and new keys overlap during rotation. `halod` never applies an unsigned release |
+| `revokedKeys` | no | Fingerprints (`sha256:<hex>` of the raw 32-byte ed25519 public key, or of the PKIX DER for an ECDSA key; printed by `halod` at startup) that are never trusted, even if listed in `pubkey`/`pubkeys` |
 | `ring` or `ringEndpoint` | one of | Fixed ring name, or an https endpoint answering `GET ?user=&host=` with `{"ring":"name"}`; it may add `"subject"` (halo-server does) |
 | `subject` | no | User id that client-axis experiments are assigned by, used when the ring endpoint does not return one (MDM: template the user id in). Falls back to the last saved subject. With none, `halod` stays on the ring release and reports `no_subject_for_experiment`. 1 to 256 characters, no control characters or surrounding space |
-| `killSwitch` | no | `pubkey` (kill-switch public key PEM; setting it enables polling), `url` (default `<ringEndpoint origin>/api/v1/fleet/killswitch`, https), `interval` (default `60s`, minimum `1s`). Needs a device token. A killed client-axis experiment reverts the device to the ring release within one interval; `status` shows `killed: true`. [Experiments](/halos/concepts/experiments/#limits-the-client-axis) |
+| `killSwitch` | no | `pubkey` (kill-switch public key PEM, ed25519 or ECDSA P-256; setting it enables polling), `url` (default `<ringEndpoint origin>/api/v1/fleet/killswitch`, https), `interval` (default `60s`, minimum `1s`). Needs a device token. A killed client-axis experiment reverts the device to the ring release within one interval; `status` shows `killed: true`. [Experiments](/halos/concepts/experiments/#limits-the-client-axis) |
 | `interval` | no | Go duration, default `15m`, minimum `1s` |
 | `os` | no | Defaults to the host OS |
 | `reportURL` | no | https URL that receives the status after every cycle |
@@ -188,13 +189,13 @@ Flags: `--config` and `--state` default to the per-OS paths in [delivery](/halos
 
 ## `halo-proxy`
 
-Flags (env `HALO_PROXY_<FLAG>`, YAML `--config`): `--listen :8088` (proxied model traffic only), `--admin-listen 127.0.0.1:9090` (unauthenticated `/healthz` and `/metrics`; empty disables; YAML `adminListen`), `--policy`, `--next-hop`, `--default-upstream`, `--forward-auth`, `--identity-mode jwt|trusted_header|none`, `--issuer`, `--audience`, `--identity-header`, `--groups-header`, `--trusted-proxy-cidrs`, `--allow-anonymous`, `--halo-shadow-url`, `--halo-shadow-token`, `--max-body-bytes 33554432`, `--read-timeout 5m`, `--upstream-header-timeout 10m`, `--shutdown-timeout 30s`. Details: [stack-agnostic](/halos/concepts/stack-agnostic/).
+Flags (env `HALO_PROXY_<FLAG>`, YAML `--config`): `--listen :8088` (proxied model traffic only), `--admin-listen 127.0.0.1:9090` (unauthenticated `/healthz`, `/readyz` and `/metrics`; empty disables; YAML `adminListen`), `--policy`, `--next-hop`, `--default-upstream`, `--forward-auth`, `--identity-mode jwt|trusted_header|none`, `--issuer`, `--audience`, `--identity-header`, `--groups-header`, `--trusted-proxy-cidrs`, `--allow-anonymous`, `--halo-shadow-url`, `--halo-shadow-token`, `--max-body-bytes 33554432`, `--read-timeout 5m`, `--upstream-header-timeout 10m`, `--shutdown-timeout 30s`. Details: [stack-agnostic](/halos/concepts/stack-agnostic/).
 
 | Flag | YAML | Purpose |
 |---|---|---|
 | `--killswitch-url` | `killSwitch.url` | halo-server `/api/v1/gateway/killswitch`; empty disables |
 | `--killswitch-token-file` | `killSwitch.tokenFile` | File holding the gateway token |
-| `--killswitch-pubkey-file` | `killSwitch.pubkeyFile` | ed25519 PEM public key verifying the kill list |
+| `--killswitch-pubkey-file` | `killSwitch.pubkeyFile` | ed25519 or ECDSA P-256 PEM public key verifying the kill list |
 | `--killswitch-interval` | `killSwitch.interval` | Poll interval, default `10s` |
 | `--posture-url` | `posture.url` | halo-server `/api/v1/gateway/posture`; empty disables the [posture gate](/halos/concepts/delivery/#gateway-gates) |
 | `--posture-token-file` | `posture.tokenFile` | File holding the gateway token (same as the kill switch's) |
@@ -227,7 +228,8 @@ Flags (Go style, single or double dash):
 | `-policy-dir` | (required) | Policy repo served by the API. SIGHUP reloads |
 | `-token-file` | (required) | Fleet bearer token for `POST /api/v1/fleet/report` |
 | `-listen` | `127.0.0.1:8080` | API and console address |
-| `-data-dir` | in-memory | Directory for the JSONL logs: fleet, requests, devices, session revocations, `audit.jsonl`, `killswitch.jsonl`, `controller-state.jsonl`. Empty means in-memory only |
+| `-data-dir` | in-memory | Directory for the JSONL logs: fleet, requests, devices, session revocations, `audit.jsonl`, `killswitch.jsonl`, `controller-state.jsonl`. Empty means in-memory only. Exclusive with `-database-url-file` |
+| `-database-url-file` | | File holding a Postgres URL: shared state for several replicas, replacing the `-data-dir` state ([ADR-0021](/halos/adr/0021-ha-control-plane-on-postgres/)). With `-database-insecure-tls`, `-database-max-conns`, `-auto-migrate` (else the schema must already be current) and `-leader-lease-ttl` (default `15s`: controller and audit-export lease); `halo-server migrate` and `halo-server import --from-data-dir` move state |
 | `-portal-config` | | Portal and self-service JSON config |
 | `-verdicts-file` (deprecated alias `-verdicts`) | | Verdicts JSON file shown in the console; written by `halo exp analyze --verdicts-file` or the controller |
 | `-trusted-proxy-cidrs` | | Reverse proxies whose `X-Forwarded-For` is trusted for rate limiting |
@@ -236,7 +238,7 @@ Flags (Go style, single or double dash):
 | `-device-ttl` | `2160h` (90 days) | Device token lifetime after enrollment; expired devices must re-enroll |
 | `-dev-insecure-user`, `-dev-insecure-groups`, `-dev-insecure-roles`, `-dev-insecure-admin` | | Demo only: disable login and act as this user, with these roles (`viewer`, `operator`, `approver`, `auditor`, `admin`; `-dev-insecure-admin` adds `admin`) |
 | `-killswitch-key-file` | | ed25519 or ECDSA P-256 PKCS#8 PEM private key signing the kill list (`halo keys generate --name killswitch`). Use a dedicated key. Requires `-data-dir`. Without it the kill and unkill endpoints return 501, no kill list is served, `GET /api/v1/capabilities` reports `killSwitch: false`, and the in-process controller reports rollbacks as **not enforced** ("merge urgently": only the pause PR stops traffic). Startup fails if `-killswitch-key-file` is set without `-data-dir` or without `-gateway-token-file` or `-gateway-killswitch-token-file` |
-| `-killswitch-key-uri` | | The kill-list key by URI instead of `-killswitch-key-file`: `file://PATH`, `awskms://KEY?region=R` (AWS KMS `ECC_NIST_P256` or `ECC_NIST_EDWARDS25519`) or `exec:///SIGNER` ([key management](/halos/guides/key-management/)). Same requirements as `-killswitch-key-file`; the two are exclusive. A remotely signed list is reused for up to 30 seconds while unchanged
+| `-killswitch-key-uri` | | The kill-list key by URI instead of `-killswitch-key-file`: `file://PATH`, `awskms://KEY?region=R` (AWS KMS `ECC_NIST_P256` or `ECC_NIST_EDWARDS25519`) or `exec:///SIGNER` ([key management](/halos/guides/key-management/)). Same requirements as `-killswitch-key-file`; the two are exclusive. A remotely signed list is reused for up to 30 seconds while unchanged |
 | `-gateway-token-file` | | Shared bearer token (at least 32 characters and 128 bits of estimated entropy; `openssl rand -hex 32`) gateways present to `GET /api/v1/gateway/killswitch`, `GET /api/v1/gateway/posture`, `POST /api/v1/gateway/budget/{check,usage}` and `GET /api/v1/gateway/directory`. Alone, it serves posture and budgets; budget counters persist in `-data-dir` (`budgets.json`), in memory without one |
 | `-gateway-killswitch-token-file`, `-gateway-posture-token-file`, `-gateway-budget-token-file`, `-gateway-directory-token-file`, `-gateway-dlp-token-file` | | Recommended: a dedicated token (same strength rule, not the shared one) that becomes the only token that endpoint accepts and opens nothing else; each also enables its endpoint without `-gateway-token-file`. See [split the gateway token](/halos/guides/operations/#split-the-gateway-token-per-capability-recommended) |
 | `-gateway-dlp-tokens-dir` | | Recommended for DLP events: one file per gateway, named for it (`[a-z0-9-]{1,64}`), holding that gateway's own DLP token (same strength rule, unique). Its events are attributed to it and a body naming another gateway is refused; events sent with `-gateway-dlp-token-file` or the shared token are recorded as `gateway:unverified`. Enables the endpoint alone |
@@ -248,7 +250,14 @@ Flags (Go style, single or double dash):
 | `-policy-repo-subdir`, `-policy-repo-base` | (root), `main` | Policy root inside that clone; PR base branch |
 | `-forge`, `-forge-base-url` | autodetect | Where PRs/MRs are opened: `gh`, `github` (REST, `GITHUB_TOKEN`/`GH_TOKEN`) or `gitlab` (REST v4, `GITLAB_TOKEN`); default `gitlab` if the clone's origin host names it, else `gh`. `-forge-base-url` sets the GitHub Enterprise Server or self-managed GitLab API root. Also the default for the portal writer (portal `policyForge` / `policyForgeBaseURL` override). [Guide](/halos/guides/gitlab-and-ghes/) |
 | `-notify-slack-url-file`, `-notify-webhook-url-file`, `-notify-webhook-secret-file` | | Controller notifications; the secret signs generic webhook bodies (`X-Halo-Timestamp` plus `X-Halo-Signature`, [verification](#verifying-the-webhook-signature)) |
-| `-metrics-listen` | off | Address serving the controller's `/metrics`. **Unauthenticated**: keep it internal |
+| `-metrics-listen` | off | Address serving `/metrics` (audit export; the controller with `-controller`; the leader lease and database with `-database-url-file`). **Unauthenticated**: keep it internal |
+| `-session-ttl`, `-session-idle-timeout` | `12h`, `1h` | Console session absolute lifetime (5m to 168h) and sliding idle timeout (at least 1m, at most `-session-ttl`; `0` disables) |
+| `-service-token-max-ttl` | `2160h` (90 days) | Longest lifetime, and the default, of a service-account token (1h to 8760h) |
+| `-breakglass-enabled`, `-breakglass-user`, `-breakglass-allowed-cidrs`, `-breakglass-hash-file` | off | Break-glass local admin at `POST /auth/breakglass`. Enabling needs the hash file (from `halo-server breakglass-hash`) and the allowed CIDRs |
+| `-workload-key-file` | | ed25519 PKCS#8 PEM private key signing CI and cloud workload credentials from `POST /api/v1/token/exchange` (`halo keys generate --name workload`); empty disables the endpoint |
+| `-audit-config` | | Audit log rotation and SIEM export JSON config; needs `-data-dir` or `-database-url-file` |
+| `-cloud-webhook-secret-file`, `-cloud-github-token-file`, `-cloud-cursor-token-file`, `-cloud-cursor-user`, `-cloud-github-base-url`, `-cloud-cursor-base-url` | | Cloud agent governance ([ADR-0034](/halos/adr/0034-cloud-agent-governance/)); `-cloud-webhook-secret-file` enables `POST /api/v1/cloud-agents/webhooks/github` |
+| `-saml-*` | | SAML 2.0 console login ([ADR-0039](/halos/adr/0039-saml-login/), [guide](/halos/guides/sso-saml/)). On `main`, unreleased: ships in v0.6.0 |
 | `-scim-token-sha256-file` | | Enables [SCIM 2.0 provisioning](/halos/guides/scim-provisioning/) at `/scim/v2`. File with the hex SHA-256 of each accepted SCIM bearer token, one per line (two while rotating; `#` comments allowed). Requires `-data-dir` |
 | `-scim-authoritative` | off | The SCIM directory decides who is active and their groups for the console and device endpoints; users it does not list as active are refused. Requires `-scim-token-sha256-file` |
 
@@ -258,6 +267,6 @@ Details: [self-service portal](/halos/concepts/self-service-portal/), [API refer
 
 ## `halo-shadow`
 
-Flags: `-policy`, `-listen 127.0.0.1:8090`, `-out pairs.jsonl`, `-pair-key-file`, `-upstream-headers`, `-budget-usd 50`, `-price-in 3`, `-price-out 15`, `-queue 64`, `-workers 4`, `-retention 720h`, `-metrics-listen` (env `HALO_SHADOW_METRICS_LISTEN`; extra address serving only `GET /metrics` without the token, for Prometheus; empty disables). Environment: `HALO_SHADOW_TOKEN` (required); `HALO_SHADOW_AUTH_HEADER` is refused (use `-upstream-headers`).
+Flags: `-policy`, `-listen 127.0.0.1:8090`, `-out pairs.jsonl`, `-pair-key-file`, `-database-url-file` (Postgres pairs and a shared budget instead of `-out`, so several replicas can run; with `-auto-migrate`, `-database-insecure-tls`, `-budget-scope`), `-upstream-headers`, `-budget-usd 50`, `-price-in 3`, `-price-out 15`, `-queue 64`, `-workers 4`, `-retention 720h`, `-metrics-listen` (env `HALO_SHADOW_METRICS_LISTEN`; extra address serving only `GET /metrics` without the token, for Prometheus; empty disables). Environment: `HALO_SHADOW_TOKEN` (required); `HALO_SHADOW_AUTH_HEADER` is refused (use `-upstream-headers`).
 
-`halo-shadow decrypt-pairs [-pair-key-file FILE]... PAIRS.jsonl` is an ops command that decrypts a pair file written with `-pair-key-file` and writes plaintext JSONL to stdout; repeat the flag to supply current and retired keys. With a key given, an unsealed (plaintext) row is refused, because a row anyone with write access could have injected must not pass as sealed; `-allow-plaintext-pairs` reads rows written before sealing was turned on (migration only). **Output is plaintext prompts and responses**: handle it accordingly Details: [shadow traffic](/halos/concepts/shadow-traffic/).
+`halo-shadow decrypt-pairs [-pair-key-file FILE]... PAIRS.jsonl` is an ops command that decrypts a pair file written with `-pair-key-file` and writes plaintext JSONL to stdout; repeat the flag to supply current and retired keys. With a key given, an unsealed (plaintext) row is refused, because a row anyone with write access could have injected must not pass as sealed; `-allow-plaintext-pairs` reads rows written before sealing was turned on (migration only). `halo-shadow export-pairs -database-url-file FILE` writes every stored pair row (sealed rows as stored) as JSONL for `decrypt-pairs`. **Output of `decrypt-pairs` is plaintext prompts and responses**: handle it accordingly. Details: [shadow traffic](/halos/concepts/shadow-traffic/).

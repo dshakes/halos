@@ -13,11 +13,11 @@ Halos overlaps with three kinds of tool without replacing any of them outright. 
 | Spans several AI CLIs | No, one vendor each | Indirectly, via API compatibility | Not designed for it | Yes: Claude Code, Codex, Gemini CLI, Copilot CLI, Cursor CLI and OpenCode (per-harness capabilities differ; see the [harness matrix](/halos/reference/harness-matrix/)) |
 | Config as signed, versioned releases | No | No | No | Yes |
 | Rings and rollback without a release | Limited to what the vendor offers | Not for client config | Rollouts, but for app code | Rings, signed pointers, kill switch |
-| Spend limits, virtual keys, budgets | Vendor-specific | Core strength | No | Not a goal |
+| Spend limits, virtual keys, budgets | Vendor-specific | Core strength | No | Cost budgets per user, group, ring and org enforced at `halo-proxy` ([cost budgets](/halos/guides/cost-budgets/)); no virtual keys |
 | Many providers behind one API | No | Core strength | No | A handful (Anthropic, Bedrock, Vertex, OpenAI, Azure OpenAI, Gemini) |
 | Polished admin UI | Yes | Usually | Yes | Basic console and portal |
 | Hosted option, vendor support | Yes | Often | Yes | No: self-hosted, community support |
-| Maturity | Production | Widely deployed | Widely deployed | v0.3.0; policy API `halos.dev/v1` (stable) |
+| Maturity | Production | Widely deployed | Widely deployed | v0.5.2; policy API `halos.dev/v1` (stable) |
 
 ## Vendor consoles and managed settings
 
@@ -33,7 +33,7 @@ A gateway is mature, broadly deployed infrastructure for the API call: many prov
 
 Halos does not replace one. `halo-proxy` can run in front of, behind or instead of a gateway, and `halo-kong` is a Kong plugin. What it adds is on the client and the rollout side: the configuration each CLI runs with, cohorts from verified identity, sticky A/B and canary routes, shadowing of single turns, and promotion gated on evals and metrics.
 
-**Weaker:** Halos supports far fewer providers, has no budgeting or virtual-key system, and its proxy is younger than the gateways you may already run.
+**Weaker:** Halos supports far fewer providers, has no virtual-key system and simpler budgets than a dedicated gateway, and its proxy is younger than the gateways you may already run.
 
 ## Feature-flag tools
 
@@ -45,7 +45,7 @@ Halos borrows the vocabulary (toggles, percentage rollouts, a kill switch, exper
 
 ## Honest limits
 
-- The policy API is `halos.dev/v1` and stable ([Compatibility](/halos/reference/compatibility/)). The latest release is v0.3.0, which is pre-1.0 (see the [support policy](/halos/reference/support-policy/)).
+- The policy API is `halos.dev/v1` and stable ([Compatibility](/halos/reference/compatibility/)). The latest release is v0.5.2, which is pre-1.0 (see the [support policy](/halos/reference/support-policy/)).
 - It is an open-source project with a small maintainer group, not a vendor with an SLA.
 - Several integrations are labelled **UNVERIFIED** in the docs (Kong Enterprise, real Bedrock, Vertex, Azure OpenAI and Gemini accounts, MDM on real devices). Believe those labels.
 - It is self-hosted only. You run the proxy, the registry and the telemetry store.

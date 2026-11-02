@@ -14,7 +14,7 @@ What a version number covers, and what breaking means for each surface:
 | CLI commands and flags (`halo`, `halod`) | Minor releases add; only a major release removes or changes meaning. Deprecated flags keep working for one minor release and print a warning |
 | HTTP API (`/api/v1/...`) | Path-versioned. Fields are added in minors; a field is never removed or retyped under `/v1` |
 | Policy files (`apiVersion: halos.dev/v1`) | Stable: every kind and field is frozen; fields are only added. A deprecated field warns for at least one minor and is removed only in `halos.dev/v2`. `halos.dev/v1alpha1` still loads with a warning until v2. Details in [Compatibility](/halos/reference/compatibility/) |
-| Release bundles and ring pointers | `schemaVersion: 1` (`internal/release/release.go:60`). A reader refuses a schema it does not know (`release.go:274`) and keeps last-good; a new schema version is a major release |
+| Release bundles and ring pointers | `schemaVersion: 1` (`internal/release/release.go:66`, set at `release.go:184`). A reader refuses a schema it does not know (`release.go:367`) and keeps last-good; a new schema version is a major release |
 | Kill list, fleet report and mirror payloads | Fields only ever added. `halo-shadow` decodes mirror jobs strictly (`internal/shadow/server.go`), which is why it upgrades before `halo-proxy` (below) |
 | Helm chart | Its own SemVer in `Chart.yaml` (`version`), tracking `appVersion`. A values key is renamed only in a chart major; `values.schema.json` checks types and the replica pins but does not reject unknown keys, so read the chart CHANGELOG entry before a major |
 | Postgres schema (HA backend) | Versioned, forward-only migrations embedded in the binary (`internal/pgstore/migrations`). Within a major they only add (tables, columns, indexes) and declare `-- min-binary-schema: 1`, so an older binary keeps running against a migrated database, during a rollout and after a binary rollback. A migration that an older binary cannot run against raises its min-binary-schema, is called out as **Breaking** in the CHANGELOG, and makes older binaries refuse to start. Never downgrade the schema: roll forward, or restore the pre-upgrade backup |
@@ -36,8 +36,9 @@ This is the commitment from `v0.1.1` on. It is a policy, not something the code 
 
 | Version | Status | Supported until |
 |---|---|---|
-| 0.2.x | current | the 0.3 minor ships, then 90 days of security fixes |
-| 0.1.x | previous minor (security and data-loss fixes only) | 2027-01-09 (90 days after 0.2.0 shipped on 2026-10-11) |
+| 0.5.x | current (latest 0.5.2) | the 0.6 minor ships, then 90 days of security fixes |
+| 0.4.x | previous minor (security and data-loss fixes only) | 2027-01-30 (90 days after 0.5.0 shipped on 2026-11-01) |
+| 0.3.x, 0.2.x, 0.1.x | superseded minors, no longer supported | n/a |
 | 0.1.0 | superseded by 0.1.1 (incomplete publish) | — |
 | 0.1.0-rc.1, rc.2 | prerelease | — |
 
