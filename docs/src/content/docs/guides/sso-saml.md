@@ -11,6 +11,14 @@ halo-server is a SAML 2.0 service provider for the console login, alongside its 
 
 > Steps follow each vendor's documentation; they were not run against live Okta, Entra ID, ADFS or Ping tenants for this release. Check screen names against yours.
 
+**Tested against Keycloak 26.4.7.** CI runs `make uat-saml` ([`scripts/uat-saml-keycloak.sh`](https://github.com/dshakes/halos/blob/main/scripts/uat-saml-keycloak.sh)): halo-server against a digest-pinned Keycloak in Docker, with an SP-initiated login driven by curl (signed assertion, `username` Name ID, a `groups` mapper, `/api/v1/me` showing the admin role), then a wrong password, a replayed response and an unmet `requireAcr` (403). Keycloak settings that worked:
+
+- Client: signed **assertion** (`saml.assertion.signature`), SHA-256, Name ID format `username` (or `persistent`), valid redirect URI and ACS URL both `https://<portal baseURL>/auth/saml/acs`, client ID equal to the entity ID.
+- Mapper: **Group list**, SAML attribute name `groups`, **Single Group Attribute** off, **Full group path** off (Keycloak's default path form is `/ai-platform`, which no policy group matches).
+- Give the test user an email, first and last name before logging in (Keycloak 26 user profile).
+- `requireAcr` with a class the realm does not emit (here `...:MultiFactor` against a password-only login) is denied with 403 `authn_context`. List the class your realm's authentication flow actually emits.
+- The test uses `KC_HOSTNAME_STRICT=false` so the SSO URL in the IdP metadata matches the address the client reaches; set `KC_HOSTNAME` in a real deployment.
+
 ## 1. Create the SP key pair
 
 halo-server signs its AuthnRequests and decrypts encrypted assertions with its own key. A self-signed certificate is normal for SAML (IdPs pin it from metadata):
