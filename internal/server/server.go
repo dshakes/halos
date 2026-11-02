@@ -120,6 +120,8 @@ type Config struct {
 	ServiceTokenMaxTTL time.Duration
 	BreakGlass         BreakGlass
 	EntraGraphURL      string
+	// SAML turns on SAML 2.0 login next to OIDC (ADR-0039); nil = off.
+	SAML *SAMLConfig
 
 	// DevUser disables authentication and acts as this user. INSECURE: local demos only.
 	// DevRoles are its roles (ADR-0015); DevAdmin adds RoleAdmin.
@@ -135,6 +137,7 @@ type Server struct {
 	tokSum [32]byte
 	pol    *policyHolder
 	oidc   oidcState
+	saml   *samlState // nil = SAML login off (ADR-0039)
 	enroll enrollments
 	reqs   *requestLog
 	// approvals are rollout-step approvals (ADR-0030).
@@ -233,6 +236,12 @@ func New(cfg Config) (*Server, error) {
 	}
 	if err := checkGraphURL(cfg.EntraGraphURL); err != nil {
 		return nil, err
+	}
+	var samlSP *samlState
+	if cfg.SAML != nil {
+		if samlSP, err = newSAML(*cfg.SAML, cfg.Portal.BaseURL); err != nil {
+			return nil, err
+		}
 	}
 	if cfg.Store == nil {
 		cfg.Store = NewMemStore()
@@ -334,7 +343,7 @@ func New(cfg Config) (*Server, error) {
 	}
 	s := &Server{cfg: cfg, apiRate: newAPILimiter(cfg.APIRate, cfg.APIBurst), tokSum: sha256.Sum256([]byte(cfg.Token)), pol: &policyHolder{dir: cfg.PolicyDir, log: cfg.Log}, reqs: reqs, approvals: approvals, devices: devs, revoked: revoked,
 		auditLog: al, forwarders: fwds, relCache: &releaseCache{byKey: map[string]cachedPointer{}, chans: map[string][]string{}}, budgets: bs, kv: kv, revs: revs,
-		session: session, tokens: tokens, tokenMaxTTL: cfg.ServiceTokenMaxTTL, bg: bg, bgSem: make(chan struct{}, breakGlassVerifiers), graphURL: cfg.EntraGraphURL}
+		session: session, saml: samlSP, tokens: tokens, tokenMaxTTL: cfg.ServiceTokenMaxTTL, bg: bg, bgSem: make(chan struct{}, breakGlassVerifiers), graphURL: cfg.EntraGraphURL}
 	if bg != nil && cfg.BreakGlass.Enabled {
 		cfg.Log.Warn("BREAK-GLASS ENABLED: the local admin account can log in at POST /auth/breakglass; disable it and rotate its password once the incident is over", "user", breakGlassSubPrefix+cfg.BreakGlass.User, "allowedCIDRs", cfg.BreakGlass.AllowedCIDRs)
 		if wide := wideBreakGlassCIDRs(cfg.BreakGlass.AllowedCIDRs); len(wide) > 0 { // too-broad ranges were refused in newBreakGlass
@@ -524,6 +533,11 @@ func (s *Server) mux() *routeMux {
 	m.HandleFunc("GET /auth/login", s.login)
 	m.HandleFunc("GET /auth/callback", s.callback)
 	m.HandleFunc("POST /auth/logout", s.logout)
+	m.HandleFunc("GET /auth/methods", s.authMethods)
+	// SAML login (ADR-0039): 404 unless configured
+	m.HandleFunc("GET /auth/saml/login", s.samlLogin)
+	m.HandleFunc("POST /auth/saml/acs", s.samlACS)
+	m.HandleFunc("GET /auth/saml/metadata", s.samlMetadata)
 	m.HandleFunc("POST /auth/breakglass", s.breakGlassLogin) // 404 unless break-glass is enabled (ADR-0036)
 	s.scimRoutes(m)                                          // /scim/v2 and GET /api/v1/gateway/directory
 	m.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) { apiErr(w, http.StatusNotFound, "not found") })

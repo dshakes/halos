@@ -122,6 +122,11 @@ server:
   # Microsoft Graph base URL for policy identity.groupsOverage: graph ("" = https://graph.microsoft.com/v1.0;
   # national clouds: https://graph.microsoft.us/v1.0, https://microsoftgraph.chinacloudapi.cn/v1.0).
   oidc: {entraGraphURL: ""}
+  # SAML 2.0 login next to OIDC (ADR-0039; guide: guides/sso-saml). On when existingSecret is set: it holds the SP key
+  # pair (kubernetes.io/tls shape: keyKey/certKey) and, unless idpMetadataURL is set, the IdP metadata XML under
+  # idpMetadataKey. Register <portal.baseURL>/auth/saml/metadata at the IdP. allowIdPInitiated accepts unsolicited
+  # responses (IdP dashboard tiles); off by default because they cannot be bound to the browser that logs in.
+  saml: {existingSecret: "", keyKey: tls.key, certKey: tls.crt, idpMetadataKey: "", idpMetadataURL: "", entityID: "", userAttribute: "", groupsAttribute: "", allowIdPInitiated: false}
   # Portal JSON (--portal-config): baseURL, registry, halodURL, halodSHA256, launchers ...
   # sessionKeyFile / oidcClientSecretFile are injected from the Secrets above.
   portal:

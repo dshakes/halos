@@ -6,6 +6,7 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ### Added
 
+- SAML 2.0 console login next to OIDC ([ADR-0039](docs/adr/0039-saml-login.md)): `--saml-idp-metadata-file|-url`, `--saml-sp-key-file`, `--saml-sp-cert-file`, `--saml-entity-id`, `--saml-user-attribute`, `--saml-groups-attribute`, `--saml-allow-idp-initiated` (off); `GET /auth/saml/login`, `POST /auth/saml/acs`, `GET /auth/saml/metadata`, `GET /auth/methods`; Helm `server.saml`. Signed assertion or response, audience, recipient, destination, InResponseTo, 60s skew and single-use assertion ids are enforced; the user goes through the same SCIM directory, grants, revocation, session timeouts and audit as OIDC. The login page offers each configured method. New dependency: `github.com/crewjam/saml` v0.5.1 (with `goxmldsig` v1.6.1, `etree`, `xml-roundtrip-validator`, `clockwork`, `golang.org/x/crypto`).
 - halo-server sends `Strict-Transport-Security` (browsers honour it only over HTTPS); every Prometheus/Grafana alert carries a `runbook_url` to the operations guide.
 - halo-server rate-limits each signed-in user and service token on console/API routes (`-api-rate-limit` 20/s, `-api-rate-burst` 100; 429 with `Retry-After`; `0` disables). Fleet, gateway and SCIM traffic is not charged.
 - `halo --version` (same output as `halo version`).

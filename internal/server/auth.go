@@ -508,13 +508,20 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 		}
 		p = grantPrincipal(p.ID, gs, id.Grants(policy.Subject{ID: p.ID, Groups: gs}))
 	}
-	g, provisioned := s.directoryGroups(p.ID, p.Groups)
+	s.issueSession(w, r, p.ID, p.Groups, "oidc", fail)
+}
+
+// issueSession ends an IdP login (OIDC or SAML, ADR-0039) the same way: the
+// SCIM directory decides who is active and their groups, roles follow current
+// policy, the session starts past any revocation and is audited as login.
+func (s *Server) issueSession(w http.ResponseWriter, r *http.Request, user string, groups []string, method string, fail func(reason string, code int, msg string, err error)) {
+	g, provisioned := s.directoryGroups(user, groups)
 	if !provisioned {
 		fail("not_provisioned", http.StatusForbidden, "user is deactivated or not provisioned", nil)
 		return
 	}
 	// Directory groups may differ from the token's: roles follow the groups in force.
-	p = grantPrincipal(p.ID, g, id.Grants(policy.Subject{ID: p.ID, Groups: g}))
+	p := grantPrincipal(user, g, s.grants(user, g))
 	org, _, _ := s.pol.Get()
 	now := s.cfg.Now()
 	exp := now.Add(s.session.TTL)
@@ -534,8 +541,8 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 		sess.SID, sess.Groups = sid, nil
 	}
 	s.setCookie(w, sessionCookie, s.seal(sess), "/", s.session.TTL)
-	s.cfg.Log.Info("login", "user", p.ID, "roles", p.Roles)
-	s.Audit(r.Context(), p.ID, "login", "", map[string]string{"admin": strconv.FormatBool(p.Admin), "roles": strings.Join(p.Roles, ",")})
+	s.cfg.Log.Info("login", "user", p.ID, "roles", p.Roles, "method", method)
+	s.Audit(r.Context(), p.ID, "login", "", map[string]string{"admin": strconv.FormatBool(p.Admin), "roles": strings.Join(p.Roles, ","), "method": method})
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 

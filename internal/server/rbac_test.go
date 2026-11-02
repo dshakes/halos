@@ -25,6 +25,8 @@ var publicRoutes = []string{
 	"GET /auth/login", "GET /auth/callback", "POST /auth/logout",
 	// Break-glass (ADR-0036): the sealed local account's password; 404 unless enabled.
 	"POST /auth/breakglass",
+	// SAML login (ADR-0039): the IdP-signed assertion is the credential; 404 unless configured.
+	"GET /auth/methods", "GET /auth/saml/login", "POST /auth/saml/acs", "GET /auth/saml/metadata",
 	// SCIM bearer token only (scimAuth); the gateway directory takes the gateway token.
 	"GET /scim/v2/ServiceProviderConfig", "GET /scim/v2/ResourceTypes", "GET /scim/v2/ResourceTypes/{id}",
 	"GET /scim/v2/Schemas", "GET /scim/v2/Schemas/{id}",

@@ -96,6 +96,10 @@ type (
 		promote.ToggleChange
 		Reason string `json:"reason"`
 	}
+	samlACSForm struct {
+		SAMLResponse string `json:"SAMLResponse"`         // base64 samlp:Response from the IdP (HTTP-POST binding)
+		RelayState   string `json:"RelayState,omitempty"` // ignored: the login always lands on /
+	}
 	tokenExchangeForm struct {
 		GrantType          string `json:"grant_type"`         // urn:ietf:params:oauth:grant-type:token-exchange
 		SubjectToken       string `json:"subject_token"`      // the CI provider's OIDC token (or a Halos credential, for delegation)
@@ -147,7 +151,7 @@ var coreOps = []apiOp{
 
 	// ---- auth ----
 	{route: "GET /auth/login", id: "login", tag: "Auth", summary: "Start the OIDC login", auth: authNone,
-		desc: "Redirects to the identity provider (authorization-code flow with PKCE).",
+		desc: "Redirects to the OIDC identity provider (authorization-code flow with PKCE). SAML login starts at GET /auth/saml/login.",
 		ok:   noBody(302, "Redirect to the identity provider."), errs: errMap(503, "Login unavailable (policy or identity provider not usable).")},
 	{route: "GET /auth/callback", id: "loginCallback", tag: "Auth", summary: "OIDC redirect target", auth: authNone,
 		desc:  "Completes the login, sets the `halo_session` cookie and redirects to `/`.",
@@ -158,6 +162,22 @@ var coreOps = []apiOp{
 	{route: "POST /auth/logout", id: "logout", tag: "Auth", summary: "End the session", auth: authNone,
 		desc: "Ends every session of the user, not only this cookie. Must come from the server's origin.",
 		ok:   noBody(204, "Logged out."), errs: errMap(403, "Cross-origin request rejected.", 500, "The revocation could not be stored.")},
+	{route: "GET /auth/methods", id: "authMethods", tag: "Auth", summary: "Configured sign-in methods", auth: authNone,
+		desc: "Which logins the console offers: OIDC when policy names an issuer and client, SAML when halo-server has --saml-idp-metadata-* (ADR-0039). Public: it says only whether each is on.",
+		ok:   jsonOK(AuthMethods{}, `{"oidc":true,"saml":true}`)},
+	{route: "GET /auth/saml/login", id: "samlLogin", tag: "Auth", summary: "Start the SAML login", auth: authNone,
+		desc: "Redirects to the IdP with a signed AuthnRequest (HTTP-Redirect binding) and sets a short-lived `halo_saml` cookie holding its id (ADR-0039).",
+		ok:   noBody(302, "Redirect to the identity provider."), errs: errMap(404, "SAML login is not configured.", 503, "Login unavailable.")},
+	{route: "POST /auth/saml/acs", id: "samlACS", tag: "Auth", summary: "SAML assertion consumer service", auth: authNone,
+		desc: "The IdP posts the SAML response here (HTTP-POST binding). The assertion (or the response) must be signed by the IdP certificate; audience, recipient, destination, validity window, InResponseTo and one-time use are checked. Sets the `halo_session` cookie and redirects to `/`.",
+		req:  &body{ct: "application/x-www-form-urlencoded", typ: samlACSForm{}, example: "SAMLResponse=PHNhbWxwOlJlc3BvbnNlIC4uLg%3D%3D"},
+		ok:   noBody(302, "Logged in; session cookie set."),
+		errs: errMap(400, "Missing, reused or invalid login state, or no SAMLResponse.", 401, "The SAML response was rejected (signature, audience, recipient, validity, InResponseTo, replay).",
+			403, "The user is not allowed in (unprovisioned or deactivated, reserved id, groups overage).", 404, "SAML login is not configured.", 429, "Too many failed logins from this address.", 503, "Login unavailable.")},
+	{route: "GET /auth/saml/metadata", id: "samlMetadata", tag: "Auth", summary: "SAML service provider metadata", auth: authNone,
+		desc: "The SP EntityDescriptor to register at the IdP: entity id, the HTTP-POST ACS URL and the SP certificate (signing and encryption).",
+		ok:   text(200, "application/samlmetadata+xml", "SP metadata.", `<?xml version="1.0" encoding="UTF-8"?>`+"\n"+`<EntityDescriptor xmlns="urn:oasis:names:tc:SAML:2.0:metadata" entityID="https://halo.acme.example/auth/saml/metadata">...</EntityDescriptor>`),
+		errs: errMap(404, "SAML login is not configured.")},
 	{route: "POST /auth/breakglass", id: "breakGlassLogin", tag: "Service tokens", summary: "Break-glass local admin login", auth: authNone,
 		desc: "A 30-minute admin session for `breakglass:<user>`. 404 unless break-glass is enabled or from an address outside --breakglass-allowed-cidrs. Audited at high severity.",
 		req:  &body{typ: BreakGlassLogin{}, example: `{"user":"oncall","password":"..."}`},
