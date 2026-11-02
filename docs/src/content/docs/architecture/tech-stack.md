@@ -80,6 +80,8 @@ Signing itself uses the standard library: ed25519 or ECDSA P-256 primary signatu
 | `github.com/go-jose/go-jose/v4` | `v4.1.4` | Halos's own JWKS cache for OIDC verification ([`internal/identity/jwks.go`](https://github.com/dshakes/halos/blob/main/internal/identity/jwks.go)), which can verify from cached keys only, so a client IP blocked for failed token exchanges cannot make `halo-server` fetch the issuer's JWKS. Already required by go-oidc. | `internal/identity` |
 | `golang.org/x/oauth2` | `v0.36.0` | The console's OIDC authorization-code flow. | `internal/server` |
 | `golang.org/x/time` | `v0.15.0` | Per-IP rate limiting of failed token attempts. | `internal/server` |
+| `github.com/crewjam/saml` | `v0.5.1` | SAML 2.0 Service Provider: AuthnRequests, response and assertion signature checks, decryption (ADR-0039). | `internal/server` |
+| `github.com/beevik/etree` | `v1.7.0` | XML element tree for the SAML pre-parse screen and assertion handling. | `internal/server` |
 <!-- /check -->
 
 ### Gateway
@@ -131,7 +133,7 @@ The file backend (JSONL under `--data-dir`) needs no module; without `--database
 <!-- check: go.mod -->
 | Module | Version | Used for | Used by |
 | --- | --- | --- | --- |
-| `golang.org/x/sys` | `v0.41.0` | Windows ACL and ownership checks on halod's trusted files and private files (`windows` build tag only). | `cmd/halod`, `internal/fsutil` |
+| `golang.org/x/sys` | `v0.47.0` | Windows ACL and ownership checks on halod's trusted files and private files (`windows` build tag only). | `cmd/halod`, `internal/fsutil` |
 <!-- /check -->
 
 ## Web console

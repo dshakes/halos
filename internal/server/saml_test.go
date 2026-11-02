@@ -1,6 +1,7 @@
 package server
 
 import (
+	"crypto/fips140"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -127,6 +128,10 @@ type samlAssert struct {
 
 // response is a base64 SAMLResponse from the test IdP.
 func (e *samlEnv) response(t *testing.T, o samlAssert) string {
+	if o.encrypt && fips140.Enforced() {
+		// crewjam's test IdP encrypts with RSA-OAEP-SHA1, which FIPS 140-only mode refuses (as it should).
+		t.Skip("encrypted-assertion fixture needs SHA-1 OAEP; not available in FIPS 140-only mode")
+	}
 	t.Helper()
 	now := time.Now()
 	if o.issued.IsZero() {

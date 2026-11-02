@@ -154,14 +154,16 @@ func TestSAMLScreenResponse(t *testing.T) {
 			}
 		})
 	}
-	// End to end: crewjam's IdP encrypts with AES-CBC; without a Response signature it is refused.
 	e := newSAMLEnv(t)
-	c, id := e.samlLogin(t)
-	if w := e.acs(c, e.response(t, samlAssert{inResponseTo: id, encrypt: true})); w.Code != 401 {
-		t.Fatalf("CBC in unsigned response: %d %s", w.Code, w.Body)
-	}
+	// End to end: crewjam's IdP encrypts with AES-CBC; without a Response signature it is refused.
+	t.Run("CBC in an unsigned response, end to end", func(t *testing.T) {
+		c, id := e.samlLogin(t)
+		if w := e.acs(c, e.response(t, samlAssert{inResponseTo: id, encrypt: true})); w.Code != 401 {
+			t.Fatalf("CBC in unsigned response: %d %s", w.Code, w.Body)
+		}
+	})
 	// And a second assertion appended to a valid response is refused.
-	c, id = e.samlLogin(t)
+	c, id := e.samlLogin(t)
 	two := e.response(t, samlAssert{inResponseTo: id, tamper: func(resp, a *etree.Element) { resp.AddChild(a.Copy()) }})
 	if w := e.acs(c, two); w.Code != 401 {
 		t.Fatalf("two assertions: %d %s", w.Code, w.Body)
