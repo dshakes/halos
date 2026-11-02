@@ -4,8 +4,23 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Upgrade notes
+
+- Nothing is deleted and nothing is signed unless you set the new flags: every `--retention-*` defaults to `0` (keep forever) and `--audit-signing-key-uri` is off.
+- `halo audit verify` reports a missing oldest segment as "the oldest entries were removed" (it said "out of order"); a chain that retention shortened verifies when the matching `audit.retention` entry is present.
+- `GET /api/v1/audit` `total` counts the entries kept after retention, not the newest seq.
+- Logs written before this release verify unchanged: the new `redacted` field is omitted from every entry that is not redacted, so no hash changes.
+- Go API: `server.VerifyAuditDir` and `server.VerifyAuditBackend` take an `AuditVerifyOptions` argument (pass the zero value for the old behaviour).
+- With `--audit-signing-key-uri`, halo-server first appends a signed `audit.signing.enabled` entry; every signed entry then binds its seq. `halo audit verify --public-key` fails on a log with no signed checkpoint, and accepts a redaction or a retention cut only when the vouching entry is signed, unless it predates the marker (erasures and cuts made before signing was enabled stay valid). `halo-server` refuses an audit key that is also the kill-switch or release key. Rotate the key with `--audit-previous-public-key-files` on the server and repeated `--public-key` (the current key first) on `halo audit verify`; a previous key is valid only until the current one has signed.
+- Every erasure needs two admins: `POST /api/v1/users/erase` answers `202` with a pending erasure, and a different admin confirms it by resubmitting the same user, aliases and reason to `POST /api/v1/users/erase/{id}/confirm`. Erasure aliases must identify a person.
+- halo-server refuses to sign a checkpoint, an erasure or a retention cut while the audit chain does not verify (`halo_server_audit_sign_refused_total`).
+- Signing an audit log that already holds entries needs one start with `--audit-signing-enable`; without it halo-server refuses to sign and keeps running unsigned. Signed entries bind a log id. Signatures catch edits, recomputation and forged vouches, not deletion: run `halo audit verify --strict --public-key ... --compare-export <SIEM export>` on a schedule (`--public-key` alone warns; with several keys the newest checkpoint must be the first key's unless `--allow-rotation-window`). Rotate the audit key by restarting all replicas together.
+
 ### Added
 
+- Data retention (ADR-0040): `--retention-fleet-reports`, `--retention-requests`, `--retention-devices`, `--retention-audit` and `--retention-interval` on halo-server (Helm `server.retention`), on both the file and Postgres backends; the sweep runs on the leader only and audits what it removed. Audit retention never deletes entries a SIEM sink has not delivered and records each cut as a chained `audit.retention` entry.
+- GDPR erasure (ADR-0040): `POST /api/v1/users/erase` (admin, a person, global binding, never oneself, a reason; `dryRun`; confirmed by a second admin) revokes a person's sessions, deletes their devices, access requests and fleet reports, pseudonymises them in requests they decided and in every audit entry, and returns what was erased and retained per store. A high-severity `subject.erase` entry vouches for each pseudonymised entry, so the chain still verifies.
+- Signed audit checkpoints (ADR-0041): `--audit-signing-key-uri` (file, `awskms://`, `exec://`) and `--audit-checkpoint-interval` (Helm `server.auditSigning`) append signed `audit.checkpoint` entries that reach every SIEM sink. `halo audit verify` gains `--public-key` (repeatable), `--anchor` (the newest checkpoint in your SIEM's export; catches a recomputed or truncated chain), `--compare-export` (compares every entry the log and the SIEM export both hold), `--max-unsigned-tail` and `--file` (verify an export). `GET /api/v1/audit` reports `signed`, `checkpoints` and `lastCheckpoint`.
 - `install.sh --require-signature` / `install.ps1 -RequireSignature` (or `HALOS_REQUIRE_SIGNATURE=1`): refuse to install when cosign is missing instead of falling back to the same-origin sha256.
 
 ### Fixed

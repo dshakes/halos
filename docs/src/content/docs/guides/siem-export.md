@@ -155,6 +155,16 @@ Every event carries the chain: `seq` (1, 2, 3, ... with no gaps), `prev` (the pr
 
 Delivery is at least once: a crash between a delivery and saving the cursor resends up to one batch. De-duplicate on `seq`.
 
+### What signatures prove, and what needs this copy
+
+With `--audit-signing-key-uri` ([ADR-0041](/halos/adr/0041-signed-audit-chain-heads/)), signatures prove who wrote the checkpoints, erasure vouches and retention cuts, and catch every edit or recomputation of the entries they cover. They cannot prove that nothing was deleted: someone who can write to halo-server's store can cut the tail, or delete everything (the signing record too) and start over, and what is left still verifies. Your SIEM copy is what catches that. Check the server's log against it on a schedule:
+
+```sh
+halo audit verify --data-dir /data --public-key audit.pub --compare-export siem-export.jsonl --strict
+```
+
+`--strict` fails unless both the key and an external anchor (`--compare-export` or `--anchor`) are given; `--public-key` alone prints a warning that deletion is not detected.
+
 ## Agent sessions
 
 Agent session ledger records ([ADR-0031](/halos/adr/0031-agent-session-ledger/)) are audit entries with `action` `session.record`, `target` the ledger id, and the record JSON in `details.record` (OCSF: `api.operation` and `unmapped.details.record`). They ship with the rest of the chain; no sink setting is needed. Filter on the action to route them to their own index. A session imported again is a new entry; the newest `seq` for a ledger id is the current version.
