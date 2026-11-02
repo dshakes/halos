@@ -12,6 +12,7 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ### Changed
 
+- The npm packages publish as `@dshakesnotbot/halo` (and `@dshakesnotbot/halo-<os>-<arch>`): the `@dshakes` npm scope does not exist, so v0.5.1 never reached npm. Use `npx @dshakesnotbot/halo quickstart`.
 - Every command that writes only with `--apply` also accepts `--dry-run` (its default), matching `quickstart`, `enable`, `eject` and `model switch`; the two flags are mutually exclusive.
 
 ### Fixed

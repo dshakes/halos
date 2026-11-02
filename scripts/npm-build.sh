@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds the npm packages for `npx @dshakes/halo` from a release's archives.
+# Builds the npm packages for `npx @dshakesnotbot/halo` from a release's archives.
 #
 #   scripts/npm-build.sh VERSION ARCHIVE_DIR OUT_DIR
 #
@@ -41,9 +41,9 @@ for p in $platforms; do
   cp "$root/LICENSE" "$dir/"
   cat >"$dir/package.json" <<EOF
 {
-  "name": "@dshakes/$name",
+  "name": "@dshakesnotbot/$name",
   "version": "$version",
-  "description": "The halo CLI binary for $nos/$ncpu. Install @dshakes/halo instead.",
+  "description": "The halo CLI binary for $nos/$ncpu. Install @dshakesnotbot/halo instead.",
   "license": "Apache-2.0",
   "repository": {"type": "git", "url": "git+https://github.com/dshakes/halos.git"},
   "os": ["$nos"],
@@ -52,26 +52,26 @@ for p in $platforms; do
   "preferUnplugged": true
 }
 EOF
-  deps="$deps${deps:+,}\"@dshakes/$name\": \"$version\""
+  deps="$deps${deps:+,}\"@dshakesnotbot/$name\": \"$version\""
 done
 
 mkdir -p "$out/halo"
 cp -R "$root/npm/halo/bin" "$out/halo/"
 cp "$root/LICENSE" "$out/halo/"
 cat >"$out/halo/README.md" <<EOF
-# @dshakes/halo
+# @dshakesnotbot/halo
 
 The \`halo\` CLI for [Halos](https://github.com/dshakes/halos): one policy repo for Claude Code, Codex and Gemini CLI, with signed releases, rollout rings and eval-gated promotion.
 
 \`\`\`sh
-npx @dshakes/halo quickstart
+npx @dshakesnotbot/halo quickstart
 \`\`\`
 
 npm installs only the prebuilt binary for your OS and CPU (macOS, Linux, Windows; x64 or arm64). The binaries are the signed release archives of v$version, checked against the release's checksums. Other install methods: https://github.com/dshakes/halos#install
 EOF
 cat >"$out/halo/package.json" <<EOF
 {
-  "name": "@dshakes/halo",
+  "name": "@dshakesnotbot/halo",
   "version": "$version",
   "description": "halo CLI for Halos: one policy for Claude Code, Codex and Gemini CLI, with signed releases, rollout rings and eval-gated promotion.",
   "license": "Apache-2.0",
@@ -83,4 +83,4 @@ cat >"$out/halo/package.json" <<EOF
   "optionalDependencies": {$deps}
 }
 EOF
-echo "built @dshakes/halo and its platform packages for $version in $out"
+echo "built @dshakesnotbot/halo and its platform packages for $version in $out"
