@@ -163,7 +163,7 @@ With `--audit-signing-key-uri` ([ADR-0041](/halos/adr/0041-signed-audit-chain-he
 halo audit verify --data-dir /data --public-key audit.pub --compare-export siem-export.jsonl --strict
 ```
 
-`--strict` fails unless both the key and an external anchor (`--compare-export` or `--anchor`) are given; `--public-key` alone prints a warning that deletion is not detected.
+`--strict` fails unless both the key and an external anchor (`--compare-export` or `--anchor`) are given; `--public-key` alone prints a warning that deletion is not detected. `--compare-export` reads only Halos audit entries (raw JSONL, or OCSF with `raw_data`): an empty export or one with any other line is refused, so query the SIEM for Halos events only, and under `--strict` the export must contain a checkpoint whose signature verifies.
 
 ## Agent sessions
 

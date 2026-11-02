@@ -122,3 +122,8 @@ release MUST set (kong/kong or kong/ingress `env:`), or the plugin cannot read t
   KONG_NGINX_HTTP_CLIENT_BODY_BUFFER_SIZE=32m
 The plugin references it as {vault://env/halo-shadow-token}.
 {{- end }}
+{{- with ((.Values.server.auditSigning | default dict).enableAtHead) }}
+
+WARNING: server.auditSigning.enableAtHead={{ int64 . }} is set. It is a ONE-TIME value for the first signed start
+(ADR-0041). Run your next upgrade with --set server.auditSigning.enableAtHead=0 (--reuse-values keeps it).
+{{- end }}

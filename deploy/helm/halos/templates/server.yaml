@@ -42,6 +42,7 @@
 {{- $sess := $s.session | default dict }}
 {{- $bgx := $s.breakGlass | default dict }}{{- /* break-glass local admin (ADR-0036): sealed unless enabled */}}
 {{- $auditPrev := (($s.auditSigning | default dict).previousPublicKeys) | default dict }}{{- /* replaced audit keys (rotation, ADR-0041) */}}
+{{- if or (and $auditPrev.existingSecret (not $auditPrev.keys)) (and $auditPrev.keys (not $auditPrev.existingSecret)) }}{{ fail "server.auditSigning.previousPublicKeys: set both existingSecret and keys, or neither (a half config would mount the whole Secret or silently drop the old keys)" }}{{- end }}
 {{- if and $bgx.enabled (not $bgx.existingSecret) }}{{ fail "server.breakGlass.enabled needs server.breakGlass.existingSecret (the Secret holding the `halo-server breakglass-hash` output)" }}{{ end }}
 {{- if and $bgx.enabled (not $bgx.allowedCIDRs) }}{{ fail "server.breakGlass.enabled needs server.breakGlass.allowedCIDRs (the VPN or bastion range): without it anyone can lock break-glass with failed logins" }}{{ end }}
 {{- range $c := splitList "," ($bgx.allowedCIDRs | default "") }}{{- $c = trim $c }}{{- if $c }}{{- $parts := splitList "/" $c }}{{- if ne (len $parts) 2 }}{{ fail (printf "server.breakGlass.allowedCIDRs: %q is not address/prefix" $c) }}{{ end }}{{- $bits := atoi (index $parts 1) }}{{- if or (and (contains ":" $c) (lt $bits 32)) (and (not (contains ":" $c)) (lt $bits 8)) }}{{ fail (printf "server.breakGlass.allowedCIDRs: %s is too broad (IPv4 must be /8 or longer, IPv6 /32 or longer): anyone in it could spend the global failure budget and keep break-glass locked; use the VPN or bastion range" $c) }}{{ end }}{{- end }}{{- end }}
@@ -207,7 +208,7 @@ spec:
             - --audit-previous-public-key-files={{ range $i, $k := $auditPrev.keys }}{{ if $i }},{{ end }}/secrets/audit-previous-{{ $i }}.pub{{ end }}
             {{- end }}
             {{- with (($s.auditSigning | default dict).enableAtHead) }}
-            - --audit-signing-enable={{ . }}
+            - --audit-signing-enable={{ int64 . }}
             {{- end }}
             {{- with $s.trustedProxyCIDRs }}
             - --trusted-proxy-cidrs={{ . }}

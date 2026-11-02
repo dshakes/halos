@@ -174,6 +174,7 @@ server:
   # first upgrade that signs a log already holding entries (or to recreate a lost signing record after checking the log
   # against the SIEM copy). Pass it once with --set server.auditSigning.enableAtHead=N; never keep it in a values file:
   # a stale value is refused, and halo-server logs an error on every start while it is set over a signed log.
+  # helm upgrade --reuse-values KEEPS it: run the next upgrade with --set server.auditSigning.enableAtHead=0.
   auditSigning: {keyURI: "", checkpointInterval: 5m, previousPublicKeys: {existingSecret: "", keys: []}, enableAtHead: 0}
   # Automated experiment loop (--controller): evaluates experiments from ClickHouse, trips the kill switch on
   # rollback, opens PRs, notifies. Requires persistence.enabled (--data-dir: action log dedups PRs across restarts).
