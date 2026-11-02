@@ -38,6 +38,7 @@
 ## Quickstart
 
 ```sh
+brew trust dshakes/tap             # Homebrew 7+ refuses untrusted taps
 brew install dshakes/tap/halo      # other installs below
 halo quickstart                    # the whole stack in Docker, about a minute with a warm Docker cache, 2 to 3 minutes cold
 halo doctor && halo onboard local  # or pin and manage the CLIs on this machine
@@ -227,6 +228,7 @@ Traffic goes through `halo-proxy` to Anthropic, Bedrock (SigV4), Vertex, OpenAI,
 The current release is [v0.5.2](https://github.com/dshakes/halos/releases/tag/v0.5.2) ([CHANGELOG](CHANGELOG.md)). Or build from source: `git clone https://github.com/dshakes/halos && cd halos && make build` (builds `halo`, `halod`, `halo-shadow`, `halo-server`, `halo-proxy` and `halo-kong` into `bin/`).
 
 ```sh
+brew trust dshakes/tap                                                                   # Homebrew 7+ refuses untrusted taps
 brew install dshakes/tap/halo                                                            # macOS / Linux
 scoop bucket add dshakes https://github.com/dshakes/scoop-bucket && scoop install halo   # Windows
 npx @dshakesnotbot/halo quickstart                                                             # Node 18+, no install

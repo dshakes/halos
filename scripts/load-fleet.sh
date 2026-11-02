@@ -105,9 +105,12 @@ start_server() {
       store=(--database-url-file "$WORK/dburl")
       ;;
   esac
+  # --api-rate-limit 0: every simulated device enrolls through one portal identity, which the
+  # per-principal console/API budget (20/s) would otherwise throttle; this measures capacity.
   env ${LOAD_FLEET_GOMAXPROCS:+GOMAXPROCS=$LOAD_FLEET_GOMAXPROCS} "$WORK/bin/halo-server" \
     --policy-dir examples/acme-corp --token-file "$WORK/fleet.token" --listen "$LISTEN" --metrics-listen "$METRICS" \
     --dev-insecure-user loadtest@example.com --dev-insecure-admin --portal-config "$WORK/portal.json" \
+    --api-rate-limit 0 \
     --killswitch-key-file "$WORK/keys/killswitch.key" --gateway-token-file "$WORK/gateway.token" \
     "${store[@]}" >"$OUT/$name.server.log" 2>&1 &
   SRV_PID=$!
