@@ -139,6 +139,17 @@ func (s *Server) setCookie(w http.ResponseWriter, name, val, path string, ttl ti
 	})
 }
 
+// stateCookie is the name and path of a short-lived login-state cookie
+// (OIDC, SAML). Over https it is a __Host- cookie (Secure, Path=/, no
+// Domain), so a sibling subdomain cannot plant or overwrite it; plain http
+// (loopback dev) cannot carry the prefix.
+func (s *Server) stateCookie(name string) (string, string) {
+	if strings.HasPrefix(s.cfg.Portal.BaseURL, "https://") {
+		return "__Host-" + name, "/"
+	}
+	return name, "/auth"
+}
+
 // ---- principal resolution and role gates ----
 
 // grants is what user, holding groups, is granted by current policy:
@@ -390,7 +401,8 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	st, nonce, verifier := randB64(16), randB64(16), oauth2.GenerateVerifier()
-	s.setCookie(w, oidcCookie, s.seal(cookiePayload{State: st, Nonce: nonce, PKCE: verifier, Exp: s.cfg.Now().Add(10 * time.Minute).Unix()}), "/auth", 10*time.Minute)
+	name, path := s.stateCookie(oidcCookie)
+	s.setCookie(w, name, s.seal(cookiePayload{State: st, Nonce: nonce, PKCE: verifier, Exp: s.cfg.Now().Add(10 * time.Minute).Unix()}), path, 10*time.Minute)
 	opts := []oauth2.AuthCodeOption{oauth2.S256ChallengeOption(verifier), oidc.Nonce(nonce)}
 	if len(id.RequireAcr) > 0 { // ask for it up front (OIDC Core 3.1.2.1); the callback still checks the token
 		opts = append(opts, oauth2.SetAuthURLParam("acr_values", strings.Join(id.RequireAcr, " ")))
@@ -425,7 +437,8 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 		s.cfg.Log.Warn("oidc callback failed", "msg", msg, "err", err)
 		apiErr(w, code, msg)
 	}
-	c, err := r.Cookie(oidcCookie)
+	name, path := s.stateCookie(oidcCookie)
+	c, err := r.Cookie(name)
 	if err != nil {
 		fail("missing_state", http.StatusBadRequest, "missing login state", err)
 		return
@@ -435,7 +448,7 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 		fail("invalid_state", http.StatusBadRequest, "invalid login state", err)
 		return
 	}
-	s.setCookie(w, oidcCookie, "", "/auth", -time.Second) // state is single-use
+	s.setCookie(w, name, "", path, -time.Second) // state is single-use
 	if !s.oidc.consume(st.State, time.Unix(st.Exp, 0)) {
 		fail("state_reused", http.StatusBadRequest, "login state already used", nil)
 		return
@@ -508,13 +521,20 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 		}
 		p = grantPrincipal(p.ID, gs, id.Grants(policy.Subject{ID: p.ID, Groups: gs}))
 	}
-	g, provisioned := s.directoryGroups(p.ID, p.Groups)
+	s.issueSession(w, r, p.ID, p.Groups, "oidc", fail)
+}
+
+// issueSession ends an IdP login (OIDC or SAML, ADR-0039) the same way: the
+// SCIM directory decides who is active and their groups, roles follow current
+// policy, the session starts past any revocation and is audited as login.
+func (s *Server) issueSession(w http.ResponseWriter, r *http.Request, user string, groups []string, method string, fail func(reason string, code int, msg string, err error)) {
+	g, provisioned := s.directoryGroups(user, groups)
 	if !provisioned {
 		fail("not_provisioned", http.StatusForbidden, "user is deactivated or not provisioned", nil)
 		return
 	}
 	// Directory groups may differ from the token's: roles follow the groups in force.
-	p = grantPrincipal(p.ID, g, id.Grants(policy.Subject{ID: p.ID, Groups: g}))
+	p := grantPrincipal(user, g, s.grants(user, g))
 	org, _, _ := s.pol.Get()
 	now := s.cfg.Now()
 	exp := now.Add(s.session.TTL)
@@ -534,8 +554,8 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 		sess.SID, sess.Groups = sid, nil
 	}
 	s.setCookie(w, sessionCookie, s.seal(sess), "/", s.session.TTL)
-	s.cfg.Log.Info("login", "user", p.ID, "roles", p.Roles)
-	s.Audit(r.Context(), p.ID, "login", "", map[string]string{"admin": strconv.FormatBool(p.Admin), "roles": strings.Join(p.Roles, ",")})
+	s.cfg.Log.Info("login", "user", p.ID, "roles", p.Roles, "method", method)
+	s.Audit(r.Context(), p.ID, "login", "", map[string]string{"admin": strconv.FormatBool(p.Admin), "roles": strings.Join(p.Roles, ","), "method": method})
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 

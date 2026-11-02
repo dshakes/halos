@@ -209,7 +209,7 @@ func securitySchemes() map[string]any {
 	}
 	return map[string]any{
 		"sessionCookie": map[string]any{"type": "apiKey", "in": "cookie", "name": sessionCookie,
-			"description": "The console session set by OIDC login (GET /auth/login) or break-glass login. State-changing requests must come from the server's own origin."},
+			"description": "The console session set by OIDC login (GET /auth/login), SAML login (GET /auth/saml/login) or break-glass login. State-changing requests must come from the server's own origin."},
 		"serviceToken": bearer("A service-account token (ADR-0036), `Authorization: Bearer halo_sat_...`, holding one role. "+
 			"Created with POST /api/v1/service-tokens from an interactive admin session. Endpoints that decide on behalf of a person refuse it with 403.", "halo_sat_"),
 		"fleetToken":    bearer("The shared fleet token (halo-server --token-file) used by MDM and Dev Container fleets.", ""),

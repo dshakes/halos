@@ -15,12 +15,14 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ### Added
 
+- SAML 2.0 console login next to OIDC ([ADR-0039](docs/adr/0039-saml-login.md)): `--saml-idp-metadata-file|-url`, `--saml-sp-key-file`, `--saml-sp-cert-file`, `--saml-entity-id`, `--saml-user-attribute`, `--saml-groups-attribute`, `--saml-allow-idp-initiated` (off); `GET /auth/saml/login`, `POST /auth/saml/acs`, `GET /auth/saml/metadata`, `GET /auth/methods`; Helm `server.saml`. Signed assertion or response, audience, recipient, destination, InResponseTo, 60s skew, single-use assertion ids and policy `identity.requireAcr`/`requireAmr` (fail closed) are enforced; namespace-prefix rebinding, multiple assertions, rsa-1_5 and unauthenticated AES-CBC are refused before parsing; the user goes through the same SCIM directory, grants, revocation, session timeouts and audit as OIDC. The login page offers each configured method. New dependency: `github.com/crewjam/saml` v0.5.1 (with `goxmldsig` v1.6.1, `etree`, `xml-roundtrip-validator`, `clockwork`, `golang.org/x/crypto` v0.55.0; `golang.org/x/sys` moves v0.41.0 -> v0.47.0).
 - halo-server sends `Strict-Transport-Security` (browsers honour it only over HTTPS); every Prometheus/Grafana alert carries a `runbook_url` to the operations guide.
 - halo-server rate-limits each signed-in user and service token on console/API routes (`-api-rate-limit` 20/s, `-api-rate-burst` 100; 429 with `Retry-After`; `0` disables). Fleet, gateway and SCIM traffic is not charged.
 - `halo --version` (same output as `halo version`).
 
 ### Changed
 
+- Over https the OIDC login-state cookie is `__Host-halo_oidc` (Path=/) instead of `halo_oidc` (Path=/auth), so a sibling subdomain cannot plant it; a login started before the upgrade must be restarted.
 - `halo doctor` (and the MCP `doctor` tool and `--output json`) report an optional CLI that is not installed with the new check status `skip` instead of `ok`; it is informational, never a warning or failure, and does not affect `ok`. JSON consumers that switch on `status` (`ok`, `warn`, `fail`) must accept `skip`. `halo onboard local|install` collapse a harness's adapter warnings (more than two) into one count line, `--verbose` lists them all and `--output json` is unchanged; `halo plan` prints a per-file summary first and `(none)` for a first release's empty side.
 - The npm packages publish as `@dshakesnotbot/halo` (and `@dshakesnotbot/halo-<os>-<arch>`): the `@dshakes` npm scope does not exist, so v0.5.1 never reached npm. Use `npx @dshakesnotbot/halo quickstart`.
 - Every command that writes only with `--apply` also accepts `--dry-run` (its default), matching `quickstart`, `enable`, `eject` and `model switch`; the two flags are mutually exclusive.

@@ -3510,7 +3510,7 @@ paths:
         - Auth
       operationId: login
       summary: Start the OIDC login
-      description: Redirects to the identity provider (authorization-code flow with PKCE).
+      description: Redirects to the OIDC identity provider (authorization-code flow with PKCE). SAML login starts at GET /auth/saml/login.
       x-halo-stability: stable
       security: []
       responses:
@@ -3542,6 +3542,129 @@ paths:
                 $ref: '#/components/schemas/Error'
         "500":
           description: The revocation could not be stored.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /auth/methods:
+    get:
+      tags:
+        - Auth
+      operationId: authMethods
+      summary: Configured sign-in methods
+      description: 'Which logins the console offers: OIDC when policy names an issuer and client, SAML when halo-server has --saml-idp-metadata-* (ADR-0039). Public: it says only whether each is on.'
+      x-halo-stability: stable
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthMethods'
+              example:
+                oidc: true
+                saml: true
+  /auth/saml/acs:
+    post:
+      tags:
+        - Auth
+      operationId: samlACS
+      summary: SAML assertion consumer service
+      description: The IdP posts the SAML response here (HTTP-POST binding). The assertion (or the response) must be signed by the IdP certificate; audience, recipient, destination, validity window, InResponseTo and one-time use are checked. Sets the `halo_session` cookie and redirects to `/`.
+      x-halo-stability: stable
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/samlACSForm'
+            example: SAMLResponse=PHNhbWxwOlJlc3BvbnNlIC4uLg%3D%3D
+      responses:
+        "302":
+          description: Logged in; session cookie set.
+        "400":
+          description: Missing, reused or invalid login state, or no SAMLResponse.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "401":
+          description: The SAML response was rejected (signature, audience, recipient, validity, InResponseTo, replay).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "403":
+          description: The user is not allowed in (unprovisioned or deactivated, reserved id, groups overage, identity.requireAcr/requireAmr not met).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: SAML login is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "429":
+          description: Too many failed logins from this address.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: Login unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /auth/saml/login:
+    get:
+      tags:
+        - Auth
+      operationId: samlLogin
+      summary: Start the SAML login
+      description: Redirects to the IdP with a signed AuthnRequest (HTTP-Redirect binding) and sets a short-lived `__Host-halo_saml` cookie holding its id (ADR-0039); with a single policy identity.requireAcr it is sent as RequestedAuthnContext.
+      x-halo-stability: stable
+      security: []
+      responses:
+        "302":
+          description: Redirect to the identity provider.
+        "404":
+          description: SAML login is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "503":
+          description: Login unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /auth/saml/metadata:
+    get:
+      tags:
+        - Auth
+      operationId: samlMetadata
+      summary: SAML service provider metadata
+      description: 'The SP EntityDescriptor to register at the IdP: entity id, the HTTP-POST ACS URL and the SP certificate (signing and encryption).'
+      x-halo-stability: stable
+      security: []
+      responses:
+        "200":
+          description: SP metadata.
+          content:
+            application/samlmetadata+xml:
+              schema:
+                type: string
+              example: |-
+                <?xml version="1.0" encoding="UTF-8"?>
+                <EntityDescriptor xmlns="urn:oasis:names:tc:SAML:2.0:metadata" entityID="https://halo.acme.example/auth/saml/metadata">...</EntityDescriptor>
+        "404":
+          description: SAML login is not configured.
           content:
             application/json:
               schema:
@@ -4617,6 +4740,16 @@ components:
           type: boolean
         verifyError:
           type: string
+    AuthMethods:
+      required:
+        - oidc
+        - saml
+      type: object
+      properties:
+        oidc:
+          type: boolean
+        saml:
+          type: boolean
     BreakGlassLogin:
       required:
         - password
@@ -7656,6 +7789,15 @@ components:
           type: string
         strategy:
           type: string
+    samlACSForm:
+      required:
+        - SAMLResponse
+      type: object
+      properties:
+        RelayState:
+          type: string
+        SAMLResponse:
+          type: string
     statusRequest:
       required:
         - status
@@ -7850,7 +7992,7 @@ components:
       bearerFormat: halo_sat_
       scheme: bearer
     sessionCookie:
-      description: The console session set by OIDC login (GET /auth/login) or break-glass login. State-changing requests must come from the server's own origin.
+      description: The console session set by OIDC login (GET /auth/login), SAML login (GET /auth/saml/login) or break-glass login. State-changing requests must come from the server's own origin.
       name: halo_session
       in: cookie
       type: apiKey

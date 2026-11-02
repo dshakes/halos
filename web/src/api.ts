@@ -332,6 +332,9 @@ export const useCan = () => {
   const perms = useMe().data?.permissions ?? [];
   return (p: Permission) => perms.includes(p);
 };
+// Sign-in methods the server offers (public; ADR-0039). On error the login page falls back to OIDC.
+const AuthMethods = z.object({ oidc: z.boolean(), saml: z.boolean() });
+export const useAuthMethods = () => useQuery({ queryKey: ["auth-methods"], queryFn: () => get("/auth/methods", AuthMethods), staleTime: Infinity, retry: false });
 export const useCapabilities = () => useQuery({ queryKey: ["capabilities"], queryFn: () => get("/api/v1/capabilities", Capabilities), staleTime: Infinity, retry: false });
 
 export type SettableStatus = "running" | "paused" | "concluded";

@@ -1,5 +1,5 @@
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
-import { ApiError, useCan, useMe, useRequests } from "./api";
+import { ApiError, useAuthMethods, useCan, useMe, useRequests } from "./api";
 import { Audit } from "./pages/Audit";
 import { Budgets } from "./pages/Budgets";
 import { Approvals } from "./pages/Approvals";
@@ -31,13 +31,18 @@ function useTheme() {
 }
 
 function Login() {
+  const m = useAuthMethods().data;
+  const saml = m?.saml ?? false;
+  const oidc = m ? m.oidc || !saml : true; // unknown or neither: the OIDC button, as before
+  const btn = "mt-6 block rounded-md bg-accent px-4 py-2 font-medium text-white";
   return (
     <div className="grid h-full place-items-center">
       <div className="w-80 rounded-xl border border-line bg-panel p-8 text-center">
         <svg viewBox="0 0 16 16" className="mx-auto size-8 text-accent"><path d="M2 3h6l6 5-6 5H2l6-5z" fill="currentColor" /></svg>
         <h1 className="mt-4 text-lg font-semibold">Halos</h1>
         <p className="mt-1 text-mute">Sign in with your company account.</p>
-        <a href="/auth/login" className="mt-6 block rounded-md bg-accent px-4 py-2 font-medium text-white">Continue</a>
+        {oidc && <a href="/auth/login" className={btn}>{saml ? "Continue with OIDC" : "Continue"}</a>}
+        {saml && <a href="/auth/saml/login" className={oidc ? btn.replace("mt-6", "mt-3") : btn}>{oidc ? "Continue with SAML" : "Continue"}</a>}
       </div>
     </div>
   );

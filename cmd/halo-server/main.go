@@ -92,6 +92,9 @@ type options struct {
 	breakGlassUser, breakGlassHashFile          string
 	breakGlassCIDRs                             string
 	entraGraphURL                               string
+
+	// SAML login (ADR-0039)
+	saml samlOptions
 }
 
 func parseFlags(args []string) (options, error) {
@@ -158,6 +161,7 @@ func parseFlags(args []string) (options, error) {
 	fs.StringVar(&o.breakGlassCIDRs, "breakglass-allowed-cidrs", "", "comma-separated CIDRs the break-glass login and session may come from (client address after --trusted-proxy-cidrs); elsewhere it answers 404 as if sealed. Empty = any address")
 	fs.StringVar(&o.breakGlassHashFile, "breakglass-hash-file", "", "file holding the break-glass password hash from `halo-server breakglass-hash`; sealed (refused) unless --breakglass-enabled")
 	fs.StringVar(&o.entraGraphURL, "entra-graph-url", server.DefaultGraphURL, "Microsoft Graph base URL for identity.groupsOverage: graph (national clouds: https://graph.microsoft.us/v1.0, https://microsoftgraph.chinacloudapi.cn/v1.0)")
+	samlFlags(fs, &o.saml)
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), "Usage of halo-server:\n")
 		fs.VisitAll(func(f *flag.Flag) {
@@ -193,6 +197,9 @@ func parseFlags(args []string) (options, error) {
 	}
 	if o.breakGlassEnabled && strings.TrimSpace(o.breakGlassCIDRs) == "" {
 		return o, errors.New("--breakglass-enabled requires --breakglass-allowed-cidrs (the VPN or bastion range): without it anyone can lock break-glass with failed logins")
+	}
+	if err := o.saml.validate(); err != nil {
+		return o, err
 	}
 	if o.killKeyFile != "" && o.killKeyURI != "" {
 		return o, errors.New("use only one of --killswitch-key-file and --killswitch-key-uri")
@@ -673,6 +680,9 @@ func run(ctx context.Context, args []string) error {
 		return err
 	}
 	if cfg.CloudWebhookSecrets, cfg.CloudClients, err = cloudAgentsConfig(o); err != nil {
+		return err
+	}
+	if cfg.SAML, err = o.saml.config(ctx); err != nil {
 		return err
 	}
 	if db != nil {
