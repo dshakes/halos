@@ -15,6 +15,7 @@ description: Install halo and halod on macOS, Linux and Windows, in CI, in dev c
 ## macOS
 
 ```sh
+brew trust dshakes/tap                        # Homebrew 7+ refuses formulae from untrusted taps
 brew install dshakes/tap/halo                 # formula in github.com/dshakes/homebrew-tap
 ```
 

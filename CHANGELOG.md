@@ -4,6 +4,11 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Fixed
+
+- `make load-fleet` runs halo-server with `--api-rate-limit 0`: all simulated devices enroll through one portal identity, which the per-principal API budget (v0.5.2) throttled to 20/s, so the 5,000- and 10,000-device scenarios failed with 429. The sizing guide says to raise the budget for bulk enrollment through one identity.
+- Install docs: Homebrew 7+ refuses formulae from untrusted taps; run `brew trust dshakes/tap` first.
+
 ## [0.5.2] - 2026-11-02
 
 ### Upgrade notes
