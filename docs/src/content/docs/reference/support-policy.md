@@ -36,7 +36,7 @@ This is the commitment from `v0.1.1` on. It is a policy, not something the code 
 
 | Version | Status | Supported until |
 |---|---|---|
-| 0.6.x | current (latest 0.6.0) | the 0.7 minor ships, then 90 days of security fixes |
+| 0.6.x | current (latest 0.6.1) | the 0.7 minor ships, then 90 days of security fixes |
 | 0.5.x | previous minor (security and data-loss fixes only) | 2027-01-31 (90 days after 0.6.0 shipped on 2026-11-02) |
 | 0.4.x | previous minor (security and data-loss fixes only) | 2027-01-30 (90 days after 0.5.0 shipped on 2026-11-01) |
 | 0.3.x, 0.2.x, 0.1.x | superseded minors, no longer supported | n/a |

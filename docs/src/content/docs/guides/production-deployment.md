@@ -4,7 +4,7 @@ description: Helm chart, secrets, the pointer refresh schedule, signing key mana
 ---
 
 :::caution[Verified on kind, not on a managed cloud cluster]
-The `uat-k8s` CI job installs the chart on kind on every PR (`test/uat/REPORT.md`: 82 PASS, 0 FAIL), and the images are published on ghcr.io (`halo-server`, `halo-proxy`, `halo-shadow`, `kong-halo`, tags `0.6.0` and `latest`; the chart's `appVersion` is `0.6.0`). The chart on a managed cloud cluster (EKS, GKE, AKS) is **UNVERIFIED**, as is the chart's Kong (`KongPlugin` CR) mode.
+The `uat-k8s` CI job installs the chart on kind on every PR (`test/uat/REPORT.md`: 82 PASS, 0 FAIL), and the images are published on ghcr.io (`halo-server`, `halo-proxy`, `halo-shadow`, `kong-halo`, tags `0.6.1` and `latest`; the chart's `appVersion` is `0.6.1`). The chart on a managed cloud cluster (EKS, GKE, AKS) is **UNVERIFIED**, as is the chart's Kong (`KongPlugin` CR) mode.
 :::
 
 ## What runs where
@@ -24,9 +24,9 @@ The `uat-k8s` CI job installs the chart on kind on every PR (`test/uat/REPORT.md
 From the first release that includes this change (v0.5.0 and later) the chart is published as a signed OCI artifact, so no source checkout is needed:
 
 ```bash
-helm install halos oci://ghcr.io/dshakes/charts/halos --version 0.6.0 -n halos -f my-values.yaml   # a human runs this
-cosign verify --certificate-identity https://github.com/dshakes/halos/.github/workflows/release.yml@refs/tags/v0.6.0 \
-  --certificate-oidc-issuer https://token.actions.githubusercontent.com ghcr.io/dshakes/charts/halos:0.6.0
+helm install halos oci://ghcr.io/dshakes/charts/halos --version 0.6.1 -n halos -f my-values.yaml   # a human runs this
+cosign verify --certificate-identity https://github.com/dshakes/halos/.github/workflows/release.yml@refs/tags/v0.6.1 \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com ghcr.io/dshakes/charts/halos:0.6.1
 ```
 
 The chart version and `appVersion` equal the release tag, so the default image tags are the images of that release. Releases before v0.5.0 (including v0.4.1) have no OCI chart: use the source checkout of the matching tag.
@@ -59,7 +59,7 @@ The chart never holds secret values; it references Secrets you create.
 | `halos-session` | `session-key` | Portal session signing; at least 32 bytes |
 | `server.oidcClientSecret.existingSecret` | `client-secret` | Portal OIDC client secret |
 | `server.breakGlass.existingSecret` | `hash` | Break-glass password hash from `halo-server breakglass-hash` (`--breakglass-hash-file`); sealed unless `server.breakGlass.enabled` ([Admin access](/halos/guides/admin-access/#break-glass)) |
-| `server.saml.existingSecret` | `tls.key`, `tls.crt` (+ `idpMetadataKey`) | SAML SP key pair and, unless `idpMetadataURL` is set, the IdP metadata XML. Since v0.6.0 ([SAML SSO](/halos/guides/sso-saml/)) |
+| `server.saml.existingSecret` | `tls.key`, `tls.crt` (+ `idpMetadataKey`) | SAML SP key pair and, unless `idpMetadataURL` is set, the IdP metadata XML. Since v0.6.1 ([SAML SSO](/halos/guides/sso-saml/)) |
 | `halos-halo-shadow` | `token` | `halo-shadow` `HALO_SHADOW_TOKEN`; also injected into `halo-proxy` as `HALO_PROXY_HALO_SHADOW_TOKEN` |
 | `halo-shadow.authHeader.existingSecret` | `auth-header` | Upstream credential header for halo-shadow (`Name: value`) |
 | `server.killSwitch.existingSecret` | `signing-key`, `gateway-token` | Kill-switch signing key (Ed25519 PKCS#8 PEM) and gateway bearer token (random hex or base64, at least 32 characters and 128 bits, e.g. `openssl rand -hex 32`; passphrases are refused); set together |

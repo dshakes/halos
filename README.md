@@ -225,7 +225,7 @@ Traffic goes through `halo-proxy` to Anthropic, Bedrock (SigV4), Vertex, OpenAI,
   <img src="assets/everywhere-light.svg" alt="macOS, Linux, Windows, Dev Containers, Codespaces and Coder workspaces, CI runners, Kubernetes via Helm" width="880">
 </picture>
 
-The current release is [v0.6.0](https://github.com/dshakes/halos/releases/tag/v0.6.0) ([CHANGELOG](CHANGELOG.md)). Or build from source: `git clone https://github.com/dshakes/halos && cd halos && make build` (builds `halo`, `halod`, `halo-shadow`, `halo-server`, `halo-proxy` and `halo-kong` into `bin/`).
+The current release is [v0.6.1](https://github.com/dshakes/halos/releases/tag/v0.6.1) ([CHANGELOG](CHANGELOG.md)). Or build from source: `git clone https://github.com/dshakes/halos && cd halos && make build` (builds `halo`, `halod`, `halo-shadow`, `halo-server`, `halo-proxy` and `halo-kong` into `bin/`).
 
 ```sh
 brew trust dshakes/tap                                                                   # Homebrew 7+ refuses untrusted taps
@@ -234,13 +234,13 @@ scoop bucket add dshakes https://github.com/dshakes/scoop-bucket && scoop instal
 npx @dshakesnotbot/halo quickstart                                                             # Node 18+, no install
 
 # The script works everywhere; halod runs as root from a root-owned prefix
-curl -fsSLO https://raw.githubusercontent.com/dshakes/halos/v0.6.0/install/install.sh
-sh install.sh --version v0.6.0                                        # halo into ~/.local/bin
-sudo sh install.sh --version v0.6.0 --prefix /usr/local --with-agent  # plus halod
+curl -fsSLO https://raw.githubusercontent.com/dshakes/halos/v0.6.1/install/install.sh
+sh install.sh --version v0.6.1                                        # halo into ~/.local/bin
+sudo sh install.sh --version v0.6.1 --prefix /usr/local --with-agent  # plus halod
 ```
 
 Also available:
-- deb, rpm and apk packages from the [release assets](https://github.com/dshakes/halos/releases/tag/v0.6.0), and `install.ps1` from the [v0.6.0 tag](https://raw.githubusercontent.com/dshakes/halos/v0.6.0/install/install.ps1); a winget manifest is built but not yet submitted
+- deb, rpm and apk packages from the [release assets](https://github.com/dshakes/halos/releases/tag/v0.6.1), and `install.ps1` from the [v0.6.1 tag](https://raw.githubusercontent.com/dshakes/halos/v0.6.1/install/install.ps1); a winget manifest is built but not yet submitted
 - a [Dev Container Feature](features/halos) and a Coder module
 - Jamf, Kandji and Intune exports
 - a [GitHub Action](action.yml) and a GitLab template for CI runners

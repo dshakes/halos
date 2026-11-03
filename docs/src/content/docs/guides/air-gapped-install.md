@@ -23,7 +23,7 @@ Status: the chart's `global.imageRegistry` and `global.imagePullSecrets` are ren
 The exact image list for your values is what `helm template` renders:
 
 ```bash
-helm template halos oci://ghcr.io/dshakes/charts/halos --version 0.6.0 -f my-values.yaml | grep -E '^\s+image:' | sed 's/.*image: //' | sort -u
+helm template halos oci://ghcr.io/dshakes/charts/halos --version 0.6.1 -f my-values.yaml | grep -E '^\s+image:' | sed 's/.*image: //' | sort -u
 ```
 
 ## 2. Mirror (connected machine)
@@ -32,7 +32,7 @@ With `crane` (preserves digests and multi-arch manifests):
 
 ```bash
 MIRROR=registry.corp.example
-V=0.6.0
+V=0.6.1
 for img in halo-server halo-proxy halo-shadow; do
   crane copy ghcr.io/dshakes/$img:$V $MIRROR/dshakes/$img:$V
   # cosign signature and attestation tags live beside the image; copy them too
@@ -88,8 +88,8 @@ policy:
 ```
 
 ```bash
-helm install halos oci://registry.corp.example/charts/halos --version 0.6.0 -n halos -f my-values.yaml   # a human runs this
-helm template halos oci://registry.corp.example/charts/halos --version 0.6.0 -f my-values.yaml | grep 'image:' | grep -v registry.corp.example   # must print nothing
+helm install halos oci://registry.corp.example/charts/halos --version 0.6.1 -n halos -f my-values.yaml   # a human runs this
+helm template halos oci://registry.corp.example/charts/halos --version 0.6.1 -f my-values.yaml | grep 'image:' | grep -v registry.corp.example   # must print nothing
 ```
 
 The network policy has no FQDN matching: grant the internal registry, Git host and IdP by CIDR or peer through `networkPolicy.egress.*` ([production deployment](/halos/guides/production-deployment/)).

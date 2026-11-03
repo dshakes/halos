@@ -257,7 +257,7 @@ Flags (Go style, single or double dash):
 | `-workload-key-file` | | ed25519 PKCS#8 PEM private key signing CI and cloud workload credentials from `POST /api/v1/token/exchange` (`halo keys generate --name workload`); empty disables the endpoint |
 | `-audit-config` | | Audit log rotation and SIEM export JSON config; needs `-data-dir` or `-database-url-file` |
 | `-cloud-webhook-secret-file`, `-cloud-github-token-file`, `-cloud-cursor-token-file`, `-cloud-cursor-user`, `-cloud-github-base-url`, `-cloud-cursor-base-url` | | Cloud agent governance ([ADR-0034](/halos/adr/0034-cloud-agent-governance/)); `-cloud-webhook-secret-file` enables `POST /api/v1/cloud-agents/webhooks/github` |
-| `-saml-*` | | SAML 2.0 console login ([ADR-0039](/halos/adr/0039-saml-login/), [guide](/halos/guides/sso-saml/)). Since v0.6.0 |
+| `-saml-*` | | SAML 2.0 console login ([ADR-0039](/halos/adr/0039-saml-login/), [guide](/halos/guides/sso-saml/)). Since v0.6.1 |
 | `-scim-token-sha256-file` | | Enables [SCIM 2.0 provisioning](/halos/guides/scim-provisioning/) at `/scim/v2`. File with the hex SHA-256 of each accepted SCIM bearer token, one per line (two while rotating; `#` comments allowed). Requires `-data-dir` |
 | `-scim-authoritative` | off | The SCIM directory decides who is active and their groups for the console and device endpoints; users it does not list as active are refused. Requires `-scim-token-sha256-file` |
 | `-retention-fleet-reports` | `0` (keep forever) | Delete fleet reporters, with their report history, not seen for this long ([ADR-0040](/halos/adr/0040-data-retention-and-erasure/)). Recommended `2160h`. Zero or at least `1h` |

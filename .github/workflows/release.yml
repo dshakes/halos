@@ -62,15 +62,6 @@ jobs:
             echo "::error::HOMEBREW_TAP_TOKEN is empty, so the Homebrew formula and Scoop manifest would not be published. Set a PAT with contents:write on dshakes/homebrew-tap and dshakes/scoop-bucket, then re-run from the tag."
             exit 1
           fi
-      - name: npm token is set
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          # Fail before anything is published, so npm never lags the GitHub release.
-          if [ -z "$NPM_TOKEN" ]; then
-            echo "::error::NPM_TOKEN is empty, so @dshakesnotbot/halo would not be published. Set a granular npm token with read-write on the @dshakesnotbot scope (RELEASING.md), then re-run from the tag."
-            exit 1
-          fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: refs/tags/${{ steps.t.outputs.tag }}
@@ -276,8 +267,8 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with: {node-version: 22, registry-url: "https://registry.npmjs.org"}
       # Trusted publishing (OIDC, npm >= 11.5.1): every @dshakesnotbot/halo* package trusts
-      # dshakes/halos release.yml, so npm publishes with a short-lived token minted for this run.
-      # NPM_TOKEN stays as the fallback until a release has published through OIDC.
+      # dshakes/halos release.yml, so npm publishes with a short-lived token minted for this
+      # run. No npm token is stored; v0.6.1 was the first release published this way.
       - name: npm with trusted publishing
         run: npm install -g npm@11.21.1 && npm --version
       - name: Download and verify the release archives
@@ -291,7 +282,6 @@ jobs:
         run: scripts/npm-build.sh "$VERSION" "$RUNNER_TEMP/rel" "$RUNNER_TEMP/npm"
       - name: Publish (platform packages first, then the launcher)
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           PRERELEASE: ${{ needs.gate.outputs.prerelease }}
         run: |
           set -euo pipefail
