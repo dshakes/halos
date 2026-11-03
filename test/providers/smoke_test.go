@@ -71,7 +71,7 @@ func providers() []provider {
 			upstream: func(*testing.T) string {
 				return "{kind: openai, url: https://api.openai.com, credential: {env: OPENAI_API_KEY}}"
 			},
-			model: envOr("HALO_SMOKE_OPENAI_MODEL", "gpt-4.1-nano"),
+			model: envOr("HALO_SMOKE_OPENAI_MODEL", "gpt-5-nano"),
 		},
 		{
 			name: "gemini", kind: "gemini", harness: "gemini-cli", wire: "gemini",
