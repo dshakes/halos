@@ -1,5 +1,5 @@
 # Nightly live smoke: halo-proxy against REAL model providers (tiny prompt,
-# max 16 tokens, one JSON call + one SSE stream, response shape + gateway
+# max 16 output tokens, 256 on OpenAI Responses for reasoning models, one JSON call + one SSE stream, response shape + gateway
 # metrics). Each provider is a matrix entry that SKIPS (green) when its secrets
 # are absent. See docs/src/content/docs/guides/provider-smoke.md.
 name: provider-smoke

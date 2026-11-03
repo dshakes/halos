@@ -303,8 +303,10 @@ func smoke(t *testing.T, bins map[string]string, p provider) {
 	case "openai-responses":
 		path = "/v1/responses"
 		streamPath = path
-		body = `{"model":"smoke","max_output_tokens":16,"input":"Say hi."}`
-		streamBody = `{"model":"smoke","max_output_tokens":16,"stream":true,"input":"Say hi."}`
+		// 256, not 16: reasoning models (gpt-5-nano) spend the budget on reasoning
+		// first, and a stream with no output_text.delta proves nothing.
+		body = `{"model":"smoke","max_output_tokens":256,"input":"Say hi."}`
+		streamBody = `{"model":"smoke","max_output_tokens":256,"stream":true,"input":"Say hi."}`
 	case "gemini":
 		path = "/v1beta/models/smoke:generateContent"
 		streamPath = "/v1beta/models/smoke:streamGenerateContent?alt=sse"
