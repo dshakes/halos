@@ -4,6 +4,10 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Changed
+
+- Release workflow: npm publishing uses trusted publishing only; the `NPM_TOKEN` secret and its gate check are gone (v0.6.1 published every package through OIDC). Docs point at v0.6.1.
+
 ## [0.6.1] - 2026-11-03
 
 Patch release: no server, CLI or policy changes. Upgrading from 0.6.0 needs no action.

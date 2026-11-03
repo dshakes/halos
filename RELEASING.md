@@ -25,7 +25,7 @@ is automated by `.github/workflows/release.yml`; a human only decides *when*.
 
 | Job | Does | Permissions |
 |---|---|---|
-| `gate` | Tag is strict SemVer and on `main`; a final tag has `HOMEBREW_TAP_TOKEN` and every tag has `NPM_TOKEN` (fails, never skips); CHANGELOG section exists; `go vet`, `go test -race ./...` | `contents: read` |
+| `gate` | Tag is strict SemVer and on `main`; a final tag has `HOMEBREW_TAP_TOKEN` (fails, never skips); CHANGELOG section exists; `go vet`, `go test -race ./...` | `contents: read` |
 | `web` | Builds the console with no credentials (`npm ci --ignore-scripts`) | `contents: read` |
 | `release` | GoReleaser with the CHANGELOG section as notes: archives, deb/rpm/apk, syft SBOMs, `checksums.txt` + cosign Sigstore bundle, signed multi-arch images on `ghcr.io/dshakes/{halo-server,halo-proxy,halo-shadow,kong-halo}`, FIPS 140-3 variants (`*_fips_*` archives and `:X.Y.Z-fips` images of halo-server, halo-proxy and halo-shadow, built with `GOFIPS140=v1.0.0`, ADR-0038), Homebrew + Scoop (final only). Then GitHub build provenance attestations for every archive | `contents`, `packages`, `id-token`, `attestations: write` |
 | `verify` | From published artifacts only: `cosign verify-blob` on `checksums.txt`, one archive's sha256, `gh attestation verify` on it, `cosign verify` on all four images at `:X.Y.Z` and the three `:X.Y.Z-fips` images, the `halod_fips` archive listed in `checksums.txt`, `install.sh --version` then `halo version`, and (final) `Formula/halo.rb` + `halo.json` are at `X.Y.Z` | read only |
@@ -59,7 +59,7 @@ after the `npm` job ran, the npm binaries are the earlier (equally signed) build
 |---|---|
 | `GITHUB_TOKEN` | built in: release, ghcr.io, cosign + attestation OIDC |
 | `HOMEBREW_TAP_TOKEN` | PAT, contents:write on `dshakes/homebrew-tap` and `dshakes/scoop-bucket`. Required for final tags (the gate fails without it) |
-| `NPM_TOKEN` | npm granular access token, read-write on the `@dshakesnotbot` scope (npm org `dshakesnotbot`) (packages `@dshakesnotbot/halo` and `@dshakesnotbot/halo-*`). Required for every tag (the gate fails without it). Fallback only: every `@dshakesnotbot/halo*` package has a trusted publisher (GitHub Actions, `dshakes/halos`, `release.yml`, publish allowed), so the `npm` job publishes through OIDC. Once a release has published that way, drop the secret and the gate check. Check with `npx npm@11.21.1 trust list @dshakesnotbot/halo` |
+| npm trusted publisher | Not a secret. Every `@dshakesnotbot/halo*` package trusts GitHub Actions `dshakes/halos` `release.yml` (publish allowed), so the `npm` job publishes with a short-lived OIDC token; no npm token is stored. A new platform package needs the same setting before its first release: `npx npm@11.21.1 trust github @dshakesnotbot/<pkg> --repo dshakes/halos --file release.yml --allow-publish`. Check with `npx npm@11.21.1 trust list @dshakesnotbot/halo` |
 | `dshakes/homebrew-tap` | `Formula/halo.rb`, written by GoReleaser |
 | `dshakes/scoop-bucket` | `halo.json`, written by GoReleaser |
 

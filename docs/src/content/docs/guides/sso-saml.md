@@ -3,8 +3,8 @@ title: Single sign-on with SAML 2.0
 description: Sign users into the Halos console through a SAML IdP (Okta, Entra ID, ADFS, Ping) next to, or instead of, OIDC.
 ---
 
-:::note[Since v0.6.0]
-SAML login needs halo-server and the Helm chart at v0.6.0 or later; v0.5.x has no `--saml-*` flags or `server.saml.*` values.
+:::note[Since v0.6.1]
+SAML login needs halo-server and the Helm chart at v0.6.1 or later; v0.5.x has no `--saml-*` flags or `server.saml.*` values.
 :::
 
 halo-server is a SAML 2.0 service provider for the console login, alongside its [OIDC login](/halos/guides/sso-entra/). Use it when your IdP or your security policy offers only SAML to internal applications. A SAML login ends exactly like an OIDC one: the SCIM directory decides who is active, roles come from groups mapped in policy, and the session follows the TTL, idle timeout and revocation rules of [ADR-0036](/halos/adr/0036-admin-api-credentials-break-glass-and-session-policy/). Design and threat model: [ADR-0039](/halos/adr/0039-saml-login/).
