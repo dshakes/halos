@@ -8,6 +8,10 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 - SAML interop test against a real IdP: `make uat-saml` (`scripts/uat-saml-keycloak.sh`, CI job `uat-saml`) runs halo-server against a digest-pinned Keycloak 26.4.7 in Docker, drives an SP-initiated login with curl and checks the session, groups and admin role, a wrong password, a replayed response and an unmet `requireAcr`. The SAML guide notes the Keycloak settings used.
 
+### Changed
+
+- Release `npm` job publishes through npm trusted publishing (OIDC): every `@dshakesnotbot/halo*` package trusts `dshakes/halos` `release.yml`, and the job runs npm 11.21.1. `NPM_TOKEN` stays as the fallback until a release has published this way (npm restricts 2FA-bypass tokens for direct publishing from January 2027).
+
 ### Fixed
 
 - Release `npm` job: the post-publish check waits for the platform package too; `npx` silently skips an optional platform package npm cannot serve yet (v0.6.0 published every package, then the check ran before `@dshakesnotbot/halo-linux-amd64` was visible).

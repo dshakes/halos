@@ -59,7 +59,7 @@ after the `npm` job ran, the npm binaries are the earlier (equally signed) build
 |---|---|
 | `GITHUB_TOKEN` | built in: release, ghcr.io, cosign + attestation OIDC |
 | `HOMEBREW_TAP_TOKEN` | PAT, contents:write on `dshakes/homebrew-tap` and `dshakes/scoop-bucket`. Required for final tags (the gate fails without it) |
-| `NPM_TOKEN` | npm granular access token, read-write on the `@dshakesnotbot` scope (npm org `dshakesnotbot`) (packages `@dshakesnotbot/halo` and `@dshakesnotbot/halo-*`). Required for every tag (the gate fails without it) |
+| `NPM_TOKEN` | npm granular access token, read-write on the `@dshakesnotbot` scope (npm org `dshakesnotbot`) (packages `@dshakesnotbot/halo` and `@dshakesnotbot/halo-*`). Required for every tag (the gate fails without it). Fallback only: every `@dshakesnotbot/halo*` package has a trusted publisher (GitHub Actions, `dshakes/halos`, `release.yml`, publish allowed), so the `npm` job publishes through OIDC. Once a release has published that way, drop the secret and the gate check. Check with `npx npm@11.21.1 trust list @dshakesnotbot/halo` |
 | `dshakes/homebrew-tap` | `Formula/halo.rb`, written by GoReleaser |
 | `dshakes/scoop-bucket` | `halo.json`, written by GoReleaser |
 

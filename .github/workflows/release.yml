@@ -259,7 +259,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write   # npm provenance (Sigstore) linking each package to this run
+      id-token: write   # npm trusted publishing and provenance (Sigstore) linking each package to this run
     env:
       GH_TOKEN: ${{ github.token }}
       REPO: ${{ github.repository }}
@@ -275,6 +275,11 @@ jobs:
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with: {node-version: 22, registry-url: "https://registry.npmjs.org"}
+      # Trusted publishing (OIDC, npm >= 11.5.1): every @dshakesnotbot/halo* package trusts
+      # dshakes/halos release.yml, so npm publishes with a short-lived token minted for this run.
+      # NPM_TOKEN stays as the fallback until a release has published through OIDC.
+      - name: npm with trusted publishing
+        run: npm install -g npm@11.21.1 && npm --version
       - name: Download and verify the release archives
         run: |
           set -euo pipefail
