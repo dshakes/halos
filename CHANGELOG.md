@@ -15,6 +15,10 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 - Docs: the Dev Container Feature was run by hand in a real GitHub Codespace (release archive install, signed release applied, wrong key refused); a failed Codespaces build starts an ungoverned recovery container, and the guide says what controls still hold.
 - Release workflow: npm publishing uses trusted publishing only; the `NPM_TOKEN` secret and its gate check are gone (v0.6.1 published every package through OIDC). Docs point at v0.6.1.
 
+### Fixed
+
+- `halo-shadow` waits for the startup prune before closing the pair store; it could still be writing a `.pairs-prune-*` temp file after shutdown (seen as a flaky `TestRunServesAndStops` in the `fips` job).
+
 ## [0.6.1] - 2026-11-03
 
 Patch release: no server, CLI or policy changes. Upgrading from 0.6.0 needs no action.

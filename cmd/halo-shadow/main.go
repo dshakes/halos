@@ -131,7 +131,8 @@ func run(ctx context.Context, args []string, getenv func(string) string) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	srv.Start(ctx)
-	go prune(ctx, store, time.Hour, log)
+	pruned := make(chan struct{})
+	go func() { defer close(pruned); prune(ctx, store, time.Hour, log) }()
 
 	servers := []*http.Server{{Addr: *listen, Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: time.Minute}}
 	if *metricsLn != "" {
@@ -160,6 +161,7 @@ func run(ctx context.Context, args []string, getenv func(string) string) error {
 		_ = hs.Shutdown(sctx) // best effort; in-flight /mirror posts are tiny
 	}
 	srv.Wait()
+	<-pruned // a prune still rewriting the store must finish before Close
 	if err := store.Close(); err != nil {
 		serveErr = errors.Join(serveErr, fmt.Errorf("halo-shadow: close pair store: %w", err))
 	}
