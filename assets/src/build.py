@@ -46,6 +46,7 @@ THEMES = {
         shadow="#3c280a",
         shadow_op=0.08,
         chip="#f3ece0",
+        unit="#1f5a99",
         on_accent="#fffdf9",
     ),
     "dark": dict(
@@ -67,6 +68,7 @@ THEMES = {
         shadow="#000000",
         shadow_op=0.5,
         chip="#1a1a20",
+        unit="#7db4ff",
         on_accent="#16130f",
     ),
 }
@@ -166,6 +168,10 @@ class D:
                 self.add(
                     f'<rect class="ring" x="{x + 0.75}" y="{y + 0.75}" width="{w - 1.5}" height="{h - 1.5}" rx="{rx - 0.75}"/>'
                 )
+            elif kind == "unit":
+                self.add(
+                    f'<rect class="ucard" x="{x + 0.75}" y="{y + 0.75}" width="{w - 1.5}" height="{h - 1.5}" rx="{rx - 0.75}"/>'
+                )
             elif kind == "danger":
                 self.add(
                     f'<rect class="dcard" x="{x + 0.75}" y="{y + 0.75}" width="{w - 1.5}" height="{h - 1.5}" rx="{rx - 0.75}"/>'
@@ -178,7 +184,9 @@ class D:
         anchor = "middle" if center else "start"
         if kicker:
             fits(kicker.upper(), 10.5, inner, 600, False, self.name)
-            self.kicker(tx, cy, kicker, accent=kind != "danger", anchor=anchor)
+            self.kicker(tx, cy, kicker, accent=kind not in ("danger", "unit"), anchor=anchor)
+            if kind == "unit":
+                self.body[-1] = self.body[-1].replace('class="k"', 'class="k ku"')
             cy += 16
         if title:
             cls = "tm" if title_mono else "t"
@@ -323,6 +331,7 @@ STYLE = """
 .soft{{fill:url(#gs)}}
 .ring{{fill:none;stroke:url(#ga);stroke-width:1.5}}
 .dcard{{fill:{danger_soft};stroke:{danger};stroke-width:1.5}}
+.ucard{{fill:none;stroke:{unit};stroke-width:1.5}}
 .ghost{{fill:none;stroke:{line};stroke-width:1.5;stroke-dasharray:4 4}}
 .zone{{fill:{zone};stroke:{zone_line};stroke-width:1.5}}
 .chip{{fill:{chip};stroke:{card_line};stroke-width:1}}
@@ -339,6 +348,7 @@ text{{font-family:{SANS}}}
 .xw{{fill:{on_accent};font-weight:600}}
 .k{{font-size:10.5px;font-weight:600;letter-spacing:.08em;fill:{text3}}}
 .ka{{fill:url(#ga)}}
+.ku{{fill:{unit}}}
 .h1{{font-size:42px;font-weight:700;letter-spacing:-.02em;fill:{text}}}
 .ln,.la,.ld,.lm{{fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}}
 .ln{{stroke:{line}}}.la{{stroke:url(#ga)}}.ld{{stroke:{danger}}}.lm{{stroke:{card_line}}}
@@ -3033,6 +3043,134 @@ def og_card():
     (DOCS.parent / "og.svg").write_text(svg)
 
 
+def enterprise_architecture():
+    """One control plane, three delivery paths, one gateway. Every box carries its verification status."""
+    ST = {
+        "ci": ("Verified in CI", "card"),
+        "unit": ("Unit tests in CI", "unit"),
+        "hand": ("Verified by hand", "card"),
+        "unv": ("UNVERIFIED", "danger"),
+        "prop": ("Proposed", "ghost"),
+    }
+    d = D(
+        "enterprise-architecture",
+        W,
+        1228,
+        "Halos enterprise architecture",
+        "A policy repo is validated, planned and evaluated, then built into one signed OCI release that rings point at. "
+        "The release reaches Claude Code, Codex, Gemini CLI, Copilot CLI, Cursor CLI and OpenCode three ways: laptops "
+        "through MDM and halod, cloud workspaces through the Coder module, Codespaces and the Dev Container Feature, "
+        "and CI through workload identity. Every model call goes through the halo-proxy or halo-kong gateway, which "
+        "holds the provider keys and enforces identity, DLP, budgets, the kill switch and posture gates. halo-server "
+        "holds fleet status, SSO, SCIM, RBAC, the signed audit chain exported to a SIEM, retention and the portal. "
+        "Each box is marked verified in CI, unit tests in CI, verified by hand, UNVERIFIED or proposed.",
+    )
+
+    def box(x, y, w, h, title, sub, st, pad=12, kind=None):
+        k, kd = ST[st]
+        d.card(x, y, w, h, title, [sub] if sub else [], kind=kind or kd, kicker=k, pad=pad)
+
+    def down(x, y0, y1, label, kind="line", up=False, dashed=False):
+        pts = [(x, y1), (x, y0)] if up else [(x, y0), (x, y1)]
+        d.path(pts, kind, dashed=dashed)
+        d.text(x + 10, (y0 + y1) / 2 + 4, label, "xs")
+
+    X0, X1, IN = 24, 736, 40  # zone x, right edge, inner x
+    GAP = 36
+
+    # 1 control plane --------------------------------------------------------
+    y = 24
+    d.zone(X0, y, 712, 188, "Control plane · one policy, one signed release")
+    hrow(
+        d, y + 40, 64, [
+            {"title": "Policy repo", "subs": ["git · PR review"], "kicker": "Verified in CI"},
+            {"title": "Validate + eval", "subs": ["plan · replay evals"], "kicker": "Verified in CI"},
+            {"title": "Signed release", "subs": ["OCI · signed pointer"], "kicker": "Verified in CI"},
+            {"title": "Rings", "subs": ["canary → ga"], "kicker": "Verified in CI"},
+        ], x0=IN, x1=720, gap=24, pad=12,
+    )
+    y2 = y + 40 + 64 + 10
+    for i, (t, sb, kd) in enumerate([
+        ("Experiments", "variants by ring", "card"),
+        ("Promotion PR", "a human merges", "unit"),
+        ("Auto-rollback", "only automatic way", "card"),
+    ]):
+        d.card(IN + i * 232, y2, 216, 60, t, [sb], kind=kd, kicker="Unit tests in CI" if kd == "unit" else "Verified in CI", pad=12)
+    zb = y + 188
+    down(380, zb + 2, zb + GAP - 4, "same signed release, signature checked on arrival", "accent")
+
+    # 2 delivery -------------------------------------------------------------
+    y = zb + GAP
+    d.zone(X0, y, 712, 296, "Delivery · three paths")
+    cols = [IN, IN + 232, IN + 464]
+    for cx, lab in zip(cols, ["Laptops · MDM", "Cloud workspaces", "CI · headless"]):
+        d.kicker(cx, y + 54, lab, accent=False)
+    cy = y + 66
+    box(cols[0], cy, 216, 64, "MDM export", "Jamf · Kandji · Intune", "unv")
+    box(cols[0], cy + 74, 216, 64, "halod", "launchd · systemd · SYSTEM", "ci")
+    box(cols[1], cy, 216, 64, "Coder module", "docker template, Coder 2.38", "ci")
+    box(cols[1], cy + 74, 216, 64, "Codespaces", "run once, 2026-11-03", "hand")
+    box(cols[1], cy + 148, 216, 64, "Dev Container Feature", "devcontainer CLI build", "ci")
+    box(cols[2], cy, 216, 64, "Workload identity", "OIDC token exchange", "unv")
+    box(cols[2], cy + 74, 216, 64, "Self-hosted tasks", "ADR-0042, not built", "prop")
+    zb = y + 296
+    down(380, zb + 2, zb + GAP - 4, "managed settings + gateway base URL", "accent")
+
+    # 3 agents ---------------------------------------------------------------
+    y = zb + GAP
+    d.zone(X0, y, 712, 120, "Coding agents · wherever they run")
+    box(IN, y + 40, 408, 64, "Claude Code · Codex · Gemini · Copilot", "real CLIs, pinned versions", "ci")
+    box(IN + 424, y + 40, 256, 64, "Cursor CLI · OpenCode", "adapters, not in uat-clis", "unv")
+    zb = y + 120
+    down(380, zb + 2, zb + GAP - 4, "all model traffic", "accent")
+
+    # 4 gateway --------------------------------------------------------------
+    y = zb + GAP
+    d.zone(X0, y, 712, 232, "Gateway · enforcement that does not trust the endpoint")
+    d.card(IN, y + 40, 400, 112, "halo-proxy or halo-kong", [
+        "holds the provider keys",
+        "ring and model allowlist",
+        "from the verified identity",
+    ], kind="accent", kicker="Verified in CI", pad=16)
+    d.path([(446, y + 96), (466, y + 96)], "accent")
+    box(472, y + 40, 248, 51, "Anthropic · OpenAI", None, "ci", pad=8)
+    box(472, y + 101, 248, 51, "Azure · Gemini · Bedrock · Vertex", None, "unv", pad=8)
+    cw = (680 - 4 * 8) / 5
+    for i, (t, u) in enumerate([("SSO identity", 1), ("DLP", 1), ("Budgets", 1), ("Kill switch", 0), ("Posture gates", 1)]):
+        d.card(round(IN + i * (cw + 8), 1), y + 162, round(cw, 1), 54, t, kind="unit" if u else "card", kicker="Unit tests in CI" if u else "Verified in CI", pad=10)
+    zb = y + 232
+    down(300, zb + 2, zb + GAP - 4, "kill list · posture verdicts", "line")
+    down(540, zb + 2, zb + GAP - 4, "audit · telemetry", "line", up=True)
+
+    # 5 halo-server ----------------------------------------------------------
+    y = zb + GAP
+    d.zone(X0, y, 712, 176, "halo-server · fleet, identity, audit")
+    sv = [
+        ("OIDC + SAML login", "ci"),
+        ("SCIM + RBAC", "unit"),
+        ("Fleet status", "ci"),
+        ("Self-service portal", "ci"),
+        ("Signed audit chain", "unit"),
+        ("SIEM export", "unit"),
+        ("Retention + erasure", "unit"),
+    ]
+    w4 = (680 - 3 * 10) / 4
+    for i, (t, st) in enumerate(sv):
+        r, c = divmod(i, 4)
+        box(round(IN + c * (w4 + 10), 1), y + 40 + r * 62, round(w4, 1), 52, t, None, st, pad=12)
+    d.card(round(IN + 3 * (w4 + 10), 1), y + 40 + 62, round(w4, 1), 52, "Okta · Entra · ADFS", kind="danger", kicker="UNVERIFIED", pad=12)
+
+    # legend -----------------------------------------------------------------
+    ly = y + 176 + 22
+    x = IN
+    for kind, label in [("card", "verified in CI"), ("ucard", "unit tests in CI"), ("card", "verified by hand"), ("dcard", "UNVERIFIED"), ("ghost", "proposed")]:
+        cls = {"card": "card", "ucard": "ucard", "dcard": "dcard", "ghost": "ghost"}[kind]
+        d.add(f'<rect class="{cls}" x="{x}" y="{ly - 9}" width="18" height="14" rx="4"/>')
+        d.text(x + 26, ly + 2, label, "xs")
+        x += 26 + tw(label, 10.5, 500) + 30
+    d.write()
+
+
 def main():
     identity()
     og_card()
@@ -3047,6 +3185,7 @@ def main():
     docs_diagrams()
     more_diagrams()
     deep_dive()
+    enterprise_architecture()
 
 
 if __name__ == "__main__":
