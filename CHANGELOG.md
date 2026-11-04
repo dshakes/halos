@@ -6,6 +6,7 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ### Added
 
+- CI executes the MDM exports: `delivery-macos` runs the `halo export jamf` postinstall as root (launchd daemon, managed settings, release digest) and lints the `.mobileconfig`; `delivery-windows` runs the `halo export intune` script elevated under Windows PowerShell 5.1 (registry policy, halod SYSTEM task). No real Jamf, Kandji or Intune tenant; docs say so.
 - `make uat-coder` and CI job `uat-coder`: `features/coder` applied by a real Coder v2.38.6 server with a docker template (signed release applied; refused on a wrong halod sha256, a wrong release key and an archive whose `halod` is a symlink).
 - Coder module variable `subject` and Dev Container Feature option `subject`: written to `halod.yaml` for client-axis experiments; the Coder module defaults to the workspace owner's email. Requires coder provider >= 2.0.0.
 - `halod_url` / `halodUrl` accept a release archive (`halod_<ver>_linux_<arch>.tar.gz`): the sha256 pins the archive (as in `checksums.txt`) and only a top-level regular file `halod` is installed.

@@ -4,7 +4,11 @@
 #   3. halod once, then `halod service install --start` as the real SYSTEM scheduled task, until
 #      managed settings appear in C:\Program Files\ClaudeCode; then `service uninstall`.
 #   Every directory halod trusts is checked for the admin-only-write DACL the code claims.
-# Not run: Intune, Authenticode, a logged-in interactive user, real vendor CLI installs (--no-artifacts release).
+#   4. `halo export intune` for that release: the generated script is run elevated under Windows PowerShell 5.1
+#      (as Intune runs it); then the HKLM\SOFTWARE\Policies\ClaudeCode policy, halod install and ACLs, the
+#      SYSTEM startup task, managed settings and the halod status digest are asserted.
+# Not run: a real Intune tenant (no device check-in, no Win32-app or script assignment), Authenticode, a logged-in
+# interactive user, real vendor CLI installs (--no-artifacts release).
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
@@ -139,11 +143,79 @@ try {
   schtasks /Query /TN Halos *> $null
   if ($LASTEXITCODE -eq 0) { Fail 'scheduled task still registered' }
   Wait-Until { -not (Get-Process -Name halod -ErrorAction SilentlyContinue) } 'halod to stop' 20
+  Write-Host '== halo export intune (the script run as Intune runs it: Windows PowerShell 5.1, elevated)'
+  $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+  if (-not $isAdmin) { Fail 'the runner shell is not elevated; the Intune script needs Administrator' }
+  # Start from a machine Intune has never touched.
+  foreach ($d in 'etc', 'var') { Remove-Item -Recurse -Force -ErrorAction SilentlyContinue (Join-Path $halos $d) }
+  Remove-Item -Force -ErrorAction SilentlyContinue $settings
+  # The exported download URL must be https: serve halod from a local TLS server with a self-signed cert trusted machine-wide.
+  $dl = Join-Path $w 'dl'; New-Item -ItemType Directory -Force -Path $dl | Out-Null
+  Copy-Item (Join-Path $bin 'halod.exe') (Join-Path $dl 'halod-windows-amd64.exe')
+  $openssl = Join-Path $env:ProgramFiles 'Git\usr\bin\openssl.exe'
+  if (-not (Test-Path $openssl)) { Fail "openssl not found at $openssl" }
+  $cnf = (Join-Path $w 'tls.cnf'); $crt = (Join-Path $w 'tls.crt'); $key = (Join-Path $w 'tls.key')
+  Set-Content -Path $cnf -Encoding ascii -Value "[req]`ndistinguished_name = dn`nx509_extensions = v3`nprompt = no`n[dn]`nCN = localhost`n[v3]`nsubjectAltName = DNS:localhost`nbasicConstraints = critical,CA:TRUE"
+  & $openssl req -x509 -newkey rsa:2048 -nodes -days 1 -config ($cnf -replace '\\', '/') -keyout ($key -replace '\\', '/') -out ($crt -replace '\\', '/') 2>$null
+  if ($LASTEXITCODE -ne 0) { Fail 'openssl could not create the test certificate' }
+  $trusted = Import-Certificate -FilePath $crt -CertStoreLocation Cert:\LocalMachine\Root
+  Spawn 'https' 'python' @((Join-Path $repo 'scripts\ci-https-server.py'), $dl, $crt, $key)
+  $dlUrl = 'https://localhost:18443/halod-windows-amd64.exe'
+  Wait-Until { try { (Invoke-WebRequest -UseBasicParsing $dlUrl -Method Head).StatusCode -eq 200 } catch { $false } } 'the local https file server (cert trusted?)'
+
+  $ps1Dir = Join-Path $w 'intune'
+  Run 'halo' @('export', 'intune', '--registry', "$reg/halos-releases", '--plain-http', '--pubkey', (Join-Path $keys 'halo.pub'),
+    '--ring', 'ring1-ga', '--org', 'acme', '--download-url', 'https://localhost:18443/halod-{os}-{arch}.exe',
+    '--halod-sha256', "windows/amd64=$sha,windows/arm64=$sha", '--out', $ps1Dir)
+  $ps1 = Join-Path $ps1Dir 'halos-intune.ps1'
+  $relDigest = [regex]::Match((Get-Content -TotalCount 1 $ps1), 'sha256:[0-9a-f]{64}').Value
+  if (-not $relDigest) { Fail "intune script lacks the release digest header: $(Get-Content -TotalCount 1 $ps1)" }
+  # Windows PowerShell 5.1 syntax check, then the real run.
+  $perr = $null
+  [void][System.Management.Automation.Language.Parser]::ParseFile($ps1, [ref]$null, [ref]$perr)
+  if ($perr) { Fail "intune script does not parse: $($perr | Out-String)" }
+  & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $ps1
+  if ($LASTEXITCODE -ne 0) { Fail "intune script exited $LASTEXITCODE" }
+
+  $polReg = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\ClaudeCode' -Name Settings
+  $regSettings = $polReg.Settings | ConvertFrom-Json
+  if ($regSettings.permissions.disableBypassPermissionsMode -ne 'disable') { Fail "registry policy content: $($polReg.Settings)" }
+  if ($polReg.Settings -match '"(bypassPermissions|danger-full-access)"') { Fail 'registry policy carries a bypass mode' }
+  $idir = Join-Path $env:ProgramFiles 'Halos'
+  $ihalod = Join-Path $idir 'bin\halod.exe'
+  if ((Get-FileHash -Algorithm SHA256 $ihalod).Hash.ToLower() -ne $sha) { Fail 'intune script did not install the pinned halod' }
+  Assert-Acl $idir @($SY, $BA, $BU) -Protected
+  foreach ($f in $ihalod, (Join-Path $idir 'etc\release.pub'), (Join-Path $idir 'etc\halod.yaml')) { Assert-Acl $f @($SY, $BA, $BU) }
+  if ((Get-Content -Raw (Join-Path $idir 'etc\release.pub')).Trim() -ne (Get-Content -Raw (Join-Path $keys 'halo.pub')).Trim()) { Fail 'intune script embedded a different public key' }
+  $task = Get-ScheduledTask -TaskName Halos
+  if ($task.Principal.UserId -ne 'SYSTEM' -or $task.Principal.RunLevel -ne 'Highest') { Fail "task principal: $($task.Principal | Out-String)" }
+  if (-not ($task.Triggers | Where-Object { $_.CimClass.CimClassName -eq 'MSFT_TaskBootTrigger' })) { Fail 'task has no at-startup trigger' }
+  # The export is https-only and the registry here is plain http (real fleets use TLS): the one config tweak this test makes.
+  Add-Content -Path (Join-Path $idir 'etc\halod.yaml') -Value 'plainHTTP: true'
+  Stop-ScheduledTask -TaskName Halos
+  Wait-Until { -not (Get-Process -Name halod -ErrorAction SilentlyContinue) } 'halod to stop before restart' 20
+  Start-ScheduledTask -TaskName Halos
+  Wait-Until { Test-Path $settings } 'the Intune-installed SYSTEM task to write managed settings' 90
+  $q = (schtasks /Query /TN Halos /FO LIST /V) -join "`n"
+  if ($q -notmatch 'Run As User:\s+SYSTEM') { Fail "task does not run as SYSTEM:`n$q" }
+  if ((Get-Content -Raw $settings | ConvertFrom-Json).permissions.disableBypassPermissionsMode -ne 'disable') { Fail "managed settings content: $(Get-Content -Raw $settings)" }
+  if ((Get-Content -Raw $settings) -match '"(bypassPermissions|danger-full-access)"') { Fail 'managed settings carry a bypass mode' }
+  Assert-Acl $settings @($SY, $BA, $BU)
+  $st = (& $ihalod status --state (Join-Path $idir 'var\state.json')) -join "`n" | ConvertFrom-Json
+  if ($st.digest -ne $relDigest) { Fail "halod status digest $($st.digest) != exported release $relDigest" }
+  Unregister-ScheduledTask -TaskName Halos -Confirm:$false
+  Wait-Until { -not (Get-Process -Name halod -ErrorAction SilentlyContinue) } 'halod to stop' 20
+  Remove-Item -Force -ErrorAction SilentlyContinue $settings
+  Remove-Item -Recurse -Force -ErrorAction SilentlyContinue 'HKLM:\SOFTWARE\Policies\ClaudeCode'
+  Remove-Item -Force -ErrorAction SilentlyContinue "Cert:\LocalMachine\Root\$($trusted.Thumbprint)"
   Write-Host 'Windows delivery path OK'
 } catch {
   foreach ($f in Get-ChildItem $w -Filter '*.err' -ErrorAction SilentlyContinue) { Write-Host "--- $($f.Name)"; Get-Content $f.FullName -Tail 30 }
   throw
 } finally {
   if (Test-Path $halod) { & $halod service uninstall *> $null }
+  Unregister-ScheduledTask -TaskName Halos -Confirm:$false -ErrorAction SilentlyContinue
+  Remove-Item -Recurse -Force -ErrorAction SilentlyContinue 'HKLM:\SOFTWARE\Policies\ClaudeCode'
+  if ($trusted) { Remove-Item -Force -ErrorAction SilentlyContinue "Cert:\LocalMachine\Root\$($trusted.Thumbprint)" }
   foreach ($p in $procs) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
 }
