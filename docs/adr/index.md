@@ -50,5 +50,6 @@ Decisions that shape Halos. New ADRs use [MADR](https://adr.github.io/madr/): co
 | [0039](/halos/adr/0039-saml-login/) | SAML 2.0 login: halo-server as a SAML service provider next to OIDC (crewjam/saml), signed assertion or response, mandatory audience and bearer confirmation, 60s skew, single-use request and assertion ids, IdP-initiated off by default, same directory, grants, sessions and audit as OIDC |
 | [0040](/halos/adr/0040-data-retention-and-erasure/) | Data retention and erasure: per-store age-based retention on both backends (off by default, leader-only sweep), and an admin-only erasure API that deletes a person's records and pseudonymises them in the audit chain, which still verifies |
 | [0041](/halos/adr/0041-signed-audit-chain-heads/) | Signed audit chain heads: opt-in checkpoints signed by a file, KMS or external key, chained and exported to the SIEM, and a verifier that checks signatures and catches a recomputed or truncated chain against the SIEM's copy |
+| [0042](/halos/adr/0042-self-hosted-agent-workspaces/) | Proposed, not implemented: halo-server would provision per-engineer agent workspaces and headless tasks on the customer's Kubernetes, from a governed image with gateway-only egress |
 
 The canonical files live in `docs/adr/` in the repository; the docs build copies them into the site.
