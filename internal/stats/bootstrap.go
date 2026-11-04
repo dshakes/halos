@@ -201,3 +201,59 @@ func ClusterBootstrapDiff(control, treatment []Cluster, iters int, seed uint64, 
 	}
 	return r, nil
 }
+
+// PairedRatioBootstrap estimates sum(numT)/sum(denT) - sum(numC)/sum(denC)
+// (e.g. cost per turn, cost per solved task) with a paired percentile
+// bootstrap over the index-aligned units (tasks). A ratio of sums is the
+// unbiased-in-the-limit estimator for "total X per Y"; averaging per-unit
+// ratios over-weights units with few Y. Resamples whose denominator sums to 0
+// in either arm are dropped; when more than alpha of them are, the ratio is
+// too unstable to report and an error is returned. Base is the control ratio.
+func PairedRatioBootstrap(numC, denC, numT, denT []float64, iters int, seed uint64, alpha float64) (r BootstrapResult, base float64, err error) {
+	n := len(numC)
+	if n == 0 || len(denC) != n || len(numT) != n || len(denT) != n {
+		return r, 0, errors.New("stats: ratio bootstrap needs four non-empty index-aligned samples")
+	}
+	if iters < 1 {
+		return r, 0, errors.New("stats: bootstrap iters must be >= 1")
+	}
+	ratio := func(idx func(int) int, num, den []float64) (float64, bool) {
+		sn, sd := 0.0, 0.0
+		for i := range n {
+			j := idx(i)
+			sn, sd = sn+num[j], sd+den[j]
+		}
+		return sn / sd, sd > 0
+	}
+	id := func(i int) int { return i }
+	bc, okC := ratio(id, numC, denC)
+	bt, okT := ratio(id, numT, denT)
+	if !okC || !okT {
+		return r, 0, errors.New("stats: ratio denominator is 0 in an arm")
+	}
+	rng := rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15)) //nolint:gosec // seeded PRNG for reproducible bootstrap CIs; not security sensitive
+	diffs := make([]float64, 0, iters)
+	pick := make([]int, n)
+	at := func(i int) int { return pick[i] }
+	pos := 0
+	for range iters {
+		for i := range pick {
+			pick[i] = rng.IntN(n)
+		}
+		c, ok1 := ratio(at, numC, denC)
+		t, ok2 := ratio(at, numT, denT)
+		if !ok1 || !ok2 {
+			continue
+		}
+		diffs = append(diffs, t-c)
+		if t-c > 0 {
+			pos++
+		}
+	}
+	if float64(iters-len(diffs)) > alpha*float64(iters) {
+		return r, 0, errors.New("stats: ratio denominator is 0 in too many resamples")
+	}
+	sort.Float64s(diffs)
+	q := func(p float64) float64 { return diffs[int(p*float64(len(diffs)-1))] }
+	return BootstrapResult{Mean: bt - bc, CILo: q(alpha / 2), CIHi: q(1 - alpha/2), PGreat: float64(pos) / float64(len(diffs)), N: n}, bc, nil
+}

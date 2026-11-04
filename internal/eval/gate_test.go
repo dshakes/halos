@@ -163,3 +163,103 @@ func TestThresholdValidation(t *testing.T) {
 		t.Errorf("k > repeats: %v", err)
 	}
 }
+
+// TestEfficiencyGates covers turns, cost per turn and cost-of-pass.
+func TestEfficiencyGates(t *testing.T) {
+	tasks := []string{"a", "b", "c", "d", "e", "f", "g", "h"}
+	// run: cost and turns per trial, and how many of 3 trials pass (0 or 3, so no task is flaky).
+	run := func(v string, cost float64, turns int, pass bool) []Trial {
+		var out []Trial
+		for _, task := range tasks {
+			for i, tr := range arm(v, task, cost, 1000, pass, pass, pass) {
+				tr.Turns, tr.Repeat = turns, i
+				out = append(out, tr)
+			}
+		}
+		return out
+	}
+	tests := []struct {
+		name    string
+		th      Thresholds
+		base    []Trial
+		cand    []Trial
+		verdict string
+		reason  string
+	}{
+		{"twice the turns blocks", Thresholds{MaxTurnsIncrease: f(0.25)}, run("base", 0.1, 10, true), run("cand", 0.1, 20, true), GateBlock, "turns up +100%"},
+		{"same cost in half the turns doubles cost per turn", Thresholds{MaxCostPerTurnIncrease: f(0.5)}, run("base", 0.1, 10, true), run("cand", 0.1, 5, true), GateBlock, "cost_per_turn up +100%"},
+		{"unchanged turns and cost ship", Thresholds{MaxTurnsIncrease: f(0.1), MaxCostPerTurnIncrease: f(0.1)}, run("base", 0.1, 10, true), run("cand", 0.1, 10, true), GateShip, "non-inferior"},
+		{"unreported turns are not gated", Thresholds{MaxTurnsIncrease: f(0.1), MaxCostPerTurnIncrease: f(0.1)}, run("base", 0.1, 0, true), run("cand", 0.1, 0, true), GateShip, "cost_per_turn not gated: turns are 0"},
+		{"nothing solved: cost-of-pass holds", Thresholds{MaxCostOfPassIncrease: f(0.2), MaxPassDrop: f(1)}, run("base", 0.1, 10, false), run("cand", 0.1, 10, false), GateHold, "cost_of_pass not measurable"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			sc, err := BuildScorecard(gateSuite(t, tc.th), append(tc.base, tc.cand...), 1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			g := sc.Comparisons[0].Gate
+			if g.Verdict != tc.verdict || !strings.Contains(strings.Join(g.Reasons, "|"), tc.reason) {
+				t.Fatalf("verdict %s, want %s with %q; reasons %v", g.Verdict, tc.verdict, tc.reason, g.Reasons)
+			}
+		})
+	}
+
+	// Cost-of-pass catches a cheaper candidate that solves less: $0.10 for 8/8
+	// vs $0.08 for 4/8 is $0.10 vs $0.16 per solve.
+	base := run("base", 0.10, 10, true)
+	var cand []Trial
+	for _, tr := range run("cand", 0.08, 10, true) {
+		tr.Pass = tr.Task <= "d"
+		cand = append(cand, tr)
+	}
+	sc, err := BuildScorecard(gateSuite(t, Thresholds{MaxPassDrop: f(1), MaxRegressedTasks: 8, MaxCostIncrease: f(0.1), MaxCostOfPassIncrease: f(0.2)}), append(base, cand...), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := sc.Comparisons[0]
+	if d := c.Deltas[MetricCostOfPass]; math.Abs(d.Baseline-0.10) > 1e-9 || math.Abs(d.Mean-0.06) > 1e-9 {
+		t.Fatalf("cost_of_pass delta %+v, want baseline 0.10 and +0.06", d)
+	}
+	if !strings.Contains(strings.Join(c.Gate.Reasons, "|"), "cost_of_pass") || strings.Contains(strings.Join(c.Gate.Reasons, "|"), "cost_usd up") {
+		t.Fatalf("want a cost_of_pass reason and no cost_usd one: %v", c.Gate.Reasons)
+	}
+	v := sc.Variants[1]
+	if v.CostOfPass == nil || math.Abs(*v.CostOfPass-0.16) > 1e-9 || v.TurnsPerTask != 10 || math.Abs(v.CostPerTurn-0.008) > 1e-12 {
+		t.Fatalf("candidate efficiency %+v", v)
+	}
+}
+
+func TestPricingEstimate(t *testing.T) {
+	s := &Suite{Name: "p", Tasks: []string{"t"}, Repeats: 1, Variants: []Variant{{Name: "codex", Harness: "codex", Model: "gpt-x"}, {Name: "claude", Harness: "claude", Model: "sonnet"}},
+		Pricing: map[string]Price{"gpt-x": {Input: 2, Output: 8, CachedInput: f(0.5)}, "sonnet": {Input: 100, Output: 100}}}
+	if err := s.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	trials := []Trial{
+		{Task: "t", Variant: "codex", Pass: true, InputTokens: 1_000_000, CachedTokens: 600_000, OutputTokens: 100_000, Turns: 0},
+		{Task: "t", Variant: "claude", Pass: true, CostUSD: 0.5, InputTokens: 1_000_000, OutputTokens: 1},
+		{Task: "t", Variant: "claude", Repeat: 1, Pass: false, CostUSD: 0, InputTokens: 1_000, OutputTokens: 1},
+	}
+	sc, err := BuildScorecard(s, trials, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 400k*2 + 600k*0.5 + 100k*8 per million = 0.8 + 0.3 + 0.8.
+	if got := sc.Variants[0]; !got.CostEstimated || math.Abs(got.CostPerTask-1.9) > 1e-9 || math.Abs(got.CacheHitRate-0.6) > 1e-9 {
+		t.Fatalf("codex %+v", got)
+	}
+	if got := sc.Variants[1]; got.CostEstimated || got.CostPerTask != 0.25 { // the $0 Claude trial stays $0
+		t.Fatalf("harness-reported cost was overridden: %+v", got)
+	}
+	if trials[0].CostUSD != 0 {
+		t.Fatal("caller's trials were mutated")
+	}
+	if !strings.Contains(sc.Markdown(), "~$1.9000") {
+		t.Fatalf("estimated cost not marked:\n%s", sc.Markdown())
+	}
+	s.Pricing = map[string]Price{"m": {Input: -1}}
+	if err := s.Validate(); err == nil {
+		t.Fatal("want error on negative price")
+	}
+}

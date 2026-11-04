@@ -36,6 +36,14 @@ type Thresholds struct {
 	MaxTokensIncrease    *float64 `yaml:"max_tokens_increase,omitempty" json:"maxTokensIncrease,omitempty"`
 	MaxWallIncrease      *float64 `yaml:"max_wall_increase,omitempty" json:"maxWallIncrease,omitempty"`
 	MaxToolCallsIncrease *float64 `yaml:"max_tool_calls_increase,omitempty" json:"maxToolCallsIncrease,omitempty"`
+	// MaxTurnsIncrease limits mean model round trips per task.
+	MaxTurnsIncrease *float64 `yaml:"max_turns_increase,omitempty" json:"maxTurnsIncrease,omitempty"`
+	// MaxCostPerTurnIncrease limits total cost / total turns.
+	MaxCostPerTurnIncrease *float64 `yaml:"max_cost_per_turn_increase,omitempty" json:"maxCostPerTurnIncrease,omitempty"`
+	// MaxCostOfPassIncrease limits cost-of-pass: total cost / solved trials,
+	// the expected spend per solved task (Erol et al. 2025, "Cost-of-Pass").
+	// A cheaper candidate that solves less can still cost more per solve.
+	MaxCostOfPassIncrease *float64 `yaml:"max_cost_of_pass_increase,omitempty" json:"maxCostOfPassIncrease,omitempty"`
 	// TaskRegression is the per-task pass-rate drop that marks a task as
 	// regressed (default 0.5); more than MaxRegressedTasks (default 0) blocks.
 	TaskRegression    float64 `yaml:"task_regression,omitempty" json:"taskRegression"`
@@ -56,7 +64,8 @@ func (g *Thresholds) validate() error {
 	if g.MinTasks == 0 {
 		g.MinTasks = 1
 	}
-	for _, p := range []*float64{g.MaxPassDrop, g.MaxCostIncrease, g.MaxTokensIncrease, g.MaxWallIncrease, g.MaxToolCallsIncrease} {
+	for _, p := range []*float64{g.MaxPassDrop, g.MaxCostIncrease, g.MaxTokensIncrease, g.MaxWallIncrease, g.MaxToolCallsIncrease,
+		g.MaxTurnsIncrease, g.MaxCostPerTurnIncrease, g.MaxCostOfPassIncrease} {
 		if p != nil && *p < 0 {
 			return errors.New("thresholds must be >= 0")
 		}
@@ -83,6 +92,24 @@ const (
 	MetricTokens    = "tokens"
 	MetricWall      = "wall_ms"
 	MetricToolCalls = "tool_calls"
+	MetricTurns     = "turns"
+	// Ratio metrics: a ratio of sums over tasks (total cost / total turns),
+	// bootstrapped with stats.PairedRatioBootstrap.
+	MetricCostPerTurn   = "cost_per_turn"
+	MetricTokensPerTurn = "tokens_per_turn" //nolint:gosec // metric name, not a credential
+	MetricCostOfPass    = "cost_of_pass"
+)
+
+// meanMetrics are per-task means; ratioMetrics map to [numerator, denominator].
+var (
+	meanMetrics  = []string{MetricPass, MetricCost, MetricTokens, MetricWall, MetricToolCalls, MetricTurns}
+	ratioMetrics = map[string][2]string{
+		MetricCostPerTurn:   {MetricCost, MetricTurns},
+		MetricTokensPerTurn: {MetricTokens, MetricTurns},
+		MetricCostOfPass:    {MetricCost, MetricPass},
+	}
+	// deltaOrder is the report order of Comparison.Deltas.
+	deltaOrder = []string{MetricPass, MetricCost, MetricCostOfPass, MetricTokens, MetricTurns, MetricCostPerTurn, MetricTokensPerTurn, MetricWall, MetricToolCalls}
 )
 
 // TaskDiff is one task's per-arm pass rates.
@@ -106,8 +133,8 @@ type Gate struct {
 
 // armTask accumulates one variant's trials on one task.
 type armTask struct {
-	n, passes, graderErrs         int
-	cost, tokens, wall, toolCalls float64
+	n, passes, graderErrs                int
+	cost, tokens, wall, toolCalls, turns float64
 }
 
 func (a *armTask) add(t Trial) {
@@ -122,6 +149,7 @@ func (a *armTask) add(t Trial) {
 	a.tokens += float64(t.Tokens)
 	a.wall += float64(t.WallMs)
 	a.toolCalls += float64(t.ToolCalls)
+	a.turns += float64(t.Turns)
 }
 
 func (a *armTask) metric(m string) float64 {
@@ -134,6 +162,8 @@ func (a *armTask) metric(m string) float64 {
 		return a.tokens / float64(a.n)
 	case MetricWall:
 		return a.wall / float64(a.n)
+	case MetricTurns:
+		return a.turns / float64(a.n)
 	}
 	return a.toolCalls / float64(a.n)
 }
@@ -178,7 +208,7 @@ func gate(base, cand map[string]*armTask, th Thresholds, seed uint64) (Gate, map
 		g.Reasons = append(g.Reasons, fmt.Sprintf("only %d non-flaky tasks (%d flaky); need %d", len(gated), len(g.Flaky), max(th.MinTasks, 1)))
 		return g, deltas, nil
 	}
-	for _, m := range []string{MetricPass, MetricCost, MetricTokens, MetricWall, MetricToolCalls} {
+	for _, m := range meanMetrics {
 		bs, cs := make([]float64, len(gated)), make([]float64, len(gated))
 		for i, t := range gated {
 			bs[i], cs[i] = base[t].metric(m), cand[t].metric(m)
@@ -190,6 +220,22 @@ func gate(base, cand map[string]*armTask, th Thresholds, seed uint64) (Gate, map
 		bm := 0.0
 		for _, x := range bs {
 			bm += x / float64(len(bs))
+		}
+		deltas[m] = MetricDelta{Mean: r.Mean, CILo: r.CILo, CIHi: r.CIHi, Baseline: bm}
+	}
+	// Per-task means make the ratio of sums trial-weighted per task, the same
+	// weighting as the mean metrics above.
+	for m, nd := range ratioMetrics {
+		col := func(arm map[string]*armTask, k string) []float64 {
+			x := make([]float64, len(gated))
+			for i, t := range gated {
+				x[i] = arm[t].metric(k)
+			}
+			return x
+		}
+		r, bm, err := stats.PairedRatioBootstrap(col(base, nd[0]), col(base, nd[1]), col(cand, nd[0]), col(cand, nd[1]), bootstrapIters, seed, bootstrapAlpha)
+		if err != nil {
+			continue // denominator 0 (turns unreported, or nothing solved): no delta, and its limit reports why
 		}
 		deltas[m] = MetricDelta{Mean: r.Mean, CILo: r.CILo, CIHi: r.CIHi, Baseline: bm}
 	}
@@ -212,11 +258,21 @@ func gate(base, cand map[string]*armTask, th Thresholds, seed uint64) (Gate, map
 	for _, lim := range []struct {
 		m   string
 		max *float64
-	}{{MetricCost, th.MaxCostIncrease}, {MetricTokens, th.MaxTokensIncrease}, {MetricWall, th.MaxWallIncrease}, {MetricToolCalls, th.MaxToolCallsIncrease}} {
+	}{{MetricCost, th.MaxCostIncrease}, {MetricTokens, th.MaxTokensIncrease}, {MetricWall, th.MaxWallIncrease}, {MetricToolCalls, th.MaxToolCallsIncrease},
+		{MetricTurns, th.MaxTurnsIncrease}, {MetricCostPerTurn, th.MaxCostPerTurnIncrease}, {MetricCostOfPass, th.MaxCostOfPassIncrease}} {
 		if lim.max == nil {
 			continue
 		}
-		d := deltas[lim.m]
+		d, ok := deltas[lim.m]
+		if !ok && ratioMetrics[lim.m][1] == MetricTurns && deltas[MetricTurns].Baseline == 0 {
+			g.Reasons = append(g.Reasons, fmt.Sprintf("%s not gated: turns are 0 (harness does not report them)", lim.m))
+			continue
+		}
+		if !ok { // denominator 0 in an arm or in most resamples: no stable estimate
+			g.Verdict = worse(g.Verdict, GateHold)
+			g.Reasons = append(g.Reasons, fmt.Sprintf("%s not measurable: %s is 0 in an arm or too sparse across tasks; add tasks or repeats", lim.m, ratioMetrics[lim.m][1]))
+			continue
+		}
 		if d.Baseline <= 0 {
 			g.Reasons = append(g.Reasons, fmt.Sprintf("%s not gated: baseline mean is 0 (harness does not report it)", lim.m))
 			continue

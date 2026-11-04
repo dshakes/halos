@@ -5,6 +5,7 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 ## [Unreleased]
 
 ### Added
+- Evals: efficiency metrics in every scorecard: cost-of-pass (total cost / solved trials), turns per task (mean, p50, p95), cost and tokens per turn, output share and prompt-cache hit rate, from a new input/cached/output token split for Claude Code, Codex and Gemini CLI. New gate limits `max_turns_increase`, `max_cost_per_turn_increase` and `max_cost_of_pass_increase`; ratio metrics use a paired ratio-of-sums bootstrap (`stats.PairedRatioBootstrap`). A suite `pricing` table estimates cost for harnesses that report none (marked `~`/`costEstimated`). Gemini turns come from API requests; Codex turns are now reported as missing instead of a constant 1.
 
 - CI executes the MDM exports: `delivery-macos` runs the `halo export jamf` postinstall as root (launchd daemon, managed settings, release digest) and lints the `.mobileconfig`; `delivery-windows` runs the `halo export intune` script elevated under Windows PowerShell 5.1 (registry policy, halod SYSTEM task). No real Jamf, Kandji or Intune tenant; docs say so.
 - `make uat-coder` and CI job `uat-coder`: `features/coder` applied by a real Coder v2.38.6 server with a docker template (signed release applied; refused on a wrong halod sha256, a wrong release key and an archive whose `halod` is a symlink).

@@ -19,6 +19,9 @@ gate:
   max_cost_increase: 0.20      # relative to baseline mean; only gated when set
   max_wall_increase: 0.30
   max_tool_calls_increase: 0.50
+  max_turns_increase: 0.25         # model round trips per task
+  max_cost_per_turn_increase: 0.25
+  max_cost_of_pass_increase: 0.20  # total cost / solved trials
   min_tasks: 2                 # fewer non-flaky tasks than this -> hold
 # Judge: a pinned model through the gateway. Its reply must be strict JSON;
 # anything else is a grader error (never a pass) and forces the gate to hold.

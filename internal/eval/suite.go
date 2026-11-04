@@ -50,9 +50,30 @@ type Suite struct {
 	// Graders apply to every task in addition to its own (e.g. a judge
 	// rubric for the whole suite, so shared tasks stay judge-free).
 	Graders []GraderSpec `yaml:"graders,omitempty" json:"graders,omitempty"`
+	// Pricing is USD per million tokens, keyed by a variant's model. A trial
+	// whose harness reports no dollar cost (Codex, Gemini) gets an estimate
+	// from its token counts; the scorecard marks such cost as estimated.
+	// Claude Code reports cost (even $0) and is never estimated.
+	Pricing map[string]Price `yaml:"pricing,omitempty" json:"pricing,omitempty"`
 
 	// Dir is the directory of the suite file; set by LoadSuite.
 	Dir string `yaml:"-" json:"-"`
+}
+
+// Price is USD per million tokens. CachedInput defaults to Input.
+type Price struct {
+	Input       float64  `yaml:"input" json:"input"`
+	Output      float64  `yaml:"output" json:"output"`
+	CachedInput *float64 `yaml:"cached_input,omitempty" json:"cachedInput,omitempty"`
+}
+
+// estimate is the dollar cost of a trial's tokens at p.
+func (p Price) estimate(t Trial) float64 {
+	cached := p.Input
+	if p.CachedInput != nil {
+		cached = *p.CachedInput
+	}
+	return (float64(t.InputTokens-t.CachedTokens)*p.Input + float64(t.CachedTokens)*cached + float64(t.OutputTokens)*p.Output) / 1e6
 }
 
 var knownHarness = map[string]bool{"claude": true, "codex": true, "gemini": true}
@@ -83,6 +104,11 @@ func (s *Suite) Validate() error {
 	}
 	if s.K < 1 || s.K > s.Repeats {
 		return fmt.Errorf("suite %s: k must be between 1 and repeats (%d)", s.Name, s.Repeats)
+	}
+	for m, p := range s.Pricing {
+		if p.Input < 0 || p.Output < 0 || p.CachedInput != nil && *p.CachedInput < 0 {
+			return fmt.Errorf("suite %s: pricing %s: prices must be >= 0", s.Name, m)
+		}
 	}
 	if err := s.Gate.validate(); err != nil {
 		return fmt.Errorf("suite %s: gate: %w", s.Name, err)

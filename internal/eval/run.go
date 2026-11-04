@@ -11,16 +11,23 @@ import (
 
 // Trial is the scored outcome of one (task x variant x repeat) run.
 type Trial struct {
-	Task       string  `json:"task"`
-	Variant    string  `json:"variant"`
-	Repeat     int     `json:"repeat"`
-	Pass       bool    `json:"pass"`
-	CostUSD    float64 `json:"costUSD"`
-	Turns      int     `json:"turns"`
-	WallMs     int64   `json:"wallMs"`
-	Tokens     int64   `json:"tokens"`
-	ToolErrors int     `json:"toolErrors"`
-	ToolCalls  int     `json:"toolCalls"`
+	Task    string  `json:"task"`
+	Variant string  `json:"variant"`
+	Repeat  int     `json:"repeat"`
+	Pass    bool    `json:"pass"`
+	CostUSD float64 `json:"costUSD"`
+	// CostEstimated is set when CostUSD came from the suite's pricing table
+	// rather than the harness.
+	CostEstimated bool  `json:"costEstimated,omitempty"`
+	Turns         int   `json:"turns"` // model round trips; 0 = not reported
+	WallMs        int64 `json:"wallMs"`
+	Tokens        int64 `json:"tokens"`
+	// InputTokens includes CachedTokens (cache reads).
+	InputTokens  int64 `json:"inputTokens,omitempty"`
+	OutputTokens int64 `json:"outputTokens,omitempty"`
+	CachedTokens int64 `json:"cachedTokens,omitempty"`
+	ToolErrors   int   `json:"toolErrors"`
+	ToolCalls    int   `json:"toolCalls"`
 	// Seed is derived from the suite seed, task and repeat (identical across
 	// variants, so arms stay paired). Recorded; no pinned CLI accepts one.
 	Seed uint64 `json:"seed,omitempty"`
@@ -127,6 +134,7 @@ func runTrial(ctx context.Context, r Runner, d Driver, t *Task, v Variant, repea
 	}
 	u, perr := d.Parse(res.Stdout)
 	tr.CostUSD, tr.Turns, tr.Tokens, tr.ToolErrors, tr.ToolCalls = u.CostUSD, u.Turns, u.Tokens, u.ToolErrors, u.ToolCalls
+	tr.InputTokens, tr.OutputTokens, tr.CachedTokens = u.InputTokens, u.OutputTokens, u.CachedTokens
 	if tr.Error == "" {
 		switch {
 		case perr != nil:

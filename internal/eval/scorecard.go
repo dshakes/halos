@@ -46,6 +46,23 @@ type VariantScore struct {
 	// variant with no measured trials shows UnavailableReason, not 0%.
 	Unavailable       int    `json:"unavailable,omitempty"`
 	UnavailableReason string `json:"unavailableReason,omitempty"`
+
+	// Efficiency over measured trials. Turns are model round trips; the turn
+	// metrics are 0 when the harness does not report turns (Codex).
+	TurnsPerTask  float64  `json:"turnsPerTask"`
+	TurnsP50      int64    `json:"turnsP50"`
+	TurnsP95      int64    `json:"turnsP95"`
+	TokensPerTask float64  `json:"tokensPerTask"`
+	CostPerTurn   float64  `json:"costPerTurnUSD"`          // total cost / total turns
+	TokensPerTurn float64  `json:"tokensPerTurn"`           // total tokens / total turns
+	CostOfPass    *float64 `json:"costOfPassUSD,omitempty"` // total cost / solved trials; nil when nothing passed
+	// Token split; CacheHitRate is cached input / all input tokens.
+	InputTokens  int64   `json:"inputTokens"`
+	OutputTokens int64   `json:"outputTokens"`
+	CachedTokens int64   `json:"cachedTokens"`
+	CacheHitRate float64 `json:"cacheHitRate"`
+	// CostEstimated: some cost came from the suite's pricing table.
+	CostEstimated bool `json:"costEstimated,omitempty"`
 }
 
 // measured is the number of trials that actually ran.
@@ -114,6 +131,7 @@ func b2f(b bool) float64 {
 
 // BuildScorecard aggregates trials. The seed makes bootstrap CIs reproducible.
 func BuildScorecard(s *Suite, trials []Trial, seed uint64) (*Scorecard, error) {
+	trials = priced(s, trials)
 	sc := &Scorecard{Suite: s.Name, Control: s.Control, Trials: trials, Seed: seed, K: s.K}
 	if s.K > 0 {
 		th := s.Gate
@@ -134,6 +152,7 @@ func BuildScorecard(s *Suite, trials []Trial, seed uint64) (*Scorecard, error) {
 	}
 	scores := map[string]*VariantScore{}
 	walls := map[string][]int64{}
+	turns := map[string][]int64{}
 	for _, v := range s.Variants {
 		scores[v.Name] = &VariantScore{Name: v.Name, Harness: v.Harness, Version: v.Version, Model: v.Model, Provider: v.Provider}
 		arms[v.Name] = map[string]*armTask{}
@@ -156,6 +175,12 @@ func BuildScorecard(s *Suite, trials []Trial, seed uint64) (*Scorecard, error) {
 			continue
 		}
 		vs.ToolCalls += t.ToolCalls
+		vs.InputTokens += t.InputTokens
+		vs.OutputTokens += t.OutputTokens
+		vs.CachedTokens += t.CachedTokens
+		vs.TurnsPerTask += float64(t.Turns)
+		vs.CostEstimated = vs.CostEstimated || t.CostEstimated
+		turns[t.Variant] = append(turns[t.Variant], int64(t.Turns))
 		if t.GraderError != "" {
 			vs.GradeErrors++
 		}
@@ -188,7 +213,7 @@ func BuildScorecard(s *Suite, trials []Trial, seed uint64) (*Scorecard, error) {
 			return nil, fmt.Errorf("scorecard: variant %s: %w", v.Name, err)
 		}
 		vs.Pass1, vs.Pass1CILo, vs.Pass1CIHi = b.Mean, b.CILo, b.CIHi
-		vs.CostPerTask /= float64(vs.measured())
+		efficiency(vs, passes[v.Name], turns[v.Name])
 		w := walls[v.Name]
 		sort.Slice(w, func(i, j int) bool { return w[i] < w[j] })
 		vs.WallP50Ms, vs.WallP95Ms = percentile(w, 0.50), percentile(w, 0.95)
@@ -244,6 +269,56 @@ func BuildScorecard(s *Suite, trials []Trial, seed uint64) (*Scorecard, error) {
 		sc.Comparisons = append(sc.Comparisons, c)
 	}
 	return sc, nil
+}
+
+// efficiency fills the per-task, per-turn and per-solve figures. Before it
+// runs, CostPerTask and TurnsPerTask hold sums over measured trials.
+func efficiency(vs *VariantScore, passes []float64, turns []int64) {
+	n := float64(vs.measured())
+	cost, nturns, solved := vs.CostPerTask, vs.TurnsPerTask, 0.0
+	for _, p := range passes {
+		solved += p
+	}
+	tokens := float64(vs.InputTokens + vs.OutputTokens)
+	if tokens == 0 { // harness gave only a total
+		tokens = float64(vs.Tokens)
+	}
+	vs.CostPerTask, vs.TurnsPerTask, vs.TokensPerTask = cost/n, nturns/n, tokens/n
+	if nturns > 0 {
+		vs.CostPerTurn, vs.TokensPerTurn = cost/nturns, tokens/nturns
+		sort.Slice(turns, func(i, j int) bool { return turns[i] < turns[j] })
+		vs.TurnsP50, vs.TurnsP95 = percentile(turns, 0.50), percentile(turns, 0.95)
+	}
+	if solved > 0 && cost > 0 {
+		c := cost / solved
+		vs.CostOfPass = &c
+	}
+	if vs.InputTokens > 0 {
+		vs.CacheHitRate = float64(vs.CachedTokens) / float64(vs.InputTokens)
+	}
+}
+
+// priced returns trials with an estimated CostUSD for those whose harness
+// reported none, from the suite's pricing table keyed by the variant's model.
+func priced(s *Suite, trials []Trial) []Trial {
+	if len(s.Pricing) == 0 {
+		return trials
+	}
+	model := map[string]string{}
+	for _, v := range s.Variants {
+		if v.Harness != "claude" { // Claude Code reports cost, $0 included (a run that failed before billing)
+			model[v.Name] = v.Model
+		}
+	}
+	out := append([]Trial(nil), trials...)
+	for i, t := range out {
+		m, priceable := model[t.Variant]
+		p, ok := s.Pricing[m]
+		if priceable && ok && t.CostUSD == 0 && t.InputTokens+t.OutputTokens > 0 {
+			out[i].CostUSD, out[i].CostEstimated = p.estimate(t), true
+		}
+	}
+	return out
 }
 
 // passK fills pass@k and pass^k, averaged over tasks. A task with fewer than
@@ -333,6 +408,7 @@ func (sc *Scorecard) Markdown() string {
 			v.Name, v.Trials, 100*v.Pass1, 100*v.Pass1CILo, 100*v.Pass1CIHi, 100*v.PassAtK, 100*v.PassHatK,
 			v.CostPerTask, float64(v.WallP50Ms)/1000, float64(v.WallP95Ms)/1000, v.ToolCalls, v.ToolErrors, v.Errors+v.GradeErrors)
 	}
+	b.WriteString(sc.efficiencyMarkdown())
 	if len(sc.Comparisons) > 0 {
 		b.WriteString("\n## Paired comparison vs control\n\n| Variant | Tasks | Delta pass rate (95% CI) | Verdict |\n|---|---|---|---|\n")
 		measured := map[string]int{}
@@ -358,19 +434,25 @@ func (sc *Scorecard) Markdown() string {
 		}
 		if len(c.Deltas) > 0 {
 			b.WriteString("\n| Metric | Baseline | Delta (95% CI) |\n|---|---|---|\n")
-			for _, m := range []string{MetricPass, MetricCost, MetricTokens, MetricWall, MetricToolCalls} {
-				d := c.Deltas[m]
+			for _, m := range deltaOrder {
+				d, ok := c.Deltas[m]
+				if !ok || m != MetricPass && d.Baseline == 0 && d.CILo == 0 && d.CIHi == 0 { // unreported by both arms
+					continue
+				}
 				if m == MetricPass {
 					fmt.Fprintf(&b, "| %s | %.1f%% | %+.1f pp (%+.1f to %+.1f) |\n", m, 100*d.Baseline, 100*d.Mean, 100*d.CILo, 100*d.CIHi)
 					continue
 				}
-				f := map[string]string{MetricCost: "%.4f", MetricToolCalls: "%.1f"}[m]
+				f := map[string]string{MetricCost: "%.4f", MetricCostOfPass: "%.4f", MetricCostPerTurn: "%.5f", MetricToolCalls: "%.1f", MetricTurns: "%.1f"}[m]
 				if f == "" {
 					f = "%.0f" // tokens, wall_ms
 				}
 				sf := strings.Replace(f, "%", "%+", 1)
 				fmt.Fprintf(&b, "| %s | "+f+" | "+sf+" ("+sf+" to "+sf+") |\n", m, d.Baseline, d.Mean, d.CILo, d.CIHi)
 			}
+		}
+		if len(c.Deltas) > 0 {
+			b.WriteString("\nDeltas are paired by task over non-flaky tasks (95% bootstrap CI), so a baseline here can differ from the efficiency table.\n")
 		}
 		if len(c.Gate.Regressed) > 0 {
 			b.WriteString("\nRegressed tasks:\n\n")
@@ -385,6 +467,48 @@ func (sc *Scorecard) Markdown() string {
 			}
 		}
 	}
+	return b.String()
+}
+
+// efficiencyMarkdown is the cost and turn table. "-" means the harness does
+// not report the figure; "~" marks cost estimated from the pricing table.
+func (sc *Scorecard) efficiencyMarkdown() string {
+	var b strings.Builder
+	b.WriteString("\n## Efficiency\n\n| Variant | Cost/task | Cost-of-pass | Turns/task (p50/p95) | Cost/turn | Tokens/task | Tokens/turn | Output share | Cache hit |\n|---|---|---|---|---|---|---|---|---|\n")
+	dash := func(ok bool, f string, x ...any) string {
+		if !ok {
+			return "-"
+		}
+		return fmt.Sprintf(f, x...)
+	}
+	for _, v := range sc.Variants {
+		if v.measured() == 0 {
+			continue
+		}
+		est := ""
+		if v.CostEstimated {
+			est = "~"
+		}
+		hasCost, hasTurns, split := v.CostPerTask > 0, v.TurnsPerTask > 0, v.InputTokens+v.OutputTokens > 0
+		cop := "-"
+		switch {
+		case v.CostOfPass != nil:
+			cop = fmt.Sprintf("%s$%.4f", est, *v.CostOfPass)
+		case hasCost:
+			cop = "no solves"
+		}
+		out := 0.0
+		if split {
+			out = float64(v.OutputTokens) / float64(v.InputTokens+v.OutputTokens)
+		}
+		fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s | %s | %s | %s |\n", v.Name,
+			dash(hasCost, "%s$%.4f", est, v.CostPerTask), cop,
+			dash(hasTurns, "%.1f (%d/%d)", v.TurnsPerTask, v.TurnsP50, v.TurnsP95),
+			dash(hasCost && hasTurns, "%s$%.5f", est, v.CostPerTurn),
+			dash(v.TokensPerTask > 0, "%.0f", v.TokensPerTask), dash(hasTurns, "%.0f", v.TokensPerTurn),
+			dash(split, "%.1f%%", 100*out), dash(v.InputTokens > 0, "%.1f%%", 100*v.CacheHitRate))
+	}
+	b.WriteString("\nCost-of-pass is total cost / solved trials: the expected spend per solved task. \"-\": the harness does not report it; \"~\": estimated from the suite's `pricing` table.\n")
 	return b.String()
 }
 
@@ -403,16 +527,23 @@ func (sc *Scorecard) Table() string {
 	}
 	k := max(sc.K, 1)
 	var b strings.Builder
-	fmt.Fprintf(&b, "%-*s  %6s  %6s  %6s  %8s  %7s  %5s  %s\n", w, "VARIANT", "PASS@1",
-		fmt.Sprintf("PASS@%d", k), fmt.Sprintf("PASS^%d", k), "$/TASK", "P50", "TOOLS", "VERDICT")
+	fmt.Fprintf(&b, "%-*s  %6s  %6s  %6s  %8s  %8s  %5s  %7s  %5s  %s\n", w, "VARIANT", "PASS@1",
+		fmt.Sprintf("PASS@%d", k), fmt.Sprintf("PASS^%d", k), "$/TASK", "$/PASS", "TURNS", "P50", "TOOLS", "VERDICT")
 	for _, v := range sc.Variants {
 		if v.measured() == 0 {
 			fmt.Fprintf(&b, "%-*s  error: %s  %s\n", w, v.Name, v.UnavailableReason, verdict[v.Name])
 			continue
 		}
 		tools := float64(v.ToolCalls) / float64(v.measured())
-		fmt.Fprintf(&b, "%-*s  %5.0f%%  %5.0f%%  %5.0f%%  %8s  %6.1fs  %5.1f  %s\n", w, v.Name,
-			100*v.Pass1, 100*v.PassAtK, 100*v.PassHatK, fmt.Sprintf("$%.3f", v.CostPerTask),
+		perPass, turns := "-", "-"
+		if v.CostOfPass != nil {
+			perPass = fmt.Sprintf("$%.3f", *v.CostOfPass)
+		}
+		if v.TurnsPerTask > 0 {
+			turns = fmt.Sprintf("%.1f", v.TurnsPerTask)
+		}
+		fmt.Fprintf(&b, "%-*s  %5.0f%%  %5.0f%%  %5.0f%%  %8s  %8s  %5s  %6.1fs  %5.1f  %s\n", w, v.Name,
+			100*v.Pass1, 100*v.PassAtK, 100*v.PassHatK, fmt.Sprintf("$%.3f", v.CostPerTask), perPass, turns,
 			float64(v.WallP50Ms)/1000, tools, verdict[v.Name])
 	}
 	if sc.Gate != nil {

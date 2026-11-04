@@ -16,14 +16,22 @@ type Command struct {
 
 // Usage is what a driver extracts from a headless run's output.
 type Usage struct {
-	CostUSD    float64
+	CostUSD float64
+	// Turns is model round trips in the agent loop (Claude num_turns, Gemini
+	// API requests). 0 when the harness does not report it (Codex exec emits one
+	// turn.completed per prompt, not per model call).
 	Turns      int
 	DurationMs int64
 	Tokens     int64 // input + output (+ cache) tokens
-	ToolErrors int
-	ToolCalls  int
-	Failed     bool   // harness reported the run as failed/errored
-	Error      string // message when Failed
+	// InputTokens includes CachedTokens (cache reads); OutputTokens includes
+	// reasoning tokens. Used for cache-hit rate and price-table cost estimates.
+	InputTokens  int64
+	OutputTokens int64
+	CachedTokens int64
+	ToolErrors   int
+	ToolCalls    int
+	Failed       bool   // harness reported the run as failed/errored
+	Error        string // message when Failed
 }
 
 // Driver knows how to run one harness headlessly and read its output. Unknown
@@ -118,8 +126,10 @@ func (ClaudeDriver) Parse(out []byte) (Usage, error) {
 			u.Turns = int(num(m, "num_turns"))
 			u.DurationMs = int64(num(m, "duration_ms"))
 			us := obj(m, "usage")
-			u.Tokens = int64(num(us, "input_tokens") + num(us, "output_tokens") +
-				num(us, "cache_read_input_tokens") + num(us, "cache_creation_input_tokens"))
+			u.CachedTokens = int64(num(us, "cache_read_input_tokens"))
+			u.InputTokens = int64(num(us, "input_tokens")+num(us, "cache_creation_input_tokens")) + u.CachedTokens
+			u.OutputTokens = int64(num(us, "output_tokens"))
+			u.Tokens = u.InputTokens + u.OutputTokens
 			if m["is_error"] == true || (str(m, "subtype") != "" && str(m, "subtype") != "success") {
 				u.Failed, u.Error = true, str(m, "subtype")
 			}
@@ -179,9 +189,11 @@ func (CodexDriver) Parse(out []byte) (Usage, error) {
 		case "thread.started":
 			seen = true
 		case "turn.completed":
-			seen = true
-			u.Turns++
+			seen = true // one per prompt, not per model call: Turns stays 0 (unreported)
 			us := obj(m, "usage")
+			u.InputTokens += int64(num(us, "input_tokens")) // includes cached_input_tokens
+			u.CachedTokens += int64(num(us, "cached_input_tokens"))
+			u.OutputTokens += int64(num(us, "output_tokens"))
 			u.Tokens += int64(num(us, "input_tokens") + num(us, "output_tokens"))
 		case "turn.failed", "error":
 			seen = true
@@ -248,7 +260,12 @@ func (GeminiDriver) Parse(out []byte) (Usage, error) {
 	stats := obj(doc, "stats")
 	for _, mv := range obj(stats, "models") {
 		if mm, ok := mv.(map[string]any); ok {
-			u.Tokens += int64(num(obj(mm, "tokens"), "total"))
+			tk := obj(mm, "tokens")
+			u.Tokens += int64(num(tk, "total"))
+			u.InputTokens += int64(num(tk, "prompt")) // includes cached
+			u.CachedTokens += int64(num(tk, "cached"))
+			u.OutputTokens += int64(num(tk, "candidates") + num(tk, "thoughts"))
+			u.Turns += int(num(obj(mm, "api"), "totalRequests"))
 		}
 	}
 	tools := obj(stats, "tools")
