@@ -1,0 +1,56 @@
+---
+title: Enterprise architecture
+description: One control plane for every coding agent, delivered to laptops, cloud workspaces and CI from one signed release, with every model call enforced at the gateway. Each component carries its verification status.
+---
+
+import EnterpriseArchitecture from '../../../components/EnterpriseArchitecture.astro';
+
+Halos governs Claude Code, Codex, Gemini CLI, Copilot CLI, Cursor CLI and OpenCode wherever they run. Select a box for what it is, how it is configured, its verification status and the evidence. Use the buttons to highlight one delivery path end to end.
+
+<EnterpriseArchitecture />
+
+Statuses use one vocabulary: **verified in CI** (a CI job or test exercises it), **verified by hand** (run once by a person, dated), **UNVERIFIED** (implemented or documented, never run against the real thing) and **proposed** (not built).
+
+## The control plane
+
+A policy repo holds rings, experiments, models and guardrails. `halo validate`, `halo plan` and `halo eval run` check a change. `halo release publish` builds one immutable, content-addressed OCI release, signs it and points a ring at it. Rings go canary to GA, experiments run on a ring, and promotion opens a pull request that a human merges. Halos never auto-merges and never auto-promotes; auto-rollback through the signed kill switch is the only automatic direction. See [rings and releases](/halos/concepts/rings-and-releases/) and [experiments](/halos/concepts/experiments/).
+
+## Three delivery paths
+
+All three verify the signed pointer and release, then apply atomically or refuse and keep the last good release.
+
+| Path | Choose it for | Mechanism |
+|---|---|---|
+| Laptops via MDM | The default for most engineers | `halo export jamf\|intune`, then `halod` as root under launchd, systemd or a SYSTEM task |
+| Cloud workspaces | Contractors, regulated repos, unattended agents | Coder module, Codespaces, Dev Container Feature; rebuilt from the release, with an optional gateway-only firewall |
+| CI and headless | Pipelines and scheduled agents | Workload identity federation: the runner's OIDC token is exchanged for a short-lived gateway credential |
+
+A laptop is the weakest endpoint: a local admin can stop `halod` or edit files. Cloud workspaces rebuild from the release. Neither is the enforcement point, which is the next section. Guides: [laptops and MDM](/halos/guides/laptops-mdm/), [Coder](/halos/guides/coder-workspaces/), [dev containers](/halos/guides/dev-containers/), [CI and cloud agents](/halos/guides/ci-and-cloud-agents/). A self-hosted workspace service is only proposed ([ADR-0042](/halos/adr/0042-self-hosted-agent-workspaces/)).
+
+## The gateway enforces, not the endpoint
+
+Every model call goes through `halo-proxy` or `halo-kong`, which holds the provider keys, so an agent never has one. The gateway verifies the caller's identity, derives ring and variant from it, strips client-supplied `x-halo-*` headers, applies a fail-closed model allowlist, DLP and budgets, honours the signed kill switch, and can refuse a stale device or CLI version (`posture` and `versionGate`, `enforce` per ring; both default to `warn`). An endpoint that skips `halod` still reaches providers only through the gateway. Egress control that keeps agents from routing around it is covered in [egress and sandbox](/halos/guides/egress-and-sandbox/).
+
+## Identity and audit
+
+`halo-server` provides OIDC and SAML login, SCIM, RBAC, fleet status, the self-service portal and a hash-chained audit log whose checkpoints can be signed and which is exported to a SIEM at least once and in order. Retention is configurable and erasure needs two admins. See [security model](/halos/concepts/security-model/), [SIEM export](/halos/guides/siem-export/) and [data flow and PII](/halos/compliance/data-flow-and-pii/).
+
+## What is verified
+
+| Area | Status | Evidence |
+|---|---|---|
+| Signed release, rings, promote, rollback, kill, auto-rollback | Verified in CI: Kubernetes UAT, 82 PASS on kind with the Helm chart | [test/uat/REPORT.md](https://github.com/dshakes/halos/blob/main/test/uat/REPORT.md) |
+| Gateway `halo-proxy` / `halo-kong` | Verified in CI: Kubernetes UAT; real Kong OSS 3.9.3 | [KONG-REPORT.md](https://github.com/dshakes/halos/blob/main/test/uat/KONG-REPORT.md) |
+| Providers | Nightly smoke ran for Anthropic and OpenAI; Azure, Gemini, Bedrock and Vertex skip until secrets are set: UNVERIFIED | [Provider smoke](/halos/guides/provider-smoke/) |
+| Real CLIs: Claude Code, Codex, Gemini, Copilot | Verified in CI (`make uat-clis`) | [CLI-REPORT.md](https://github.com/dshakes/halos/blob/main/test/uat/CLI-REPORT.md) |
+| Cursor CLI, OpenCode | UNVERIFIED in CI; vendor docs and one-off runs | [Harness matrix](/halos/reference/harness-matrix/) |
+| Coder module | Verified in CI against Coder v2.38.6 with a docker template; Kubernetes templates UNVERIFIED | [Coder workspaces](/halos/guides/coder-workspaces/) |
+| Dev Container Feature | Verified in CI with the devcontainer CLI; firewall option and published Feature UNVERIFIED | [Dev containers](/halos/guides/dev-containers/) |
+| Codespaces | Verified by hand, 2026-11-03; prebuilds and portal launcher UNVERIFIED; a failed build drops into an ungoverned recovery container | [Dev containers](/halos/guides/dev-containers/) |
+| `halod` on laptops | CI runs it as a launchd daemon and a Windows SYSTEM task; not run on real fleets | [Laptops and MDM](/halos/guides/laptops-mdm/) |
+| MDM exports (Jamf, Kandji, Intune) | UNVERIFIED: never run against a real tenant | [Laptops and MDM](/halos/guides/laptops-mdm/) |
+| CI workload identity | UNVERIFIED: unit tests against a local issuer only | [CI and cloud agents](/halos/guides/ci-and-cloud-agents/) |
+| SAML | Verified in CI against Keycloak 26.4.7 (`make uat-saml`); Okta, Entra and ADFS UNVERIFIED | [SAML](/halos/guides/sso-saml/) |
+| Fleet scale | 10,000 simulated devices on one replica, 0 errors (`make load-fleet`); no real devices | [Operations](/halos/guides/operations/#sizing-halo-server) |
+| DLP, budgets, posture, SCIM, RBAC, audit chain, SIEM export, erasure | Verified in CI by unit tests only; no end-to-end UAT row, no live SIEM tenant claimed | [Security model](/halos/concepts/security-model/) |
+| Self-hosted agent workspaces | Proposed, not implemented | [ADR-0042](/halos/adr/0042-self-hosted-agent-workspaces/) |

@@ -261,7 +261,7 @@ The write tools (propose a rollout step, a rollback or a toggle change, kill a c
   <img src="assets/architecture-light.svg" alt="Client plane, traffic plane and evidence plane with their components" width="880">
 </picture>
 
-Deep dive, traced to the code: [tech stack](https://dshakes.github.io/halos/architecture/tech-stack/), [components](https://dshakes.github.io/halos/architecture/components/) and [low-level design](https://dshakes.github.io/halos/architecture/low-level-design/).
+Enterprise view with per-component verification status: [enterprise architecture](https://dshakes.github.io/halos/architecture/enterprise/). Deep dive, traced to the code: [tech stack](https://dshakes.github.io/halos/architecture/tech-stack/), [components](https://dshakes.github.io/halos/architecture/components/) and [low-level design](https://dshakes.github.io/halos/architecture/low-level-design/).
 
 ## Security by construction
 

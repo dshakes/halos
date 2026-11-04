@@ -89,7 +89,7 @@ export default defineConfig({
             {
               label: 'Architecture deep dive',
               collapsed: true,
-              items: ['architecture/components', 'architecture/low-level-design', 'architecture/tech-stack'],
+              items: ['architecture/enterprise', 'architecture/components', 'architecture/low-level-design', 'architecture/tech-stack'],
             },
           ],
         },

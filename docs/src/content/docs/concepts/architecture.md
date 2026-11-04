@@ -5,6 +5,8 @@ description: The three planes, the components, and how a change flows from git t
 
 Halos has three planes plus a policy source. Each plane can be adopted independently, but the loop closes only when all three run.
 
+For the deployment view with per-component verification status, see [Enterprise architecture](/halos/architecture/enterprise/).
+
 <img class="diagram dark:sl-hidden" src="/halos/diagrams/architecture-light.svg" alt="Policy compiles to a signed release and ring pointers. The client plane (halod, MDM, Dev Container Feature, Coder, CI action) applies it; the traffic plane (halo-proxy or the Kong plugin) routes to Anthropic, Bedrock, Vertex or OpenAI; the evidence plane (OTEL, ClickHouse, halo eval, controller, console, MCP) proposes promotion PRs and fires the kill switch." width="880" />
 <img class="diagram light:sl-hidden" src="/halos/diagrams/architecture-dark.svg" alt="Policy compiles to a signed release and ring pointers. The client plane (halod, MDM, Dev Container Feature, Coder, CI action) applies it; the traffic plane (halo-proxy or the Kong plugin) routes to Anthropic, Bedrock, Vertex or OpenAI; the evidence plane (OTEL, ClickHouse, halo eval, controller, console, MCP) proposes promotion PRs and fires the kill switch." width="880" />
 
