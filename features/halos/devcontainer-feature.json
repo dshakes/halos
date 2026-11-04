@@ -33,12 +33,17 @@
     "halodUrl": {
       "type": "string",
       "default": "",
-      "description": "Download URL of the halod binary; {os} and {arch} are substituted"
+      "description": "Download URL of halod; {os} and {arch} are substituted. A raw binary, or a release archive (halod_<ver>_linux_<arch>.tar.gz) when the path ends in .tar.gz."
     },
     "halodSha256": {
       "type": "string",
       "default": "",
-      "description": "Required. sha256 (hex) of the halod binary, or 'amd64=<hex>,arm64=<hex>'. Verified before the binary is installed."
+      "description": "Required. sha256 (hex) of the halod binary (of the archive for a .tar.gz URL, as in checksums.txt), or 'amd64=<hex>,arm64=<hex>'. Verified before the binary is installed."
+    },
+    "subject": {
+      "type": "string",
+      "default": "",
+      "description": "User id for client-axis experiments (written as subject: in halod.yaml). Empty: not set."
     },
     "gatewayHost": {
       "type": "string",

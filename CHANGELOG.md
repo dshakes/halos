@@ -4,8 +4,15 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added
+
+- `make uat-coder` and CI job `uat-coder`: `features/coder` applied by a real Coder v2.38.6 server with a docker template (signed release applied; refused on a wrong halod sha256, a wrong release key and an archive whose `halod` is a symlink).
+- Coder module variable `subject` and Dev Container Feature option `subject`: written to `halod.yaml` for client-axis experiments; the Coder module defaults to the workspace owner's email. Requires coder provider >= 2.0.0.
+- `halod_url` / `halodUrl` accept a release archive (`halod_<ver>_linux_<arch>.tar.gz`): the sha256 pins the archive (as in `checksums.txt`) and only a top-level regular file `halod` is installed.
+
 ### Changed
 
+- Docs: the Dev Container Feature was run by hand in a real GitHub Codespace (release archive install, signed release applied, wrong key refused); a failed Codespaces build starts an ungoverned recovery container, and the guide says what controls still hold.
 - Release workflow: npm publishing uses trusted publishing only; the `NPM_TOKEN` secret and its gate check are gone (v0.6.1 published every package through OIDC). Docs point at v0.6.1.
 
 ## [0.6.1] - 2026-11-03

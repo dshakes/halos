@@ -17,6 +17,7 @@ HALODURL="${HALODURL:-}"
 HALODSHA256="${HALODSHA256:-}"
 GATEWAYHOST="${GATEWAYHOST:-}"
 FIREWALL="${FIREWALL:-false}"
+SUBJECT="${SUBJECT:-}"
 
 die() { echo "halos: $*" >&2; exit 1; }
 
@@ -30,6 +31,7 @@ die() { echo "halos: $*" >&2; exit 1; }
 [[ "$RING" =~ ^[a-z0-9][a-z0-9._-]{0,62}$ ]] || die "invalid ring"
 [[ "$REGISTRY" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*(:[0-9]{1,5})?(/[a-zA-Z0-9][a-zA-Z0-9._-]*)+$ ]] || die "invalid registry"
 [[ "$HALODURL" =~ ^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~%+@,=\&?{}-]*)*$ ]] || die "halodUrl must be a plain https URL"
+[[ "$SUBJECT" =~ ^[A-Za-z0-9._@+-]{0,256}$ ]] || die "invalid subject (max 256 characters from [A-Za-z0-9._@+-])"
 if [ -n "$GATEWAYHOST" ]; then
   [[ "$GATEWAYHOST" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]] || die "invalid gatewayHost"
 fi
@@ -67,11 +69,18 @@ fi
 [[ "$want" =~ ^[0-9a-fA-F]{64}$ ]] || die "halodSha256 missing or malformed for $arch"
 
 url="${HALODURL//\{os\}/$os}"; url="${url//\{arch\}/$arch}"
-tmp="$(mktemp)"; trap 'rm -f "$tmp"' EXIT
+tmp="$(mktemp)"; d="$(mktemp -d)"; trap 'rm -rf "$tmp" "$d"' EXIT
 curl -fsSL "$url" -o "$tmp"
 sha_check "$want" "$tmp" || die "halod sha256 mismatch"
+# A .tar.gz URL is a release archive (the pin above is the archive's checksum): take only the top-level regular file "halod".
+bin=$tmp
+if [[ "${url%%[?#]*}" == *.tar.gz ]]; then
+  tar -xzf "$tmp" -C "$d" halod || die "no top-level 'halod' member in the archive"
+  if [ -L "$d/halod" ] || [ ! -f "$d/halod" ]; then die "halod in the archive is not a regular file"; fi
+  bin=$d/halod
+fi
 install -d -o 0 -g 0 -m 0755 /usr/local/lib/halos /etc/halos /var/lib/halos
-install -o 0 -g 0 -m 0755 "$tmp" /usr/local/lib/halos/halod
+install -o 0 -g 0 -m 0755 "$bin" /usr/local/lib/halos/halod
 ln -sf /usr/local/lib/halos/halod /usr/local/bin/halod
 
 if [ -n "$PUBKEYPEM" ]; then
@@ -90,7 +99,10 @@ install -o 0 -g 0 -m 0644 "$tmp" /etc/halos/release.pub
 
 # halod refuses config/key/state that are not root-owned and non-writable by others.
 install -o 0 -g 0 -m 0644 /dev/null /etc/halos/halod.yaml
-printf 'registry: %s\norg: %s\nring: %s\npubkey: /etc/halos/release.pub\nos: linux\n' "$REGISTRY" "$ORG" "$RING" > /etc/halos/halod.yaml
+{
+  printf 'registry: %s\norg: %s\nring: %s\npubkey: /etc/halos/release.pub\nos: linux\n' "$REGISTRY" "$ORG" "$RING"
+  if [ -n "$SUBJECT" ]; then printf 'subject: "%s"\n' "$SUBJECT"; fi
+} > /etc/halos/halod.yaml
 
 # Always installed (the feature entrypoint runs it); it is a no-op without firewall-hosts.
 install -o 0 -g 0 -m 0755 "$(dirname "$0")/init-firewall.sh" /usr/local/bin/halos-init-firewall

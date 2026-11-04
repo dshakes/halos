@@ -3,10 +3,19 @@ title: Dev containers
 description: Apply a Halos release inside a Dev Container with the Halos Feature.
 ---
 
-:::caution[Verified in CI, not in Codespaces]
-The Feature lives in `features/halos/` and its options below are read from `devcontainer-feature.json`. CI builds it with the devcontainer CLI (`scripts/ci-devcontainer.sh`): a fixture dev container applies a real signed release from a TLS registry and the pinned Claude Code and the managed settings land in the container, and this repo's own `.devcontainer` is built and brought up. `make uat-clis` also runs the Feature's `install.sh` against Claude Code, Codex, Gemini CLI and Copilot CLI (Cursor CLI and OpenCode are not in that run). Not run: Codespaces, the `firewall` option (needs `NET_ADMIN`) and a published Feature OCI artifact (**UNVERIFIED**).
+:::caution[What is verified]
+The Feature lives in `features/halos/` and its options below are read from `devcontainer-feature.json`. CI builds it with the devcontainer CLI (`scripts/ci-devcontainer.sh`): a fixture dev container applies a real signed release from a TLS registry and the pinned Claude Code and the managed settings land in the container, and this repo's own `.devcontainer` is built and brought up. `make uat-clis` also runs the Feature's `install.sh` against Claude Code, Codex, Gemini CLI and Copilot CLI (Cursor CLI and OpenCode are not in that run).
+
+**GitHub Codespaces, run by hand on 2026-11-03** (2-core `basicLinux32gb`, x86_64): a `.devcontainer` using this Feature with `halodUrl` set to the v0.6.1 release archive (`halod_0.6.1_linux_{arch}.tar.gz`, pinned to its `checksums.txt` sha256), a signed release on ghcr.io and `subject` set. In the Codespace, `halod status` reported the published digest, Claude Code installed at the pinned version with no drift, and the managed settings root-owned with `disableBypassPermissionsMode: disable`. The same Codespace with a different `pubkeyPem` failed the build (`ed25519 signature matches none of the 1 trusted ed25519 keys`) and applied nothing. This is a manual run, not a CI job.
+
+Not run: the `firewall` option (needs `NET_ADMIN`) and a published Feature OCI artifact (**UNVERIFIED**).
 :::
 
+:::danger[Codespaces recovery container]
+When a Codespace build fails (for example a refused signature or a sha256 mismatch), Codespaces starts a **recovery container** (Alpine) instead of stopping. It has no Halos settings, no pinned CLIs and no gateway configuration, and it is not governed. A failed build is not the control: keep company provider keys only at the gateway so the container has no company credential to call a model with, and set `versionGate: enforce` on the ring. The `posture` gate checks the caller's enrolled devices, not this container, so it does not catch a user who brings their own gateway credential into it.
+:::
+
+## What the Feature does
 ## What the Feature does
 
 1. Installs `halod` from `halodUrl`, **refusing to proceed unless its sha256 matches** `halodSha256`.
@@ -23,7 +32,8 @@ The Feature lives in `features/halos/` and its options below are read from `devc
 | `ring` | `ga` | Ring to follow |
 | `pubkeyPem` | | ed25519 release public key, PKIX PEM contents (`\n`-escaped). Preferred |
 | `pubkey`, `pubkeySha256` | | https URL of the key and its sha256 (both or neither) |
-| `halodUrl` | | `halod` download URL; `{os}` and `{arch}` substituted |
+| `halodUrl` | | `halod` download URL; `{os}` and `{arch}` substituted. A raw binary, or a release archive when the path ends in `.tar.gz` (then `halodSha256` pins the archive, as in `checksums.txt`, and only a top-level regular file `halod` is installed) |
+| `subject` | | User id written to `halod.yaml` for client-axis experiments (`[A-Za-z0-9._@+-]`, max 256) |
 | `halodSha256` | | **Required.** sha256, or `amd64=<hex>,arm64=<hex>` |
 | `gatewayHost` | | Gateway hostname allowed through the firewall |
 | `firewall` | `false` | Egress allowlist; needs `NET_ADMIN` and `NET_RAW` |
