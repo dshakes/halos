@@ -158,7 +158,7 @@ Commands: `halo rollout plan | status | simulate | advance | rollback` ([docs](h
 
 | | |
 |---|---|
-| **Offline evals** | Replay real tasks in containers, N trials each. Reports pass@1, pass@k and pass^k, with paired bootstrap CIs on pass rate, cost, tokens and time. Flaky tasks are detected and excluded. Verdict: `ship`, `hold` or `block`. |
+| **Offline evals** | Replay real tasks in containers, N trials each. Reports pass@1, pass@k and pass^k, cost-of-pass (cost per solved task), turns per task, cost per turn and cache hit rate, with paired bootstrap CIs on every delta. Flaky tasks are detected and excluded. Verdict: `ship`, `hold` or `block`. Cost comes from Claude Code; for Codex and Gemini it is estimated from a pricing table. Turns come from Claude Code and Gemini; Codex does not report them. [What each CLI reports](https://dshakes.github.io/halos/concepts/evals/#efficiency-metrics). |
 | **Matrix** | Runs one suite across harness × model × provider (Claude Code vs Codex vs Gemini, Anthropic vs Bedrock) and produces a PR-ready report. |
 | **Online** | Shadow pairs are graded against a pinned LLM-judge rubric and land in the same evidence plane as cost, latency and errors. |
 | **Sequential stats** | mSPRT guardrails stop an experiment as soon as a regression is real, not at an arbitrary horizon. |
