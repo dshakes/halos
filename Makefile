@@ -118,6 +118,12 @@ uat-kong:
 uat-saml:
 	./scripts/uat-saml-keycloak.sh
 
+# features/coder against a real Coder server (pinned) with a docker template: signed release applied,
+# refusals on bad sha256 / wrong key / symlinked archive member (Docker, Go, openssl, python3).
+.PHONY: uat-coder
+uat-coder:
+	./scripts/uat-coder.sh
+
 .PHONY: uat-k8s
 uat-k8s:
 	./scripts/uat-k8s.sh

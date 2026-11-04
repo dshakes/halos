@@ -23,7 +23,8 @@ The Feature lives in `features/halos/` and its options below are read from `devc
 | `ring` | `ga` | Ring to follow |
 | `pubkeyPem` | | ed25519 release public key, PKIX PEM contents (`\n`-escaped). Preferred |
 | `pubkey`, `pubkeySha256` | | https URL of the key and its sha256 (both or neither) |
-| `halodUrl` | | `halod` download URL; `{os}` and `{arch}` substituted |
+| `halodUrl` | | `halod` download URL; `{os}` and `{arch}` substituted. A raw binary, or a release archive when the path ends in `.tar.gz` (then `halodSha256` pins the archive, as in `checksums.txt`, and only a top-level regular file `halod` is installed) |
+| `subject` | | User id written to `halod.yaml` for client-axis experiments (`[A-Za-z0-9._@+-]`, max 256) |
 | `halodSha256` | | **Required.** sha256, or `amd64=<hex>,arm64=<hex>` |
 | `gatewayHost` | | Gateway hostname allowed through the firewall |
 | `firewall` | `false` | Egress allowlist; needs `NET_ADMIN` and `NET_RAW` |
