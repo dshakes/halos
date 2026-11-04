@@ -4,7 +4,9 @@ description: Deliver releases to laptops with the halod agent, portal enrollment
 ---
 
 :::caution[UNVERIFIED on real devices]
-`halod` runs as root inside Linux containers in `make uat-clis`; CI runs it as a launchd daemon on a hosted macOS runner and as a SYSTEM scheduled task on a hosted Windows runner (`scripts/ci-delivery-*`), but not on real fleets. MDM exports (Jamf, Kandji, Intune) are generated and unit-tested but were **not pushed to any real tenant or device**, and the PowerShell they emit has not been executed (`install.ps1` and `enroll.ps1` are, in CI).
+`halod` runs as root inside Linux containers in `make uat-clis`; CI runs it as a launchd daemon on a hosted macOS runner and as a SYSTEM scheduled task on a hosted Windows runner (`scripts/ci-delivery-*`), but not on real fleets. CI job `delivery-macos` runs `halo export jamf` for a signed release, lints the `.mobileconfig` (`plutil -lint`, `com.anthropic.claudecode` payload, no bypass mode), runs the generated postinstall as root the way Jamf does, and checks the root-owned `halod`, the loaded launchd daemon, the managed settings and the release digest in `halod status`. CI job `delivery-windows` runs the exported Intune script elevated under Windows PowerShell 5.1 and checks the `HKLM\SOFTWARE\Policies\ClaudeCode` policy, the pinned `halod`, its ACLs, the SYSTEM startup task, the managed settings and the release digest. Both use a local registry and a local https file server with a test certificate, and add `plainHTTP: true` to `halod.yaml` because that registry is plain http.
+
+**Not verified:** a real Jamf, Kandji or Intune tenant, an MDM delivering or installing the profile (macOS refuses `profiles install` without MDM or user approval, so CI only lints and reads the `.mobileconfig` back), Claude Code reading the managed preferences or the registry policy, and real fleets. Kandji is assumed to accept the same `.mobileconfig` and script as Jamf; no Kandji tenant was used.
 :::
 
 Laptops are the weakest delivery path: a local admin can stop an agent or edit files. Use them as the last ring, and rely on the gateway for authoritative cohort and model enforcement.

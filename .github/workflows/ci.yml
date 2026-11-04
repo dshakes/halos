@@ -60,8 +60,9 @@ jobs:
       - run: go test -race ./cmd/... ./internal/...
   delivery-windows:
     # The Windows delivery path on a real (elevated) runner: install.ps1 against the real release,
-    # portal enroll.ps1, `halod service install` as the SYSTEM scheduled task, DACL assertions.
-    # Not covered: Intune, Authenticode, an interactive user, real vendor CLI installs.
+    # portal enroll.ps1, `halod service install` as the SYSTEM scheduled task, DACL assertions, and the
+    # `halo export intune` script run elevated under Windows PowerShell 5.1 (registry policy, halod task).
+    # Not covered: a real Intune tenant, Authenticode, an interactive user, real vendor CLI installs.
     runs-on: windows-latest
     timeout-minutes: 30
     env:
@@ -74,7 +75,8 @@ jobs:
         shell: pwsh
   delivery-macos:
     # The macOS delivery path on a hosted runner (passwordless sudo): install.sh, enroll.sh, and
-    # `halod service install` as a real launchd daemon. Not covered: Jamf/MDM, a console user.
+    # `halod service install` as a real launchd daemon, and the `halo export jamf` postinstall run as root.
+    # Not covered: a real Jamf/Kandji tenant, installing the .mobileconfig, a console user.
     runs-on: macos-latest
     timeout-minutes: 30
     env:
