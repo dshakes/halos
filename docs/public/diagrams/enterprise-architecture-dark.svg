@@ -1,12 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 1228" width="760" height="1228" role="img" aria-labelledby="t d" font-family="ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif">
 <title id="t">Halos enterprise architecture</title>
-<desc id="d">A policy repo is validated, planned and evaluated, then built into one signed OCI release that rings point at. The release reaches Claude Code, Codex, Gemini CLI, Copilot CLI, Cursor CLI and OpenCode three ways: laptops through MDM and halod, cloud workspaces through the Coder module, Codespaces and the Dev Container Feature, and CI through workload identity. Every model call goes through the halo-proxy or halo-kong gateway, which holds the provider keys and enforces identity, DLP, budgets, the kill switch and posture gates. halo-server holds fleet status, SSO, SCIM, RBAC, the signed audit chain exported to a SIEM, retention and the portal. Each box is marked verified in CI, verified by hand, UNVERIFIED or proposed.</desc>
+<desc id="d">A policy repo is validated, planned and evaluated, then built into one signed OCI release that rings point at. The release reaches Claude Code, Codex, Gemini CLI, Copilot CLI, Cursor CLI and OpenCode three ways: laptops through MDM and halod, cloud workspaces through the Coder module, Codespaces and the Dev Container Feature, and CI through workload identity. Every model call goes through the halo-proxy or halo-kong gateway, which holds the provider keys and enforces identity, DLP, budgets, the kill switch and posture gates. halo-server holds fleet status, SSO, SCIM, RBAC, the signed audit chain exported to a SIEM, retention and the portal. Each box is marked verified in CI, unit tests in CI, verified by hand, UNVERIFIED or proposed.</desc>
 <style>
 .cv{fill:#0c0c10;stroke:#1e1e24;stroke-width:1.5}
 .card{fill:#121217;stroke:#2a2a31;stroke-width:1.5}
 .soft{fill:url(#gs)}
 .ring{fill:none;stroke:url(#ga);stroke-width:1.5}
 .dcard{fill:#2a1414;stroke:#ff7a7a;stroke-width:1.5}
+.ucard{fill:none;stroke:#7db4ff;stroke-width:1.5}
 .ghost{fill:none;stroke:#5a564f;stroke-width:1.5;stroke-dasharray:4 4}
 .zone{fill:#0f0f14;stroke:#24242b;stroke-width:1.5}
 .chip{fill:#1a1a20;stroke:#2a2a31;stroke-width:1}
@@ -23,6 +24,7 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 .xw{fill:#16130f;font-weight:600}
 .k{font-size:10.5px;font-weight:600;letter-spacing:.08em;fill:#9a958b}
 .ka{fill:url(#ga)}
+.ku{fill:#7db4ff}
 .h1{font-size:42px;font-weight:700;letter-spacing:-.02em;fill:#f4f1ea}
 .ln,.la,.ld,.lm{fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
 .ln{stroke:#5a564f}.la{stroke:url(#ga)}.ld{stroke:#ff7a7a}.lm{stroke:#2a2a31}
@@ -80,9 +82,8 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <text class="t" x="52" y="172.5">Experiments</text>
 <text class="s" x="52" y="190.5">variants by ring</text>
 <rect class="card" x="272" y="138" width="216" height="60" rx="12" filter="url(#sh)"/>
-<rect class="soft" x="272" y="138" width="216" height="60" rx="12"/>
-<rect class="ring" x="272.75" y="138.75" width="214.5" height="58.5" rx="11.25"/>
-<text class="k ka" x="284" y="154.5">VERIFIED IN CI</text>
+<rect class="ucard" x="272.75" y="138.75" width="214.5" height="58.5" rx="11.25"/>
+<text class="k ku" x="284" y="154.5">UNIT TESTS IN CI</text>
 <text class="t" x="284" y="172.5">Promotion PR</text>
 <text class="s" x="284" y="190.5">a human merges</text>
 <rect class="card" x="504" y="138" width="216" height="60" rx="12" filter="url(#sh)"/>
@@ -164,19 +165,23 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <text class="k" x="480" y="857">UNVERIFIED</text>
 <text class="t td" x="480" y="875">Azure · Gemini · Bedrock · Vertex</text>
 <rect class="card" x="40.0" y="898" width="129.6" height="54" rx="12" filter="url(#sh)"/>
-<text class="k ka" x="50" y="919.5">VERIFIED IN CI</text>
+<rect class="ucard" x="40.75" y="898.75" width="128.1" height="52.5" rx="11.25"/>
+<text class="k ku" x="50" y="919.5">UNIT TESTS IN CI</text>
 <text class="t" x="50" y="937.5">SSO identity</text>
 <rect class="card" x="177.6" y="898" width="129.6" height="54" rx="12" filter="url(#sh)"/>
-<text class="k ka" x="187.6" y="919.5">VERIFIED IN CI</text>
+<rect class="ucard" x="178.35" y="898.75" width="128.1" height="52.5" rx="11.25"/>
+<text class="k ku" x="187.6" y="919.5">UNIT TESTS IN CI</text>
 <text class="t" x="187.6" y="937.5">DLP</text>
 <rect class="card" x="315.2" y="898" width="129.6" height="54" rx="12" filter="url(#sh)"/>
-<text class="k ka" x="325.2" y="919.5">VERIFIED IN CI</text>
+<rect class="ucard" x="315.95" y="898.75" width="128.1" height="52.5" rx="11.25"/>
+<text class="k ku" x="325.2" y="919.5">UNIT TESTS IN CI</text>
 <text class="t" x="325.2" y="937.5">Budgets</text>
 <rect class="card" x="452.8" y="898" width="129.6" height="54" rx="12" filter="url(#sh)"/>
 <text class="k ka" x="462.8" y="919.5">VERIFIED IN CI</text>
 <text class="t" x="462.8" y="937.5">Kill switch</text>
 <rect class="card" x="590.4" y="898" width="129.6" height="54" rx="12" filter="url(#sh)"/>
-<text class="k ka" x="600.4" y="919.5">VERIFIED IN CI</text>
+<rect class="ucard" x="591.15" y="898.75" width="128.1" height="52.5" rx="11.25"/>
+<text class="k ku" x="600.4" y="919.5">UNIT TESTS IN CI</text>
 <text class="t" x="600.4" y="937.5">Posture gates</text>
 <path class="ln" d="M300 970L300 1000"/>
 <path class="ln hd" d="M296.6 994.5L300 1000L303.4 994.5"/>
@@ -190,7 +195,8 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <text class="k ka" x="52" y="1064.5">VERIFIED IN CI</text>
 <text class="t" x="52" y="1082.5">OIDC + SAML login</text>
 <rect class="card" x="212.5" y="1044" width="162.5" height="52" rx="12" filter="url(#sh)"/>
-<text class="k ka" x="224.5" y="1064.5">VERIFIED IN CI</text>
+<rect class="ucard" x="213.25" y="1044.75" width="161.0" height="50.5" rx="11.25"/>
+<text class="k ku" x="224.5" y="1064.5">UNIT TESTS IN CI</text>
 <text class="t" x="224.5" y="1082.5">SCIM + RBAC</text>
 <rect class="card" x="385.0" y="1044" width="162.5" height="52" rx="12" filter="url(#sh)"/>
 <text class="k ka" x="397" y="1064.5">VERIFIED IN CI</text>
@@ -199,13 +205,16 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <text class="k ka" x="569.5" y="1064.5">VERIFIED IN CI</text>
 <text class="t" x="569.5" y="1082.5">Self-service portal</text>
 <rect class="card" x="40.0" y="1106" width="162.5" height="52" rx="12" filter="url(#sh)"/>
-<text class="k ka" x="52" y="1126.5">VERIFIED IN CI</text>
+<rect class="ucard" x="40.75" y="1106.75" width="161.0" height="50.5" rx="11.25"/>
+<text class="k ku" x="52" y="1126.5">UNIT TESTS IN CI</text>
 <text class="t" x="52" y="1144.5">Signed audit chain</text>
 <rect class="card" x="212.5" y="1106" width="162.5" height="52" rx="12" filter="url(#sh)"/>
-<text class="k ka" x="224.5" y="1126.5">VERIFIED IN CI</text>
+<rect class="ucard" x="213.25" y="1106.75" width="161.0" height="50.5" rx="11.25"/>
+<text class="k ku" x="224.5" y="1126.5">UNIT TESTS IN CI</text>
 <text class="t" x="224.5" y="1144.5">SIEM export</text>
 <rect class="card" x="385.0" y="1106" width="162.5" height="52" rx="12" filter="url(#sh)"/>
-<text class="k ka" x="397" y="1126.5">VERIFIED IN CI</text>
+<rect class="ucard" x="385.75" y="1106.75" width="161.0" height="50.5" rx="11.25"/>
+<text class="k ku" x="397" y="1126.5">UNIT TESTS IN CI</text>
 <text class="t" x="397" y="1144.5">Retention + erasure</text>
 <rect class="card" x="557.5" y="1106" width="162.5" height="52" rx="12" filter="url(#sh)"/>
 <rect class="dcard" x="558.25" y="1106.75" width="161.0" height="50.5" rx="11.25"/>
@@ -213,10 +222,12 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 <text class="t td" x="569.5" y="1144.5">Okta · Entra · ADFS</text>
 <rect class="card" x="40" y="1193" width="18" height="14" rx="4"/>
 <text class="xs" x="66" y="1204">verified in CI</text>
-<rect class="card" x="163.305" y="1193" width="18" height="14" rx="4"/>
-<text class="xs" x="189.305" y="1204">verified by hand</text>
-<rect class="dcard" x="298.055" y="1193" width="18" height="14" rx="4"/>
-<text class="xs" x="324.055" y="1204">UNVERIFIED</text>
-<rect class="ghost" x="424.40500000000003" y="1193" width="18" height="14" rx="4"/>
-<text class="xs" x="450.405" y="1204">proposed</text>
+<rect class="ucard" x="163.305" y="1193" width="18" height="14" rx="4"/>
+<text class="xs" x="189.305" y="1204">unit tests in CI</text>
+<rect class="card" x="294.485" y="1193" width="18" height="14" rx="4"/>
+<text class="xs" x="320.485" y="1204">verified by hand</text>
+<rect class="dcard" x="429.235" y="1193" width="18" height="14" rx="4"/>
+<text class="xs" x="455.235" y="1204">UNVERIFIED</text>
+<rect class="ghost" x="555.585" y="1193" width="18" height="14" rx="4"/>
+<text class="xs" x="581.585" y="1204">proposed</text>
 </svg>

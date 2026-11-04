@@ -5,8 +5,8 @@ const b = import.meta.env.BASE_URL.replace(/\/$/, '');
 const gh = 'https://github.com/dshakes/halos/blob/main/';
 const g = (p: string) => `${b}/${p}/`;
 
-type St = 'ci' | 'hand' | 'unv' | 'prop';
-const ST: Record<St, string> = { ci: 'Verified in CI', hand: 'Verified by hand', unv: 'UNVERIFIED', prop: 'Proposed' };
+type St = 'ci' | 'unit' | 'hand' | 'unv' | 'prop';
+const ST: Record<St, string> = { ci: 'Verified in CI', unit: 'Unit tests in CI', hand: 'Verified by hand', unv: 'UNVERIFIED', prop: 'Proposed' };
 type N = {
   id: string; t: string; s?: string; st: St; x: number; y: number; w: number; h: number;
   paths?: string[]; // delivery paths this node sits on; omitted = on every path
@@ -36,7 +36,7 @@ const nodes: N[] = [
     what: 'A/B tests of models, prompts and CLI versions on a ring, with deterministic assignment and sequential statistics.',
     how: ['halo exp analyze'], status: 'Auto-rollback and kill propagation pass in the Kubernetes UAT; statistics are unit-tested.',
     ev: [['test/uat/REPORT.md', gh + 'test/uat/REPORT.md']], guide: [['Experiments', g('concepts/experiments')]] },
-  { id: 'pr', t: 'Promotion PR', s: 'a human merges', st: 'ci', x: 272, y: 138, w: 216, h: 60,
+  { id: 'pr', t: 'Promotion PR', s: 'a human merges', st: 'unit', x: 272, y: 138, w: 216, h: 60,
     what: 'Promotion opens a pull request (GitHub or GitLab). Halos never merges and never promotes on its own.',
     how: ['halo exp analyze', 'propose_promotion (MCP, dry run by default)'], status: 'A forge test asserts no recorded request could merge, enable auto-merge or approve. Live GitHub and GitLab flows are not covered by evidence in the docs.',
     ev: [['internal/promote/forge_test.go', gh + 'internal/promote/forge_test.go']], guide: [['Experiments', g('concepts/experiments')], ['Change governance', g('guides/change-governance')]] },
@@ -101,15 +101,15 @@ const nodes: N[] = [
     what: 'Supported upstreams. The smoke workflow has a matrix entry for each.',
     status: 'The entries skip until their secrets are set, so no live call is evidenced. Bedrock via Kong is documented separately.',
     ev: [['Provider smoke guide', g('guides/provider-smoke')]], guide: [['Provider smoke', g('guides/provider-smoke')], ['Bedrock via Kong', g('guides/bedrock-via-kong')]] },
-  { id: 'sso', t: 'SSO identity', st: 'ci', x: 40, y: 898, w: 129.6, h: 54,
+  { id: 'sso', t: 'SSO identity', st: 'unit', x: 40, y: 898, w: 129.6, h: 54,
     what: 'OIDC JWT verified on every request (iss, aud, exp, nbf; RS256, ES256, EdDSA only). Cohort comes from the identity, never from headers.',
     status: 'Unit-tested in cmd/halo-proxy; the portal OIDC login passes in the Kubernetes UAT.',
     ev: [['cmd/halo-proxy/security_test.go', gh + 'cmd/halo-proxy/security_test.go']], guide: [['Agent identity', g('guides/agent-identity')]] },
-  { id: 'dlp', t: 'DLP', st: 'ci', x: 177.6, y: 898, w: 129.6, h: 54,
+  { id: 'dlp', t: 'DLP', st: 'unit', x: 177.6, y: 898, w: 129.6, h: 54,
     what: 'Secret and prompt-injection detectors on model traffic; findings become audit entries.',
     status: 'Unit-tested (cmd/halo-proxy/dlp_test.go). Not in an end-to-end UAT row.',
     ev: [['cmd/halo-proxy/dlp_test.go', gh + 'cmd/halo-proxy/dlp_test.go']], guide: [['DLP', g('guides/dlp')]] },
-  { id: 'budgets', t: 'Budgets', st: 'ci', x: 315.2, y: 898, w: 129.6, h: 54,
+  { id: 'budgets', t: 'Budgets', st: 'unit', x: 315.2, y: 898, w: 129.6, h: 54,
     what: 'Spend metering per user, group, ring or org, charged on every request.',
     status: 'Unit-tested (cmd/halo-proxy/budget_test.go, internal/server). Not in an end-to-end UAT row.',
     ev: [['cmd/halo-proxy/budget_test.go', gh + 'cmd/halo-proxy/budget_test.go']], guide: [['Cost budgets', g('guides/cost-budgets')]] },
@@ -118,7 +118,7 @@ const nodes: N[] = [
     how: ['halo toggle kill <name>'],
     status: 'Kill and unkill pass at the gateway (within its poll interval) and on the device (within the 60 s kill poll) in the Kubernetes UAT.',
     ev: [['test/uat/REPORT.md', gh + 'test/uat/REPORT.md']], guide: [['Kill a bad change', g('tutorials/kill-a-bad-change')]] },
-  { id: 'posture', t: 'Posture gates', st: 'ci', x: 590.4, y: 898, w: 129.6, h: 54,
+  { id: 'posture', t: 'Posture gates', st: 'unit', x: 590.4, y: 898, w: 129.6, h: 54,
     what: 'posture checks the caller\'s enrolled devices reported recently with no drift; versionGate checks the CLI version from the User-Agent. Each is off, warn (default) or enforce.',
     how: ['posture: enforce', 'versionGate: enforce'],
     status: 'Unit-tested (internal/server/posture_test.go, cmd/halo-proxy/gate_test.go). Not in an end-to-end UAT row.',
@@ -128,7 +128,7 @@ const nodes: N[] = [
     what: 'Console and portal login by OIDC or SAML.',
     how: ['make uat-saml'], status: 'SAML: make uat-saml (CI job uat-saml) against Keycloak 26.4.7. OIDC: portal login passes in the Kubernetes UAT. Okta, Entra and ADFS steps are not run against live tenants.',
     ev: [['scripts/uat-saml-keycloak.sh', gh + 'scripts/uat-saml-keycloak.sh'], ['test/uat/REPORT.md', gh + 'test/uat/REPORT.md']], guide: [['SAML', g('guides/sso-saml')], ['Okta', g('guides/sso-okta')], ['Entra', g('guides/sso-entra')]] },
-  { id: 'scim', t: 'SCIM + RBAC', st: 'ci', x: 212.5, y: 1044, w: 162.5, h: 52,
+  { id: 'scim', t: 'SCIM + RBAC', st: 'unit', x: 212.5, y: 1044, w: 162.5, h: 52,
     what: 'SCIM provisioning and deprovisioning (a deprovisioned user is refused 403 at the gateway), and role bindings for console access.',
     status: 'Unit-tested (internal/server/scim_test.go, rbac_test.go). No live IdP SCIM client is evidenced.',
     ev: [['internal/server/scim_test.go', gh + 'internal/server/scim_test.go'], ['internal/server/rbac_test.go', gh + 'internal/server/rbac_test.go']], guide: [['SCIM', g('guides/scim-provisioning')], ['Admin access', g('guides/admin-access')]] },
@@ -140,17 +140,17 @@ const nodes: N[] = [
     what: 'Developer self-enrollment and launchers: one-time token, checksum-pinned halod, release public key.',
     status: 'OIDC portal login and a laptop enroll.sh run pass in the Kubernetes UAT. The Codespaces launcher is UNVERIFIED.',
     ev: [['test/uat/REPORT.md', gh + 'test/uat/REPORT.md']], guide: [['Self-service portal', g('concepts/self-service-portal')]] },
-  { id: 'audit', t: 'Signed audit chain', st: 'ci', x: 40, y: 1106, w: 162.5, h: 52,
+  { id: 'audit', t: 'Signed audit chain', st: 'unit', x: 40, y: 1106, w: 162.5, h: 52,
     what: 'Privileged actions in a hash chain (seq, prev, hash). With --audit-signing-key-uri the checkpoints are signed (ADR-0041). Tail truncation is only detectable against the SIEM copy.',
     how: ['halo-server --audit-signing-key-uri ...', 'halo audit verify --anchor'],
     status: 'Unit-tested (internal/server/audit_test.go, lifecycle_security_test.go).',
     ev: [['internal/server/audit_test.go', gh + 'internal/server/audit_test.go']], guide: [['Security model', g('concepts/security-model')], ['SIEM export', g('guides/siem-export')]] },
-  { id: 'siem', t: 'SIEM export', st: 'ci', x: 212.5, y: 1106, w: 162.5, h: 52,
+  { id: 'siem', t: 'SIEM export', st: 'unit', x: 212.5, y: 1106, w: 162.5, h: 52,
     what: 'At-least-once, in-order forwarding to Splunk HEC, Datadog, an HTTPS endpoint or syslog over TLS, in native or OCSF format.',
     how: ['halo-server --data-dir D --audit-config audit.json'],
     status: 'Unit-tested (internal/server/audit_export_test.go). The docs do not claim a run against a real Splunk or Datadog tenant.',
     ev: [['internal/server/audit_export_test.go', gh + 'internal/server/audit_export_test.go']], guide: [['SIEM export', g('guides/siem-export')]] },
-  { id: 'erase', t: 'Retention + erasure', st: 'ci', x: 385, y: 1106, w: 162.5, h: 52,
+  { id: 'erase', t: 'Retention + erasure', st: 'unit', x: 385, y: 1106, w: 162.5, h: 52,
     what: 'Per-store retention (audit retention is unbounded by default) and a two-admin erasure workflow (ADR-0040).',
     how: ['--retention-audit 9528h', 'POST /api/v1/users/erase  {"dryRun": true}'],
     status: 'Unit-tested (internal/server/lifecycle_security_test.go).',
@@ -228,7 +228,8 @@ const pathBtns = [['all', 'All paths'], ['laptops', 'Laptops / MDM'], ['cloud', 
 </div>
 
 <style is:global>
-  .ea { margin: 1.5rem 0; }
+  .ea { margin: 1.5rem 0; --ea-unit: #1f5a99; }
+  :root[data-theme='dark'] .ea { --ea-unit: #7db4ff; }
   .ea-static img { display: block; max-width: 100%; height: auto; margin: 0 auto; }
   .ea.is-live .ea-static { display: none; }
   .ea-bar { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: 1rem; }
@@ -246,6 +247,8 @@ const pathBtns = [['all', 'All paths'], ['laptops', 'Laptops / MDM'], ['cloud', 
   .ea-n { cursor: pointer; outline: none; transition: opacity .15s; }
   .ea-n rect { fill: var(--sl-color-bg); stroke: var(--sl-color-hairline); stroke-width: 1.5; }
   .ea-n.st-unv rect { stroke: var(--sl-color-red); fill: var(--sl-color-red-low); }
+  .ea-n.st-unit rect { stroke: var(--ea-unit); }
+  .ea-n.st-unit .ea-k { fill: var(--ea-unit); }
   .ea-n.st-prop rect { stroke-dasharray: 4 4; fill: none; }
   .ea-k { fill: var(--sl-color-accent-high); }
   .ea-n.st-unv .ea-k { fill: var(--sl-color-red-high); }
@@ -265,6 +268,7 @@ const pathBtns = [['all', 'All paths'], ['laptops', 'Laptops / MDM'], ['cloud', 
   .ea-panel code { overflow-wrap: anywhere; font-size: .85em; }
   .ea-links { list-style: none; padding-left: 0 !important; }
   .ea-badge { display: inline-block; padding: .1rem .6rem; border: 1px solid var(--sl-color-hairline); border-radius: 999px; font-weight: 600; font-size: var(--sl-text-xs); }
+  .ea-badge.st-unit { border-color: var(--ea-unit); color: var(--ea-unit); }
   .ea-badge.st-unv { border-color: var(--sl-color-red); color: var(--sl-color-red-high); }
   .ea-hint { color: var(--sl-color-gray-2); }
   @media (prefers-reduced-motion: reduce) { .ea-n { transition: none; } }

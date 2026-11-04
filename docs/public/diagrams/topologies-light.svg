@@ -7,6 +7,7 @@
 .soft{fill:url(#gs)}
 .ring{fill:none;stroke:url(#ga);stroke-width:1.5}
 .dcard{fill:#fbedea;stroke:#b42323;stroke-width:1.5}
+.ucard{fill:none;stroke:#1f5a99;stroke-width:1.5}
 .ghost{fill:none;stroke:#a89f90;stroke-width:1.5;stroke-dasharray:4 4}
 .zone{fill:#f3ece0;stroke:#e0d5c2;stroke-width:1.5}
 .chip{fill:#f3ece0;stroke:#e3d9c8;stroke-width:1}
@@ -23,6 +24,7 @@ text{font-family:ui-sans-serif,-apple-system,Inter,'Segoe UI',sans-serif}
 .xw{fill:#fffdf9;font-weight:600}
 .k{font-size:10.5px;font-weight:600;letter-spacing:.08em;fill:#655e52}
 .ka{fill:url(#ga)}
+.ku{fill:#1f5a99}
 .h1{font-size:42px;font-weight:700;letter-spacing:-.02em;fill:#16130f}
 .ln,.la,.ld,.lm{fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
 .ln{stroke:#a89f90}.la{stroke:url(#ga)}.ld{stroke:#b42323}.lm{stroke:#e3d9c8}

@@ -9,7 +9,7 @@ Halos governs Claude Code, Codex, Gemini CLI, Copilot CLI, Cursor CLI and OpenCo
 
 <EnterpriseArchitecture />
 
-Statuses use one vocabulary: **verified in CI** (a CI job or test exercises it), **verified by hand** (run once by a person, dated), **UNVERIFIED** (implemented or documented, never run against the real thing) and **proposed** (not built).
+Statuses use one vocabulary: **verified in CI** (an end-to-end or UAT run in CI exercises it), **unit tests in CI** (only `go test` covers it; no end-to-end run), **verified by hand** (run once by a person, dated), **UNVERIFIED** (implemented or documented, never run against the real thing) and **proposed** (not built).
 
 ## The control plane
 
@@ -52,5 +52,5 @@ Every model call goes through `halo-proxy` or `halo-kong`, which holds the provi
 | CI workload identity | UNVERIFIED: unit tests against a local issuer only | [CI and cloud agents](/halos/guides/ci-and-cloud-agents/) |
 | SAML | Verified in CI against Keycloak 26.4.7 (`make uat-saml`); Okta, Entra and ADFS UNVERIFIED | [SAML](/halos/guides/sso-saml/) |
 | Fleet scale | 10,000 simulated devices on one replica, 0 errors (`make load-fleet`); no real devices | [Operations](/halos/guides/operations/#sizing-halo-server) |
-| DLP, budgets, posture, SCIM, RBAC, audit chain, SIEM export, erasure | Verified in CI by unit tests only; no end-to-end UAT row, no live SIEM tenant claimed | [Security model](/halos/concepts/security-model/) |
+| Gateway SSO identity, DLP, budgets, posture gates; SCIM, RBAC, audit chain, SIEM export, erasure; promotion PR (never merges) | Unit tests in CI only; no end-to-end UAT row, no live SIEM tenant claimed | [Security model](/halos/concepts/security-model/) |
 | Self-hosted agent workspaces | Proposed, not implemented | [ADR-0042](/halos/adr/0042-self-hosted-agent-workspaces/) |

@@ -46,6 +46,7 @@ THEMES = {
         shadow="#3c280a",
         shadow_op=0.08,
         chip="#f3ece0",
+        unit="#1f5a99",
         on_accent="#fffdf9",
     ),
     "dark": dict(
@@ -67,6 +68,7 @@ THEMES = {
         shadow="#000000",
         shadow_op=0.5,
         chip="#1a1a20",
+        unit="#7db4ff",
         on_accent="#16130f",
     ),
 }
@@ -166,6 +168,10 @@ class D:
                 self.add(
                     f'<rect class="ring" x="{x + 0.75}" y="{y + 0.75}" width="{w - 1.5}" height="{h - 1.5}" rx="{rx - 0.75}"/>'
                 )
+            elif kind == "unit":
+                self.add(
+                    f'<rect class="ucard" x="{x + 0.75}" y="{y + 0.75}" width="{w - 1.5}" height="{h - 1.5}" rx="{rx - 0.75}"/>'
+                )
             elif kind == "danger":
                 self.add(
                     f'<rect class="dcard" x="{x + 0.75}" y="{y + 0.75}" width="{w - 1.5}" height="{h - 1.5}" rx="{rx - 0.75}"/>'
@@ -178,7 +184,9 @@ class D:
         anchor = "middle" if center else "start"
         if kicker:
             fits(kicker.upper(), 10.5, inner, 600, False, self.name)
-            self.kicker(tx, cy, kicker, accent=kind != "danger", anchor=anchor)
+            self.kicker(tx, cy, kicker, accent=kind not in ("danger", "unit"), anchor=anchor)
+            if kind == "unit":
+                self.body[-1] = self.body[-1].replace('class="k"', 'class="k ku"')
             cy += 16
         if title:
             cls = "tm" if title_mono else "t"
@@ -323,6 +331,7 @@ STYLE = """
 .soft{{fill:url(#gs)}}
 .ring{{fill:none;stroke:url(#ga);stroke-width:1.5}}
 .dcard{{fill:{danger_soft};stroke:{danger};stroke-width:1.5}}
+.ucard{{fill:none;stroke:{unit};stroke-width:1.5}}
 .ghost{{fill:none;stroke:{line};stroke-width:1.5;stroke-dasharray:4 4}}
 .zone{{fill:{zone};stroke:{zone_line};stroke-width:1.5}}
 .chip{{fill:{chip};stroke:{card_line};stroke-width:1}}
@@ -339,6 +348,7 @@ text{{font-family:{SANS}}}
 .xw{{fill:{on_accent};font-weight:600}}
 .k{{font-size:10.5px;font-weight:600;letter-spacing:.08em;fill:{text3}}}
 .ka{{fill:url(#ga)}}
+.ku{{fill:{unit}}}
 .h1{{font-size:42px;font-weight:700;letter-spacing:-.02em;fill:{text}}}
 .ln,.la,.ld,.lm{{fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}}
 .ln{{stroke:{line}}}.la{{stroke:url(#ga)}}.ld{{stroke:{danger}}}.lm{{stroke:{card_line}}}
@@ -3037,6 +3047,7 @@ def enterprise_architecture():
     """One control plane, three delivery paths, one gateway. Every box carries its verification status."""
     ST = {
         "ci": ("Verified in CI", "card"),
+        "unit": ("Unit tests in CI", "unit"),
         "hand": ("Verified by hand", "card"),
         "unv": ("UNVERIFIED", "danger"),
         "prop": ("Proposed", "ghost"),
@@ -3052,7 +3063,7 @@ def enterprise_architecture():
         "and CI through workload identity. Every model call goes through the halo-proxy or halo-kong gateway, which "
         "holds the provider keys and enforces identity, DLP, budgets, the kill switch and posture gates. halo-server "
         "holds fleet status, SSO, SCIM, RBAC, the signed audit chain exported to a SIEM, retention and the portal. "
-        "Each box is marked verified in CI, verified by hand, UNVERIFIED or proposed.",
+        "Each box is marked verified in CI, unit tests in CI, verified by hand, UNVERIFIED or proposed.",
     )
 
     def box(x, y, w, h, title, sub, st, pad=12, kind=None):
@@ -3081,10 +3092,10 @@ def enterprise_architecture():
     y2 = y + 40 + 64 + 10
     for i, (t, sb, kd) in enumerate([
         ("Experiments", "variants by ring", "card"),
-        ("Promotion PR", "a human merges", "accent"),
+        ("Promotion PR", "a human merges", "unit"),
         ("Auto-rollback", "only automatic way", "card"),
     ]):
-        d.card(IN + i * 232, y2, 216, 60, t, [sb], kind=kd, kicker="Verified in CI", pad=12)
+        d.card(IN + i * 232, y2, 216, 60, t, [sb], kind=kd, kicker="Unit tests in CI" if kd == "unit" else "Verified in CI", pad=12)
     zb = y + 188
     down(380, zb + 2, zb + GAP - 4, "same signed release, signature checked on arrival", "accent")
 
@@ -3125,8 +3136,8 @@ def enterprise_architecture():
     box(472, y + 40, 248, 51, "Anthropic · OpenAI", None, "ci", pad=8)
     box(472, y + 101, 248, 51, "Azure · Gemini · Bedrock · Vertex", None, "unv", pad=8)
     cw = (680 - 4 * 8) / 5
-    for i, t in enumerate(["SSO identity", "DLP", "Budgets", "Kill switch", "Posture gates"]):
-        d.card(round(IN + i * (cw + 8), 1), y + 162, round(cw, 1), 54, t, kind="card", kicker="Verified in CI", pad=10)
+    for i, (t, u) in enumerate([("SSO identity", 1), ("DLP", 1), ("Budgets", 1), ("Kill switch", 0), ("Posture gates", 1)]):
+        d.card(round(IN + i * (cw + 8), 1), y + 162, round(cw, 1), 54, t, kind="unit" if u else "card", kicker="Unit tests in CI" if u else "Verified in CI", pad=10)
     zb = y + 232
     down(300, zb + 2, zb + GAP - 4, "kill list · posture verdicts", "line")
     down(540, zb + 2, zb + GAP - 4, "audit · telemetry", "line", up=True)
@@ -3136,12 +3147,12 @@ def enterprise_architecture():
     d.zone(X0, y, 712, 176, "halo-server · fleet, identity, audit")
     sv = [
         ("OIDC + SAML login", "ci"),
-        ("SCIM + RBAC", "ci"),
+        ("SCIM + RBAC", "unit"),
         ("Fleet status", "ci"),
         ("Self-service portal", "ci"),
-        ("Signed audit chain", "ci"),
-        ("SIEM export", "ci"),
-        ("Retention + erasure", "ci"),
+        ("Signed audit chain", "unit"),
+        ("SIEM export", "unit"),
+        ("Retention + erasure", "unit"),
     ]
     w4 = (680 - 3 * 10) / 4
     for i, (t, st) in enumerate(sv):
@@ -3152,8 +3163,8 @@ def enterprise_architecture():
     # legend -----------------------------------------------------------------
     ly = y + 176 + 22
     x = IN
-    for kind, label in [("card", "verified in CI"), ("card", "verified by hand"), ("dcard", "UNVERIFIED"), ("ghost", "proposed")]:
-        cls = {"card": "card", "dcard": "dcard", "ghost": "ghost"}[kind]
+    for kind, label in [("card", "verified in CI"), ("ucard", "unit tests in CI"), ("card", "verified by hand"), ("dcard", "UNVERIFIED"), ("ghost", "proposed")]:
+        cls = {"card": "card", "ucard": "ucard", "dcard": "dcard", "ghost": "ghost"}[kind]
         d.add(f'<rect class="{cls}" x="{x}" y="{ly - 9}" width="18" height="14" rx="4"/>')
         d.text(x + 26, ly + 2, label, "xs")
         x += 26 + tw(label, 10.5, 500) + 30
