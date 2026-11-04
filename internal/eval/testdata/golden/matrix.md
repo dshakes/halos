@@ -11,6 +11,17 @@ Control: `claude@2.1.312/sonnet/anthropic`
 | codex@0.100.0/gpt-5/anthropic | 9 | 66.7% (33.3-100.0) | 66.7% | 66.7% | $0.3500 | 36.0s | 42.0s | 117 | 0 | 0 |
 | gemini@0.35.0/gemini-2.5-pro/anthropic | 9 | 100.0% (100.0-100.0) | 100.0% | 100.0% | $0.1200 | 72.0s | 84.0s | 117 | 0 | 0 |
 
+## Efficiency
+
+| Variant | Cost/task | Cost-of-pass | Turns/task (p50/p95) | Cost/turn | Tokens/task | Tokens/turn | Output share | Cache hit |
+|---|---|---|---|---|---|---|---|---|
+| claude@2.1.312/sonnet/anthropic | $0.2000 | $0.2250 | - | - | 21000 | - | - | - |
+| claude@2.1.312/sonnet/bedrock | $0.2100 | $0.2362 | - | - | 21000 | - | - | - |
+| codex@0.100.0/gpt-5/anthropic | $0.3500 | $0.5250 | - | - | 21000 | - | - | - |
+| gemini@0.35.0/gemini-2.5-pro/anthropic | $0.1200 | $0.1200 | - | - | 21000 | - | - | - |
+
+Cost-of-pass is total cost / solved trials: the expected spend per solved task. "-": the harness does not report it; "~": estimated from the suite's `pricing` table.
+
 ## Paired comparison vs control
 
 | Variant | Tasks | Delta pass rate (95% CI) | Verdict |
@@ -27,9 +38,12 @@ Control: `claude@2.1.312/sonnet/anthropic`
 |---|---|---|
 | pass_rate | 100.0% | +0.0 pp (+0.0 to +0.0) |
 | cost_usd | 0.2000 | +0.0100 (+0.0100 to +0.0100) |
+| cost_of_pass | 0.2000 | +0.0100 (+0.0100 to +0.0100) |
 | tokens | 20500 | +0 (+0 to +0) |
 | wall_ms | 33500 | +0 (+0 to +0) |
 | tool_calls | 12.5 | +0.0 (+0.0 to +0.0) |
+
+Deltas are paired by task over non-flaky tasks (95% bootstrap CI), so a baseline here can differ from the efficiency table.
 
 Flaky tasks (excluded from the gate):
 
@@ -49,6 +63,8 @@ Flaky tasks (excluded from the gate):
 | wall_ms | 33500 | +0 (+0 to +0) |
 | tool_calls | 12.5 | +0.0 (+0.0 to +0.0) |
 
+Deltas are paired by task over non-flaky tasks (95% bootstrap CI), so a baseline here can differ from the efficiency table.
+
 Regressed tasks:
 
 - `flag`: 100% -> 0%
@@ -65,9 +81,12 @@ Flaky tasks (excluded from the gate):
 |---|---|---|
 | pass_rate | 100.0% | +0.0 pp (+0.0 to +0.0) |
 | cost_usd | 0.2000 | -0.0800 (-0.0800 to -0.0800) |
+| cost_of_pass | 0.2000 | -0.0800 (-0.0800 to -0.0800) |
 | tokens | 20500 | +0 (+0 to +0) |
 | wall_ms | 33500 | +33500 (+31000 to +36000) |
 | tool_calls | 12.5 | +0.0 (+0.0 to +0.0) |
+
+Deltas are paired by task over non-flaky tasks (95% bootstrap CI), so a baseline here can differ from the efficiency table.
 
 Flaky tasks (excluded from the gate):
 
@@ -75,10 +94,10 @@ Flaky tasks (excluded from the gate):
 
 <!-- terminal table -->
 ```
-VARIANT                                 PASS@1  PASS@2  PASS^2    $/TASK      P50  TOOLS  VERDICT
-claude@2.1.312/sonnet/anthropic            89%    100%     78%    $0.200    36.0s   13.0  baseline
-claude@2.1.312/sonnet/bedrock              89%    100%     78%    $0.210    36.0s   13.0  ship
-codex@0.100.0/gpt-5/anthropic              67%     67%     67%    $0.350    36.0s   13.0  block
-gemini@0.35.0/gemini-2.5-pro/anthropic    100%    100%    100%    $0.120    72.0s   13.0  ship
+VARIANT                                 PASS@1  PASS@2  PASS^2    $/TASK    $/PASS  TURNS      P50  TOOLS  VERDICT
+claude@2.1.312/sonnet/anthropic            89%    100%     78%    $0.200    $0.225      -    36.0s   13.0  baseline
+claude@2.1.312/sonnet/bedrock              89%    100%     78%    $0.210    $0.236      -    36.0s   13.0  ship
+codex@0.100.0/gpt-5/anthropic              67%     67%     67%    $0.350    $0.525      -    36.0s   13.0  block
+gemini@0.35.0/gemini-2.5-pro/anthropic    100%    100%    100%    $0.120    $0.120      -    72.0s   13.0  ship
 gate: BLOCK
 ```

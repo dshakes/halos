@@ -348,3 +348,31 @@ func TestClusterBootstrapMean(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestPairedRatioBootstrap(t *testing.T) {
+	// Control: 10 cost over 5 turns per task (2/turn); treatment: 12 over 4 (3/turn).
+	nc, dc := []float64{10, 10, 10, 10}, []float64{5, 5, 5, 5}
+	nt, dt := []float64{12, 12, 12, 12}, []float64{4, 4, 4, 4}
+	r, base, err := PairedRatioBootstrap(nc, dc, nt, dt, 500, 1, 0.05)
+	if err != nil || base != 2 || r.Mean != 1 || r.CILo != 1 || r.CIHi != 1 {
+		t.Fatalf("got %+v base %v err %v", r, base, err)
+	}
+	// Ratio of sums, not mean of ratios: treatment 11/10 = 1.1 (mean of per-task ratios would be 1.5).
+	r, base, err = PairedRatioBootstrap([]float64{1, 9}, []float64{1, 9}, []float64{2, 9}, []float64{1, 9}, 100, 1, 0.05)
+	if err != nil || base != 1 || math.Abs(r.Mean-0.1) > 1e-12 {
+		t.Fatalf("got %+v base %v err %v", r, base, err)
+	}
+	if _, _, err := PairedRatioBootstrap([]float64{1}, []float64{0}, []float64{1}, []float64{1}, 10, 1, 0.05); err == nil {
+		t.Fatal("want error on zero control denominator")
+	}
+	// Passes only on one task of 10: most resamples have zero passes.
+	z := make([]float64, 10)
+	one := append([]float64{1}, z[1:]...)
+	ones := []float64{1, 1, 1, 1, 1, 1, 1, 1, 1, 1}
+	if _, _, err := PairedRatioBootstrap(ones, one, ones, one, 200, 1, 0.05); err == nil {
+		t.Fatal("want error when the denominator vanishes in many resamples")
+	}
+	if _, _, err := PairedRatioBootstrap(nil, nil, nil, nil, 10, 1, 0.05); err == nil {
+		t.Fatal("want error on empty input")
+	}
+}

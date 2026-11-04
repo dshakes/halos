@@ -11,16 +11,61 @@ Evals answer one question before a change reaches a ring: **is the candidate at 
 ## What gets measured
 
 - **pass@1, pass@k, pass^k.** Each task runs `repeats` times. pass@k is the unbiased per-task chance that *any* of k trials passes, so it measures capability. pass^k is the chance that *all* k pass, so it measures reliability. Both are averaged over tasks.
-- **Cost, tokens, wall time, tool calls**, per task, as the harness reports them.
+- **Cost, tokens, wall time, tool calls, turns**, per task, as the harness reports them. Tokens are split into input, cached input and output.
 - **Graders** run on every trial: the task's own check, plus suite-wide `diff` limits and `judge` rubrics.
 
 ## The judge
 
 A pinned model (exact id, no `latest` aliases) reached through your gateway at temperature 0. It grades against a versioned rubric (`id@version` is recorded in the scorecard). The reply must be one strict JSON object with a score for every criterion and a non-empty rationale. Anything else is a **grader error**: never a pass, and it forces the gate to **hold**. Verdicts are cached by rubric, model and input hash, so reruns don't pay twice.
 
+## Efficiency metrics
+
+Every scorecard has an **Efficiency** table per variant:
+
+| Metric | Definition | Why it matters |
+|---|---|---|
+| Cost/task | Mean dollar cost per trial | What a run costs |
+| **Cost-of-pass** | Total cost / solved trials | Expected spend per *solved* task ([Erol et al., 2025](https://arxiv.org/abs/2504.13359)). A candidate that is cheaper per run but solves less can cost more per solve |
+| Turns/task (p50/p95) | Model round trips per trial | Agent loop length; long tails show up in p95 |
+| Cost/turn, tokens/turn | Total cost (tokens) / total turns | Whether the price of each step moved, separately from the number of steps |
+| Output share | Output / (input + output) tokens | Output tokens are priced several times higher than input |
+| Cache hit | Cached input / all input tokens | Prompt-cache effectiveness; a CLI upgrade that breaks caching shows up here first |
+
+What each harness reports:
+
+| | Cost | Turns | Token split |
+|---|---|---|---|
+| Claude Code | ✅ `total_cost_usd` | ✅ `num_turns` | ✅ incl. cache reads |
+| Codex | estimate from `pricing` | ❌ (`codex exec` emits one turn per prompt, not per model call) | ✅ incl. cached input |
+| Gemini CLI | estimate from `pricing` | ✅ API requests | ✅ incl. cached, thoughts count as output |
+
+A missing figure shows as `-`, never as 0. For Codex and Gemini, add a `pricing` table (USD per million tokens, keyed by the variant's `model`) and cost is estimated from the token split, marked `~` in the report and `costEstimated` in the JSON. Claude Code cost is never estimated, even when it reports $0.
+
+```yaml
+pricing:
+  gpt-5:          {input: 1.25, output: 10.00, cached_input: 0.125}
+  gemini-2.5-pro: {input: 1.25, output: 10.00, cached_input: 0.31}
+```
+
+Prices change; keep the table in your policy repo next to the suite and review it like code.
+
 ## The gate: ship, hold, block
 
-The candidate is compared with the control **paired by task**, using bootstrap 95% CIs on the delta of pass rate, cost, tokens, wall time and tool calls.
+The candidate is compared with the control **paired by task**, using bootstrap 95% CIs on the delta of pass rate, cost, cost-of-pass, tokens, turns, cost per turn, tokens per turn, wall time and tool calls. Per-turn and per-pass figures are ratios of sums over tasks of each task's mean (with equal repeats per task, exactly total cost / total turns), bootstrapped as ratios over resampled tasks, not averages of per-task ratios, which would over-weight tasks with few turns.
+
+Every limit except `max_pass_drop` is relative to the baseline (0.2 = +20%) and only gated when set:
+
+| Limit | Gates |
+|---|---|
+| `max_cost_increase` | Cost per task |
+| `max_cost_of_pass_increase` | Cost per solved task. Holds when too few tasks are solved to estimate it |
+| `max_tokens_increase` | Tokens per task |
+| `max_turns_increase` | Turns per task |
+| `max_cost_per_turn_increase` | Cost per turn |
+| `max_wall_increase` | Wall time per task |
+| `max_tool_calls_increase` | Tool calls per task |
+
+A limit on a figure the harness does not report (turns on Codex, cost on Codex or Gemini without `pricing`) is listed as not gated in the reasons instead of passing silently.
 
 | Verdict | When |
 |---|---|
@@ -44,6 +89,8 @@ gate:
   task_regression: 0.5         # a task losing >= 50 pp has regressed...
   max_regressed_tasks: 0       # ...and any regressed task blocks
   max_cost_increase: 0.20      # relative to baseline; only gated when set
+  max_cost_of_pass_increase: 0.20
+  max_turns_increase: 0.25
   min_tasks: 2                 # fewer non-flaky tasks -> hold
 judge: {url: https://ai.acme.example, wire: anthropic-messages, model: claude-sonnet-5-5, api_key_env: HALO_EVAL_GATEWAY_TOKEN}
 variants:
@@ -65,15 +112,15 @@ matrix:
 `--matrix` expands the suite into cells named `<harness>@<version>/<model>/<provider>` and gates every cell against the baseline cell. Providers are gateway model aliases, so the CLI side stays provider-agnostic: the gateway routes each alias to its upstream.
 
 ```console
-VARIANT                                 PASS@1  PASS@2  PASS^2    $/TASK      P50  TOOLS  VERDICT
-claude@2.1.312/sonnet/anthropic            89%    100%     78%    $0.200    36.0s   13.0  baseline
-claude@2.1.312/sonnet/bedrock              89%    100%     78%    $0.210    36.0s   13.0  ship
-codex@0.100.0/gpt-5/anthropic              67%     67%     67%    $0.350    36.0s   13.0  block
-gemini@0.35.0/gemini-2.5-pro/anthropic    100%    100%    100%    $0.120    72.0s   13.0  ship
+VARIANT                                 PASS@1  PASS@2  PASS^2    $/TASK    $/PASS  TURNS      P50  TOOLS  VERDICT
+claude@2.1.312/sonnet/anthropic            89%    100%     78%    $0.200    $0.225      -    36.0s   13.0  baseline
+claude@2.1.312/sonnet/bedrock              89%    100%     78%    $0.210    $0.236      -    36.0s   13.0  ship
+codex@0.100.0/gpt-5/anthropic              67%     67%     67%    $0.350    $0.525      -    36.0s   13.0  block
+gemini@0.35.0/gemini-2.5-pro/anthropic    100%    100%    100%    $0.120    $0.120      -    72.0s   13.0  ship
 gate: BLOCK
 ```
 
-The numbers come from the matrix test fixture (`internal/eval/matrix_test.go`); the table is a text rendering of them that no test pins, not the golden Markdown PR-comment report (`internal/eval/testdata/golden/matrix.md`) and not the output of `upgrade-gate.yaml`, whose cells are named after its own providers and models. You produce the real thing with `halo eval run evals/suites/upgrade-gate.yaml --matrix --report report.md --fail-on block`. A live run needs Docker and the harness images in `evals/images/`. `--report` writes a Markdown scorecard ready for a PR comment. `--fail-on block|hold` exits 3, which makes it a CI gate. Trials run with no network egress by default.
+The numbers come from the matrix test fixture (`internal/eval/matrix_test.go`); the table is the terminal rendering the golden test pins (the fixture records no turns, hence `-`), not the golden Markdown PR-comment report (`internal/eval/testdata/golden/matrix.md`) and not the output of `upgrade-gate.yaml`, whose cells are named after its own providers and models. You produce the real thing with `halo eval run evals/suites/upgrade-gate.yaml --matrix --report report.md --fail-on block`. A live run needs Docker and the harness images in `evals/images/`. `--report` writes a Markdown scorecard ready for a PR comment. `--fail-on block|hold` exits 3, which makes it a CI gate. Trials run with no network egress by default.
 
 ## The online loop
 

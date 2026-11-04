@@ -22,7 +22,7 @@ func TestClaudeDriver(t *testing.T) {
 {"type":"result","subtype":"success","is_error":false,"total_cost_usd":0.42,"num_turns":7,"duration_ms":9000,"usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":100,"new_thing":9}}
 `
 	u, err := ClaudeDriver{}.Parse([]byte(out))
-	if err != nil || u.CostUSD != 0.42 || u.Turns != 7 || u.DurationMs != 9000 || u.Tokens != 115 || u.ToolErrors != 1 || u.ToolCalls != 2 || u.Failed {
+	if err != nil || u.CostUSD != 0.42 || u.Turns != 7 || u.DurationMs != 9000 || u.Tokens != 115 || u.InputTokens != 110 || u.CachedTokens != 100 || u.OutputTokens != 5 || u.ToolErrors != 1 || u.ToolCalls != 2 || u.Failed {
 		t.Fatalf("got %+v err %v", u, err)
 	}
 	u, _ = ClaudeDriver{}.Parse([]byte(`{"type":"result","subtype":"error_max_turns","total_cost_usd":1}`))
@@ -47,7 +47,7 @@ func TestCodexDriver(t *testing.T) {
 {"type":"turn.failed","error":{"message":"boom"}}
 `
 	u, err := CodexDriver{}.Parse([]byte(out))
-	if err != nil || u.Turns != 1 || u.Tokens != 12 || u.ToolErrors != 1 || u.ToolCalls != 2 || !u.Failed || u.Error != "boom" {
+	if err != nil || u.Turns != 0 || u.Tokens != 12 || u.InputTokens != 10 || u.CachedTokens != 5 || u.OutputTokens != 2 || u.ToolErrors != 1 || u.ToolCalls != 2 || !u.Failed || u.Error != "boom" {
 		t.Fatalf("got %+v err %v", u, err)
 	}
 	if _, err := (CodexDriver{}).Parse([]byte("{}")); err == nil {
@@ -57,9 +57,9 @@ func TestCodexDriver(t *testing.T) {
 
 func TestGeminiDriver(t *testing.T) {
 	out := `log noise
-{"response":"ok","stats":{"models":{"m":{"tokens":{"total":50}}},"tools":{"totalCalls":3,"totalFail":1}}}`
+{"response":"ok","stats":{"models":{"m":{"api":{"totalRequests":4},"tokens":{"prompt":40,"cached":30,"candidates":6,"thoughts":4,"total":50}}},"tools":{"totalCalls":3,"totalFail":1}}}`
 	u, err := GeminiDriver{}.Parse([]byte(out))
-	if err != nil || u.Tokens != 50 || u.ToolErrors != 1 || u.ToolCalls != 3 || u.Failed {
+	if err != nil || u.Tokens != 50 || u.Turns != 4 || u.InputTokens != 40 || u.CachedTokens != 30 || u.OutputTokens != 10 || u.ToolErrors != 1 || u.ToolCalls != 3 || u.Failed {
 		t.Fatalf("got %+v err %v", u, err)
 	}
 	if _, err := (GeminiDriver{}).Parse([]byte("nope")); err == nil {
@@ -123,7 +123,7 @@ func TestCodex099Transcripts(t *testing.T) {
 		{"sandbox-denied.jsonl", 0, 0},
 	} {
 		u, err := CodexDriver{}.Parse(read(tc.file))
-		if err != nil || u.ToolCalls != tc.calls || u.ToolErrors != tc.errors || u.Failed || u.Turns != 1 || u.Tokens != 38 {
+		if err != nil || u.ToolCalls != tc.calls || u.ToolErrors != tc.errors || u.Failed || u.Turns != 0 || u.Tokens != 38 {
 			t.Errorf("%s: %+v %v", tc.file, u, err)
 		}
 	}
