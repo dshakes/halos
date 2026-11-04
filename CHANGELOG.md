@@ -12,6 +12,7 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ### Changed
 
+- Docs: the Dev Container Feature was run by hand in a real GitHub Codespace (release archive install, signed release applied, wrong key refused); a failed Codespaces build starts an ungoverned recovery container, and the guide says what controls still hold.
 - Release workflow: npm publishing uses trusted publishing only; the `NPM_TOKEN` secret and its gate check are gone (v0.6.1 published every package through OIDC). Docs point at v0.6.1.
 
 ## [0.6.1] - 2026-11-03

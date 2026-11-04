@@ -65,7 +65,8 @@ DF
 docker build -q $L -t halos-uat-ws:local "$W/ctx" >/dev/null
 
 echo "== publish signed release of examples/acme-corp (ring0-harness-team)"
-docker run --rm $L --add-host host.docker.internal:host-gateway -e XDG_STATE_HOME=/tmp \
+# --user: the 0600 key belongs to the host user (on Linux the image's default user cannot read it).
+docker run --rm $L --user "$(id -u):$(id -g)" --add-host host.docker.internal:host-gateway -e XDG_STATE_HOME=/tmp \
   -v "$W:/w:ro" -v "$ROOT/examples/acme-corp:/pol:ro" halos-uat-ws:local \
   /w/halo-linux release publish /pol --ring ring0-harness-team --release-version 1.0.0 --key /w/keys/halo.key --registry host.docker.internal:15443/halos/rel | tee "$W/publish.out"
 
