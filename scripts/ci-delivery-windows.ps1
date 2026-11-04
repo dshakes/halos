@@ -203,6 +203,8 @@ try {
   Assert-Acl $settings @($SY, $BA, $BU)
   $st = (& $ihalod status --state (Join-Path $idir 'var\state.json')) -join "`n" | ConvertFrom-Json
   if ($st.digest -ne $relDigest) { Fail "halod status digest $($st.digest) != exported release $relDigest" }
+  # Unregistering does not end a running instance: stop it first (the Intune task is not a `halod service`).
+  Stop-ScheduledTask -TaskName Halos -ErrorAction SilentlyContinue
   Unregister-ScheduledTask -TaskName Halos -Confirm:$false
   Wait-Until { -not (Get-Process -Name halod -ErrorAction SilentlyContinue) } 'halod to stop' 20
   Remove-Item -Force -ErrorAction SilentlyContinue $settings

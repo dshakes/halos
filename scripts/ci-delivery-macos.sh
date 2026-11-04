@@ -18,7 +18,7 @@ REG=127.0.0.1:15055 BASE=http://127.0.0.1:18199 FILES=http://127.0.0.1:18200
 SETTINGS="/Library/Application Support/ClaudeCode/managed-settings.json"
 HALOD=/Library/Halos/bin/halod
 PIDS=()
-cleanup() { sudo "$HALOD" service uninstall >/dev/null 2>&1 || true; sudo security remove-trusted-cert -d "$W/tls.crt" >/dev/null 2>&1 || true; for p in ${PIDS[@]+"${PIDS[@]}"}; do kill "$p" 2>/dev/null || true; done; }
+cleanup() { sudo "$HALOD" service uninstall >/dev/null 2>&1 || true; for p in ${PIDS[@]+"${PIDS[@]}"}; do kill "$p" 2>/dev/null || true; done; }
 trap cleanup EXIT
 fail() { echo "FAIL: $*" >&2; exit 1; }
 owner() { stat -f '%Su:%Sg %Lp' "$1"; }
@@ -93,7 +93,7 @@ if pgrep -x halod >/dev/null; then fail "halod still running after uninstall"; f
 
 echo "== halo export jamf (postinstall run as root, as Jamf/Kandji would)"
 # Start from a machine MDM has never touched. The exported download URL must be https, so serve halod from a
-# local TLS server whose self-signed cert is trusted in the System keychain (curl in postinstall.sh uses it).
+# local TLS server with a throwaway self-signed cert (curl in postinstall.sh trusts it via CURL_CA_BUNDLE).
 sudo rm -r /Library/Halos/etc /Library/Halos/var
 sudo rm -f "$SETTINGS"
 mkdir -p "$W/dl"; cp "$W/bin/halod" "$W/dl/halod-darwin-$ARCH"
@@ -109,10 +109,11 @@ subjectAltName = DNS:localhost
 basicConstraints = critical,CA:TRUE
 CNF
 openssl req -x509 -newkey rsa:2048 -nodes -days 1 -config "$W/tls.cnf" -keyout "$W/tls.key" -out "$W/tls.crt" 2>/dev/null
-sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "$W/tls.crt"
 python3 scripts/ci-https-server.py "$W/dl" "$W/tls.crt" "$W/tls.key" >"$W/https.log" 2>&1 & PIDS+=($!)
-for _ in $(seq 30); do curl -fs "https://localhost:18443/halod-darwin-$ARCH" -o /dev/null && break; sleep 1; done
-curl -fs "https://localhost:18443/halod-darwin-$ARCH" -o /dev/null || fail "local https file server not trusted/reachable"
+# Not the System keychain: `security add-trusted-cert` needs a GUI authorization on current macOS and hangs
+# headless. postinstall.sh fetches with curl, which takes the CA from CURL_CA_BUNDLE (passed through sudo below).
+for _ in $(seq 30); do curl -fs --cacert "$W/tls.crt" "https://localhost:18443/halod-darwin-$ARCH" -o /dev/null && break; sleep 1; done
+curl -fs --cacert "$W/tls.crt" "https://localhost:18443/halod-darwin-$ARCH" -o /dev/null || fail "local https file server not reachable"
 
 halo export jamf --registry "$REG/halos-releases" --plain-http --pubkey "$W/keys/halo.pub" --ring ring1-ga --org acme \
   --download-url 'https://localhost:18443/halod-{os}-{arch}' --halod-sha256 "darwin/amd64=$SHA,darwin/arm64=$SHA" --out "$W/jamf"
@@ -127,7 +128,7 @@ RELDIGEST=$(plutil -extract PayloadDescription raw "$MC" | sed 's/^Halos release
 case $RELDIGEST in sha256:*) ;; *) fail "mobileconfig PayloadDescription lacks the release digest: $RELDIGEST" ;; esac
 [ -x "$POST" ] || fail "postinstall.sh is not executable"
 # Jamf runs policy scripts as root: $1 target volume, $2 computer name, $3 console user.
-sudo "$POST" / ci-mac.local ci
+sudo env CURL_CA_BUNDLE="$W/tls.crt" "$POST" / ci-mac.local ci
 [ "$(owner "$HALOD")" = "root:wheel 755" ] || fail "postinstall halod: $(owner "$HALOD")"
 sudo cmp "$W/bin/halod" "$HALOD" || fail "postinstall did not install the pinned halod"
 [ "$(owner /Library/Halos/etc/release.pub)" = "root:wheel 644" ] || fail "release.pub: $(owner /Library/Halos/etc/release.pub)"
