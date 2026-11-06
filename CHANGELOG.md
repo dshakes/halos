@@ -4,7 +4,7 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
-## [0.6.2] - 2026-11-04
+## [0.6.2] - 2026-11-06
 
 Patch release: new eval metrics and gate limits, Coder and Dev Container options, one halo-shadow fix. Existing suites and policies work unchanged; Codex trials now record 0 turns instead of 1.
 
