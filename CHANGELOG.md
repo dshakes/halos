@@ -4,12 +4,12 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
-### Security
+## [0.6.2] - 2026-11-06
 
-- SAML login refuses a response in which a SAML element (`NameID`, `Attribute`, `AttributeValue`, `Issuer`, ...) sits in a foreign XML namespace, including inside encrypted assertions. crewjam/saml through v0.5.1 decodes those namespace-blind, so a signed assertion carrying a look-alike `<x:NameID>` could set the login subject (GO-2026-6909; no fixed release yet). The advisory's nil-`Issuer` panic was already recovered.
-- `make vuln` and the CI `vuln` job run `scripts/vuln.sh`: govulncheck v1.1.4, failing on any called vulnerability not listed in `.govulncheck-accept` with a mitigation and an expiry date.
+Patch release: a SAML login security fix (GO-2026-6909), new eval metrics and gate limits, Coder and Dev Container options, one halo-shadow fix. Existing suites and policies work unchanged; Codex trials now record 0 turns instead of 1.
 
 ### Added
+
 - Evals: efficiency metrics in every scorecard: cost-of-pass (total cost / solved trials), turns per task (mean, p50, p95), cost and tokens per turn, output share and prompt-cache hit rate, from a new input/cached/output token split for Claude Code, Codex and Gemini CLI. New gate limits `max_turns_increase`, `max_cost_per_turn_increase` and `max_cost_of_pass_increase`; ratio metrics use a paired ratio-of-sums bootstrap (`stats.PairedRatioBootstrap`). A suite `pricing` table estimates cost for harnesses that report none (marked `~`/`costEstimated`). Gemini turns come from API requests; Codex turns are now reported as missing instead of a constant 1.
 
 - CI executes the MDM exports: `delivery-macos` runs the `halo export jamf` postinstall as root (launchd daemon, managed settings, release digest) and lints the `.mobileconfig`; `delivery-windows` runs the `halo export intune` script elevated under Windows PowerShell 5.1 (registry policy, halod SYSTEM task). No real Jamf, Kandji or Intune tenant; docs say so.
@@ -25,6 +25,11 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 ### Fixed
 
 - `halo-shadow` waits for the startup prune before closing the pair store; it could still be writing a `.pairs-prune-*` temp file after shutdown (seen as a flaky `TestRunServesAndStops` in the `fips` job).
+
+### Security
+
+- SAML login refuses a response in which a SAML element (`NameID`, `Attribute`, `AttributeValue`, `Issuer`, ...) sits in a foreign XML namespace, including inside encrypted assertions. crewjam/saml through v0.5.1 decodes those namespace-blind, so a signed assertion carrying a look-alike `<x:NameID>` could set the login subject (GO-2026-6909; no fixed release yet). The advisory's nil-`Issuer` panic was already recovered.
+- `make vuln` and the CI `vuln` job run `scripts/vuln.sh`: govulncheck v1.1.4, failing on any called vulnerability not listed in `.govulncheck-accept` with a mitigation and an expiry date.
 
 ## [0.6.1] - 2026-11-03
 
