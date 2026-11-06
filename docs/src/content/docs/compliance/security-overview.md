@@ -113,7 +113,7 @@ Of Halos itself:
 
 | Control | Where |
 |---|---|
-| `govulncheck` on every PR and push to `main` | `vuln` job in [`ci.yml`](https://github.com/dshakes/halos/blob/main/.github/workflows/ci.yml); `make vuln` locally |
+| `govulncheck` on every PR and push to `main`; a called vulnerability with no upstream fix passes only when [`.govulncheck-accept`](https://github.com/dshakes/halos/blob/main/.govulncheck-accept) names the in-code mitigation, and only until its expiry date | `vuln` job in [`ci.yml`](https://github.com/dshakes/halos/blob/main/.github/workflows/ci.yml) via [`scripts/vuln.sh`](https://github.com/dshakes/halos/blob/main/scripts/vuln.sh); `make vuln` locally |
 | `golangci-lint`, `go vet`, `go test -race`, `go mod tidy` drift check | `lint`, `test`, `tidy` jobs |
 | Native Go fuzz targets over parsers of untrusted input: 10 seconds per PR, 10 minutes per target nightly | `fuzz` job; [`fuzz-nightly.yml`](https://github.com/dshakes/halos/blob/main/.github/workflows/fuzz-nightly.yml); `scripts/fuzz.sh` |
 | OpenSSF Scorecard, weekly and on `main`; results kept as a workflow artifact for 5 days, not published | [`scorecard.yml`](https://github.com/dshakes/halos/blob/main/.github/workflows/scorecard.yml) |

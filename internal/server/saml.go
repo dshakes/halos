@@ -253,12 +253,97 @@ func (s *Server) samlMetadata(w http.ResponseWriter, _ *http.Request) {
 
 // parse verifies raw with crewjam/saml. A panic there (it dereferences an
 // IdP-signed assertion's Subject and Conditions unchecked) is a rejection.
+// samlElements are the names crewjam/saml decodes with namespace-blind
+// struct tags (GO-2026-6909, unfixed through v0.5.1): an element with one of
+// these names in a foreign namespace would fill the field it matches, e.g. a
+// <x:NameID> spoofing Subject.NameID inside an assertion the IdP signed.
+var samlElements = map[string]bool{
+	"Assertion": true, "Issuer": true, "Subject": true, "NameID": true, "EncryptedID": true,
+	"SubjectConfirmation": true, "SubjectConfirmationData": true, "Conditions": true,
+	"AudienceRestriction": true, "Audience": true, "OneTimeUse": true, "ProxyRestriction": true,
+	"AuthnStatement": true, "AuthnContext": true, "AuthnContextClassRef": true, "SessionIndex": true,
+	"AttributeStatement": true, "Attribute": true, "AttributeValue": true,
+	"EncryptedAssertion": true, "Response": true, "Status": true, "StatusCode": true,
+}
+
+const (
+	samlAssertionNS = "urn:oasis:names:tc:SAML:2.0:assertion"
+	samlProtocolNS  = "urn:oasis:names:tc:SAML:2.0:protocol"
+)
+
+// foreignSAML refuses a response in which any SAML-named element sits outside
+// the SAML namespaces, looking inside encrypted assertions too (decrypted with
+// the SP key exactly as crewjam does). Legitimate IdPs never emit such
+// elements, so this refuses nothing real.
+func (st *samlState) foreignSAML(raw []byte) error {
+	doc := etree.NewDocument()
+	if err := doc.ReadFromBytes(raw); err != nil {
+		return fmt.Errorf("malformed response: %w", err)
+	}
+	return st.scanSAML(doc.Root(), 0)
+}
+
+func (st *samlState) scanSAML(el *etree.Element, depth int) error {
+	if el == nil {
+		return nil
+	}
+	if depth > 64 {
+		return errors.New("response nests too deeply")
+	}
+	ns := el.NamespaceURI()
+	if samlElements[el.Tag] && ns != samlAssertionNS && ns != samlProtocolNS {
+		return fmt.Errorf("element %s in foreign namespace %q", el.Tag, ns)
+	}
+	if el.Tag == "EncryptedAssertion" && ns == samlAssertionNS {
+		plain, err := st.decryptAssertion(el)
+		if err != nil {
+			return fmt.Errorf("encrypted assertion: %w", err)
+		}
+		if err := st.scanSAML(plain, depth+1); err != nil {
+			return err
+		}
+	}
+	for _, c := range el.ChildElements() {
+		if err := st.scanSAML(c, depth+1); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// decryptAssertion mirrors crewjam's ServiceProvider.decryptElement.
+func (st *samlState) decryptAssertion(el *etree.Element) (*etree.Element, error) {
+	data := el.FindElement("./EncryptedData")
+	if data == nil {
+		return nil, errors.New("no EncryptedData")
+	}
+	var key any = st.sp.Key
+	if k := el.FindElement("./EncryptedKey"); k != nil {
+		var err error
+		if key, err = xmlenc.Decrypt(st.sp.Key, k); err != nil {
+			return nil, err
+		}
+	}
+	plain, err := xmlenc.Decrypt(key, data)
+	if err != nil {
+		return nil, err
+	}
+	doc := etree.NewDocument()
+	if err := doc.ReadFromBytes(plain); err != nil {
+		return nil, err
+	}
+	return doc.Root(), nil
+}
+
 func (st *samlState) parse(raw []byte, ids []string) (a *saml.Assertion, err error) {
 	defer func() {
 		if p := recover(); p != nil {
 			a, err = nil, fmt.Errorf("malformed assertion: %v", p)
 		}
 	}()
+	if err := st.foreignSAML(raw); err != nil {
+		return nil, err
+	}
 	sp := *st.sp
 	// InResponseTo is checked whenever there is a request; only a response
 	// with none (IdP-initiated, when allowed) skips it.
