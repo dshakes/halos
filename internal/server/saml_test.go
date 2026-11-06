@@ -401,3 +401,79 @@ func TestSAMLConfigValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TestSAMLForeignNamespace covers the GO-2026-6909 guard: crewjam decodes
+// NameID, Attribute, ... with namespace-blind tags, so an element of the same
+// name in another namespace must be refused before crewjam sees it.
+func TestSAMLForeignNamespace(t *testing.T) {
+	e := newSAMLEnv(t)
+	raw := func(o samlAssert) []byte {
+		b, err := base64.StdEncoding.DecodeString(e.response(t, o))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	if err := e.s.saml.foreignSAML(raw(samlAssert{inResponseTo: "id-1", groups: []string{"g"}})); err != nil {
+		t.Fatalf("genuine response refused: %v", err)
+	}
+	for _, name := range []string{"NameID", "Attribute", "AttributeValue", "Issuer"} {
+		b := raw(samlAssert{inResponseTo: "id-1", tamper: func(_, a *etree.Element) {
+			a.FindElement("./Subject").CreateElement("x:"+name).CreateAttr("xmlns:x", "urn:evil")
+		}})
+		if err := e.s.saml.foreignSAML(b); err == nil || !strings.Contains(err.Error(), "foreign namespace") {
+			t.Fatalf("%s in a foreign namespace: err %v", name, err)
+		}
+	}
+	// A default-namespace redeclaration is the same trick without a prefix.
+	b := raw(samlAssert{inResponseTo: "id-1", tamper: func(_, a *etree.Element) {
+		a.FindElement("./Subject").CreateElement("NameID").CreateAttr("xmlns", "urn:evil")
+	}})
+	if err := e.s.saml.foreignSAML(b); err == nil {
+		t.Fatal("default-namespace NameID accepted")
+	}
+	if err := e.s.saml.foreignSAML([]byte("<not xml")); err == nil {
+		t.Fatal("malformed XML accepted")
+	}
+	if !fips140.Enabled() { // the encrypted fixture needs SHA-1 OAEP
+		if err := e.s.saml.foreignSAML(raw(samlAssert{inResponseTo: "id-1", signResponse: true, encrypt: true})); err != nil {
+			t.Fatalf("genuine encrypted response refused: %v", err)
+		}
+		// Each makes etree and crewjam disagree on what to decrypt, or decrypt more than once.
+		for name, tc := range map[string]struct {
+			want   string
+			tamper func(resp *etree.Element)
+		}{
+			"second EncryptedData, foreign namespace first": {"ambiguous or foreign EncryptedData", func(resp *etree.Element) {
+				ea := resp.FindElement("./EncryptedAssertion")
+				d := ea.FindElement("./EncryptedData").Copy()
+				d.Space = ""
+				d.CreateAttr("xmlns", "urn:evil")
+				ea.InsertChildAt(0, d)
+			}},
+			"second EncryptedKey": {"ambiguous or foreign Encrypted", func(resp *etree.Element) {
+				ea := resp.FindElement("./EncryptedAssertion")
+				if k := ea.FindElement("./EncryptedKey"); k != nil {
+					ea.AddChild(k.Copy())
+				} else {
+					ea.AddChild(ea.FindElement("./EncryptedData").Copy())
+				}
+			}},
+			"two encrypted assertions": {"single child", func(resp *etree.Element) {
+				resp.AddChild(resp.FindElement("./EncryptedAssertion").Copy())
+			}},
+			"encrypted assertion buried under a wrapper": {"single child", func(resp *etree.Element) {
+				ea := resp.FindElement("./EncryptedAssertion")
+				resp.RemoveChild(ea)
+				w := resp.CreateElement("x:Wrap")
+				w.CreateAttr("xmlns:x", "urn:evil")
+				w.AddChild(ea)
+			}},
+		} {
+			b := raw(samlAssert{inResponseTo: "id-1", signResponse: true, encrypt: true, tamper: func(resp, _ *etree.Element) { tc.tamper(resp) }})
+			if err := e.s.saml.foreignSAML(b); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("%s: err %v, want %q", name, err, tc.want)
+			}
+		}
+	}
+}

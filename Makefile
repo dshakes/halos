@@ -32,7 +32,7 @@ fuzz: ## every Fuzz* target for FUZZTIME (default 30s) each
 	./scripts/fuzz.sh
 
 vuln:
-	go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+	scripts/vuln.sh
 
 docs:
 	cd docs && npm ci && npm run build

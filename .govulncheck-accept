@@ -1,0 +1,5 @@
+# Vulnerabilities our code calls that have no fixed release yet, accepted
+# with a mitigation in our code. Format: <OSV ID> <expires YYYY-MM-DD> <mitigation>.
+# scripts/vuln.sh (make vuln, CI job vuln) fails on any called vulnerability
+# not listed here, and on any entry past its expiry.
+GO-2026-6909 2026-12-06 crewjam/saml <=v0.5.1 (no fix released): the nil-Issuer panic is recovered in samlState.parse; namespace-blind NameID/Attribute decoding is refused by samlState.foreignSAML before crewjam parses (internal/server/saml.go, TestSAMLForeignNamespace)

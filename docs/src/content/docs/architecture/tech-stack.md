@@ -209,7 +209,7 @@ The `packaging` job in [`ci.yml`](https://github.com/dshakes/halos/blob/main/.gi
 | Tool | Version | Where |
 | --- | --- | --- |
 | golangci-lint | `v2.14.0` (golangci-lint-action `v8.0.0`) | [`ci.yml` `lint`](https://github.com/dshakes/halos/blob/main/.github/workflows/ci.yml) |
-| govulncheck | govulncheck-action `v1.1.0` | [`ci.yml` `vuln`](https://github.com/dshakes/halos/blob/main/.github/workflows/ci.yml); `make vuln` runs `govulncheck@latest` ([`Makefile:34-35`](https://github.com/dshakes/halos/blob/main/Makefile#L34-L35)) |
+| govulncheck | `v1.1.4` | [`scripts/vuln.sh`](https://github.com/dshakes/halos/blob/main/scripts/vuln.sh), run by [`ci.yml` `vuln`](https://github.com/dshakes/halos/blob/main/.github/workflows/ci.yml) and `make vuln`. Fails on any vulnerability our code calls unless [`.govulncheck-accept`](https://github.com/dshakes/halos/blob/main/.govulncheck-accept) lists it with a mitigation and an expiry |
 | `go test -race` | toolchain from `go.mod` | [`ci.yml` `test`](https://github.com/dshakes/halos/blob/main/.github/workflows/ci.yml), plus macOS and Windows in the `cross` job |
 | `go mod tidy` drift check | n/a | [`ci.yml` `tidy`](https://github.com/dshakes/halos/blob/main/.github/workflows/ci.yml) |
 | shellcheck | runner default | [`ci.yml` `packaging`](https://github.com/dshakes/halos/blob/main/.github/workflows/ci.yml) (`install/install.sh`, `deploy/packaging/*.sh`) |
