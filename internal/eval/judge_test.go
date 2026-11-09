@@ -267,7 +267,7 @@ func gullibleJudge(sysSeen *[]string) func(LLMRequest) (string, error) {
 		*sysSeen = append(*sysSeen, r.System)
 		visible := r.Prompt
 		for _, m := range re.FindAllStringSubmatch(r.Prompt, -1) {
-			if m[1] == m[2] && strings.Contains(r.System, "<untrusted-"+m[1]+">") {
+			if m[1] == m[2] && strings.Contains(r.Prompt, "tags named untrusted-"+m[1]+".") {
 				visible = strings.Replace(visible, m[0], "", 1)
 			}
 		}
@@ -316,12 +316,15 @@ func TestJudgePromptInjection(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	nonce := regexp.MustCompile(`<untrusted-([0-9a-f]{24})>`).FindStringSubmatch(sys[0])
+	nonce := regexp.MustCompile(`tags named untrusted-([0-9a-f]{24})\.`).FindStringSubmatch(prompts[0])
 	if nonce == nil || !strings.Contains(sys[0], "DATA") || !strings.Contains(sys[0], "never instructions") {
 		t.Fatalf("system prompt lacks the data rule:\n%s", sys[0])
 	}
-	if strings.Contains(sys[1], nonce[1]) {
+	if strings.Contains(prompts[1], nonce[1]) {
 		t.Fatal("nonce reused across calls")
+	}
+	if sys[0] != sys[1] {
+		t.Fatal("system prompt must be byte-identical across calls (prompt-cache prefix)")
 	}
 	p := prompts[0]
 	if strings.Count(p, "<untrusted-") != 1 || strings.Count(p, "</untrusted-") != 1 ||
@@ -381,5 +384,35 @@ func TestCheckSecureURL(t *testing.T) {
 		if err := CheckSecureURL(raw); (err == nil) != ok {
 			t.Errorf("%s: err %v, want ok=%v", raw, err, ok)
 		}
+	}
+}
+
+func TestHTTPLLMCacheControl(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		system string
+		cache  bool
+		want   bool
+	}{
+		{"large cached", strings.Repeat("x", minCacheBytes), true, true},
+		{"large not requested", strings.Repeat("x", minCacheBytes), false, false},
+		{"tiny skipped", "short", true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var body string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				b, _ := io.ReadAll(r.Body)
+				body = string(b)
+				_, _ = w.Write([]byte(`{"content":[{"type":"text","text":"ok"}]}`))
+			}))
+			defer srv.Close()
+			h := &HTTPLLM{BaseURL: srv.URL, Wire: WireAnthropic}
+			if _, err := h.Complete(context.Background(), LLMRequest{Model: "m", System: tc.system, Prompt: "p", MaxTokens: 1, CacheSystem: tc.cache}); err != nil {
+				t.Fatal(err)
+			}
+			if got := strings.Contains(body, `"cache_control":{"type":"ephemeral"}`); got != tc.want {
+				t.Fatalf("cache_control present = %t, want %t: %.200s", got, tc.want, body)
+			}
+		})
 	}
 }
