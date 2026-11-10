@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -40,7 +41,16 @@ type JudgeConfig struct {
 	APIKeyEnv string `yaml:"api_key_env,omitempty" json:"apiKeyEnv,omitempty"`
 	// Cache is a directory (relative to the suite) for cached verdicts.
 	Cache string `yaml:"cache,omitempty" json:"cache,omitempty"`
+	// Tier is "realtime" (default) or "batch": non-interactive runs submit
+	// judge requests through the Anthropic Message Batches API at a discount.
+	Tier string `yaml:"tier,omitempty" json:"tier,omitempty"`
 }
+
+// Judge tiers.
+const (
+	TierRealtime = "realtime"
+	TierBatch    = "batch"
+)
 
 // CheckSecureURL requires https, allowing plain http only to a loopback host
 // (local gateways, tests): credentials must never cross a network in clear.
@@ -75,6 +85,10 @@ func (c *JudgeConfig) validate() error {
 		return fmt.Errorf("wire %q: want %s or %s", c.Wire, WireAnthropic, WireOpenAI)
 	case c.Model == "" || strings.Contains(c.Model, "latest"):
 		return fmt.Errorf("model %q must be a pinned model id", c.Model)
+	case c.Tier != "" && c.Tier != TierRealtime && c.Tier != TierBatch:
+		return fmt.Errorf("tier %q: want %s or %s", c.Tier, TierRealtime, TierBatch)
+	case c.Tier == TierBatch && c.Wire != WireAnthropic:
+		return fmt.Errorf("tier %s needs wire %s", TierBatch, WireAnthropic)
 	}
 	return nil
 }
@@ -89,7 +103,7 @@ func NewJudge(c *JudgeConfig, suiteDir string) (*Judge, error) {
 	if err != nil {
 		return nil, fmt.Errorf("judge: %w", err)
 	}
-	j := &Judge{Model: c.Model, LLM: llm, Cache: &JudgeCache{}}
+	j := &Judge{Model: c.Model, LLM: llm, Cache: &JudgeCache{}, Tier: c.Tier}
 	if c.Cache != "" {
 		j.Cache.Dir = filepath.Join(suiteDir, c.Cache)
 	}
@@ -201,7 +215,8 @@ type LLM interface {
 // provider allows. UNVERIFIED against a live gateway; tests use httptest.
 type HTTPLLM struct {
 	BaseURL, Wire, APIKey string
-	HTTP                  *http.Client // default: 120s timeout
+	HTTP                  *http.Client  // default: 120s timeout
+	PollEvery             time.Duration // batch poll interval (default 30s)
 }
 
 func (h *HTTPLLM) Complete(ctx context.Context, r LLMRequest) (string, error) {
@@ -246,20 +261,8 @@ func (h *HTTPLLM) CompleteUsage(ctx context.Context, r LLMRequest) (string, Toke
 	if err != nil {
 		return "", TokenUsage{}, fmt.Errorf("judge: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
-	if h.Wire == WireAnthropic {
-		req.Header.Set("anthropic-version", "2023-06-01")
-		if h.APIKey != "" {
-			req.Header.Set("x-api-key", h.APIKey)
-		}
-	} else if h.APIKey != "" {
-		req.Header.Set("Authorization", "Bearer "+h.APIKey)
-	}
-	hc := h.HTTP
-	if hc == nil {
-		hc = &http.Client{Timeout: 120 * time.Second}
-	}
-	resp, err := hc.Do(req)
+	h.setHeaders(req)
+	resp, err := h.client().Do(req)
 	if err != nil {
 		return "", TokenUsage{}, fmt.Errorf("judge: POST %s: %w", u, err)
 	}
@@ -298,6 +301,178 @@ func (h *HTTPLLM) CompleteUsage(ctx context.Context, r LLMRequest) (string, Toke
 		return "", TokenUsage{}, fmt.Errorf("judge: %s response has no text", h.Wire)
 	}
 	return sb.String(), out.Usage, nil
+}
+
+func (h *HTTPLLM) client() *http.Client {
+	if h.HTTP != nil {
+		return h.HTTP
+	}
+	return &http.Client{Timeout: 120 * time.Second}
+}
+
+func (h *HTTPLLM) setHeaders(req *http.Request) {
+	req.Header.Set("Content-Type", "application/json")
+	if h.Wire == WireAnthropic {
+		req.Header.Set("anthropic-version", "2023-06-01")
+		if h.APIKey != "" {
+			req.Header.Set("x-api-key", h.APIKey)
+		}
+	} else if h.APIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+h.APIKey)
+	}
+}
+
+// anthropicParams is the /v1/messages body, shared by the realtime call and
+// each batch item so the cached system prompt applies in both.
+func anthropicParams(r LLMRequest) map[string]any {
+	var system any = r.System
+	if r.CacheSystem && len(r.System) >= minCacheBytes {
+		system = []map[string]any{{"type": "text", "text": r.System, "cache_control": map[string]string{"type": "ephemeral"}}}
+	}
+	return map[string]any{"model": r.Model, "max_tokens": r.MaxTokens, "temperature": 0, "system": system,
+		"messages": []map[string]any{{"role": "user", "content": r.Prompt}}}
+}
+
+// BatchResult is one item of a batch: its reply and usage, the tier that
+// served it (for cost accounting), or the per-item error.
+type BatchResult struct {
+	Text  string
+	Usage TokenUsage
+	Tier  string
+	Err   error
+}
+
+// CompleteBatch submits reqs through the Message Batches API, polls until the
+// batch ends, and returns one result per request, in order. A failed item sets
+// that result's Err; an error return means the batch itself failed.
+func (h *HTTPLLM) CompleteBatch(ctx context.Context, reqs []LLMRequest) ([]BatchResult, error) {
+	if h.Wire != WireAnthropic {
+		return nil, fmt.Errorf("judge: batch tier needs wire %s, have %q", WireAnthropic, h.Wire)
+	}
+	type item struct {
+		CustomID string         `json:"custom_id"`
+		Params   map[string]any `json:"params"`
+	}
+	items := make([]item, len(reqs))
+	for i, r := range reqs {
+		items[i] = item{CustomID: "r" + strconv.Itoa(i), Params: anthropicParams(r)}
+	}
+	body, err := json.Marshal(map[string]any{"requests": items})
+	if err != nil {
+		return nil, fmt.Errorf("judge: encode batch: %w", err)
+	}
+	base := strings.TrimRight(h.BaseURL, "/") + "/v1/messages/batches"
+	var b struct {
+		ID               string `json:"id"`
+		ProcessingStatus string `json:"processing_status"`
+		ResultsURL       string `json:"results_url"`
+	}
+	raw, err := h.send(ctx, http.MethodPost, base, body)
+	if err == nil {
+		err = json.Unmarshal(raw, &b)
+	}
+	if err != nil || b.ID == "" {
+		return nil, fmt.Errorf("judge: submit batch: %w", errors.Join(err, errIf(b.ID == "", "no batch id")))
+	}
+	every := h.PollEvery
+	if every <= 0 {
+		every = 30 * time.Second
+	}
+	for b.ProcessingStatus != "ended" {
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("judge: batch %s: %w", b.ID, ctx.Err())
+		case <-time.After(every):
+		}
+		if raw, err = h.send(ctx, http.MethodGet, base+"/"+b.ID, nil); err == nil {
+			err = json.Unmarshal(raw, &b)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("judge: poll batch %s: %w", b.ID, err)
+		}
+	}
+	// The credential must not leave the configured gateway host.
+	ru, err := url.Parse(b.ResultsURL)
+	bu, _ := url.Parse(base)
+	if err != nil || ru.Scheme != bu.Scheme || ru.Host != bu.Host {
+		return nil, fmt.Errorf("judge: batch %s: results_url %q is not on gateway %s://%s", b.ID, b.ResultsURL, bu.Scheme, bu.Host)
+	}
+	if raw, err = h.send(ctx, http.MethodGet, b.ResultsURL, nil); err != nil {
+		return nil, fmt.Errorf("judge: batch %s results: %w", b.ID, err)
+	}
+	out := make([]BatchResult, len(reqs))
+	for i := range out {
+		out[i] = BatchResult{Tier: TierBatch, Err: errors.New("no result returned for item")}
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	for dec.More() {
+		var line struct {
+			CustomID string `json:"custom_id"`
+			Result   struct {
+				Type    string `json:"type"`
+				Message struct {
+					Usage   TokenUsage                    `json:"usage"`
+					Content []struct{ Type, Text string } `json:"content"`
+				} `json:"message"`
+				Error struct {
+					Error struct{ Type, Message string } `json:"error"`
+				} `json:"error"`
+			} `json:"result"`
+		}
+		if err := dec.Decode(&line); err != nil {
+			return nil, fmt.Errorf("judge: batch %s: decode results: %w", b.ID, err)
+		}
+		i, err := strconv.Atoi(strings.TrimPrefix(line.CustomID, "r"))
+		if err != nil || i < 0 || i >= len(out) {
+			continue
+		}
+		res := line.Result
+		if res.Type != "succeeded" {
+			out[i].Err = fmt.Errorf("judge: batch item %s %s: %s %s", line.CustomID, res.Type, res.Error.Error.Type, res.Error.Error.Message)
+			continue
+		}
+		var sb strings.Builder
+		for _, c := range res.Message.Content {
+			if c.Type == "text" {
+				sb.WriteString(c.Text)
+			}
+		}
+		if sb.Len() == 0 {
+			out[i].Err = fmt.Errorf("judge: batch item %s has no text", line.CustomID)
+			continue
+		}
+		out[i].Text, out[i].Usage, out[i].Err = sb.String(), res.Message.Usage, nil
+	}
+	return out, nil
+}
+
+func errIf(c bool, msg string) error {
+	if c {
+		return errors.New(msg)
+	}
+	return nil
+}
+
+// send performs one authenticated request and returns the body of a 200.
+func (h *HTTPLLM) send(ctx context.Context, method, u string, body []byte) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, method, u, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	h.setHeaders(req)
+	resp, err := h.client().Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("%s %s: %w", method, u, err)
+	}
+	defer func() { _ = resp.Body.Close() }() // read-only
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", u, err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("%s %s: HTTP %d: %s", method, u, resp.StatusCode, tail(raw))
+	}
+	return raw, nil
 }
 
 // Verdict is a parsed, validated judge reply.
@@ -373,6 +548,7 @@ type Judge struct {
 	LLM   LLM
 	Model string
 	Cache *JudgeCache // may be nil
+	Tier  string      // "" or realtime, or batch (used by GradeAll)
 }
 
 // Part is one section of a judge prompt. Untrusted parts (anything written by
@@ -477,26 +653,45 @@ func noncePreamble(nonce string) string {
 // verdicts that parsed are cached, so a schema failure is retried next time
 // rather than frozen, and every hit is re-validated against r.
 func (j *Judge) Grade(ctx context.Context, r *Rubric, parts []Part) (Verdict, error) {
-	h := sha256.New()
-	for _, p := range parts {
-		fmt.Fprintf(h, "%q\x00%v\x00%q\x00", p.Title, p.Untrusted, p.Body)
-	}
-	key := sha256.Sum256([]byte(strings.Join([]string{r.ID, r.Version, r.hash, j.Model, promptVersion, hex.EncodeToString(h.Sum(nil))}, "\x00")))
-	k := hex.EncodeToString(key[:])
-	if c, ok := j.Cache.get(k); ok {
-		if v, err := checkVerdict(r, c.Scores, c.Rationale); err == nil {
-			v.Cached = true
-			return v, nil
-		}
+	k := j.cacheKey(r, parts)
+	if v, ok := j.cached(r, k); ok {
+		return v, nil
 	}
 	nonce, err := newNonce()
 	if err != nil {
 		return Verdict{}, err
 	}
-	reply, err := j.LLM.Complete(ctx, LLMRequest{Model: j.Model, System: systemPrompt(r), Prompt: noncePreamble(nonce) + renderPrompt(parts, nonce), MaxTokens: 1024, CacheSystem: true})
+	reply, err := j.LLM.Complete(ctx, j.request(r, parts, nonce))
 	if err != nil {
 		return Verdict{}, err
 	}
+	return j.finish(r, k, reply)
+}
+
+func (j *Judge) cacheKey(r *Rubric, parts []Part) string {
+	h := sha256.New()
+	for _, p := range parts {
+		fmt.Fprintf(h, "%q\x00%v\x00%q\x00", p.Title, p.Untrusted, p.Body)
+	}
+	key := sha256.Sum256([]byte(strings.Join([]string{r.ID, r.Version, r.hash, j.Model, promptVersion, hex.EncodeToString(h.Sum(nil))}, "\x00")))
+	return hex.EncodeToString(key[:])
+}
+
+func (j *Judge) cached(r *Rubric, k string) (Verdict, bool) {
+	if c, ok := j.Cache.get(k); ok {
+		if v, err := checkVerdict(r, c.Scores, c.Rationale); err == nil {
+			v.Cached = true
+			return v, true
+		}
+	}
+	return Verdict{}, false
+}
+
+func (j *Judge) request(r *Rubric, parts []Part, nonce string) LLMRequest {
+	return LLMRequest{Model: j.Model, System: systemPrompt(r), Prompt: noncePreamble(nonce) + renderPrompt(parts, nonce), MaxTokens: 1024, CacheSystem: true}
+}
+
+func (j *Judge) finish(r *Rubric, k, reply string) (Verdict, error) {
 	v, err := ParseVerdict(r, reply)
 	if err != nil {
 		return Verdict{}, err
@@ -505,6 +700,58 @@ func (j *Judge) Grade(ctx context.Context, r *Rubric, parts []Part) (Verdict, er
 		return Verdict{}, err
 	}
 	return v, nil
+}
+
+// GradeResult is one GradeAll outcome. Tier is the tier that served it
+// (realtime, batch, or empty for a cache hit); Usage is set for batch items.
+type GradeResult struct {
+	Verdict Verdict
+	Tier    string
+	Usage   TokenUsage
+	Err     error
+}
+
+// GradeAll grades each parts list against r. With Tier batch and a batch
+// capable LLM, cache misses go out as one Message Batch; if the batch itself
+// fails, those items are graded realtime instead. Items fail independently.
+func (j *Judge) GradeAll(ctx context.Context, r *Rubric, all [][]Part) []GradeResult {
+	out := make([]GradeResult, len(all))
+	var miss []int
+	for i, parts := range all {
+		if v, ok := j.cached(r, j.cacheKey(r, parts)); ok {
+			out[i] = GradeResult{Verdict: v}
+		} else {
+			miss = append(miss, i)
+		}
+	}
+	h, _ := j.LLM.(*HTTPLLM)
+	if j.Tier == TierBatch && h != nil && len(miss) > 0 {
+		reqs := make([]LLMRequest, len(miss))
+		for n, i := range miss {
+			nonce, err := newNonce()
+			if err != nil {
+				for _, i := range miss {
+					out[i].Err = err
+				}
+				return out
+			}
+			reqs[n] = j.request(r, all[i], nonce)
+		}
+		if res, err := h.CompleteBatch(ctx, reqs); err == nil {
+			for n, i := range miss {
+				out[i] = GradeResult{Tier: TierBatch, Usage: res[n].Usage, Err: res[n].Err}
+				if res[n].Err == nil {
+					out[i].Verdict, out[i].Err = j.finish(r, j.cacheKey(r, all[i]), res[n].Text)
+				}
+			}
+			return out
+		}
+	}
+	for _, i := range miss {
+		out[i].Tier = TierRealtime
+		out[i].Verdict, out[i].Err = j.Grade(ctx, r, all[i])
+	}
+	return out
 }
 
 // JudgeCache memoises verdicts in memory and, when Dir is set, on disk (one

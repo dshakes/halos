@@ -210,6 +210,8 @@ func RunSteps(ctx context.Context, suite string, cases []StepCase, m *StepModel,
 		o.Parallel = 4
 	}
 	res := make([]StepResult, len(cases))
+	parts := make([][]Part, len(cases))
+	batch := o.Judge != nil && o.Judge.Tier == TierBatch
 	sem := make(chan struct{}, o.Parallel)
 	var wg sync.WaitGroup
 	for i, c := range cases {
@@ -223,36 +225,61 @@ func RunSteps(ctx context.Context, suite string, cases []StepCase, m *StepModel,
 				return
 			}
 			defer func() { <-sem }()
-			res[i] = runStep(ctx, c, m, o)
+			res[i], parts[i] = runStep(ctx, c, m, o, batch)
 		}()
 	}
 	wg.Wait()
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if batch {
+		var idx []int
+		var all [][]Part
+		for i := range res {
+			if parts[i] != nil {
+				idx, all = append(idx, i), append(all, parts[i])
+			}
+		}
+		for n, g := range o.Judge.GradeAll(ctx, o.Rubric, all) {
+			if g.Err != nil {
+				res[idx[n]].JudgeError = g.Err.Error()
+			} else {
+				res[idx[n]].JudgeScore = &g.Verdict.Score
+			}
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+	}
 	return stepScorecard(suite, m.Model, res, o), nil
 }
 
-func runStep(ctx context.Context, c StepCase, m *StepModel, o StepRunOptions) StepResult {
+// runStep answers one case; with batch set, the judge parts are returned for
+// RunSteps to submit together instead of being graded here.
+func runStep(ctx context.Context, c StepCase, m *StepModel, o StepRunOptions, batch bool) (StepResult, []Part) {
 	a, raw, err := m.Answer(ctx, c)
 	if err != nil {
-		return StepResult{ID: c.ID, Session: c.Provenance.Session, Depth: c.Provenance.Depth, Error: err.Error()}
+		return StepResult{ID: c.ID, Session: c.Provenance.Session, Depth: c.Provenance.Depth, Error: err.Error()}, nil
 	}
 	r := GradeStep(c, a)
-	if o.Judge != nil {
-		exp, _ := json.Marshal(map[string]any{"expected": c.Expected, "alternatives": c.Alternatives})
-		v, err := o.Judge.Grade(ctx, o.Rubric, []Part{
-			{Title: "Request sent by the coding agent (JSON, redacted)", Body: clip(c.Request), Untrusted: true},
-			{Title: "Action production took at this step (JSON)", Body: string(exp), Untrusted: true},
-			{Title: "Model response to grade (JSON)", Body: clip(raw), Untrusted: true},
-		})
-		if err != nil {
-			r.JudgeError = err.Error()
-		} else {
-			r.JudgeScore = &v.Score
-		}
+	if o.Judge == nil {
+		return r, nil
 	}
-	return r
+	exp, _ := json.Marshal(map[string]any{"expected": c.Expected, "alternatives": c.Alternatives})
+	parts := []Part{
+		{Title: "Request sent by the coding agent (JSON, redacted)", Body: clip(c.Request), Untrusted: true},
+		{Title: "Action production took at this step (JSON)", Body: string(exp), Untrusted: true},
+		{Title: "Model response to grade (JSON)", Body: clip(raw), Untrusted: true},
+	}
+	if batch {
+		return r, parts
+	}
+	if v, err := o.Judge.Grade(ctx, o.Rubric, parts); err != nil {
+		r.JudgeError = err.Error()
+	} else {
+		r.JudgeScore = &v.Score
+	}
+	return r, nil
 }
 
 func stepScorecard(suite, model string, res []StepResult, o StepRunOptions) *StepScorecard {
