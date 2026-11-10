@@ -358,8 +358,8 @@ func (v *validator) rolloutSteps(p string, r *Rollout, exp *Experiment) {
 			if r.Baseline.Release == "" {
 				v.errf(p+".baseline.release", "%s steps need baseline.release to switch back to", s.Strategy)
 			}
-			if len(s.Gates.Guardrails) > 0 || s.MinSamples > 0 {
-				v.errf(sp+".gates", "%s steps have no control arm: metric guardrails and minSamples need a canary or holdout step", s.Strategy)
+			if len(s.Gates.Guardrails) > 0 || s.MinSamples > 0 || s.Gates.MinCacheReadRatio > 0 {
+				v.errf(sp+".gates", "%s steps have no control arm: metric guardrails, minSamples and minCacheReadRatio need a canary or holdout step", s.Strategy)
 			}
 		default:
 			if s.Strategy == StrategyDarkLaunch && r.Axis != AxisTraffic {
