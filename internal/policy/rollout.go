@@ -111,6 +111,9 @@ type RolloutGates struct {
 	Guardrails []MetricGoal `yaml:"guardrails,omitempty" json:"guardrails,omitempty"`
 	// Scorecard reads a `halo eval run --output json` scorecard.
 	Scorecard *ScorecardGate `yaml:"scorecard,omitempty" json:"scorecard,omitempty"`
+	// MinCacheReadRatio, when > 0, fails the step if the treatment arm's observed
+	// cache-read ratio (halo.cache_read_ratio) is below it. 0 = no gate.
+	MinCacheReadRatio float64 `yaml:"minCacheReadRatio,omitempty" json:"minCacheReadRatio,omitempty"`
 	// Approval holds the step until a human advances it (`halo rollout advance`).
 	Approval bool `yaml:"approval,omitempty" json:"approval,omitempty"`
 }
@@ -355,8 +358,8 @@ func (v *validator) rolloutSteps(p string, r *Rollout, exp *Experiment) {
 			if r.Baseline.Release == "" {
 				v.errf(p+".baseline.release", "%s steps need baseline.release to switch back to", s.Strategy)
 			}
-			if len(s.Gates.Guardrails) > 0 || s.MinSamples > 0 {
-				v.errf(sp+".gates", "%s steps have no control arm: metric guardrails and minSamples need a canary or holdout step", s.Strategy)
+			if len(s.Gates.Guardrails) > 0 || s.MinSamples > 0 || s.Gates.MinCacheReadRatio > 0 {
+				v.errf(sp+".gates", "%s steps have no control arm: metric guardrails, minSamples and minCacheReadRatio need a canary or holdout step", s.Strategy)
 			}
 		default:
 			if s.Strategy == StrategyDarkLaunch && r.Axis != AxisTraffic {
@@ -390,6 +393,9 @@ func (v *validator) rolloutSteps(p string, r *Rollout, exp *Experiment) {
 			if g.MaxRegression < 0 {
 				v.errf(gp+".maxRegression", "must be >= 0")
 			}
+		}
+		if r := s.Gates.MinCacheReadRatio; r < 0 || r > 1 {
+			v.errf(sp+".gates.minCacheReadRatio", "%v must be in [0,1]", r)
 		}
 		if sc := s.Gates.Scorecard; sc != nil {
 			gp := sp + ".gates.scorecard"

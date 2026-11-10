@@ -116,6 +116,12 @@
               ],
               "additionalProperties": false
             },
+            "minCacheReadRatio": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Floor for the step's cache-read ratio (halo.cache_read_ratio); a lower observed ratio fails the step."
+            },
             "approval": {
               "type": "boolean",
               "description": "Hold until a human advances the step."

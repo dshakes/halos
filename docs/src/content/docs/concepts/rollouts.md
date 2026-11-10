@@ -18,7 +18,7 @@ A **Rollout** takes one change (a release on the client axis, a model route on t
 | `dark-launch` | traffic | share of requests mirrored by `halo-shadow`; nobody is served it | Shadow sample rate |
 | `holdout` | both | share kept on **control** for the bake | Experiment weights |
 
-Percent steps carry their exposure on the backing **experiment** (two arms, one control), so assignment stays in `internal/assign` and the experiment's kill switch is the fast rollback. Ring-wide steps have no control arm, so they cannot carry metric guardrails or `minSamples`. A client-axis rollout needs at least one ring-wide step; a traffic-axis rollout re-points `change.alias` when it completes.
+Percent steps carry their exposure on the backing **experiment** (two arms, one control), so assignment stays in `internal/assign` and the experiment's kill switch is the fast rollback. Ring-wide steps have no control arm, so they cannot carry metric guardrails, `minSamples` or `minCacheReadRatio`. A client-axis rollout needs at least one ring-wide step; a traffic-axis rollout re-points `change.alias` when it completes.
 
 ## Steps and gates
 

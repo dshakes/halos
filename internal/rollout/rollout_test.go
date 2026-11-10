@@ -55,6 +55,10 @@ func gated(verdict string) *eval.Scorecard {
 	return c
 }
 
+func ptr(f float64) *float64 { return &f }
+
+func cacheFloor(r *policy.Rollout) { r.Steps[1].Gates.MinCacheReadRatio = 0.5 }
+
 func TestEvaluate(t *testing.T) {
 	good := card(0.8, 0.01, eval.VerdictNoDiff)
 	tests := []struct {
@@ -93,6 +97,14 @@ func TestEvaluate(t *testing.T) {
 		{name: "canary eval gate hold holds", st: at(1, t0), ev: Evidence{Report: rep(500, stats.Pass, "gateway"), Scorecard: gated(eval.GateHold)}, now: t0.Add(3 * time.Hour), want: Hold, next: -1, reason: "eval gate hold: rerun"},
 		{name: "canary eval gate ship passes", st: at(1, t0), ev: Evidence{Report: rep(500, stats.Pass, "gateway"), Scorecard: gated(eval.GateShip)}, now: t0.Add(3 * time.Hour), want: Advance, next: 2},
 		{name: "canary all gates pass", st: at(1, t0), ev: Evidence{Report: rep(500, stats.Pass, "gateway"), Scorecard: good}, now: t0.Add(3 * time.Hour), want: Advance, next: 2},
+
+		// cache-read ratio gate (floor 0.5 on canary-5)
+		{name: "cache ratio below floor rolls back", mut: cacheFloor, st: at(1, t0), ev: Evidence{Report: rep(500, stats.Pass, "cli"), Scorecard: good, CacheReadRatio: ptr(0.2)}, now: t0.Add(time.Minute), want: Rollback, next: -1, reason: "cache_read_ratio failed: 20.0%"},
+		{name: "cache ratio breach keeps its own source, not the gateway primary's", mut: cacheFloor, st: at(1, t0), ev: Evidence{Report: rep(500, stats.Pass, "gateway"), Scorecard: good, CacheReadRatio: ptr(0.2), CacheReadRatioSource: "cli"}, now: t0.Add(time.Minute), want: Rollback, next: -1, source: "cli"},
+		{name: "cache ratio breach with no recorded source is cli", mut: cacheFloor, st: at(1, t0), ev: Evidence{Report: rep(500, stats.Pass, "gateway"), Scorecard: good, CacheReadRatio: ptr(0.2)}, now: t0.Add(time.Minute), want: Rollback, next: -1, source: "cli"},
+		{name: "cache ratio at floor passes", mut: cacheFloor, st: at(1, t0), ev: Evidence{Report: rep(500, stats.Pass, "cli"), Scorecard: good, CacheReadRatio: ptr(0.5)}, now: t0.Add(3 * time.Hour), want: Advance, next: 2},
+		{name: "cache ratio without data holds", mut: cacheFloor, st: at(1, t0), ev: Evidence{Report: rep(500, stats.Pass, "cli"), Scorecard: good}, now: t0.Add(3 * time.Hour), want: Hold, next: -1, reason: "no cache-read evidence"},
+		{name: "cache ratio unset ignores low ratio", st: at(1, t0), ev: Evidence{Report: rep(500, stats.Pass, "cli"), Scorecard: good, CacheReadRatio: ptr(0.0)}, now: t0.Add(3 * time.Hour), want: Advance, next: 2},
 
 		// progressive with approval
 		{name: "progressive awaits approval", st: at(2, t0), now: t0.Add(25 * time.Hour), want: Hold, next: -1, approval: true, reason: "awaiting a human"},

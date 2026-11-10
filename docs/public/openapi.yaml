@@ -7637,6 +7637,8 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/policy.MetricGoal'
+        minCacheReadRatio:
+          type: number
         scorecard:
           $ref: '#/components/schemas/policy.ScorecardGate'
     policy.RolloutStep:

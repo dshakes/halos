@@ -45,6 +45,9 @@ func TestValidateRollouts(t *testing.T) {
 		{name: "ring-wide guardrails need a control arm", rollout: "claude-code-2.1.300", mut: func(_ *Org, r *Rollout) {
 			r.Steps[4].MinSamples = 10
 		}, path: ".steps[4].gates", msg: "no control arm"},
+		{name: "ring-wide cache ratio has no treatment arm to measure", rollout: "claude-code-2.1.300", mut: func(_ *Org, r *Rollout) {
+			r.Steps[4].Gates.MinCacheReadRatio = 0.5
+		}, path: ".steps[4].gates", msg: "minCacheReadRatio"},
 		{name: "unknown ring", rollout: "claude-code-2.1.300", mut: func(_ *Org, r *Rollout) { r.Steps[5].Ring = "nope" }, path: ".steps[5].ring", msg: "not defined"},
 		{name: "ring outside experiment", rollout: "claude-code-2.1.300", mut: func(_ *Org, r *Rollout) { r.Steps[0].Ring = "ring3-ga" }, path: ".steps[0].ring", msg: "not one of experiment"},
 		{name: "bad bake", rollout: "claude-code-2.1.300", mut: func(_ *Org, r *Rollout) { r.Steps[0].Bake = "2 weeks" }, path: ".steps[0].bake", msg: "want a duration"},
@@ -54,6 +57,7 @@ func TestValidateRollouts(t *testing.T) {
 			r.Steps[0].Gates.Guardrails = []MetricGoal{{Metric: "halo.nope", Direction: "decrease"}}
 		}, path: ".steps[0].gates.guardrails[0].metric", msg: "unknown metric"},
 		{name: "scorecard escapes the repo", rollout: "claude-code-2.1.300", mut: func(_ *Org, r *Rollout) { r.Steps[2].Gates.Scorecard.File = "../x.json" }, path: ".steps[2].gates.scorecard.file", msg: "inside the policy repo"},
+		{name: "cache ratio out of range", rollout: "claude-code-2.1.300", mut: func(_ *Org, r *Rollout) { r.Steps[2].Gates.MinCacheReadRatio = 1.5 }, path: ".steps[2].gates.minCacheReadRatio", msg: "[0,1]"},
 		{name: "scorecard floor out of range", rollout: "claude-code-2.1.300", mut: func(_ *Org, r *Rollout) { r.Steps[2].Gates.Scorecard.MinPass1 = 70 }, path: ".steps[2].gates.scorecard.minPass1", msg: "[0,1]"},
 	}
 	for _, tc := range tests {

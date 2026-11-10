@@ -9,6 +9,7 @@
 package rollout
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
 	"strings"
@@ -75,6 +76,12 @@ type Evidence struct {
 	// Scorecard is the step's eval scorecard; nil with ScorecardErr = unreadable.
 	Scorecard    *eval.Scorecard `json:"-"`
 	ScorecardErr string          `json:"scorecardError,omitempty"`
+	// CacheReadRatio is the treatment arm's mean per-unit halo.cache_read_ratio
+	// over the step; nil = no data (or the step has no minCacheReadRatio gate).
+	CacheReadRatio *float64 `json:"cacheReadRatio,omitempty"`
+	// CacheReadRatioSource is that ratio's own evidence source. It is CLI
+	// telemetry, so it must never borrow the primary metric's source.
+	CacheReadRatioSource string `json:"cacheReadRatioSource,omitempty"`
 	// Approved: a human is advancing this step by hand (`halo rollout advance`).
 	// It does not satisfy an approval quorum (Quorum).
 	Approved bool `json:"approved,omitempty"`
@@ -148,7 +155,12 @@ func Evaluate(r *policy.Rollout, st State, ev Evidence, now time.Time) Decision 
 		d.Reasons = append(d.Reasons, fmt.Sprintf("%s failed: %s (threshold %s)", g.Gate, g.Value, g.Threshold))
 		if d.Source == "" {
 			d.Source = "scorecard"
-			if g.Gate != "scorecard" && ev.Report != nil {
+			switch {
+			case g.Gate == "cache_read_ratio":
+				// Empty would read as "no source yet"; CLI is the safe label
+				// (only gateway evidence may trip the kill switch).
+				d.Source = cmp.Or(ev.CacheReadRatioSource, promote.SourceCLI)
+			case g.Gate != "scorecard" && ev.Report != nil:
 				d.Source = guardrailSource(ev.Report, g.Gate)
 			}
 		}
@@ -258,6 +270,9 @@ func gates(s policy.RolloutStep, st State, ev Evidence, now time.Time) []GateRes
 	if sc := s.Gates.Scorecard; sc != nil {
 		out = append(out, scorecardGate(sc, ev))
 	}
+	if min := s.Gates.MinCacheReadRatio; min > 0 {
+		out = append(out, cacheRatioGate(min, ev.CacheReadRatio))
+	}
 	switch {
 	case ev.Quorum != nil: // a governance rule covers this advance: only its quorum approves it
 		out = append(out, quorumGate(ev.Quorum))
@@ -282,6 +297,19 @@ func quorumGate(q *policy.QuorumResult) GateResult {
 	g.Value, g.Threshold = strings.Join(have, "+")+" approvals", strings.Join(need, "+")+" (quorum)"
 	if q.Met {
 		g.Status, g.Detail = GatePass, ""
+	}
+	return g
+}
+
+func cacheRatioGate(min float64, got *float64) GateResult {
+	g := GateResult{Gate: "cache_read_ratio", Threshold: fmt.Sprintf(">= %.1f%%", 100*min), Status: GatePending, Value: "unknown", Detail: "no cache-read evidence"}
+	if got == nil {
+		return g
+	}
+	g.Value = fmt.Sprintf("%.1f%%", 100**got)
+	g.Status, g.Detail = GatePass, ""
+	if *got < min {
+		g.Status = GateFail
 	}
 	return g
 }
