@@ -84,7 +84,14 @@ func TestCompleteBatchErrors(t *testing.T) {
 	t.Run("results_url off gateway host", func(t *testing.T) {
 		srv, _, _ := batchServer(t, func(int) string { return "" }, func(string) string { return "https://evil.example" })
 		h := &HTTPLLM{BaseURL: srv.URL, Wire: WireAnthropic, PollEvery: time.Millisecond}
-		if _, err := h.CompleteBatch(context.Background(), []LLMRequest{{Model: "m"}}); err == nil || !strings.Contains(err.Error(), "not on gateway host") {
+		if _, err := h.CompleteBatch(context.Background(), []LLMRequest{{Model: "m"}}); err == nil || !strings.Contains(err.Error(), "not on gateway") {
+			t.Fatalf("err = %v", err)
+		}
+	})
+	t.Run("results_url same host, other scheme", func(t *testing.T) {
+		srv, _, _ := batchServer(t, func(int) string { return "" }, func(base string) string { return strings.Replace(base, "http://", "https://", 1) })
+		h := &HTTPLLM{BaseURL: srv.URL, Wire: WireAnthropic, PollEvery: time.Millisecond}
+		if _, err := h.CompleteBatch(context.Background(), []LLMRequest{{Model: "m"}}); err == nil || !strings.Contains(err.Error(), "not on gateway") {
 			t.Fatalf("err = %v", err)
 		}
 	})

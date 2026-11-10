@@ -394,8 +394,8 @@ func (h *HTTPLLM) CompleteBatch(ctx context.Context, reqs []LLMRequest) ([]Batch
 	// The credential must not leave the configured gateway host.
 	ru, err := url.Parse(b.ResultsURL)
 	bu, _ := url.Parse(base)
-	if err != nil || ru.Host != bu.Host {
-		return nil, fmt.Errorf("judge: batch %s: results_url %q is not on gateway host %q", b.ID, b.ResultsURL, bu.Host)
+	if err != nil || ru.Scheme != bu.Scheme || ru.Host != bu.Host {
+		return nil, fmt.Errorf("judge: batch %s: results_url %q is not on gateway %s://%s", b.ID, b.ResultsURL, bu.Scheme, bu.Host)
 	}
 	if raw, err = h.send(ctx, http.MethodGet, b.ResultsURL, nil); err != nil {
 		return nil, fmt.Errorf("judge: batch %s results: %w", b.ID, err)
