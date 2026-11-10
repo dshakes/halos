@@ -100,6 +100,8 @@ func TestEvaluate(t *testing.T) {
 
 		// cache-read ratio gate (floor 0.5 on canary-5)
 		{name: "cache ratio below floor rolls back", mut: cacheFloor, st: at(1, t0), ev: Evidence{Report: rep(500, stats.Pass, "cli"), Scorecard: good, CacheReadRatio: ptr(0.2)}, now: t0.Add(time.Minute), want: Rollback, next: -1, reason: "cache_read_ratio failed: 20.0%"},
+		{name: "cache ratio breach keeps its own source, not the gateway primary's", mut: cacheFloor, st: at(1, t0), ev: Evidence{Report: rep(500, stats.Pass, "gateway"), Scorecard: good, CacheReadRatio: ptr(0.2), CacheReadRatioSource: "cli"}, now: t0.Add(time.Minute), want: Rollback, next: -1, source: "cli"},
+		{name: "cache ratio breach with no recorded source is cli", mut: cacheFloor, st: at(1, t0), ev: Evidence{Report: rep(500, stats.Pass, "gateway"), Scorecard: good, CacheReadRatio: ptr(0.2)}, now: t0.Add(time.Minute), want: Rollback, next: -1, source: "cli"},
 		{name: "cache ratio at floor passes", mut: cacheFloor, st: at(1, t0), ev: Evidence{Report: rep(500, stats.Pass, "cli"), Scorecard: good, CacheReadRatio: ptr(0.5)}, now: t0.Add(3 * time.Hour), want: Advance, next: 2},
 		{name: "cache ratio without data holds", mut: cacheFloor, st: at(1, t0), ev: Evidence{Report: rep(500, stats.Pass, "cli"), Scorecard: good}, now: t0.Add(3 * time.Hour), want: Hold, next: -1, reason: "no cache-read evidence"},
 		{name: "cache ratio unset ignores low ratio", st: at(1, t0), ev: Evidence{Report: rep(500, stats.Pass, "cli"), Scorecard: good, CacheReadRatio: ptr(0.0)}, now: t0.Add(3 * time.Hour), want: Advance, next: 2},

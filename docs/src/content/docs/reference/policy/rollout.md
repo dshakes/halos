@@ -34,6 +34,7 @@ Generated from `schemas/rollout.schema.json`; do not edit. Nested fields use dot
 | `steps[].gates.guardrails[].direction` | string | yes |  | increase, decrease |  | Which direction is better. |
 | `steps[].gates.guardrails[].maxRegression` | number |  |  |  | minimum 0 | Relative worsening that fails the gate, e.g. 0.05 = 5%. |
 | `steps[].gates.guardrails[].metric` | string | yes |  |  | pattern ^halo\.[a-z0-9_.]+$ | Normalised halo.* metric name (see internal/policy MetricRegistry). |
+| `steps[].gates.minCacheReadRatio` | number |  |  |  | minimum 0; maximum 1 | Floor for the step's cache-read ratio (halo.cache_read_ratio); a lower observed ratio fails the step. |
 | `steps[].gates.scorecard` | object |  |  |  |  | Eval scorecard gate (halo eval run --output json). |
 | `steps[].gates.scorecard.file` | string | yes |  |  |  | Scorecard JSON, relative to the policy repo. |
 | `steps[].gates.scorecard.maxRegression` | number |  |  |  | minimum 0; maximum 1 | Largest allowed pass-rate drop vs the scorecard control (0.02 = 2pp). |
