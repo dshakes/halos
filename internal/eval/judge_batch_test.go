@@ -138,7 +138,7 @@ func TestGradeAllFallsBackToRealtime(t *testing.T) {
 	r := testRubric(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.URL.Path != "/v1/messages" {
-			http.Error(w, "down", 503)
+			http.Error(w, "down", http.StatusServiceUnavailable)
 			return
 		}
 		_, _ = w.Write([]byte(`{"content":[{"type":"text","text":` + fmt.Sprintf("%q", goodReply) + `}]}`))
