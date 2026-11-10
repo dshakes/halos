@@ -191,6 +191,8 @@ var derivedSamples = map[string][]sampleExpr{
 	"halo.cost.usd_per_session": {cli("sumIf(value, metric = 'halo.cost.usd') / nullIf(uniqExactIf(session_id, metric = 'halo.cost.usd'), 0)")},
 	"halo.tokens.per_session": {cli("sumIf(value, metric = 'halo.tokens' AND coalesce(nullIf(attrs['type'], ''), attrs['gen_ai.token.type']) IN ('input', 'output'))" +
 		" / nullIf(uniqExactIf(session_id, metric = 'halo.tokens'), 0)")},
+	"halo.cache_read_ratio": {cli("sumIf(value, metric = 'halo.tokens' AND coalesce(nullIf(attrs['type'], ''), attrs['gen_ai.token.type']) = 'cacheRead')" +
+		" / nullIf(sumIf(value, metric = 'halo.tokens' AND coalesce(nullIf(attrs['type'], ''), attrs['gen_ai.token.type']) IN ('input', 'cacheRead', 'cacheCreation')), 0)")},
 	"halo.edit.accept_rate": {cli("sumIf(value, metric = 'halo.edit.decision' AND attrs['decision'] = 'accept')" +
 		" / nullIf(sumIf(value, metric = 'halo.edit.decision'), 0)")},
 	"halo.api.error_rate": {

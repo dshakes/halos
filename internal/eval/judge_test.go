@@ -416,3 +416,31 @@ func TestHTTPLLMCacheControl(t *testing.T) {
 		})
 	}
 }
+
+func TestTokenUsageCacheRatio(t *testing.T) {
+	tests := []struct {
+		name      string
+		body      string
+		wantTotal int
+		wantRatio float64
+		wantOK    bool
+	}{
+		{"cache hit", `{"input_tokens":10,"output_tokens":5,"cache_creation_input_tokens":20,"cache_read_input_tokens":70}`, 100, 0.7, true},
+		{"no cache fields", `{"input_tokens":10,"output_tokens":5}`, 10, 0, true},
+		{"empty usage has no ratio", `{}`, 0, 0, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var u TokenUsage
+			if err := json.Unmarshal([]byte(tc.body), &u); err != nil {
+				t.Fatal(err)
+			}
+			if u.TotalInput() != tc.wantTotal {
+				t.Fatalf("TotalInput = %d, want %d", u.TotalInput(), tc.wantTotal)
+			}
+			if r, ok := u.CacheReadRatio(); ok != tc.wantOK || r != tc.wantRatio {
+				t.Fatalf("CacheReadRatio = %v, %v; want %v, %v", r, ok, tc.wantRatio, tc.wantOK)
+			}
+		})
+	}
+}

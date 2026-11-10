@@ -75,6 +75,9 @@ type Evidence struct {
 	// Scorecard is the step's eval scorecard; nil with ScorecardErr = unreadable.
 	Scorecard    *eval.Scorecard `json:"-"`
 	ScorecardErr string          `json:"scorecardError,omitempty"`
+	// CacheReadRatio is the treatment arm's mean per-unit halo.cache_read_ratio
+	// over the step; nil = no data (or the step has no minCacheReadRatio gate).
+	CacheReadRatio *float64 `json:"cacheReadRatio,omitempty"`
 	// Approved: a human is advancing this step by hand (`halo rollout advance`).
 	// It does not satisfy an approval quorum (Quorum).
 	Approved bool `json:"approved,omitempty"`
@@ -258,6 +261,9 @@ func gates(s policy.RolloutStep, st State, ev Evidence, now time.Time) []GateRes
 	if sc := s.Gates.Scorecard; sc != nil {
 		out = append(out, scorecardGate(sc, ev))
 	}
+	if min := s.Gates.MinCacheReadRatio; min > 0 {
+		out = append(out, cacheRatioGate(min, ev.CacheReadRatio))
+	}
 	switch {
 	case ev.Quorum != nil: // a governance rule covers this advance: only its quorum approves it
 		out = append(out, quorumGate(ev.Quorum))
@@ -282,6 +288,19 @@ func quorumGate(q *policy.QuorumResult) GateResult {
 	g.Value, g.Threshold = strings.Join(have, "+")+" approvals", strings.Join(need, "+")+" (quorum)"
 	if q.Met {
 		g.Status, g.Detail = GatePass, ""
+	}
+	return g
+}
+
+func cacheRatioGate(min float64, got *float64) GateResult {
+	g := GateResult{Gate: "cache_read_ratio", Threshold: fmt.Sprintf(">= %.1f%%", 100*min), Status: GatePending, Value: "unknown", Detail: "no cache-read evidence"}
+	if got == nil {
+		return g
+	}
+	g.Value = fmt.Sprintf("%.1f%%", 100**got)
+	g.Status, g.Detail = GatePass, ""
+	if *got < min {
+		g.Status = GateFail
 	}
 	return g
 }

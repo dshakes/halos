@@ -214,6 +214,23 @@ func (h *HTTPLLM) Complete(ctx context.Context, r LLMRequest) (string, error) {
 type TokenUsage struct {
 	InputTokens  int `json:"input_tokens"`
 	OutputTokens int `json:"output_tokens"`
+	// Anthropic wire only: input_tokens excludes these, so true input is the sum.
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+}
+
+// TotalInput is every input token the provider billed, cached or not.
+func (u TokenUsage) TotalInput() int {
+	return u.InputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens
+}
+
+// CacheReadRatio is cache reads over total input; ok is false with no input.
+func (u TokenUsage) CacheReadRatio() (ratio float64, ok bool) {
+	t := u.TotalInput()
+	if t <= 0 {
+		return 0, false
+	}
+	return float64(u.CacheReadInputTokens) / float64(t), true
 }
 
 // CompleteUsage is Complete plus the provider's reported token usage (both

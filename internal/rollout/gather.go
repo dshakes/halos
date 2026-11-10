@@ -66,6 +66,20 @@ func Gather(ctx context.Context, dir string, org *policy.Org, r *policy.Rollout,
 		}
 		ev.Report = &rep
 	}
+	if s.Gates.MinCacheReadRatio > 0 && metrics != nil && ev.Report != nil {
+		by, _, err := metrics.Samples(ctx, r.Experiment, "halo.cache_read_ratio")
+		if err != nil {
+			return ev, fmt.Errorf("rollout %s: cache-read ratio: %w", r.Name, err)
+		}
+		if xs := by[ev.Report.Treatment]; len(xs) > 0 {
+			var sum float64
+			for _, x := range xs {
+				sum += x
+			}
+			m := sum / float64(len(xs))
+			ev.CacheReadRatio = &m
+		}
+	}
 	if sc := s.Gates.Scorecard; sc != nil {
 		card, err := LoadScorecard(dir, sc.File)
 		if err != nil {

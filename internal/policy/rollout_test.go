@@ -54,6 +54,7 @@ func TestValidateRollouts(t *testing.T) {
 			r.Steps[0].Gates.Guardrails = []MetricGoal{{Metric: "halo.nope", Direction: "decrease"}}
 		}, path: ".steps[0].gates.guardrails[0].metric", msg: "unknown metric"},
 		{name: "scorecard escapes the repo", rollout: "claude-code-2.1.300", mut: func(_ *Org, r *Rollout) { r.Steps[2].Gates.Scorecard.File = "../x.json" }, path: ".steps[2].gates.scorecard.file", msg: "inside the policy repo"},
+		{name: "cache ratio out of range", rollout: "claude-code-2.1.300", mut: func(_ *Org, r *Rollout) { r.Steps[2].Gates.MinCacheReadRatio = 1.5 }, path: ".steps[2].gates.minCacheReadRatio", msg: "[0,1]"},
 		{name: "scorecard floor out of range", rollout: "claude-code-2.1.300", mut: func(_ *Org, r *Rollout) { r.Steps[2].Gates.Scorecard.MinPass1 = 70 }, path: ".steps[2].gates.scorecard.minPass1", msg: "[0,1]"},
 	}
 	for _, tc := range tests {
